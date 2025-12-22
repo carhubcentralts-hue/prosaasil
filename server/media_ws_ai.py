@@ -3423,8 +3423,14 @@ class MediaStreamHandler:
                         # 🔥 BUILD 301: SAFETY NET - Clear stuck active_response_id
                         # If active_response_id has been set for >10 seconds, it's stuck (response.done was missed)
                         # This prevents AI freeze without adding a watchdog - just inline check
+                        # 🎯 BUG FIX #4: Don't interfere during barge-in cancellation
                         response_stuck_seconds = 10.0
-                        if self.active_response_id:
+                        
+                        # Skip if barge-in cancel is pending
+                        if getattr(self, '_barge_in_pending_cancel', False):
+                            # Don't touch response state during barge-in cancellation
+                            pass
+                        elif self.active_response_id:
                             # Get response start time - use _response_created_ts dict lookup
                             # 🔥 FIX: _response_created_ts is a dict (response_id -> timestamp), not a single value
                             response_started_val = None
@@ -7818,10 +7824,12 @@ class MediaStreamHandler:
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🔥 PART C: Log first frame and stream_sid state
-                if not _first_frame_logged:
-                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
-                    _first_frame_logged = True
+                # Skip if no stream_sid (check BEFORE buffering to avoid wasting memory)
+                if not self.stream_sid:
+                    _frames_skipped_no_stream_sid += 1
+                    if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
+                    continue
                 
                 # 🔥 RECORDING TRIGGER: Start recording when first audio sent (from TX loop flag)
                 # This is done here in background thread, NOT in TX loop itself
@@ -7830,17 +7838,22 @@ class MediaStreamHandler:
                     _orig_print(f"✅ [AUDIO_OUT_LOOP] Starting recording (triggered by FIRST_AUDIO_SENT flag)", flush=True)
                     threading.Thread(target=self._start_call_recording, daemon=True).start()
                 
-                if not self.stream_sid:
-                    _frames_skipped_no_stream_sid += 1
-                    if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
-                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
-                    continue
-                
+                # 🎯 BUG FIX #1: Buffer incoming audio and chunk to exactly 160 bytes
+                # This ensures FIRST_CHUNK and all subsequent chunks are 160 bytes (20ms at 8kHz μ-law)
+                # Prevents clipping/resyncing at start of speech
                 audio_buffer += chunk_bytes
                 
                 while len(audio_buffer) >= TWILIO_FRAME_SIZE:
                     frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
                     audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]
+                    
+                    # 🔥 Log FIRST frame AFTER chunking (must be exactly 160 bytes)
+                    if not _first_frame_logged:
+                        _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK bytes={len(frame_bytes)} stream_sid={self.stream_sid}", flush=True)
+                        _first_frame_logged = True
+                        # Validate frame size
+                        if len(frame_bytes) != TWILIO_FRAME_SIZE:
+                            _orig_print(f"⚠️ [AUDIO_OUT_LOOP] WARNING: First frame is {len(frame_bytes)} bytes, expected {TWILIO_FRAME_SIZE}!", flush=True)
                     
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
                     twilio_frame = {
@@ -14204,12 +14217,16 @@ class MediaStreamHandler:
     def _fallback_response(self, hebrew_text: str) -> str:
         """Simple fallback response when AI service fails - uses business settings"""
         try:
-            from server.models_sql import Business
-            business = Business.query.get(self.business_id)
-            if business and business.greeting_message:
-                return business.greeting_message
-        except:
-            pass
+            # 🎯 BUG FIX #5: Wrap DB query with app_context to avoid "Working outside of application context" error
+            app = _get_flask_app()
+            with app.app_context():
+                from server.models_sql import Business
+                business = Business.query.get(self.business_id)
+                if business and business.greeting_message:
+                    return business.greeting_message
+        except Exception as e:
+            # Log error but don't crash - return generic response
+            logger.debug(f"[FALLBACK] Could not load business greeting: {e}")
         
         # Generic neutral response (no business name exposed)
         return "איך אוכל לעזור?"
@@ -14406,9 +14423,16 @@ class MediaStreamHandler:
         
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
         # 🔥 FIX: Use perf_counter for stable timing (monotonic, higher resolution)
+        # 🎯 BUG FIX #2: Initialize next_send properly to avoid initial reset
+        # Start from current time, not 0, so first frame doesn't trigger reset
         next_send = time.perf_counter()
         frames_sent_total = 0
         _first_frame_sent = False
+        
+        # 🎯 BUG FIX #2: More lenient late frame threshold (200ms instead of 100ms)
+        # Prevents spurious resets during normal operation
+        # Only reset if we're truly stuck (e.g., queue was empty for a while)
+        LATE_THRESHOLD_SEC = 0.2  # 200ms - more than 10 frames late
         
         # Pre-format event templates (outside loop to avoid json.dumps inside)
         clear_event_template = {"event": "clear", "streamSid": self.stream_sid}
@@ -14467,21 +14491,25 @@ class MediaStreamHandler:
                             self._drop_stop_logged = True
                         continue
                     
-                    # 🔥 FIX: Check timing - if we're >100ms late, resync to avoid burst
+                    # 🎯 BUG FIX #2: Check timing - only resync if we're REALLY behind
+                    # Use 200ms threshold instead of 100ms to avoid spurious resets
                     now = time.perf_counter()
                     delay_until_send = next_send - now
                     
-                    if delay_until_send < -0.1:  # More than 100ms late
+                    if delay_until_send < -LATE_THRESHOLD_SEC:  # More than 200ms late (10+ frames)
                         # We're way behind - resync to current time instead of bursting
+                        # This happens when queue was empty for a while, not during normal flow
                         self._tx_schedule_resets += 1
                         next_send = now
                         delay_until_send = 0
+                        if DEBUG_TX:
+                            _orig_print(f"[TX_RESYNC] Behind by {-delay_until_send*1000:.0f}ms, resyncing to now", flush=True)
                     
-                    # Sleep until scheduled send time
+                    # Sleep until scheduled send time (maintain steady 20ms pacing)
                     if delay_until_send > 0:
                         time.sleep(delay_until_send)
-                    else:
-                        # Frame is late
+                    elif delay_until_send < 0 and delay_until_send > -LATE_THRESHOLD_SEC:
+                        # Slightly late (but not enough to resync) - still track it
                         self._tx_late_frames += 1
                     
                     # Track actual timing delta for jitter calculation (limited buffer)
