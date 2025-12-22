@@ -24,6 +24,7 @@ import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
 import { Select } from '../../shared/components/ui/Select';
 import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
+import { StatusCell } from '../../shared/components/ui/StatusCell';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
@@ -964,7 +965,16 @@ export function OutboundCallsPage() {
                       <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
+                      {/* ✅ Editable status dropdown */}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <StatusCell
+                          leadId={lead.id}
+                          currentStatus={lead.status}
+                          statuses={statuses}
+                          onStatusChange={handleStatusChange}
+                          isUpdating={updatingStatusLeadId === lead.id}
+                        />
+                      </div>
                       <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
                         {isSelected ? (
                           <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
@@ -1121,8 +1131,15 @@ export function OutboundCallsPage() {
                       <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
                       <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {/* ✅ Editable status dropdown */}
+                      <StatusCell
+                        leadId={lead.id}
+                        currentStatus={lead.status}
+                        statuses={statuses}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={updatingStatusLeadId === lead.id}
+                      />
                     </div>
                   </div>
                 ))}
@@ -1386,26 +1403,14 @@ export function OutboundCallsPage() {
                             <td className="py-3 px-2 font-medium">{lead.name}</td>
                             <td className="py-3 px-2" dir="ltr">{lead.phone}</td>
                             <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
-                              {updatingStatusLeadId === lead.id ? (
-                                <div className="flex items-center gap-2">
-                                  <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
-                                  <span className="text-xs text-gray-500">שומר...</span>
-                                </div>
-                              ) : (
-                                <Select
-                                  value={lead.status}
-                                  onChange={(e) => handleStatusChange(lead.id, e.target.value)}
-                                  className="text-xs h-7 py-0 px-2 min-w-[100px]"
-                                  data-testid={`select-status-${lead.id}`}
-                                  disabled={updateStatusMutation.isPending}
-                                >
-                                  {statuses.map((status) => (
-                                    <option key={status.name} value={status.name}>
-                                      {status.label}
-                                    </option>
-                                  ))}
-                                </Select>
-                              )}
+                              {/* ✅ Use unified StatusCell component */}
+                              <StatusCell
+                                leadId={lead.id}
+                                currentStatus={lead.status}
+                                statuses={statuses}
+                                onStatusChange={handleStatusChange}
+                                isUpdating={updatingStatusLeadId === lead.id}
+                              />
                             </td>
                             <td className="py-3 px-2 text-gray-500 max-w-[150px] truncate">
                               {lead.notes || '-'}
