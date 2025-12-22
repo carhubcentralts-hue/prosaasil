@@ -20,7 +20,7 @@ def test_incoming_call_twiml():
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
-        track="inbound_track"
+        track="both_tracks"  # Updated to both_tracks for bidirectional audio
     )
     
     stream.parameter(name="CallSid", value=call_sid)
@@ -39,9 +39,14 @@ def test_incoming_call_twiml():
         print("❌ FAIL: TwiML contains <Record> tag!")
         return False
     
+    # Verify track="both_tracks" is set
+    if 'track="both_tracks"' not in twiml_str:
+        print("❌ FAIL: TwiML missing track=\"both_tracks\" attribute!")
+        return False
+    
     # Verify has <Connect> and <Stream>
     if "<Connect" in twiml_str and "<Stream" in twiml_str:
-        print("✅ PASS: TwiML has <Connect> and <Stream> only")
+        print("✅ PASS: TwiML has <Connect> and <Stream> only with track=\"both_tracks\"")
         return True
     else:
         print("❌ FAIL: TwiML missing required tags")
@@ -61,7 +66,7 @@ def test_outbound_call_twiml():
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
-        track="inbound_track"
+        track="both_tracks"  # Updated to both_tracks for bidirectional audio
     )
     
     stream.parameter(name="CallSid", value=call_sid)
@@ -84,9 +89,14 @@ def test_outbound_call_twiml():
         print("❌ FAIL: TwiML contains <Record> tag!")
         return False
     
+    # Verify track="both_tracks" is set
+    if 'track="both_tracks"' not in twiml_str:
+        print("❌ FAIL: TwiML missing track=\"both_tracks\" attribute!")
+        return False
+    
     # Verify has <Connect> and <Stream>
     if "<Connect" in twiml_str and "<Stream" in twiml_str:
-        print("✅ PASS: TwiML has <Connect> and <Stream> only")
+        print("✅ PASS: TwiML has <Connect> and <Stream> only with track=\"both_tracks\"")
         return True
     else:
         print("❌ FAIL: TwiML missing required tags")
