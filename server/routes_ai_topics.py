@@ -31,7 +31,6 @@ def get_ai_settings():
             ai_settings = BusinessAISettings(
                 business_id=business_id,
                 embedding_enabled=False,
-                embedding_model="text-embedding-3-small",
                 embedding_threshold=0.78,
                 embedding_top_k=3,
                 auto_tag_leads=True,

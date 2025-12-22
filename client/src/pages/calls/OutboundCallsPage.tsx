@@ -22,6 +22,7 @@ import { formatDateOnly } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
+import { Select } from '../../shared/components/ui/Select';
 import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
@@ -109,6 +110,7 @@ export function OutboundCallsPage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLeadId, setDeleteLeadId] = useState<number | null>(null);
+  const [updatingStatusLeadId, setUpdatingStatusLeadId] = useState<number | null>(null);
   const pageSize = 50;
 
   // Support deep-link from Lead page tiles: /app/outbound-calls?phone=... or ?leadId=...
@@ -336,15 +338,18 @@ export function OutboundCallsPage() {
   const updateStatusMutation = useMutation({
     mutationFn: async ({ leadId, newStatus }: { leadId: number; newStatus: string }) => {
       console.log(`[OutboundCallsPage] Updating lead ${leadId} status to ${newStatus}`);
+      setUpdatingStatusLeadId(leadId);
       return await http.patch(`/api/leads/${leadId}/status`, { status: newStatus });
     },
     onMutate: async ({ leadId, newStatus }) => {
       // Cancel outgoing queries to avoid overwriting optimistic update
       await queryClient.cancelQueries({ queryKey: ['/api/leads'] });
+      await queryClient.cancelQueries({ queryKey: ['/api/outbound/import-leads'] });
       
       // Snapshot previous values for rollback
       const previousSystemLeads = queryClient.getQueryData(['/api/leads', 'system', searchQuery, selectedStatuses]);
       const previousActiveLeads = queryClient.getQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses]);
+      const previousImportedLeads = queryClient.getQueryData(['/api/outbound/import-leads', currentPage, importedSearchQuery]);
       
       // Optimistically update system leads
       queryClient.setQueryData(['/api/leads', 'system', searchQuery, selectedStatuses], (old: any) => {
@@ -368,7 +373,18 @@ export function OutboundCallsPage() {
         };
       });
       
-      return { previousSystemLeads, previousActiveLeads };
+      // Optimistically update imported leads
+      queryClient.setQueryData(['/api/outbound/import-leads', currentPage, importedSearchQuery], (old: any) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((lead: any) =>
+            lead.id === leadId ? { ...lead, status: newStatus } : lead
+          ),
+        };
+      });
+      
+      return { previousSystemLeads, previousActiveLeads, previousImportedLeads };
     },
     onError: (error, variables, context) => {
       // Rollback on error
@@ -378,12 +394,18 @@ export function OutboundCallsPage() {
       if (context?.previousActiveLeads) {
         queryClient.setQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses], context.previousActiveLeads);
       }
+      if (context?.previousImportedLeads) {
+        queryClient.setQueryData(['/api/outbound/import-leads', currentPage, importedSearchQuery], context.previousImportedLeads);
+      }
       console.error(`[OutboundCallsPage] ❌ Failed to update status for lead ${variables.leadId}:`, error);
+      setUpdatingStatusLeadId(null);
     },
     onSuccess: (data, variables) => {
       console.log(`[OutboundCallsPage] ✅ Status updated for lead ${variables.leadId}`);
+      setUpdatingStatusLeadId(null);
       // Refetch to sync with server - invalidate all leads queries
       queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/outbound/import-leads'] });
     },
   });
 
@@ -731,6 +753,31 @@ export function OutboundCallsPage() {
           {/* Kanban View */}
           {viewMode === 'kanban' && (
             <>
+              {/* Filters for Kanban View */}
+              <Card className="p-4">
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="w-full sm:w-48">
+                    <MultiStatusSelect
+                      statuses={statuses}
+                      selectedStatuses={selectedStatuses}
+                      onChange={setSelectedStatuses}
+                      placeholder="סנן לפי סטטוס"
+                      data-testid="system-kanban-status-filter"
+                    />
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="חיפוש לפי שם או טלפון..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pr-10 w-full"
+                      data-testid="input-kanban-lead-search"
+                    />
+                  </div>
+                </div>
+              </Card>
+
               {(leadsLoading || statusesLoading) ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
@@ -876,6 +923,31 @@ export function OutboundCallsPage() {
           {/* Kanban View */}
           {viewMode === 'kanban' && (
             <>
+              {/* Filters for Kanban View */}
+              <Card className="p-4">
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="w-full sm:w-48">
+                    <MultiStatusSelect
+                      statuses={statuses}
+                      selectedStatuses={selectedStatuses}
+                      onChange={setSelectedStatuses}
+                      placeholder="סנן לפי סטטוס"
+                      data-testid="active-kanban-status-filter"
+                    />
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="חיפוש לפי שם או טלפון..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pr-10 w-full"
+                      data-testid="input-active-kanban-lead-search"
+                    />
+                  </div>
+                </div>
+              </Card>
+
               {(activeLoading || statusesLoading) ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
@@ -1054,6 +1126,34 @@ export function OutboundCallsPage() {
           {/* Imported Leads Display - Kanban or Table */}
           {viewMode === 'kanban' ? (
             <>
+              {/* Filters for Kanban View */}
+              <Card className="p-4">
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="w-full sm:w-48">
+                    <MultiStatusSelect
+                      statuses={statuses}
+                      selectedStatuses={selectedStatuses}
+                      onChange={setSelectedStatuses}
+                      placeholder="סנן לפי סטטוס"
+                      data-testid="imported-kanban-status-filter"
+                    />
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="חיפוש לפי שם או טלפון..."
+                      value={importedSearchQuery}
+                      onChange={(e) => {
+                        setImportedSearchQuery(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="pr-10 w-full"
+                      data-testid="input-imported-kanban-search"
+                    />
+                  </div>
+                </div>
+              </Card>
+
               {(importedLoading || statusesLoading) ? (
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
@@ -1108,6 +1208,15 @@ export function OutboundCallsPage() {
                       )}
                     </Button>
                   )}
+                  <div className="w-48">
+                    <MultiStatusSelect
+                      statuses={statuses}
+                      selectedStatuses={selectedStatuses}
+                      onChange={setSelectedStatuses}
+                      placeholder="סנן לפי סטטוס"
+                      data-testid="imported-table-status-filter"
+                    />
+                  </div>
                   <div className="relative">
                     <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
@@ -1184,8 +1293,27 @@ export function OutboundCallsPage() {
                             </td>
                             <td className="py-3 px-2 font-medium">{lead.name}</td>
                             <td className="py-3 px-2" dir="ltr">{lead.phone}</td>
-                            <td className="py-3 px-2">
-                              <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
+                              {updatingStatusLeadId === lead.id ? (
+                                <div className="flex items-center gap-2">
+                                  <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+                                  <span className="text-xs text-gray-500">שומר...</span>
+                                </div>
+                              ) : (
+                                <Select
+                                  value={lead.status}
+                                  onChange={(e) => handleStatusChange(lead.id, e.target.value)}
+                                  className="text-xs h-7 py-0 px-2 min-w-[100px]"
+                                  data-testid={`select-status-${lead.id}`}
+                                  disabled={updateStatusMutation.isPending}
+                                >
+                                  {statuses.map((status) => (
+                                    <option key={status.name} value={status.name}>
+                                      {status.label}
+                                    </option>
+                                  ))}
+                                </Select>
+                              )}
                             </td>
                             <td className="py-3 px-2 text-gray-500 max-w-[150px] truncate">
                               {lead.notes || '-'}
