@@ -1313,13 +1313,14 @@ def amd_status():
             try:
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if call_log:
-                    # Avoid schema migrations: store AMD result in summary + status marker.
-                    existing_summary = (call_log.summary or "").strip()
-                    amd_line = f"[AMD] AnsweredBy={answered_by}"
-                    if amd_line not in existing_summary:
-                        call_log.summary = (existing_summary + ("\n" if existing_summary else "") + amd_line).strip()
+                    # 🔥 FIX: Store AMD result in status field, NOT in summary
+                    # summary field is reserved for AI-generated conversation summaries
                     if is_machine:
-                        call_log.status = "voicemail"
+                        call_log.status = f"voicemail_{answered_by}"  # e.g., "voicemail_machine_start"
+                    else:
+                        # Human answered - update status but don't override summary
+                        if call_log.status in ["initiated", "in_progress", "streaming"]:
+                            call_log.status = "answered_human"
                     db.session.commit()
             except Exception as db_err:
                 logger.warning(f"AMD_STATUS db update failed: {db_err}")
