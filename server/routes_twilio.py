@@ -72,6 +72,80 @@ def _do_redirect(call_sid, wss_host, reason):
     except Exception:
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
+def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
+    """
+    🔥 NEW: Start recording from second 0 using Twilio REST API
+    This runs in background thread and does NOT block TwiML response.
+    
+    Recording will capture the ENTIRE call including AI greeting.
+    """
+    try:
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        
+        if not account_sid or not auth_token:
+            print(f"❌ [RECORDING] Missing Twilio credentials for {call_sid}")
+            logger.error(f"[RECORDING] Missing Twilio credentials for {call_sid}")
+            return
+        
+        # Get host for callback URL
+        public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+        if not public_host:
+            print(f"⚠️ [RECORDING] PUBLIC_HOST not set, using fallback for {call_sid}")
+            logger.warning(f"[RECORDING] PUBLIC_HOST not set for {call_sid}")
+            # We still need to try - use a reasonable fallback
+            public_host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+        
+        if not public_host:
+            print(f"❌ [RECORDING] No host available for callback URL for {call_sid}")
+            logger.error(f"[RECORDING] No host available for callback URL for {call_sid}")
+            return
+        
+        from twilio.rest import Client
+        client = Client(account_sid, auth_token)
+        
+        # Start recording with dual channels (separate tracks for customer/bot)
+        # Recording will continue until call ends
+        recording_callback_url = f"https://{public_host}/webhook/recording_status"
+        
+        print(f"🎙️ [RECORDING] Starting recording from second 0 for {call_sid}")
+        logger.info(f"[RECORDING] Starting recording from second 0 for {call_sid}, callback={recording_callback_url}")
+        
+        try:
+            recording = client.calls(call_sid).recordings.create(
+                recording_channels='dual',  # Separate tracks for customer and bot
+                recording_status_callback=recording_callback_url,
+                recording_status_callback_event=['completed']  # Only notify when recording completes
+            )
+            
+            print(f"✅ [RECORDING] Started successfully for {call_sid}: {recording.sid}")
+            logger.info(f"[RECORDING] Started successfully: call={call_sid}, recording_sid={recording.sid}")
+            
+            # Save recording_sid to CallLog immediately
+            try:
+                from server.app_factory import get_process_app
+                app = get_process_app()
+                with app.app_context():
+                    from server.models_sql import CallLog, db
+                    call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                    if call_log:
+                        call_log.recording_sid = recording.sid
+                        db.session.commit()
+                        print(f"✅ [RECORDING] Saved recording_sid to CallLog: {recording.sid}")
+                    else:
+                        print(f"⚠️ [RECORDING] CallLog not found for {call_sid}")
+            except Exception as e:
+                print(f"⚠️ [RECORDING] Failed to save recording_sid: {e}")
+                logger.warning(f"[RECORDING] Failed to save recording_sid for {call_sid}: {e}")
+                
+        except Exception as e:
+            print(f"❌ [RECORDING] Failed to start for {call_sid}: {e}")
+            logger.error(f"[RECORDING] Failed to start for {call_sid}: {e}")
+            
+    except Exception as e:
+        print(f"❌ [RECORDING] Critical error for {call_sid}: {e}")
+        logger.error(f"[RECORDING] Critical error for {call_sid}: {e}")
+
 def _trigger_recording_for_call(call_sid):
     """חפש או עורר הקלטה לשיחה לאחר שהזרם נגמר"""
     try:
@@ -525,6 +599,16 @@ def incoming_call():
             name=f"PromptBuild-{call_sid[:8]}"
         ).start()
     
+    # 🎙️ NEW: Start recording from second 0 (background, non-blocking)
+    # Recording will capture the ENTIRE call including AI greeting
+    if call_sid:
+        threading.Thread(
+            target=_start_recording_from_second_zero,
+            args=(call_sid, from_number, to_number),
+            daemon=True,
+            name=f"RecordingStart-{call_sid[:8]}"
+        ).start()
+    
     # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
     # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
     if from_number:
@@ -674,6 +758,16 @@ def outbound_call():
             args=(call_sid, business_id),
             daemon=True,
             name=f"PromptBuildOut-{call_sid[:8]}"
+        ).start()
+    
+    # 🎙️ NEW: Start recording from second 0 (background, non-blocking)
+    # Recording will capture the ENTIRE outbound call including AI greeting
+    if call_sid:
+        threading.Thread(
+            target=_start_recording_from_second_zero,
+            args=(call_sid, from_number, to_number),
+            daemon=True,
+            name=f"RecordingStart-{call_sid[:8]}"
         ).start()
     
     t1 = time.time()
@@ -869,6 +963,117 @@ def handle_recording():
             "status": rec_status,
             "processing_ms": int((time.time() - start_time) * 1000)
         })
+    
+    return resp
+
+@csrf.exempt
+@twilio_bp.route("/webhook/recording_status", methods=["POST"])
+@require_twilio_signature
+def recording_status():
+    """
+    🔥 NEW: Recording Status Callback - handles recording lifecycle events
+    Called by Twilio when recording completes.
+    
+    This webhook receives:
+    - RecordingStatus: 'completed' when recording is done
+    - RecordingSid: Unique identifier for the recording
+    - RecordingUrl: URL to download the recording
+    - CallSid: The call this recording belongs to
+    - RecordingDuration: Duration in seconds
+    """
+    import time
+    start_time = time.time()
+    
+    # Immediate response preparation (Twilio expects fast ACK)
+    resp = make_response("", 200)
+    resp.headers.update({
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Connection": "close"
+    })
+    
+    # Extract webhook data
+    recording_status_value = request.form.get("RecordingStatus", "unknown")
+    recording_sid = request.form.get("RecordingSid", "")
+    recording_url = request.form.get("RecordingUrl", "")
+    call_sid = request.form.get("CallSid", "")
+    recording_duration = request.form.get("RecordingDuration", "0")
+    from_number = request.form.get("From", "")
+    to_number = request.form.get("To", "")
+    
+    print(f"🎙️ [REC_STATUS] Received: status={recording_status_value}, call={call_sid}, recording={recording_sid}, duration={recording_duration}s")
+    logger.info(f"[REC_STATUS] Received: status={recording_status_value}, call={call_sid}, recording={recording_sid}")
+    
+    # Only process completed recordings
+    if recording_status_value == "completed":
+        print(f"✅ [REC_STATUS] Recording completed for {call_sid}")
+        
+        # Update CallLog with recording information
+        if call_sid:
+            try:
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                
+                if call_log:
+                    # Update recording metadata
+                    call_log.recording_url = recording_url
+                    call_log.recording_sid = recording_sid
+                    call_log.status = "recorded"
+                    
+                    # Save duration if not already set
+                    if recording_duration and recording_duration != "0":
+                        try:
+                            duration_int = int(recording_duration)
+                            if call_log.duration == 0 or call_log.duration is None:
+                                call_log.duration = duration_int
+                        except ValueError:
+                            pass
+                    
+                    db.session.commit()
+                    print(f"✅ [REC_STATUS] Updated CallLog: recording_url saved, status=recorded")
+                    logger.info(f"[REC_STATUS] Updated CallLog for {call_sid}: recording_url={recording_url[:50]}...")
+                    
+                    # 🔥 CRITICAL: Trigger transcription job
+                    # Use enqueue_recording_job for proper retry logic
+                    from server.tasks_recording import enqueue_recording_job
+                    
+                    try:
+                        business_id = call_log.business_id
+                        
+                        # Enqueue for background processing
+                        enqueue_recording_job(
+                            call_sid=call_sid,
+                            recording_url=recording_url,
+                            business_id=business_id,
+                            from_number=from_number or call_log.from_number,
+                            to_number=to_number or call_log.to_number,
+                            retry_count=0
+                        )
+                        
+                        print(f"✅ [REC_STATUS] Transcription job enqueued for {call_sid}")
+                        logger.info(f"[REC_STATUS] Transcription job enqueued for {call_sid}")
+                        
+                    except Exception as e:
+                        print(f"⚠️ [REC_STATUS] Failed to enqueue transcription: {e}")
+                        logger.error(f"[REC_STATUS] Failed to enqueue transcription for {call_sid}: {e}")
+                    
+                else:
+                    print(f"⚠️ [REC_STATUS] CallLog not found for {call_sid} - cannot update")
+                    logger.warning(f"[REC_STATUS] CallLog not found for {call_sid}")
+                    
+            except Exception as e:
+                print(f"❌ [REC_STATUS] Database error: {e}")
+                logger.error(f"[REC_STATUS] Database error for {call_sid}: {e}")
+                db.session.rollback()
+        else:
+            print(f"⚠️ [REC_STATUS] No CallSid in webhook - cannot process")
+            logger.warning(f"[REC_STATUS] No CallSid in recording_status webhook")
+    
+    else:
+        print(f"ℹ️ [REC_STATUS] Status '{recording_status_value}' for {call_sid} - no action needed")
+        logger.info(f"[REC_STATUS] Non-completed status '{recording_status_value}' for {call_sid}")
+    
+    processing_ms = int((time.time() - start_time) * 1000)
+    logger.info(f"[REC_STATUS] Processed in {processing_ms}ms")
     
     return resp
 
