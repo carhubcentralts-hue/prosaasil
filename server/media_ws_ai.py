@@ -2512,6 +2512,12 @@ class MediaStreamHandler:
         self.openai_response_in_progress = False
         _orig_print("🔄 [CALL_START] Barge-in flags reset: drop_ai_audio_until_done=False, ai_audio_playing=False, openai_response_in_progress=False", flush=True)
         
+        # 🔥 FIX 2: Force self.closed = False at call start to prevent false "Websocket closed" blocking
+        # self.closed should only be True after actual websocket disconnect/stop event
+        self.closed = False
+        self.realtime_stop_flag = False  # Reset stop flag too - should start as False for new call
+        _orig_print("🔄 [CALL_START] WebSocket state reset: closed=False, realtime_stop_flag=False (ready for new call)", flush=True)
+        
         try:
             t_start = time.time()
             
@@ -2946,6 +2952,32 @@ class MediaStreamHandler:
                     flush=True,
                 )
                 print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                
+                # 🔥 STEP 5 (NEW): Minimal greeting retry - wait 2s for response.created
+                # If response.created doesn't arrive within 2 seconds, try ONE more time
+                # No watchdogs, no cooldowns, no loops - just a single retry
+                async def _greeting_retry_check():
+                    """Minimal retry: wait 2s, if no response.created → retry once"""
+                    await asyncio.sleep(2.0)
+                    
+                    # Check if we got response.created (openai_response_in_progress would be True)
+                    if not self.openai_response_in_progress and self.greeting_lock_active:
+                        _orig_print("⚠️ [GREETING_RETRY] No response.created after 2s - retrying once", flush=True)
+                        
+                        # Try one more time
+                        retry_triggered = await self.trigger_response("GREETING_RETRY", client, is_greeting=True, force=True)
+                        if retry_triggered:
+                            _orig_print("✅ [GREETING_RETRY] Retry sent successfully", flush=True)
+                        else:
+                            _orig_print("❌ [GREETING_RETRY] Retry also failed - giving up", flush=True)
+                            # Clear lock to prevent stuck state
+                            self.greeting_lock_active = False
+                            self._greeting_lock_response_id = None
+                            _orig_print("🔓 [GREETING_LOCK] cleared (retry failed)", flush=True)
+                
+                # Start retry check in background (non-blocking)
+                asyncio.create_task(_greeting_retry_check())
+                
             else:
                 print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
                 # Reset flags since greeting failed
@@ -3750,14 +3782,20 @@ class MediaStreamHandler:
         # 🔥 FIX: Only block if websocket is actually closed, not on early flags
         # Session flags should only be set after real WS_STOP or websocket exception
         # Don't block at call start when flags might be incorrectly set
-        if getattr(self, 'closed', False):
-            # Only check 'closed' flag which is set after actual websocket close
-            print(f"🛑 [RESPONSE GUARD] Websocket closed - blocking new responses ({reason})")
-            return False
+        # 
+        # ✅ GREETING EXCEPTION: NEVER block greeting based on self.closed
+        # Rule: GREETING must always try response.create once after session.updated
+        # If WebSocket is truly closed, the API will return an error - no need to "guard"
+        if not is_greeting and not force:
+            if getattr(self, 'closed', False):
+                # Only check 'closed' flag which is set after actual websocket close
+                print(f"🛑 [RESPONSE GUARD] Websocket closed - blocking new responses ({reason})")
+                return False
         
         # Note: realtime_stop_flag removed from this check - it can be set prematurely
         # during greeting setup or other initialization, causing false blocking at call start.
         # Only actual websocket closure (self.closed) should block response.create
+        # GREETING and forced responses bypass this check completely
         
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
         # After user says "לא", city is cleared so AI will naturally ask for it again
