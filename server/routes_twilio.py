@@ -473,11 +473,11 @@ def incoming_call():
     # This ensures clean recordings without AI greeting echo
     
     # ✅ Connect + Stream - Minimal required parameters
-    # track="inbound_track" ensures only user audio is sent to AI (not AI's own voice)
+    # track="both_tracks" enables bidirectional audio - user to AI and AI back to user
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
-        track="inbound_track"  # 🎧 Only send user audio to stream, prevents feedback
+        track="both_tracks"  # 🎧 Bidirectional audio stream for bot voice output
     )
     
     # ✅ CRITICAL: Parameters with CallSid + To + business_id
@@ -556,6 +556,7 @@ def incoming_call():
     twiml_str = str(vr)
     print(f"🔥 TWIML_HOST={host}")
     print(f"🔥 TWIML_WS=wss://{host}/ws/twilio-media")
+    print(f"🔥 TWIML_TRACK=both_tracks (bidirectional audio)")
     print(f"🔥 TWIML_FULL={twiml_str[:500]}")
     
     return _twiml(vr)
@@ -619,13 +620,13 @@ def outbound_call():
     
     vr = VoiceResponse()
     
-    # 🎧 BUILD: Echo prevention for outbound calls
+    # 🎧 BUILD: Bidirectional audio for outbound calls
     print(f"[CALL_SETUP] Outbound call - ai_only mode")
     
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
-        track="inbound_track"  # 🎧 Only send user audio to stream
+        track="both_tracks"  # 🎧 Bidirectional audio stream for bot voice output
     )
     
     stream.parameter(name="CallSid", value=call_sid)
@@ -689,6 +690,9 @@ def outbound_call():
     
     logger.info(f"[GREETING_PROFILER] outbound_call TwiML ready in {twiml_ms}ms")
     logger.info(f"✅ outbound_call webhook: {twiml_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
+    
+    # 🔥 DEBUG: Log track configuration for outbound calls
+    print(f"🔥 TWIML_TRACK=both_tracks (bidirectional audio) - outbound")
     
     return _twiml(vr)
 
