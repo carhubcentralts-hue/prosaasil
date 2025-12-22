@@ -1327,7 +1327,8 @@ def amd_status():
                     if is_machine:
                         call_log.status = AMD_STATUS_VOICEMAIL
                     else:
-                        # Human answered - update status but don't override summary
+                        # Human answered - only update if call is still in early stages
+                        # Avoid overwriting terminal statuses like "completed" or "recorded"
                         if call_log.status in [CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING]:
                             call_log.status = AMD_STATUS_HUMAN
                     db.session.commit()
