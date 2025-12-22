@@ -11,6 +11,7 @@ import os
 import re
 import logging
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
+from sqlalchemy import func
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
 from server.auth_api import require_api_auth
@@ -18,6 +19,9 @@ from server.services.call_limiter import check_call_limits, get_call_counts, MAX
 from twilio.rest import Client
 
 log = logging.getLogger(__name__)
+
+# ✅ Compile regex pattern once at module level for performance
+STATUS_FILTER_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
 def normalize_israeli_phone(phone: str) -> str:
@@ -965,7 +969,7 @@ def get_imported_leads():
         if statuses_filter:
             statuses_filter = [
                 s for s in statuses_filter 
-                if s and re.match(r'^[a-zA-Z0-9_-]+$', s) and len(s) <= 64
+                if s and STATUS_FILTER_PATTERN.match(s) and len(s) <= 64
             ]
         
         # Build query
@@ -979,7 +983,6 @@ def get_imported_leads():
         
         # ✅ Status filter: Support multi-status filtering with case-insensitive matching
         if statuses_filter:
-            from sqlalchemy import func
             query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
         
         if search:

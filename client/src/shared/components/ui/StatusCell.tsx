@@ -63,6 +63,9 @@ export function StatusCell({
       setLocalUpdating(true);
       await onStatusChange(leadId, newStatus);
     } catch (error) {
+      // Note: Using console.error for development debugging.
+      // In production, errors are handled by parent component's mutation error handlers
+      // which show user-facing notifications and perform rollbacks.
       console.error(`[StatusCell] Failed to update status for lead ${leadId}:`, error);
     } finally {
       setLocalUpdating(false);
