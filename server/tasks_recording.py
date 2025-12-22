@@ -220,7 +220,9 @@ def start_recording_worker(app):
 def process_recording_async(form_data):
     """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
     
-    🔥 FIXED: תמלול רק מההקלטה המלאה - לא משתמש ב-Realtime!
+    🔥 PRIORITY ORDER (with fallback):
+    1. Primary: Transcription from full recording (high quality)
+    2. Fallback: Realtime transcript if recording transcription fails/empty
     
     Returns:
         bool: True if processing succeeded (audio file existed), False if recording not ready (should retry)
@@ -274,9 +276,10 @@ def process_recording_async(form_data):
             log.warning(f"[OFFLINE_STT] Audio file not available for {call_sid}")
             return False  # Signal that retry is needed
         
-        # 🔥 FIX: תמלול רק מההקלטה המלאה - NO REALTIME!
-        # התמלול יהיה רק מקובץ ההקלטה המלא
+        # 🔥 PRIMARY: Transcription from full recording (high quality)
+        # 🔥 FALLBACK: Use realtime transcript if recording fails
         final_transcript = None
+        realtime_transcript = None  # Will be loaded from DB if needed
         extracted_service = None
         extracted_city = None
         extraction_confidence = None
@@ -311,7 +314,7 @@ def process_recording_async(form_data):
                 
                 from server.services.lead_extraction_service import transcribe_recording_with_whisper, extract_lead_from_transcript
                 
-                # 🔥 FIX: תמלול רק מההקלטה - זה התמלול היחיד!
+                # 🔥 PRIMARY: Transcribe from full recording (best quality)
                 if not DEBUG:
                     log.debug(f"[OFFLINE_STT] Starting Whisper transcription for {call_sid}")
                 log.info(f"[OFFLINE_STT] Starting transcription from recording for {call_sid}")
@@ -319,19 +322,19 @@ def process_recording_async(form_data):
                 
                 final_transcript = transcribe_recording_with_whisper(audio_file, call_sid)
                 
-                # ✅ CRITICAL: Only proceed if we got a valid transcript
+                # ✅ Check if transcription succeeded
                 if not final_transcript or len(final_transcript.strip()) < 10:
-                    print(f"⚠️ [OFFLINE_STT] Empty or invalid transcript for {call_sid} - NOT updating call_log.final_transcript")
-                    log.warning(f"[OFFLINE_STT] Transcription returned empty/invalid result: {len(final_transcript or '')} chars")
-                    final_transcript = None  # Set to None so we don't save empty string
-                    transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed transcription
+                    print(f"⚠️ [OFFLINE_STT] Recording transcription empty/failed for {call_sid}")
+                    log.warning(f"[OFFLINE_STT] Recording transcription returned empty/invalid result: {len(final_transcript or '')} chars")
+                    final_transcript = None  # Clear invalid result
+                    transcript_source = TRANSCRIPT_SOURCE_FAILED  # Mark as failed
                 else:
-                    # Success - we have a valid transcript!
+                    # Success - we have a valid transcript from recording!
                     if not DEBUG:
-                        log.debug(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
-                    log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
-                    print(f"✅ [OFFLINE_STT] Transcription complete: {len(final_transcript)} chars")
-                    transcript_source = TRANSCRIPT_SOURCE_RECORDING  # 🔥 BUILD 342: Mark as recording-based
+                        log.debug(f"[OFFLINE_STT] ✅ Recording transcript obtained: {len(final_transcript)} chars for {call_sid}")
+                    log.info(f"[OFFLINE_STT] ✅ Recording transcript obtained: {len(final_transcript)} chars")
+                    print(f"✅ [OFFLINE_STT] Recording transcription complete: {len(final_transcript)} chars")
+                    transcript_source = TRANSCRIPT_SOURCE_RECORDING  # Mark as recording-based
                     
                     # 🔥 NOTE: City/Service extraction moved to AFTER summary generation
                     # We extract from the summary, not from raw transcript (more accurate!)
@@ -352,22 +355,45 @@ def process_recording_async(form_data):
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
             transcript_source = TRANSCRIPT_SOURCE_FAILED  # No recording file = failed
         
+        # 🔥 FALLBACK: If recording transcription failed/empty, try to use realtime transcript
+        if not final_transcript or len(final_transcript.strip()) < 10:
+            print(f"🔄 [FALLBACK] Recording transcript empty/failed, checking for realtime transcript")
+            log.info(f"[FALLBACK] Attempting to use realtime transcript as fallback for {call_sid}")
+            
+            try:
+                # Load realtime transcript from DB (if exists)
+                if call_log and call_log.transcription and len(call_log.transcription.strip()) > 10:
+                    realtime_transcript = call_log.transcription
+                    final_transcript = realtime_transcript  # Use realtime as fallback
+                    transcript_source = TRANSCRIPT_SOURCE_REALTIME
+                    print(f"✅ [FALLBACK] Using realtime transcript: {len(final_transcript)} chars")
+                    log.info(f"[FALLBACK] Using realtime transcript ({len(final_transcript)} chars) for {call_sid}")
+                else:
+                    print(f"⚠️ [FALLBACK] No realtime transcript available for {call_sid}")
+                    log.warning(f"[FALLBACK] No realtime transcript available for {call_sid}")
+                    transcript_source = TRANSCRIPT_SOURCE_FAILED
+            except Exception as e:
+                print(f"❌ [FALLBACK] Error loading realtime transcript: {e}")
+                log.error(f"[FALLBACK] Error loading realtime transcript for {call_sid}: {e}")
+                transcript_source = TRANSCRIPT_SOURCE_FAILED
+        
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
-        # 🔥 CRITICAL: Use final_transcript from recording ONLY
+        # 🔥 PRIMARY: Use recording transcript, FALLBACK: Use realtime transcript
         summary = ""
         
-        # 🔥 FIX: סיכום רק מתמלול ההקלטה המלאה!
+        # 🔥 Use final_transcript (which may be from recording OR realtime fallback)
         source_text_for_summary = final_transcript
         
         if source_text_for_summary and len(source_text_for_summary) > 10:
             from server.services.summary_service import summarize_conversation
             from server.app_factory import get_process_app
             
-            # 🔥 FIX: תמיד משתמשים בתמלול מההקלטה המלאה
+            # Log which transcript source we're using
+            source_label = "recording transcript" if transcript_source == TRANSCRIPT_SOURCE_RECORDING else "realtime transcript (fallback)"
             if not DEBUG:
-                log.debug(f"[SUMMARY] Using recording transcript for summary generation ({len(source_text_for_summary)} chars)")
-            log.info(f"[SUMMARY] Using recording transcript for summary generation")
-            print(f"📝 [SUMMARY] Generating summary from {len(source_text_for_summary)} chars transcript")
+                log.debug(f"[SUMMARY] Using {source_label} for summary generation ({len(source_text_for_summary)} chars)")
+            log.info(f"[SUMMARY] Using {source_label} for summary generation")
+            print(f"📝 [SUMMARY] Generating summary from {len(source_text_for_summary)} chars ({source_label})")
             
             # Get business context for dynamic summarization (requires app context!)
             business_type = None
@@ -395,7 +421,7 @@ def process_recording_async(form_data):
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:
                 if summary and len(summary.strip()) > 0:
-                    log.debug(f"✅ Summary generated: {len(summary)} chars from recording transcript")
+                    log.debug(f"✅ Summary generated: {len(summary)} chars from {source_label}")
                 else:
                     log.debug(f"⚠️ Summary generation returned empty")
             
@@ -404,10 +430,10 @@ def process_recording_async(form_data):
             else:
                 print(f"⚠️ [SUMMARY] Empty summary generated")
         else:
-            # 🔥 FIX: לא יהיה סיכום בלי תמלול מההקלטה
-            print(f"⚠️ [SUMMARY] No valid recording transcript - skipping summary")
+            # No valid transcript available (neither recording nor realtime)
+            print(f"⚠️ [SUMMARY] No valid transcript available - skipping summary")
             if not DEBUG:
-                log.debug(f"[SUMMARY] No valid transcript from recording ({len(final_transcript or '')} chars)")
+                log.debug(f"[SUMMARY] No valid transcript available ({len(final_transcript or '')} chars)")
         
         # 🆕 3.5. חילוץ עיר ושירות - חכם עם FALLBACK!
         # עדיפות 1: סיכום (אם קיים ובאורך סביר)
@@ -441,10 +467,9 @@ def process_recording_async(form_data):
                     pass
         
         if not skip_extraction:
-            # 🔥 FIX: Choose best text for extraction - prefer summary, then recording transcript
+            # 🔥 Choose best text for extraction with fallback
             # Priority 1: summary (if exists and sufficient length)
-            # Priority 2: final_transcript (recording) as fallback
-            # NO realtime transcript!
+            # Priority 2: final_transcript (may be from recording OR realtime fallback)
             extraction_text = None
             extraction_source = None
             
@@ -453,7 +478,13 @@ def process_recording_async(form_data):
                 extraction_source = "summary"
             elif final_transcript and len(final_transcript) >= 30:
                 extraction_text = final_transcript
-                extraction_source = "recording_transcript"
+                # Determine source label based on transcript_source
+                if transcript_source == TRANSCRIPT_SOURCE_RECORDING:
+                    extraction_source = "recording_transcript"
+                elif transcript_source == TRANSCRIPT_SOURCE_REALTIME:
+                    extraction_source = "realtime_transcript"
+                else:
+                    extraction_source = "transcript"
             
             if extraction_text:
                 try:
