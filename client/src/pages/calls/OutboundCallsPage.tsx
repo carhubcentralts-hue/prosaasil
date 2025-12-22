@@ -140,10 +140,10 @@ export function OutboundCallsPage() {
     retry: 1,
   });
 
-  // Fetch lead statuses for Kanban
+  // Fetch lead statuses for both Kanban and Table views
   const { data: statusesData, isLoading: statusesLoading } = useQuery<LeadStatus[]>({
     queryKey: ['/api/lead-statuses'],
-    enabled: viewMode === 'kanban',
+    enabled: true, // ✅ Always load statuses for both view modes
     retry: 1,
   });
 
