@@ -6038,104 +6038,13 @@ class MediaStreamHandler:
                     # No manual conversation.item.create needed - OpenAI handles it automatically
                     logger.info(f"[AI_INPUT] kind=realtime_transcript committed=True text_preview='{text[:100]}'")
                     
-                    # ═══════════════════════════════════════════════════════════════════════════
-                    # 🔥 TEXT BARGE-IN: Detect committed transcript while AI is speaking
-                    # ═══════════════════════════════════════════════════════════════════════════
-                    # If AI is speaking, cancel the active response and store text for later
-                    # This prevents "conversation_already_has_active_response" error
-                    is_ai_speaking = self.is_ai_speaking_event.is_set()
-                    has_active_response = getattr(self, 'ai_response_active', False) or bool(self.active_response_id)
-                    
-                    if is_ai_speaking or has_active_response:
-                        # A. Snapshot active response ID
-                        rid = self.active_response_id
-                        
-                        # Rule 1 & Smoke Test: Enhanced logging for text barge-in detection
-                        print(f"🎤 [TEXT_BARGE_IN] detected -> text='{text[:40]}...' while AI active")
-                        logger.info(f"[TEXT_BARGE_IN] ai_speaking={is_ai_speaking}, active_response={rid[:20] if rid else 'None'}...")
-                        
-                        # B. Cancel + Clear + Flush (if we have active response)
-                        if rid:
-                            self._barge_in_pending_cancel = True
-                            print(f"🔄 [TEXT_BARGE_IN] cancel -> response_id={rid[:20]}...")
-                            
-                            try:
-                                # Cancel the active response
-                                await self.realtime_client.cancel_response(rid)
-                                logger.info(f"[TEXT_BARGE_IN] ✅ Cancel sent for: {rid[:20]}...")
-                                print(f"✅ [TEXT_BARGE_IN] cancel sent")
-                            except Exception as e:
-                                error_str = str(e).lower()
-                                if 'not_active' in error_str or 'no active' in error_str:
-                                    logger.debug("[TEXT_BARGE_IN] response_cancel_not_active (already ended)")
-                                else:
-                                    logger.warning(f"[TEXT_BARGE_IN] Cancel error: {e}")
-                            
-                            # Send Twilio clear event
-                            if self.stream_sid:
-                                try:
-                                    clear_event = {
-                                        "event": "clear",
-                                        "streamSid": self.stream_sid
-                                    }
-                                    self._ws_send(json.dumps(clear_event))
-                                    logger.info("[TEXT_BARGE_IN] ✅ Sent Twilio clear event")
-                                    print(f"📤 [TEXT_BARGE_IN] twilio_clear sent")
-                                except Exception as e:
-                                    logger.warning(f"[TEXT_BARGE_IN] Failed to send Twilio clear: {e}")
-                            
-                            # Flush TX queue immediately
-                            print(f"🧹 [TEXT_BARGE_IN] flushing TX queues...")
-                            self._flush_tx_queue_immediate("barge_in_text")
-                            logger.info("[TEXT_BARGE_IN] ✅ TX queues flushed")
-                            print(f"✅ [TEXT_BARGE_IN] TX flushed")
-                        
-                        # C. Store pending text instead of creating response now
-                        # Log if we're overwriting previous pending text (for debugging)
-                        if self._pending_user_text:
-                            logger.warning(f"[TEXT_BARGE_IN] Overwriting previous pending text: '{self._pending_user_text[:40]}...' with '{text[:40]}...'")
-                        
-                        self._pending_user_text = text
-                        logger.info(f"[TEXT_BARGE_IN] Stored pending text, waiting for response.cancelled/done")
-                        print(f"⏸️ [TEXT_BARGE_IN] Pending text stored -> waiting for response.done")
-                        
-                        # Clear candidate flag - transcription received and handled
-                        self._candidate_user_speaking = False
-                        self._utterance_start_ts = None
-                        
-                        # Don't process further - wait for response.cancelled/done to trigger new response
-                        continue
+                    # ✅ SIMPLIFIED: Removed TEXT_BARGE_IN logic per new requirements
+                    # Transcription is committed to model automatically by OpenAI
+                    # No cancel, no pending text, no recovery - just continue normal flow
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
-                    
-                    # 🎯 NOTE: Transcription is used ONLY for post-cancel handling, NOT for cancel decision
-                    # Cancel decision is audio-only (handled in audio processing loop with frame counting)
-                    # If we have a pending cancel that was already executed, clear the flag
-                    if self._barge_in_pending_cancel:
-                        # Clear pending flag - transcription received (too late for cancel decision)
-                        logger.debug(f"[BARGE-IN] Transcription arrived - cancel decision already made by audio")
-                        self._barge_in_pending_cancel = False
-                        self._barge_in_speech_frames_count = 0
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # If greeting was protected during speech_started, now confirm with transcription
-                    # Non-empty text = real user speech → interrupt greeting (INBOUND ONLY!)
-                    # 
-                    # 🔥 NEW REQUIREMENT: OUTBOUND calls NEVER interrupt greeting - ignore all transcriptions
-                    # ═══════════════════════════════════════════════════════════════════════
-                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                    
-                    # 🔴 FINAL CRITICAL FIX #1:
-                    # Never interrupt greeting based on local triggers/transcription.
-                    # If legacy code set this flag, clear it and do nothing.
-                    if getattr(self, '_greeting_needs_transcription_confirm', False):
-                        self._greeting_needs_transcription_confirm = False
-                        if DEBUG:
-                            print("🔒 [GREETING_LOCK] Ignoring transcription-confirm greeting interruption")
                     
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
@@ -6150,12 +6059,7 @@ class MediaStreamHandler:
                     if is_filler_only:
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
                         
-                        # Don't cancel AI, don't flush queue, just ignore
-                        # If this was during AI speech, it's not a real barge-in
-                        if self.barge_in_active:
-                            logger.info(f"[BARGE-IN] Phase B: Filler detected - not a real barge-in, clearing flag")
-                            self.barge_in_active = False
-                            self._barge_in_started_ts = None
+                        # ✅ SIMPLIFIED: Removed barge_in_active flag - not needed in simple model
                         
                         # Save to conversation history for context but mark as filler
                         # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
