@@ -86,31 +86,35 @@ def _do_redirect(call_sid, wss_host, reason):
 
 def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
     """
-    🔥 NEW: Start recording from second 0 using Twilio REST API
+    🔥 FIX: Start recording from second 0 using Twilio REST API
     This runs in background thread and does NOT block TwiML response.
     
     Recording will capture the ENTIRE call including AI greeting.
+    Logs: [REC_START] when initiated, [REC_CB] on completion callback
     """
+    import time
+    start_timestamp = time.time()
+    
     try:
         account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
         auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
         
         if not account_sid or not auth_token:
-            print(f"❌ [RECORDING] Missing Twilio credentials for {call_sid}")
-            logger.error(f"[RECORDING] Missing Twilio credentials for {call_sid}")
+            print(f"❌ [REC_START] Missing Twilio credentials call_sid={call_sid}")
+            logger.error(f"[REC_START] Missing Twilio credentials call_sid={call_sid}")
             return
         
         # Get host for callback URL
         public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
         if not public_host:
-            print(f"⚠️ [RECORDING] PUBLIC_HOST not set, using fallback for {call_sid}")
-            logger.warning(f"[RECORDING] PUBLIC_HOST not set for {call_sid}")
+            print(f"⚠️ [REC_START] PUBLIC_HOST not set, using fallback call_sid={call_sid}")
+            logger.warning(f"[REC_START] PUBLIC_HOST not set call_sid={call_sid}")
             # We still need to try - use a reasonable fallback
             public_host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
         
         if not public_host:
-            print(f"❌ [RECORDING] No host available for callback URL for {call_sid}")
-            logger.error(f"[RECORDING] No host available for callback URL for {call_sid}")
+            print(f"❌ [REC_START] No host available for callback URL call_sid={call_sid}")
+            logger.error(f"[REC_START] No host available for callback URL call_sid={call_sid}")
             return
         
         from twilio.rest import Client
@@ -120,8 +124,8 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
         # Recording will continue until call ends
         recording_callback_url = f"https://{public_host}/webhook/recording_status"
         
-        print(f"🎙️ [RECORDING] Starting recording from second 0 for {call_sid}")
-        logger.info(f"[RECORDING] Starting recording from second 0 for {call_sid}, callback={recording_callback_url}")
+        print(f"🎙️ [REC_START] call_sid={call_sid} ts={start_timestamp:.2f}")
+        logger.info(f"[REC_START] call_sid={call_sid} ts={start_timestamp:.2f} callback={recording_callback_url}")
         
         try:
             recording = client.calls(call_sid).recordings.create(
@@ -130,8 +134,9 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
                 recording_status_callback_event=['completed']  # Only notify when recording completes
             )
             
-            print(f"✅ [RECORDING] Started successfully for {call_sid}: {recording.sid}")
-            logger.info(f"[RECORDING] Started successfully: call={call_sid}, recording_sid={recording.sid}")
+            elapsed_ms = int((time.time() - start_timestamp) * 1000)
+            print(f"✅ [REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
+            logger.info(f"[REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
             
             # Save recording_sid to CallLog immediately
             try:
@@ -143,20 +148,21 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
                     if call_log:
                         call_log.recording_sid = recording.sid
                         db.session.commit()
-                        print(f"✅ [RECORDING] Saved recording_sid to CallLog: {recording.sid}")
+                        print(f"✅ [REC_START] Saved recording_sid={recording.sid} to CallLog")
                     else:
-                        print(f"⚠️ [RECORDING] CallLog not found for {call_sid}")
+                        print(f"⚠️ [REC_START] CallLog not found call_sid={call_sid}")
             except Exception as e:
-                print(f"⚠️ [RECORDING] Failed to save recording_sid: {e}")
-                logger.warning(f"[RECORDING] Failed to save recording_sid for {call_sid}: {e}")
+                print(f"⚠️ [REC_START] Failed to save recording_sid: {e}")
+                logger.warning(f"[REC_START] Failed to save recording_sid call_sid={call_sid}: {e}")
                 
         except Exception as e:
-            print(f"❌ [RECORDING] Failed to start for {call_sid}: {e}")
-            logger.error(f"[RECORDING] Failed to start for {call_sid}: {e}")
+            elapsed_ms = int((time.time() - start_timestamp) * 1000)
+            print(f"❌ [REC_START] FAILED call_sid={call_sid} elapsed={elapsed_ms}ms error={e}")
+            logger.error(f"[REC_START] FAILED call_sid={call_sid} elapsed={elapsed_ms}ms error={e}")
             
     except Exception as e:
-        print(f"❌ [RECORDING] Critical error for {call_sid}: {e}")
-        logger.error(f"[RECORDING] Critical error for {call_sid}: {e}")
+        print(f"❌ [REC_START] CRITICAL_ERROR call_sid={call_sid} error={e}")
+        logger.error(f"[REC_START] CRITICAL_ERROR call_sid={call_sid} error={e}")
 
 def _trigger_recording_for_call(call_sid):
     """חפש או עורר הקלטה לשיחה לאחר שהזרם נגמר"""
@@ -1013,12 +1019,12 @@ def recording_status():
     from_number = request.form.get("From", "")
     to_number = request.form.get("To", "")
     
-    print(f"🎙️ [REC_STATUS] Received: status={recording_status_value}, call={call_sid}, recording={recording_sid}, duration={recording_duration}s")
-    logger.info(f"[REC_STATUS] Received: status={recording_status_value}, call={call_sid}, recording={recording_sid}")
+    print(f"🎙️ [REC_CB] recording_sid={recording_sid} call_sid={call_sid} status={recording_status_value} duration={recording_duration}s")
+    logger.info(f"[REC_CB] recording_sid={recording_sid} call_sid={call_sid} status={recording_status_value} duration={recording_duration}s")
     
     # Only process completed recordings
     if recording_status_value == "completed":
-        print(f"✅ [REC_STATUS] Recording completed for {call_sid}")
+        print(f"✅ [REC_CB] COMPLETED call_sid={call_sid} recording_sid={recording_sid} duration={recording_duration}s")
         
         # Update CallLog with recording information
         if call_sid:
@@ -1041,8 +1047,8 @@ def recording_status():
                             pass
                     
                     db.session.commit()
-                    print(f"✅ [REC_STATUS] Updated CallLog: recording_url saved, status=recorded")
-                    logger.info(f"[REC_STATUS] Updated CallLog for {call_sid}: recording_url={recording_url[:50]}...")
+                    print(f"✅ [REC_CB] Updated CallLog: recording_url saved, status=recorded, duration={recording_duration}s")
+                    logger.info(f"[REC_CB] Updated CallLog call_sid={call_sid} duration={recording_duration}s")
                     
                     # 🔥 CRITICAL: Trigger transcription job
                     # Use enqueue_recording_job for proper retry logic
@@ -1061,28 +1067,28 @@ def recording_status():
                             retry_count=0
                         )
                         
-                        print(f"✅ [REC_STATUS] Transcription job enqueued for {call_sid}")
-                        logger.info(f"[REC_STATUS] Transcription job enqueued for {call_sid}")
+                        print(f"✅ [REC_CB] Transcription job enqueued call_sid={call_sid}")
+                        logger.info(f"[REC_CB] Transcription job enqueued call_sid={call_sid}")
                         
                     except Exception as e:
-                        print(f"⚠️ [REC_STATUS] Failed to enqueue transcription: {e}")
-                        logger.error(f"[REC_STATUS] Failed to enqueue transcription for {call_sid}: {e}")
+                        print(f"⚠️ [REC_CB] Failed to enqueue transcription: {e}")
+                        logger.error(f"[REC_CB] Failed to enqueue transcription call_sid={call_sid}: {e}")
                     
                 else:
-                    print(f"⚠️ [REC_STATUS] CallLog not found for {call_sid} - cannot update")
-                    logger.warning(f"[REC_STATUS] CallLog not found for {call_sid}")
+                    print(f"⚠️ [REC_CB] CallLog not found call_sid={call_sid}")
+                    logger.warning(f"[REC_CB] CallLog not found call_sid={call_sid}")
                     
             except Exception as e:
-                print(f"❌ [REC_STATUS] Database error: {e}")
-                logger.error(f"[REC_STATUS] Database error for {call_sid}: {e}")
+                print(f"❌ [REC_CB] Database error: {e}")
+                logger.error(f"[REC_CB] Database error call_sid={call_sid}: {e}")
                 db.session.rollback()
         else:
-            print(f"⚠️ [REC_STATUS] No CallSid in webhook - cannot process")
-            logger.warning(f"[REC_STATUS] No CallSid in recording_status webhook")
+            print(f"⚠️ [REC_CB] No CallSid in webhook")
+            logger.warning(f"[REC_CB] No CallSid in recording_status webhook")
     
     else:
-        print(f"ℹ️ [REC_STATUS] Status '{recording_status_value}' for {call_sid} - no action needed")
-        logger.info(f"[REC_STATUS] Non-completed status '{recording_status_value}' for {call_sid}")
+        print(f"ℹ️ [REC_CB] Status '{recording_status_value}' call_sid={call_sid} - waiting for completion")
+        logger.info(f"[REC_CB] Non-completed status '{recording_status_value}' call_sid={call_sid}")
     
     processing_ms = int((time.time() - start_time) * 1000)
     logger.info(f"[REC_STATUS] Processed in {processing_ms}ms")
