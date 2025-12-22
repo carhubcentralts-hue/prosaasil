@@ -14044,7 +14044,7 @@ class MediaStreamHandler:
                     # Start a new recording via REST API
                     try:
                         recording = client.calls(self.call_sid).recordings.create(
-                            recording_channels="single"  # 🔥 COST OPTIMIZATION: Single channel (10-15% savings)
+                            recording_channels="dual"  # Record both channels
                         )
                         self._recording_succeeded = True
                         self._recording_sid = recording.sid
