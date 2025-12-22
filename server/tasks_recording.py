@@ -364,6 +364,18 @@ def process_recording_async(form_data):
                 extracted_city = None
                 extraction_confidence = None
                 transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed
+                
+                # Update DB to mark transcript_status as failed
+                try:
+                    app = get_process_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                        if call_log:
+                            call_log.transcript_status = 'failed'
+                            call_log.last_error = f"Transcript extraction failed: {str(e)[:500]}"
+                            db.session.commit()
+                except Exception:
+                    pass
         else:
             print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
@@ -409,17 +421,44 @@ def process_recording_async(form_data):
                 except Exception:
                     pass
             
-            summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
-            # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
-            if not DEBUG:
-                if summary and len(summary.strip()) > 0:
-                    log.debug(f"✅ Summary generated: {len(summary)} chars from {transcript_source}")
-                else:
-                    log.debug(f"⚠️ Summary generation returned empty")
+            try:
+                summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
+                # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
+                if not DEBUG:
+                    if summary and len(summary.strip()) > 0:
+                        log.debug(f"✅ Summary generated: {len(summary)} chars from {transcript_source}")
+                    else:
+                        log.debug(f"⚠️ Summary generation returned empty")
+            except Exception as summary_err:
+                log.error(f"[SUMMARY] Summary generation failed for {call_sid}: {summary_err}")
+                print(f"❌ [SUMMARY] Failed to generate summary for {call_sid}: {summary_err}")
+                summary = ""  # Empty string so we mark as failed
+                # Update DB to mark summary_status as failed
+                try:
+                    app = get_process_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                        if call_log:
+                            call_log.summary_status = 'failed'
+                            call_log.last_error = f"Summary generation failed: {str(summary_err)[:500]}"
+                            db.session.commit()
+                except Exception:
+                    pass
         else:
             # 🔥 DEBUG mode only: log details
             if not DEBUG:
                 log.debug(f"[SUMMARY] No valid transcript (final={len(final_transcript or '')} chars, realtime={len(transcription or '')} chars)")
+            # Mark summary as failed if we have no text to summarize
+            try:
+                app = get_process_app()
+                with app.app_context():
+                    call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                    if call_log:
+                        call_log.summary_status = 'failed'
+                        call_log.last_error = 'No valid transcript available for summary generation'
+                        db.session.commit()
+            except Exception:
+                pass
         
         # 🆕 3.5. חילוץ עיר ושירות - חכם עם FALLBACK!
         # עדיפות 1: סיכום (אם קיים ובאורך סביר)

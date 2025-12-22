@@ -290,6 +290,8 @@ def start_outbound_calls():
                 
                 try:
                     # Try with correct AMD parameters (async_amd + async_amd_status_callback)
+                    # 🔥 NOTE: Recording is started via REST API in outbound_call webhook (server/routes_twilio.py)
+                    # This ensures recording captures the entire call from second 0
                     twilio_call = client.calls.create(
                         to=normalized_phone,  # Use normalized phone
                         from_=from_phone,
@@ -300,10 +302,7 @@ def start_outbound_calls():
                         machine_detection="DetectMessageEnd",
                         async_amd=True,
                         async_amd_status_callback=amd_callback_url,
-                        async_amd_status_callback_method="POST",
-                        record=True,
-                        recording_status_callback=f"https://{host}/webhook/handle_recording",
-                        recording_status_callback_event=['completed']
+                        async_amd_status_callback_method="POST"
                     )
                 except TypeError as amd_error:
                     # Fallback: AMD parameters not supported by SDK version - create call without AMD
@@ -313,10 +312,7 @@ def start_outbound_calls():
                         from_=from_phone,
                         url=webhook_url,
                         status_callback=f"https://{host}/webhook/call_status",
-                        status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                        record=True,
-                        recording_status_callback=f"https://{host}/webhook/handle_recording",
-                        recording_status_callback_event=['completed']
+                        status_callback_event=['initiated', 'ringing', 'answered', 'completed']
                     )
                     # Log warning but continue - call was created successfully
                     log.info(f"📞 Outbound call started WITHOUT AMD: lead={lead.id}, call_sid={twilio_call.sid}")

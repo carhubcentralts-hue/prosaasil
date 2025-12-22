@@ -94,6 +94,19 @@ def _start_full_call_recording(call_sid, host):
         
         client = Client(account_sid, auth_token)
         
+        # Check if recording is already in progress (prevent duplicate recordings)
+        try:
+            from server.app_factory import get_process_app
+            app = get_process_app()
+            with app.app_context():
+                from server.models_sql import CallLog, db
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if call_log and call_log.recording_status == 'recording':
+                    logger.info(f"⏭️ Recording already in progress for {call_sid}, skipping duplicate start")
+                    return
+        except Exception as check_err:
+            logger.warning(f"⚠️ Could not check recording status: {check_err}")
+        
         # Start recording via REST API with optimal settings
         recording = client.calls(call_sid).recordings.create(
             recording_channels='dual',  # Dual-channel for better quality (separate customer/AI)
@@ -119,10 +132,29 @@ def _start_full_call_recording(call_sid, host):
                     logger.info(f"✅ Updated CallLog with recording_sid: {recording.sid}")
         except Exception as e:
             logger.warning(f"⚠️ Failed to update CallLog with recording_sid: {e}")
+            # Don't fail the recording start if DB update fails
         
     except Exception as e:
-        logger.error(f"❌ Failed to start full call recording for {call_sid}: {e}")
-        print(f"❌ [RECORDING] Failed to start for {call_sid[:16]}: {e}")
+        error_str = str(e)
+        # Check if call is already being recorded (Twilio error 21220)
+        if '21220' in error_str or 'already being recorded' in error_str.lower():
+            logger.info(f"ℹ️ Call {call_sid} is already being recorded (duplicate request ignored)")
+        else:
+            logger.error(f"❌ Failed to start full call recording for {call_sid}: {e}")
+            print(f"❌ [RECORDING] Failed to start for {call_sid[:16]}: {e}")
+            # Update CallLog with error
+            try:
+                from server.app_factory import get_process_app
+                app = get_process_app()
+                with app.app_context():
+                    from server.models_sql import CallLog, db
+                    call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                    if call_log:
+                        call_log.recording_status = 'failed'
+                        call_log.last_error = f"Recording start failed: {error_str[:500]}"
+                        db.session.commit()
+            except Exception:
+                pass
 
 def _trigger_recording_for_call(call_sid):
     """חפש או עורר הקלטה לשיחה לאחר שהזרם נגמר
