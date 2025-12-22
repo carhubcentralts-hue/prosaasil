@@ -2510,7 +2510,7 @@ class MediaStreamHandler:
         self.drop_ai_audio_until_done = False
         self.ai_audio_playing = False
         self.openai_response_in_progress = False
-        _orig_print("🔄 [CALL_START] Barge-in flags reset: drop_ai_audio_until_done=False, ai_audio_playing=False", flush=True)
+        _orig_print("🔄 [CALL_START] Barge-in flags reset: drop_ai_audio_until_done=False, ai_audio_playing=False, openai_response_in_progress=False", flush=True)
         
         try:
             t_start = time.time()
@@ -3756,6 +3756,7 @@ class MediaStreamHandler:
             return False
         
         # Note: realtime_stop_flag removed from this check - it can be set prematurely
+        # during greeting setup or other initialization, causing false blocking at call start.
         # Only actual websocket closure (self.closed) should block response.create
         
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
@@ -11392,12 +11393,13 @@ class MediaStreamHandler:
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
             if fields_collected and not self.verification_confirmed:
+                # Hebrew leads with unconfirmed data still get a confirmation prompt
                 warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
                 await self._send_text_to_ai(warning_prompt)
             else:
                 # 🔥 PROMPT-ONLY MODE FIX: Don't send synthetic "Customer is silent" events
                 # In prompt-only mode, the AI should handle silence naturally based on its instructions
-                # Sending synthetic events causes issues and blocks in the logs
+                # Sending synthetic events causes issues and blocks in the logs (per problem statement)
                 print(f"🔇 [SILENCE] PROMPT-ONLY MODE - not sending synthetic silence event")
                 # Don't send anything - let AI handle silence naturally
                 return
