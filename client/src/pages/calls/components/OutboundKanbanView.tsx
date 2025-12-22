@@ -222,7 +222,7 @@ export function OutboundKanbanView({
             className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="עמודה קודמת"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
           
           <div className="flex-1 text-center">
@@ -238,7 +238,7 @@ export function OutboundKanbanView({
             className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="עמודה הבאה"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
 
