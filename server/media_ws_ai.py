@@ -1782,32 +1782,19 @@ class MediaStreamHandler:
         self._usage_guard_seconds = 0.0
         self._usage_guard_limit_hit = False
         
-        # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
-        self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
-        self.has_pending_ai_response = False  # Is AI response pending?
-        self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
-        self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
-        self.last_user_turn_id = None  # Last user conversation item ID
+        # ✅ SIMPLIFIED BARGE-IN: Single state for AI audio playback
+        # Per new requirements: Only track if AI is currently outputting audio
+        self.ai_audio_playing = False  # TRUE on response.audio.delta, FALSE on response.audio.done
+        self.last_ai_audio_ts = 0.0  # Timestamp of last audio delta received
+        self.last_barge_in_ts = 0.0  # For simple debounce (0.5s)
         
         # 🚀 PARALLEL STARTUP: Event to signal business info is ready
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
+        self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
-        self.active_response_id = None  # 🔥 Track active response ID for cancellation
-        self.min_ai_talk_guard_ms = 150  # 🔥 BUILD 164B: 150ms grace period
-        self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 170.3: RMS > 60 now (was 200) - better barge-in
-        self.min_voice_duration_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: 220ms continuous speech
-        self.barge_in_min_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: Match min_voice_duration_ms
-        self.barge_in_cooldown_ms = 500  # 🔥 BUILD 164B: Standard cooldown
-        self.last_barge_in_ts = None  # Last time barge-in was triggered
-        self.current_user_voice_start_ts = None  # When current user voice started
-        self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
-        self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
-        self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
-        self.barge_in_active = False  # 🔥 BARGE-IN FIX: Track if user is currently interrupting AI
-        # 🔄 ADAPTIVE: Second confirmation for barge-in - require OpenAI speech_started confirmation
-        self._openai_speech_started_confirmed = False  # Set on speech_started event, cleared after barge-in
-        self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
-        # ✅ NEW REQ 4: Add TTL tracking to prevent memory leak
+        
+        # ✅ REMOVED: active_response_id, ai_response_active, speaking flags
+        # New simplified barge-in only uses ai_audio_playing flag above
         self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
@@ -1819,16 +1806,8 @@ class MediaStreamHandler:
         # ✅ P0 FIX: Track which response IDs we've sent cancel for (prevent duplicate cancel)
         self._cancel_sent_for_response_ids = set()  # Response IDs we've already sent cancel event for
         
-        # 🔥 TEXT BARGE-IN: Track pending text during active response
-        self._barge_in_pending_cancel = False  # Flag: Cancel in progress, waiting for response.cancelled/done
-        self._pending_user_text = None  # Store user text while waiting for cancel to complete
-        
-        # 🔥 NO-AUDIO WATCHDOG: Detect "silent response" where response is created but no audio arrives
-        self._response_audio_watchdog = {}  # response_id -> {created_ts, first_audio_ts, audio_delta_count, transcript_delta_count}
-        self._no_audio_watchdog_timeout_sec = 1.2  # 1200ms - if no audio arrives, trigger recovery
-        self._no_audio_retry_attempted = set()  # Track response IDs we already retried (one retry per response)
-        self._no_audio_last_fired_ts = None  # Rule 3: Last time watchdog fired (for cooldown)
-        self._no_audio_cooldown_sec = 12.0  # Rule 3: 12 second cooldown between watchdog fires
+        # ✅ SIMPLIFIED BARGE-IN: Removed TEXT_BARGE_IN and NO_AUDIO_WATCHDOG
+        # Old complex logic removed per requirements - keeping only is_ai_speaking flag
         
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
@@ -3495,43 +3474,8 @@ class MediaStreamHandler:
                                     self.barge_in_active = False
                                     self._barge_in_started_ts = None
                         
-                        # 🎯 SAFETY CHECK 6: Sanity fuse for stuck flag combination
-                        # Detects: ai_response_active=True BUT is_ai_speaking=False AND active_response_id=None
-                        # This catches 99% of edge cases where flags get out of sync
-                        # 🔥 FIX: Don't interfere during barge-in cancellation
-                        STUCK_FLAGS_TIMEOUT_SEC = 1.5
-                        
-                        # Skip SAFETY_FUSE if barge-in cancel is pending
-                        if getattr(self, '_barge_in_pending_cancel', False):
-                            # Don't touch response state during barge-in cancellation
-                            logger.debug("[SAFETY_FUSE] Skipping - barge-in cancel in progress")
-                        elif (hasattr(self, 'ai_response_active') and self.ai_response_active and
-                            not self.is_ai_speaking_event.is_set() and
-                            self.active_response_id is None):
-                            # Track how long this inconsistent state has persisted
-                            # 🔥 FIX: Check for None explicitly, not just hasattr (attribute can exist but be None)
-                            if self._stuck_flags_first_seen_ts is None:
-                                self._stuck_flags_first_seen_ts = now
-                            
-                            # 🔥 FIX: Guard against None before subtraction to prevent TypeError
-                            if self._stuck_flags_first_seen_ts is None:
-                                stuck_flags_age = 0.0
-                            else:
-                                stuck_flags_age = now - self._stuck_flags_first_seen_ts
-                            
-                            if stuck_flags_age > STUCK_FLAGS_TIMEOUT_SEC:
-                                print(f"🔧 [SAFETY_FUSE] STUCK FLAGS DETECTED! ai_response_active=True but is_ai_speaking=False and active_response_id=None for {stuck_flags_age:.1f}s")
-                                print(f"   Force resetting 3 response-scoped flags...")
-                                # Reset only response-scoped flags (not global session state)
-                                self.ai_response_active = False
-                                self.is_ai_speaking_event.clear()
-                                if hasattr(self, 'speaking'):
-                                    self.speaking = False
-                                self._stuck_flags_first_seen_ts = None
-                                print(f"   ✅ Flags reset - system recovered")
-                        else:
-                            # Flags are consistent - reset tracking
-                            self._stuck_flags_first_seen_ts = None
+                        # ✅ REMOVED: SAFETY_FUSE logic per new requirements
+                        # No automatic flag recovery - single state model doesn't need it
                     
                     except Exception as monitor_err:
                         # 🔥 CRITICAL: Never let monitoring logic kill the audio sender thread
@@ -4764,115 +4708,8 @@ class MediaStreamHandler:
                         # Store by response_id (not just _response_created_ts) for accurate lookup during cancel
                         self._response_created_ts[response_id] = time.monotonic()
                         
-                        # 🔥 NO-AUDIO WATCHDOG: Start tracking this response for silent response detection
-                        self._response_audio_watchdog[response_id] = {
-                            'created_ts': time.monotonic(),
-                            'first_audio_ts': None,
-                            'audio_delta_count': 0,
-                            'transcript_delta_count': 0
-                        }
-                        
-                        # 🔥 NO-AUDIO WATCHDOG: Start monitoring task for this response
-                        async def _no_audio_watchdog_task(resp_id):
-                            """Monitor for silent response - fires if no audio.delta arrives within timeout"""
-                            try:
-                                await asyncio.sleep(self._no_audio_watchdog_timeout_sec)
-                                
-                                # Check if this response_id is still being tracked
-                                if resp_id not in self._response_audio_watchdog:
-                                    return  # Response already completed/cleaned up
-                                
-                                watchdog_data = self._response_audio_watchdog[resp_id]
-                                audio_count = watchdog_data['audio_delta_count']
-                                transcript_count = watchdog_data['transcript_delta_count']
-                                
-                                # SILENT RESPONSE detected: NO audio (regardless of transcript)
-                                # Fire watchdog if no audio.delta arrived, even if transcript also didn't arrive
-                                if audio_count == 0:
-                                    # Rule 3: Check cooldown - prevent loops in problematic calls
-                                    now = time.time()
-                                    if self._no_audio_last_fired_ts is not None:
-                                        time_since_last_fire = now - self._no_audio_last_fired_ts
-                                        if time_since_last_fire < self._no_audio_cooldown_sec:
-                                            logger.warning(
-                                                f"[NO_AUDIO_WATCHDOG] Cooldown active - {self._no_audio_cooldown_sec - time_since_last_fire:.1f}s remaining "
-                                                f"(fired {time_since_last_fire:.1f}s ago)"
-                                            )
-                                            _orig_print(f"⏸️ [NO_AUDIO_WATCHDOG] COOLDOWN - not firing (last fired {time_since_last_fire:.1f}s ago)", flush=True)
-                                            return
-                                    
-                                    # Check if we already retried this response
-                                    if resp_id in self._no_audio_retry_attempted:
-                                        logger.warning(f"[NO_AUDIO_WATCHDOG] Already retried response {resp_id[:12]}... - not retrying again")
-                                        return
-                                    
-                                    # Mark as retried and update last fired timestamp
-                                    self._no_audio_retry_attempted.add(resp_id)
-                                    self._no_audio_last_fired_ts = now
-                                    
-                                    # Log the issue with detailed state
-                                    _orig_print(
-                                        f"🚨 [NO_AUDIO_WATCHDOG] FIRED! resp={resp_id[:12]}... "
-                                        f"transcript_deltas={transcript_count} audio_deltas=0 - SILENT RESPONSE DETECTED",
-                                        flush=True
-                                    )
-                                    logger.error(f"[NO_AUDIO_WATCHDOG] Silent response detected: {resp_id[:20]}... transcript_deltas={transcript_count}")
-                                    
-                                    # Recovery: Cancel current response and create new one
-                                    recovery_success = False
-                                    try:
-                                        # 1. Cancel silent response
-                                        if self.active_response_id == resp_id:
-                                            print(f"🔄 [NO_AUDIO_WATCHDOG] Step 1: Cancelling silent response: {resp_id[:20]}...")
-                                            await self.realtime_client.cancel_response(resp_id)
-                                            logger.info(f"[NO_AUDIO_WATCHDOG] Cancelled silent response")
-                                            print(f"✅ [NO_AUDIO_WATCHDOG] cancel sent")
-                                        
-                                        # Rule 4: Clear stuck flags to prevent "stuck on flags" issue
-                                        # These flags are tied to the cancelled response
-                                        if self.active_response_id == resp_id:
-                                            print(f"🧹 [NO_AUDIO_WATCHDOG] Step 2: Clearing response flags...")
-                                            self.active_response_id = None
-                                            self.is_ai_speaking_event.clear()
-                                            if hasattr(self, 'ai_response_active'):
-                                                self.ai_response_active = False
-                                            if hasattr(self, 'speaking'):
-                                                self.speaking = False
-                                            print(f"✅ [NO_AUDIO_WATCHDOG] flags cleared (active_response_id=None, is_ai_speaking=False, ai_response_active=False)")
-                                        
-                                        # 2. Wait a moment for cancel to complete
-                                        await asyncio.sleep(0.3)
-                                        
-                                        # 3. Create new response (retry once)
-                                        print(f"🔄 [NO_AUDIO_WATCHDOG] Step 3: Creating retry response...")
-                                        triggered = await self.trigger_response("NO_AUDIO_WATCHDOG_RETRY", self.realtime_client)
-                                        if triggered:
-                                            recovery_success = True
-                                            _orig_print(f"✅ [NO_AUDIO_WATCHDOG] Retry response created - recovery complete", flush=True)
-                                            _orig_print(f"⏰ [NO_AUDIO_WATCHDOG] Cooldown started ({self._no_audio_cooldown_sec}s)", flush=True)
-                                        else:
-                                            _orig_print(f"⚠️ [NO_AUDIO_WATCHDOG] Retry blocked by guards", flush=True)
-                                    
-                                    except Exception as recovery_err:
-                                        logger.error(f"[NO_AUDIO_WATCHDOG] Recovery failed: {recovery_err}")
-                                        _orig_print(f"❌ [NO_AUDIO_WATCHDOG] Recovery error: {recovery_err}", flush=True)
-                                    
-                                    # Log recovery result
-                                    result_str = "success" if recovery_success else "fail"
-                                    _orig_print(
-                                        f"📊 [NO_AUDIO_WATCHDOG] Recovery result: {result_str} | "
-                                        f"fired -> cancel -> retry -> {result_str} -> cooldown_start",
-                                        flush=True
-                                    )
-                                
-                            except asyncio.CancelledError:
-                                # Watchdog was cancelled (normal - response completed with audio)
-                                pass
-                            except Exception as e:
-                                logger.error(f"[NO_AUDIO_WATCHDOG] Task error: {e}")
-                        
-                        # Start the watchdog task
-                        asyncio.create_task(_no_audio_watchdog_task(response_id))
+                        # ✅ REMOVED: NO_AUDIO_WATCHDOG per new requirements
+                        # No watchdog tasks - trust the flow
                         
                         # Cleanup old entries (TTL)
                         now_monotonic = time.monotonic()
@@ -5071,34 +4908,16 @@ class MediaStreamHandler:
                                     print("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
                         
-                        # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
+                        # ✅ SIMPLIFIED: Set single flag for AI audio playback
                         now = time.time()
                         
-                        # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
-                        # This guarantees the flag tracks actual audio playback
-                        # 🔥 STATE FIX: This is the CORRECT place to set is_ai_speaking (not on response.created)
-                        if not self.is_ai_speaking_event.is_set():
-                            # 🚫 Production mode: Only log in DEBUG
-                            if DEBUG:
-                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
-                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
-                            self.ai_speaking_start_ts = now
-                            self.speaking_start_ts = now
-                            self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
-                            # 🔥 Track AI audio start time for metrics
-                            self._last_ai_audio_start_ts = now
-                            # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
-                            if self._cancelled_response_needs_recovery:
-                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
-                                self._cancelled_response_needs_recovery = False
+                        # Set ai_audio_playing = TRUE on first audio.delta
+                        if not self.ai_audio_playing:
+                            print(f"🔊 [SIMPLE_BARGE_IN] AI started outputting audio - ai_audio_playing=True")
+                            self.ai_audio_playing = True
                         
-                        # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
-                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
-                        # Don't reset timestamps on subsequent chunks!
-                        self.has_pending_ai_response = True  # AI is generating response
+                        # Update timestamp on every delta
                         self.last_ai_audio_ts = now
-                        # 🔥 ECHO_GUARD: Track timestamp for echo detection
-                        self._last_ai_audio_ts = now
                         
                         # 💰 COST TRACKING: Count AI audio chunks
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
@@ -5255,13 +5074,10 @@ class MediaStreamHandler:
                             print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)")
                             asyncio.create_task(self._start_silence_monitor())
                     
-                    # Don't process - would cause duplicate playback
-                    # 🎯 Mark AI response complete
-                    if self.is_ai_speaking_event.is_set():
-                        print(f"🔇 [REALTIME] AI stopped speaking ({event_type})")
-                    self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
-                    self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
-                    self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
+                    # ✅ SIMPLIFIED: Clear ai_audio_playing flag
+                    if event_type == "response.audio.done":
+                        print(f"🔇 [SIMPLE_BARGE_IN] AI stopped outputting audio - ai_audio_playing=False")
+                        self.ai_audio_playing = False
                     
                     # 🔥 Track when AI finished speaking (for metrics only, no cooldown enforcement)
                     self._ai_finished_speaking_ts = time.time()
@@ -8936,115 +8752,101 @@ class MediaStreamHandler:
                         self._recent_audio_rms = 0.3 * rms + 0.7 * self._recent_audio_rms
                     
                     # ═══════════════════════════════════════════════════════════════════════════════
-                    # 🔥 AUDIO-ONLY BARGE-IN DETECTION - Debounced RMS-based trigger
-                    # ═══════════════════════════════════════════════════════════════════════════════
-                    # 🎯 FIX: Cancel decision must be AUDIO-ONLY with proper guards
+                    # ✅ SIMPLIFIED BARGE-IN DETECTION
+                    # Per new requirements: Simple detection + only 2 actions
                     # 
-                    # Requirements:
-                    # 1. Track consecutive frames above threshold (5-8 frames = 100-160ms)
-                    # 2. Only cancel if is_ai_speaking=True AND active_response_id exists AND NOT greeting_lock
-                    # 3. Don't use transcription.completed for cancel decision (only post-cancel handling)
+                    # Detection: Speech start + ai_audio_playing==True + recent audio (< 0.8s)
+                    # Action: (1) Twilio clear event, (2) Flush local TX queue
+                    # Debounce: Simple 0.5s cooldown
                     # 
-                    # This ensures:
-                    # - No false triggers from single noise frames
-                    # - Real-time response (100-160ms latency)
-                    # - Proper state validation before cancel
-                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # NO cancel to OpenAI, NO pending text, NO recovery logic
                     if ENABLE_BARGE_IN and USE_REALTIME_API:
-                        # Initialize barge-in detection state
+                        # Initialize if needed
                         if not hasattr(self, '_barge_in_consec_frames'):
                             self._barge_in_consec_frames = 0
                         if not hasattr(self, '_barge_in_threshold'):
-                            # Separate threshold from VAD - lower for faster detection
                             noise_floor_rms = getattr(self, 'noise_floor', 20.0)
                             self._barge_in_threshold = max(noise_floor_rms + 12, 35)
                         
-                        # Update barge-in threshold after calibration completes
+                        # Update threshold after calibration
                         if getattr(self, 'is_calibrated', False) and hasattr(self, 'noise_floor'):
                             self._barge_in_threshold = max(self.noise_floor + 12, 35)
                         
-                        # 🎯 FIX: Check ALL required guards before counting frames
-                        ai_is_speaking = (
-                            getattr(self, 'is_ai_speaking_event', None) and 
-                            self.is_ai_speaking_event.is_set()
+                        # Check conditions for barge-in
+                        now = time.time()
+                        time_since_last_audio = now - self.last_ai_audio_ts if self.last_ai_audio_ts > 0 else 999
+                        can_barge_in = (
+                            self.ai_audio_playing and  # AI is currently outputting audio
+                            time_since_last_audio < 0.8 and  # Audio is recent (< 800ms ago)
+                            not getattr(self, 'greeting_lock_active', False)  # Not during greeting
                         )
-                        has_active_response = bool(getattr(self, 'active_response_id', None))
-                        is_greeting_locked = bool(getattr(self, 'greeting_lock_active', False))
-                        already_barging_in = bool(getattr(self, 'barge_in_active', False))
-                        has_pending_cancel = bool(getattr(self, '_barge_in_pending_cancel', False))
                         
-                        # Track consecutive frames above barge-in threshold
-                        # Only count if ALL guards pass: ai_is_speaking AND has_response AND NOT greeting_locked
-                        if (ai_is_speaking and has_active_response and not is_greeting_locked and 
-                            rms > self._barge_in_threshold and not already_barging_in):
+                        # Track consecutive frames above threshold
+                        if can_barge_in and rms > self._barge_in_threshold:
                             self._barge_in_consec_frames += 1
                         else:
-                            # Reset counter if any guard fails or RMS drops
                             self._barge_in_consec_frames = 0
                         
-                        # 🎯 FIX: Use 5-8 frames (100-160ms) for reliable debouncing
-                        # Config BARGE_IN_VOICE_FRAMES default is 4, but we use minimum of 5 for safety
-                        # 🎯 SAFETY CHECK 4: Adaptive debounce - increase frames for low thresholds
-                        # If threshold < 30 (very quiet/sensitive), use 7-8 frames to prevent clicks
-                        if self._barge_in_threshold < 30:
-                            MIN_BARGE_IN_FRAMES = max(7, BARGE_IN_VOICE_FRAMES)  # 7-8 frames = 140-160ms for sensitive
-                            logger.debug(f"[BARGE_IN_AUDIO] Low threshold ({self._barge_in_threshold:.1f}) - using {MIN_BARGE_IN_FRAMES} frames")
-                        else:
-                            MIN_BARGE_IN_FRAMES = max(5, BARGE_IN_VOICE_FRAMES)  # At least 5 frames = 100ms
-                        
-                        # Trigger barge-in if we have enough consecutive frames AND all guards pass
-                        if (self._barge_in_consec_frames >= MIN_BARGE_IN_FRAMES and 
-                            not already_barging_in and not has_pending_cancel):
+                        # Trigger barge-in after 5 consecutive frames (100ms)
+                        if self._barge_in_consec_frames >= 5:
+                            # Debounce: Skip if recent barge-in (< 0.5s ago)
+                            if now - self.last_barge_in_ts < 0.5:
+                                self._barge_in_consec_frames = 0
+                                continue
                             
-                            # AUDIO-ONLY BARGE-IN DETECTED!
+                            # BARGE-IN DETECTED!
                             logger.info(
-                                f"[BARGE_IN_AUDIO] Detected! rms={rms:.1f} > threshold={self._barge_in_threshold:.1f} "
-                                f"for {self._barge_in_consec_frames} frames ({self._barge_in_consec_frames * 20}ms)"
+                                f"[SIMPLE_BARGE_IN] User interrupting! rms={rms:.1f} > {self._barge_in_threshold:.1f} "
+                                f"for {self._barge_in_consec_frames} frames"
                             )
-                            print(
-                                f"🎤 [BARGE_IN_AUDIO] User interrupting AI! "
-                                f"rms={rms:.1f}, threshold={self._barge_in_threshold:.1f}, "
-                                f"frames={self._barge_in_consec_frames}"
-                            )
+                            print(f"🎤 [SIMPLE_BARGE_IN] User interrupting AI!")
                             
-                            # 🎯 Step 1: Snapshot active_response_id BEFORE any state changes
-                            # This prevents race conditions if SAFETY_FUSE or other code modifies it
-                            active_response_id_snapshot = self.active_response_id
+                            # Update timestamp
+                            self.last_barge_in_ts = now
                             
-                            if active_response_id_snapshot:
-                                # 🎯 Step 2: Set pending flag to lock response state
-                                # This prevents SAFETY_FUSE from resetting active_response_id during cancel
-                                self._barge_in_pending_cancel = True
-                                self._barge_in_speech_frames_count = self._barge_in_consec_frames
-                                self._last_barge_in_ts = time.time()
-                                
-                                logger.info(f"[BARGE_IN_AUDIO] Scheduling cancel for: {active_response_id_snapshot[:20]}...")
-                                print(f"🔒 [BARGE_IN_AUDIO] Locked response state for cancel: {active_response_id_snapshot[:20]}...")
-                                
-                                # 🎯 Step 3: Schedule async cancel execution
-                                async def _execute_cancel():
-                                    try:
-                                        await self._execute_atomic_barge_in_cancel("barge_in_audio_frames", active_response_id_snapshot)
-                                        logger.info(f"[BARGE_IN_AUDIO] ✅ Cancel complete for: {active_response_id_snapshot[:20]}...")
-                                    except Exception as e:
-                                        logger.error(f"[BARGE_IN_AUDIO] ❌ Cancel failed: {e}")
-                                    # Note: Pending flag will be released in response.done/cancelled handler
-                                
-                                # Create task to execute cancel
+                            # Action 1: Send Twilio clear event (stop buffered audio at Twilio)
+                            if self.stream_sid:
                                 try:
+                                    clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                    self._ws_send(json.dumps(clear_event))
+                                    print(f"✅ [SIMPLE_BARGE_IN] Sent Twilio clear event")
+                                except Exception as e:
+                                    logger.warning(f"[SIMPLE_BARGE_IN] Failed to send Twilio clear: {e}")
+                            
+                            # Action 2: Flush local TX queue (stop queued audio from being sent)
+                            try:
+                                # Flush realtime_audio_out_queue
+                                flushed_realtime = 0
+                                if hasattr(self, 'realtime_audio_out_queue'):
+                                    while True:
+                                        try:
+                                            self.realtime_audio_out_queue.get_nowait()
+                                            flushed_realtime += 1
+                                        except queue.Empty:
+                                            break
+                                
+                                # Flush tx_q
+                                flushed_tx = 0
+                                if hasattr(self, 'tx_q'):
+                                    while True:
+                                        try:
+                                            self.tx_q.get_nowait()
+                                            flushed_tx += 1
+                                        except queue.Empty:
+                                            break
+                                
+                                if flushed_realtime + flushed_tx > 0:
+                                    print(f"✅ [SIMPLE_BARGE_IN] Flushed {flushed_realtime + flushed_tx} frames from queues")
+                            except Exception as e:
+                                logger.warning(f"[SIMPLE_BARGE_IN] Failed to flush queues: {e}")
+                            
+                            # Reset counter
+                            self._barge_in_consec_frames = 0
+                            
+                            # Continue processing - user audio goes to model normally
+
                                     loop = asyncio.get_event_loop()
                                     loop.create_task(_execute_cancel())
-                                except RuntimeError:
-                                    # No event loop in current thread (rare race condition)
-                                    # This occurs if barge-in is detected before async event loop starts
-                                    # Fallback: speech_started event handler will execute cancel via OpenAI API
-                                    # The pending flag ensures cancel happens eventually
-                                    logger.debug("[BARGE_IN_AUDIO] No event loop - cancel will be handled by speech_started")
-                            else:
-                                logger.debug("[BARGE_IN_AUDIO] No active response to cancel")
-                            
-                            # Reset consecutive frames counter
-                            self._barge_in_consec_frames = 0
                     
                     # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
                     # This prevents Whisper/Realtime from hallucinating on background noise
