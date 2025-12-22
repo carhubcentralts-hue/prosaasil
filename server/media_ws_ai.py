@@ -1788,6 +1788,16 @@ class MediaStreamHandler:
         self.last_ai_audio_ts = 0.0  # Timestamp of last audio delta received
         self.last_barge_in_ts = 0.0  # For simple debounce (0.5s)
         
+        # ✅ CRITICAL FIX 1: Drop AI audio after barge-in until response completes
+        # When user interrupts, OpenAI continues generating audio in background
+        # We must drop those deltas (not send to Twilio) until response.done
+        self.drop_ai_audio_until_done = False  # Set TRUE on barge-in, FALSE on response.done
+        
+        # ✅ CRITICAL FIX 2: Prevent conversation_already_has_active_response error
+        # Simple flag to track if OpenAI has an active response
+        # TRUE on response.created, FALSE on response.done/response.cancelled
+        self.openai_response_in_progress = False
+        
         # 🚀 PARALLEL STARTUP: Event to signal business info is ready
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
         self.last_user_turn_id = None  # Last user conversation item ID
@@ -3705,15 +3715,12 @@ class MediaStreamHandler:
             print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
-        # 🔥 TEXT BARGE-IN GUARD: Block response.create if active response exists
+        # ✅ CRITICAL FIX 2: Block response.create if OpenAI response is in progress
         # Prevents "conversation_already_has_active_response" error
-        # Rule 2: Check BOTH conditions - active_response_id AND ai_response_active
-        has_active_response_id = bool(getattr(self, 'active_response_id', None))
-        has_ai_response_active = getattr(self, 'ai_response_active', False)
-        
-        if (has_active_response_id or has_ai_response_active) and not is_greeting and not force:
-            print(f"🛑 [RESPONSE GUARD] Active response exists - blocking response.create ({reason})")
-            logger.debug(f"[RESPONSE GUARD] active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}..., ai_response_active={has_ai_response_active}")
+        # Simple flag: TRUE on response.created, FALSE on response.done/response.cancelled
+        if self.openai_response_in_progress and not is_greeting and not force:
+            print(f"🛑 [API_GUARD] OpenAI response in progress - blocking response.create ({reason})")
+            print(f"   This prevents conversation_already_has_active_response error")
             return False
         
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
@@ -4116,6 +4123,14 @@ class MediaStreamHandler:
                                 del self._completed_response_timestamps[rid]
                         
                         if resp_id and self.active_response_id == resp_id:
+                            # ✅ CRITICAL FIX 2: Clear openai_response_in_progress
+                            self.openai_response_in_progress = False
+                            _orig_print(f"✅ [API_GUARD] openai_response_in_progress=False (response.done, can create new response)", flush=True)
+                            
+                            # ✅ CRITICAL FIX 1: Clear drop_ai_audio_until_done
+                            self.drop_ai_audio_until_done = False
+                            _orig_print(f"✅ [BARGE_IN_AUDIO] drop_ai_audio_until_done=False (response completed)", flush=True)
+                            
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
@@ -4124,28 +4139,18 @@ class MediaStreamHandler:
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
                             
-                            # 🎯 BARGE-IN FIX: Release pending flag if this was a cancelled response
-                            # 🔥 TEXT BARGE-IN: Create response from pending text after response completes
-                            if getattr(self, '_barge_in_pending_cancel', False):
-                                self._barge_in_pending_cancel = False
-                                logger.info(f"[BARGE-IN] ✅ Released pending flag on response.done (response_id={resp_id[:20] if resp_id else 'None'}...)")
-                                
-                                # Check if we have pending user text to process
-                                if self._pending_user_text:
-                                    txt = self._pending_user_text
-                                    self._pending_user_text = None
-                                    # Smoke Test: Log completion sequence
-                                    print(f"🎯 [TEXT_BARGE_IN] response.done -> creating response.create")
-                                    await self._create_response_from_text(txt)
-                                    self._barge_in_event_count += 1
-                                    logger.info(f"[TEXT_BARGE_IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
-                                    print(f"✅ [TEXT_BARGE_IN] Flow complete: detected -> cancel -> twilio_clear -> response.done -> response.create")
-
+                            # ✅ REMOVED: TEXT_BARGE_IN pending text logic per new requirements
+                            # No pending text, no recovery - simplified flow
                             
                             _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
+                            # ✅ CRITICAL FIX 2: Clear openai_response_in_progress even on mismatch
+                            self.openai_response_in_progress = False
+                            # ✅ CRITICAL FIX 1: Clear drop_ai_audio_until_done even on mismatch
+                            self.drop_ai_audio_until_done = False
+                            
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
@@ -4223,24 +4228,21 @@ class MediaStreamHandler:
                     
                     # Clear state for this response
                     if cancelled_resp_id and self.active_response_id == cancelled_resp_id:
+                        # ✅ CRITICAL FIX 2: Clear openai_response_in_progress
+                        self.openai_response_in_progress = False
+                        _orig_print(f"✅ [API_GUARD] openai_response_in_progress=False (response.cancelled, can create new response)", flush=True)
+                        
+                        # ✅ CRITICAL FIX 1: Clear drop_ai_audio_until_done
+                        self.drop_ai_audio_until_done = False
+                        _orig_print(f"✅ [BARGE_IN_AUDIO] drop_ai_audio_until_done=False (response cancelled)", flush=True)
+                        
                         self.active_response_id = None
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
                         print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
                     
-                    # 🔥 TEXT BARGE-IN: Create response from pending text after cancel completes
-                    if self._barge_in_pending_cancel:
-                        self._barge_in_pending_cancel = False
-                        if self._pending_user_text:
-                            txt = self._pending_user_text
-                            self._pending_user_text = None
-                            # Smoke Test: Log completion sequence
-                            print(f"🎯 [TEXT_BARGE_IN] response.cancelled -> creating response.create")
-                            await self._create_response_from_text(txt)
-                            self._barge_in_event_count += 1
-                            logger.info(f"[TEXT_BARGE_IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
-                            print(f"✅ [TEXT_BARGE_IN] Flow complete: detected -> cancel -> twilio_clear -> response.cancelled -> response.create")
-
+                    # ✅ REMOVED: TEXT_BARGE_IN pending text logic per new requirements
+                    # No pending text, no recovery - simplified flow
                 
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
@@ -4678,6 +4680,11 @@ class MediaStreamHandler:
                     status = response.get("status", "?")
                     _orig_print(f"🎯 [RESPONSE.CREATED] id={response_id[:20] if response_id else '?'}... status={status} modalities={modalities} output_format={output_audio_format}", flush=True)
                     if response_id:
+                        # ✅ CRITICAL FIX 2: Set openai_response_in_progress=True
+                        # This prevents conversation_already_has_active_response error
+                        self.openai_response_in_progress = True
+                        _orig_print(f"✅ [API_GUARD] openai_response_in_progress=True (prevents duplicate response.create)", flush=True)
+                        
                         # 🔥 BARGE-IN FIX: Set BOTH active_response_id AND ai_response_active immediately
                         # Per הנחיה: Enable barge-in detection on response.created (not audio.delta)
                         # This allows cancellation even if audio hasn't started yet
@@ -4907,6 +4914,14 @@ class MediaStreamHandler:
                                 except Exception:
                                     print("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
+                        
+                        # ✅ CRITICAL FIX 1: Drop AI audio after barge-in until response completes
+                        # When user interrupts, OpenAI continues generating audio in background
+                        # We must drop those deltas (not send to Twilio) until response.done
+                        if self.drop_ai_audio_until_done:
+                            if DEBUG:
+                                print(f"⏭️ [BARGE_IN_AUDIO] Dropping AI audio delta (user interrupted, waiting for response.done)")
+                            continue  # Skip this audio delta - don't send to Twilio
                         
                         # ✅ SIMPLIFIED: Set single flag for AI audio playback
                         now = time.time()
@@ -8708,6 +8723,11 @@ class MediaStreamHandler:
                             # Update timestamp
                             self.last_barge_in_ts = now
                             
+                            # ✅ CRITICAL FIX 1: Set drop_ai_audio_until_done flag
+                            # OpenAI will continue generating audio in background - we must drop it
+                            self.drop_ai_audio_until_done = True
+                            print(f"✅ [BARGE_IN_AUDIO] drop_ai_audio_until_done=True (will drop AI audio until response.done)")
+                            
                             # Action 1: Send Twilio clear event (stop buffered audio at Twilio)
                             if self.stream_sid:
                                 try:
@@ -8748,9 +8768,6 @@ class MediaStreamHandler:
                             self._barge_in_consec_frames = 0
                             
                             # Continue processing - user audio goes to model normally
-
-                                    loop = asyncio.get_event_loop()
-                                    loop.create_task(_execute_cancel())
                     
                     # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
                     # This prevents Whisper/Realtime from hallucinating on background noise
