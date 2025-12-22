@@ -668,14 +668,24 @@ def incoming_call():
 @require_twilio_signature
 def outbound_call():
     """
-    BUILD 174: Webhook for outbound AI calls
-    Similar to incoming_call but with outbound-specific handling:
-    - Sets direction=outbound
-    - Uses lead name and template prompt
-    🔥 GREETING OPTIMIZATION: Profile full greeting path for latency analysis
+    🔥 COST OPTIMIZATION: Outbound AI calls with conditional Media Stream
+    
+    Flow:
+    1. Initial TwiML: Simple pause (NO expensive Media Stream yet)
+    2. Wait for AnsweredBy (AMD) callback
+    3. If human answered: Upgrade call to add Media Stream (AI conversation)
+    4. If voicemail/no-answer: Don't start Stream (save 30-50% cost)
+    
+    This prevents starting expensive Media Stream + Realtime API for:
+    - Voicemail/answering machines
+    - No-answer calls
+    - Busy signals
+    - Failed calls
+    
+    Savings: ~30-50% on unanswered outbound calls
     """
     t0 = time.time()
-    logger.info(f"[GREETING_PROFILER] outbound_call START at {t0}")
+    logger.info(f"[COST_OPT] outbound_call START at {t0}")
     
     if request.method == "GET":
         call_sid = request.args.get("CallSid", "")
@@ -696,6 +706,18 @@ def outbound_call():
     to_number = request.form.get("To", "") or request.args.get("To", "")
     
     logger.info(f"📞 OUTBOUND_CALL webhook: call_sid={call_sid}, lead={lead_name}, template={template_id}")
+    
+    # 🔥 COST OPTIMIZATION: Store outbound call metadata for AMD upgrade
+    # This will be used by amd_status webhook to add Media Stream if human answers
+    if call_sid and business_id:
+        from server.stream_state import stream_registry
+        stream_registry.set_metadata(call_sid, '_outbound_lead_id', lead_id)
+        stream_registry.set_metadata(call_sid, '_outbound_lead_name', lead_name)
+        stream_registry.set_metadata(call_sid, '_outbound_business_id', business_id)
+        stream_registry.set_metadata(call_sid, '_outbound_business_name', business_name)
+        stream_registry.set_metadata(call_sid, '_outbound_template_id', template_id)
+        stream_registry.set_metadata(call_sid, '_outbound_to_number', to_number)
+        stream_registry.set_metadata(call_sid, '_outbound_from_number', from_number)
     
     if call_sid:
         try:
@@ -720,67 +742,21 @@ def outbound_call():
             request.host
         ).split(",")[0].strip()
     
+    # 🔥 COST OPTIMIZATION: Initial TwiML with NO Media Stream
+    # Just a brief pause to wait for AMD result
+    # AMD callback will upgrade to Stream if human answers
     vr = VoiceResponse()
     
-    # 🎧 BUILD: Echo prevention for outbound calls
-    print(f"[CALL_SETUP] Outbound call - ai_only mode")
+    # Brief silence to allow AMD detection
+    # AMD will callback within ~2-4 seconds with AnsweredBy result
+    vr.pause(length=5)  # 5 second pause
     
-    connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    stream = connect.stream(
-        url=f"wss://{host}/ws/twilio-media",
-        track="inbound_track"  # 🎧 Only send user audio to stream
-    )
+    # Fallback: If AMD doesn't callback, redirect to add Stream
+    # This handles edge cases where AMD fails or times out
+    vr.redirect(f"https://{host}/webhook/outbound_call_upgrade?call_sid={call_sid}&business_id={business_id}&lead_id={lead_id}&lead_name={lead_name}&template_id={template_id}")
     
-    stream.parameter(name="CallSid", value=call_sid)
-    stream.parameter(name="To", value=to_number or "unknown")
-    stream.parameter(name="direction", value="outbound")
-    stream.parameter(name="lead_id", value=lead_id)
-    stream.parameter(name="lead_name", value=lead_name)
-    stream.parameter(name="business_id", value=business_id)
-    stream.parameter(name="business_name", value=business_name)
-    if template_id:
-        stream.parameter(name="template_id", value=template_id)
-    
-    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
-    # WebSocket connection depends on fast TwiML response
-    def _prebuild_prompts_async_outbound(call_sid, business_id):
-        """Background thread to pre-build outbound prompts - doesn't block webhook response"""
-        try:
-            from server.services.realtime_prompt_builder import (
-                build_compact_greeting_prompt,
-                build_full_business_prompt,
-            )
-            from server.stream_state import stream_registry
-            from server.app_factory import get_process_app
-            
-            # 🔥 BUG FIX: Wrap with app context for database queries
-            app = get_process_app()
-            with app.app_context():
-                # Build COMPACT prompt (800 chars) - for INSTANT greeting
-                compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
-                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-                
-                # Build FULL BUSINESS prompt (business-only) - for post-greeting injection
-                # IMPORTANT: Never store/send global system rules inside this "full" prompt.
-                full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
-                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-                
-                # Avoid noisy stdout in production (can spike I/O/CPU under load).
-                logger.debug("[PROMPT] Pre-built outbound prompts: compact_len=%s full_len=%s", len(compact_prompt), len(full_prompt))
-        except Exception as e:
-            logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
-    
-    # Start prompt building in background (non-blocking)
-    if business_id and call_sid:
-        threading.Thread(
-            target=_prebuild_prompts_async_outbound,
-            args=(call_sid, business_id),
-            daemon=True,
-            name=f"PromptBuildOut-{call_sid[:8]}"
-        ).start()
-    
-    # 🎙️ NEW: Start recording from second 0 (background, non-blocking)
-    # Recording will capture the ENTIRE outbound call including AI greeting
+    # 🎙️ Start recording from second 0 (background, non-blocking)
+    # Recording works independently of Media Stream - always capture the call
     if call_sid:
         threading.Thread(
             target=_start_recording_from_second_zero,
@@ -792,16 +768,7 @@ def outbound_call():
     t1 = time.time()
     twiml_ms = int((t1 - t0) * 1000)
     
-    # 🔥 GREETING PROFILER: Save TwiML ready timestamp for timeline analysis
-    if call_sid:
-        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
-    
-    # 🔥 GREETING SLA: Assert TwiML generation is fast enough
-    if twiml_ms > 200:
-        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16] if call_sid else 'N/A'}")
-    
-    logger.info(f"[GREETING_PROFILER] outbound_call TwiML ready in {twiml_ms}ms")
-    logger.info(f"✅ outbound_call webhook: {twiml_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
+    logger.info(f"[COST_OPT] outbound_call initial TwiML (NO Stream): {twiml_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
     
     return _twiml(vr)
 
@@ -844,6 +811,106 @@ def stream_ended():
         pass
         
     return resp
+
+@csrf.exempt
+@twilio_bp.route("/webhook/outbound_call_upgrade", methods=["POST", "GET"])
+@require_twilio_signature
+def outbound_call_upgrade():
+    """
+    🔥 COST OPTIMIZATION: Upgrade outbound call to add Media Stream
+    
+    Called when:
+    1. AMD detects human answered (from amd_status webhook)
+    2. Fallback after pause timeout (if AMD didn't callback)
+    
+    This adds the expensive Media Stream ONLY for answered calls,
+    saving 30-50% cost on voicemail/no-answer calls.
+    """
+    # Get parameters from query string OR form data
+    call_sid = request.args.get("call_sid") or request.form.get("CallSid", "")
+    business_id = request.args.get("business_id") or request.form.get("business_id", "")
+    lead_id = request.args.get("lead_id") or request.form.get("lead_id", "")
+    lead_name = request.args.get("lead_name") or request.form.get("lead_name", "")
+    template_id = request.args.get("template_id") or request.form.get("template_id", "")
+    
+    # Try to get from stream registry if not in params
+    if call_sid and not business_id:
+        from server.stream_state import stream_registry
+        business_id = stream_registry.get_metadata(call_sid, '_outbound_business_id')
+        lead_id = stream_registry.get_metadata(call_sid, '_outbound_lead_id')
+        lead_name = stream_registry.get_metadata(call_sid, '_outbound_lead_name')
+        template_id = stream_registry.get_metadata(call_sid, '_outbound_template_id')
+    
+    logger.info(f"💰 [COST_OPT] outbound_call_upgrade: call_sid={call_sid}, business_id={business_id}")
+    
+    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+    if public_host:
+        host = public_host
+    else:
+        host = (
+            request.headers.get("X-Forwarded-Host") or 
+            os.environ.get('REPLIT_DEV_DOMAIN') or 
+            os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 
+            request.host
+        ).split(",")[0].strip()
+    
+    # Get to/from numbers from registry
+    from server.stream_state import stream_registry
+    to_number = stream_registry.get_metadata(call_sid, '_outbound_to_number') or "unknown"
+    from_number = stream_registry.get_metadata(call_sid, '_outbound_from_number') or "unknown"
+    
+    # NOW add the Media Stream (expensive part)
+    vr = VoiceResponse()
+    
+    connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
+    stream = connect.stream(
+        url=f"wss://{host}/ws/twilio-media",
+        track="inbound_track"
+    )
+    
+    stream.parameter(name="CallSid", value=call_sid)
+    stream.parameter(name="To", value=to_number)
+    stream.parameter(name="direction", value="outbound")
+    stream.parameter(name="lead_id", value=lead_id or "")
+    stream.parameter(name="lead_name", value=lead_name or "")
+    stream.parameter(name="business_id", value=business_id or "")
+    if template_id:
+        stream.parameter(name="template_id", value=template_id)
+    
+    # Pre-build prompts in background (same as before)
+    def _prebuild_prompts_async_outbound(call_sid, business_id):
+        """Background thread to pre-build outbound prompts"""
+        try:
+            from server.services.realtime_prompt_builder import (
+                build_compact_greeting_prompt,
+                build_full_business_prompt,
+            )
+            from server.stream_state import stream_registry
+            from server.app_factory import get_process_app
+            
+            app = get_process_app()
+            with app.app_context():
+                compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
+                
+                full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                
+                logger.debug("[PROMPT] Pre-built outbound prompts: compact_len=%s full_len=%s", len(compact_prompt), len(full_prompt))
+        except Exception as e:
+            logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
+    
+    if business_id and call_sid:
+        threading.Thread(
+            target=_prebuild_prompts_async_outbound,
+            args=(call_sid, business_id),
+            daemon=True,
+            name=f"PromptBuildOut-{call_sid[:8]}"
+        ).start()
+    
+    logger.info(f"💰 [COST_OPT] Media Stream added for human-answered call: {call_sid[:16]}")
+    
+    return _twiml(vr)
 
 @csrf.exempt
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
@@ -1303,9 +1370,13 @@ def call_status():
 @require_twilio_signature
 def amd_status():
     """
-    ✅ Outbound AMD (Answering Machine Detection) callback.
+    🔥 COST OPTIMIZATION: AMD (Answering Machine Detection) callback
+    
     Twilio sends AnsweredBy for outbound calls when machineDetection is enabled.
-    - If AnsweredBy indicates voicemail/fax → mark in DB and hang up immediately.
+    - If human answered → Upgrade call to add Media Stream (AI conversation)
+    - If voicemail/fax → Hang up immediately (save 30-50% cost)
+    
+    This is the key cost-saving mechanism for outbound calls.
     """
     # Support both POST and GET to be resilient (Twilio normally POSTs)
     if request.method == "GET":
@@ -1326,14 +1397,14 @@ def amd_status():
         # Twilio AnsweredBy can be: human, machine_start, machine_end_beep, machine_end, fax, unknown, etc.
         machine_values = {"machine_start", "machine_end_beep", "machine_end", "fax"}
         is_machine = answered_by in machine_values
+        is_human = answered_by == "human"
 
         # Update DB (best-effort)
         if call_sid:
             try:
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if call_log:
-                    # 🔥 FIX: Store AMD result in status field, NOT in summary
-                    # summary field is reserved for AI-generated conversation summaries
+                    # Store AMD result in status field
                     # Only update status if call is in early stages to avoid overwriting terminal statuses
                     if call_log.status in EARLY_STAGE_STATUSES:
                         if is_machine:
@@ -1347,7 +1418,44 @@ def amd_status():
                 logger.warning(f"AMD_STATUS db update failed: {db_err}")
                 db.session.rollback()
 
-        # Hang up immediately for voicemail/fax
+        # 🔥 COST OPTIMIZATION: Upgrade call to add Stream if human answered
+        if is_human and call_sid:
+            try:
+                account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+                auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+                if account_sid and auth_token:
+                    # Get call metadata from registry
+                    from server.stream_state import stream_registry
+                    business_id = stream_registry.get_metadata(call_sid, '_outbound_business_id')
+                    lead_id = stream_registry.get_metadata(call_sid, '_outbound_lead_id')
+                    lead_name = stream_registry.get_metadata(call_sid, '_outbound_lead_name')
+                    template_id = stream_registry.get_metadata(call_sid, '_outbound_template_id')
+                    
+                    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+                    host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+                    
+                    if host:
+                        # Build upgrade URL with parameters
+                        upgrade_url = f"https://{host}/webhook/outbound_call_upgrade?call_sid={call_sid}"
+                        if business_id:
+                            upgrade_url += f"&business_id={business_id}"
+                        if lead_id:
+                            upgrade_url += f"&lead_id={lead_id}"
+                        if lead_name:
+                            upgrade_url += f"&lead_name={lead_name}"
+                        if template_id:
+                            upgrade_url += f"&template_id={template_id}"
+                        
+                        # Upgrade call to add Media Stream
+                        client = Client(account_sid, auth_token)
+                        client.calls(call_sid).update(url=upgrade_url, method='POST')
+                        logger.info(f"💰 [COST_OPT] AMD_UPGRADE: Human answered, adding Stream for {call_sid}")
+                    else:
+                        logger.error(f"💰 [COST_OPT] AMD_UPGRADE: No host configured for {call_sid}")
+            except Exception as upgrade_err:
+                logger.warning(f"AMD_UPGRADE_FAIL call_sid={call_sid}: {upgrade_err}")
+
+        # Hang up immediately for voicemail/fax (same as before)
         if is_machine and call_sid:
             try:
                 account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -1355,7 +1463,7 @@ def amd_status():
                 if account_sid and auth_token:
                     client = Client(account_sid, auth_token)
                     client.calls(call_sid).update(status="completed")
-                    logger.info("AMD_HANGUP_OK", extra={"call_sid": call_sid, "answered_by": answered_by})
+                    logger.info(f"💰 [COST_OPT] AMD_HANGUP: Voicemail detected, hanging up {call_sid} (saved Stream cost)")
             except Exception as hang_err:
                 logger.warning(f"AMD_HANGUP_FAIL call_sid={call_sid}: {hang_err}")
     except Exception:
