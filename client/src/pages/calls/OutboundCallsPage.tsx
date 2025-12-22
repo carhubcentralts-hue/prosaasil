@@ -140,10 +140,10 @@ export function OutboundCallsPage() {
     retry: 1,
   });
 
-  // Fetch lead statuses for Kanban
+  // Fetch lead statuses for both Kanban and Table views
   const { data: statusesData, isLoading: statusesLoading } = useQuery<LeadStatus[]>({
     queryKey: ['/api/lead-statuses'],
-    enabled: viewMode === 'kanban',
+    enabled: true, // ✅ Always load statuses for both view modes
     retry: 1,
   });
 
@@ -462,10 +462,13 @@ export function OutboundCallsPage() {
   const handleToggleLead = (leadId: number) => {
     setSelectedLeads(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(leadId)) {
+      const hadLead = newSet.has(leadId);
+      if (hadLead) {
         newSet.delete(leadId);
+        console.log(`[OutboundCallsPage] ✅ Deselected lead ${leadId}. Total selected: ${newSet.size}`);
       } else {
         newSet.add(leadId);
+        console.log(`[OutboundCallsPage] ✅ Selected lead ${leadId}. Total selected: ${newSet.size}`);
       }
       return newSet;
     });
@@ -474,10 +477,13 @@ export function OutboundCallsPage() {
   const handleToggleImportedLead = (leadId: number) => {
     setSelectedImportedLeads(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(leadId)) {
+      const hadLead = newSet.has(leadId);
+      if (hadLead) {
         newSet.delete(leadId);
+        console.log(`[OutboundCallsPage] ✅ Deselected imported lead ${leadId}. Total selected: ${newSet.size}`);
       } else {
         newSet.add(leadId);
+        console.log(`[OutboundCallsPage] ✅ Selected imported lead ${leadId}. Total selected: ${newSet.size}`);
       }
       return newSet;
     });
@@ -584,10 +590,13 @@ export function OutboundCallsPage() {
   const handleLeadSelect = (leadId: number, isShiftKey?: boolean) => {
     setSelectedLeads(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(leadId)) {
+      const hadLead = newSet.has(leadId);
+      if (hadLead) {
         newSet.delete(leadId);
+        console.log(`[OutboundCallsPage] ✅ Deselected lead ${leadId} (Kanban). Total selected: ${newSet.size}`);
       } else {
         newSet.add(leadId);
+        console.log(`[OutboundCallsPage] ✅ Selected lead ${leadId} (Kanban). Total selected: ${newSet.size}`);
       }
       return newSet;
     });
