@@ -1426,34 +1426,50 @@ def amd_status():
                 if account_sid and auth_token:
                     # Get call metadata from registry
                     from server.stream_state import stream_registry
+                    import urllib.parse
+                    
                     business_id = stream_registry.get_metadata(call_sid, '_outbound_business_id')
                     lead_id = stream_registry.get_metadata(call_sid, '_outbound_lead_id')
                     lead_name = stream_registry.get_metadata(call_sid, '_outbound_lead_name')
                     template_id = stream_registry.get_metadata(call_sid, '_outbound_template_id')
                     
                     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-                    host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+                    # Handle empty REPLIT_DOMAINS gracefully
+                    replit_domains = os.environ.get('REPLIT_DOMAINS', '')
+                    replit_domain = replit_domains.split(',')[0] if replit_domains else ''
+                    host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or replit_domain
                     
                     if host:
-                        # Build upgrade URL with parameters
-                        upgrade_url = f"https://{host}/webhook/outbound_call_upgrade?call_sid={call_sid}"
+                        # Build upgrade URL with properly encoded parameters
+                        upgrade_url = f"https://{host}/webhook/outbound_call_upgrade?call_sid={urllib.parse.quote(call_sid)}"
                         if business_id:
-                            upgrade_url += f"&business_id={business_id}"
+                            upgrade_url += f"&business_id={urllib.parse.quote(str(business_id))}"
                         if lead_id:
-                            upgrade_url += f"&lead_id={lead_id}"
+                            upgrade_url += f"&lead_id={urllib.parse.quote(str(lead_id))}"
                         if lead_name:
-                            upgrade_url += f"&lead_name={lead_name}"
+                            # URL-encode lead_name to handle special characters
+                            upgrade_url += f"&lead_name={urllib.parse.quote(str(lead_name))}"
                         if template_id:
-                            upgrade_url += f"&template_id={template_id}"
+                            upgrade_url += f"&template_id={urllib.parse.quote(str(template_id))}"
                         
                         # Upgrade call to add Media Stream
                         client = Client(account_sid, auth_token)
-                        client.calls(call_sid).update(url=upgrade_url, method='POST')
-                        logger.info(f"💰 [COST_OPT] AMD_UPGRADE: Human answered, adding Stream for {call_sid}")
+                        try:
+                            client.calls(call_sid).update(url=upgrade_url, method='POST')
+                            logger.info(f"💰 [COST_OPT] AMD_UPGRADE: Human answered, adding Stream for {call_sid}")
+                        except Exception as update_err:
+                            # Distinguish between different failure modes
+                            error_msg = str(update_err).lower()
+                            if 'not found' in error_msg or 'invalid' in error_msg:
+                                logger.warning(f"AMD_UPGRADE_FAIL: Invalid call_sid {call_sid}: {update_err}")
+                            elif 'completed' in error_msg or 'ended' in error_msg:
+                                logger.info(f"AMD_UPGRADE_SKIP: Call {call_sid} already ended: {update_err}")
+                            else:
+                                logger.error(f"AMD_UPGRADE_ERROR: Unexpected error for {call_sid}: {update_err}")
                     else:
                         logger.error(f"💰 [COST_OPT] AMD_UPGRADE: No host configured for {call_sid}")
             except Exception as upgrade_err:
-                logger.warning(f"AMD_UPGRADE_FAIL call_sid={call_sid}: {upgrade_err}")
+                logger.error(f"AMD_UPGRADE_FAIL call_sid={call_sid}: {upgrade_err}")
 
         # Hang up immediately for voicemail/fax (same as before)
         if is_machine and call_sid:
@@ -1462,10 +1478,19 @@ def amd_status():
                 auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
                 if account_sid and auth_token:
                     client = Client(account_sid, auth_token)
-                    client.calls(call_sid).update(status="completed")
-                    logger.info(f"💰 [COST_OPT] AMD_HANGUP: Voicemail detected, hanging up {call_sid} (saved Stream cost)")
+                    try:
+                        client.calls(call_sid).update(status="completed")
+                        logger.info(f"💰 [COST_OPT] AMD_HANGUP: Voicemail detected, hanging up {call_sid} (saved Stream cost)")
+                    except Exception as hangup_err:
+                        error_msg = str(hangup_err).lower()
+                        if 'not found' in error_msg or 'invalid' in error_msg:
+                            logger.warning(f"AMD_HANGUP_SKIP: Call {call_sid} not found: {hangup_err}")
+                        elif 'completed' in error_msg or 'ended' in error_msg:
+                            logger.info(f"AMD_HANGUP_SKIP: Call {call_sid} already ended: {hangup_err}")
+                        else:
+                            logger.error(f"AMD_HANGUP_ERROR: Unexpected error for {call_sid}: {hangup_err}")
             except Exception as hang_err:
-                logger.warning(f"AMD_HANGUP_FAIL call_sid={call_sid}: {hang_err}")
+                logger.error(f"AMD_HANGUP_FAIL call_sid={call_sid}: {hang_err}")
     except Exception:
         logger.exception("AMD_STATUS_HANDLER_ERROR")
 
