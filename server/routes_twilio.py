@@ -1279,6 +1279,10 @@ def call_status():
     return resp
 
 
+# AMD Status Constants - Max 32 chars (status field limit)
+AMD_STATUS_VOICEMAIL = "voicemail"  # Generic voicemail/machine
+AMD_STATUS_HUMAN = "answered_human"  # Human answered
+
 @csrf.exempt
 @twilio_bp.route("/webhook/amd_status", methods=["POST", "GET"])
 @require_twilio_signature
@@ -1316,11 +1320,11 @@ def amd_status():
                     # 🔥 FIX: Store AMD result in status field, NOT in summary
                     # summary field is reserved for AI-generated conversation summaries
                     if is_machine:
-                        call_log.status = f"voicemail_{answered_by}"  # e.g., "voicemail_machine_start"
+                        call_log.status = AMD_STATUS_VOICEMAIL
                     else:
                         # Human answered - update status but don't override summary
                         if call_log.status in ["initiated", "in_progress", "streaming"]:
-                            call_log.status = "answered_human"
+                            call_log.status = AMD_STATUS_HUMAN
                     db.session.commit()
             except Exception as db_err:
                 logger.warning(f"AMD_STATUS db update failed: {db_err}")
