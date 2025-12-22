@@ -4862,6 +4862,9 @@ class MediaStreamHandler:
                         audio_bytes = base64.b64decode(audio_b64)
                         logger.debug(f"[AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}")
                         
+                        # 🎯 DIAGNOSTIC: Log audio delta received from OpenAI (for production debugging)
+                        _orig_print(f"📥 [RX_AUDIO_DELTA] bytes={len(audio_bytes)}, response_id={response_id[:20] if response_id else '?'}...", flush=True)
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -14665,6 +14668,16 @@ class MediaStreamHandler:
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
+                            # 🎯 DIAGNOSTIC: Log first TX frame sent to Twilio
+                            try:
+                                import base64
+                                frame_size = len(base64.b64decode(frame_payload)) if frame_payload else 0
+                                _orig_print(f"📤 [TX_FRAME_FIRST] bytes={frame_size}, total_frames=1", flush=True)
+                            except Exception:
+                                _orig_print(f"📤 [TX_FRAME_FIRST] total_frames=1", flush=True)
+                        elif frames_sent_total % 50 == 0:
+                            # 🎯 DIAGNOSTIC: Log every 50 frames to monitor TX activity
+                            _orig_print(f"📤 [TX_FRAME_BATCH] total_frames={frames_sent_total}", flush=True)
                     else:
                         # Send failed - likely connection issue
                         self._frames_dropped_state += 1
