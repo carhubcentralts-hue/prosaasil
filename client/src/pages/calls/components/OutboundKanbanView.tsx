@@ -63,6 +63,9 @@ export function OutboundKanbanView({
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const topScrollRef = React.useRef<HTMLDivElement>(null);
+  const kanbanScrollRef = React.useRef<HTMLDivElement>(null);
+  const isSyncingRef = React.useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -71,6 +74,36 @@ export function OutboundKanbanView({
       },
     })
   );
+
+  // Synchronize scrolling between top scrollbar and kanban
+  React.useEffect(() => {
+    const topScroll = topScrollRef.current;
+    const kanbanScroll = kanbanScrollRef.current;
+    
+    if (!topScroll || !kanbanScroll) return;
+
+    const handleTopScroll = () => {
+      if (isSyncingRef.current) return;
+      isSyncingRef.current = true;
+      kanbanScroll.scrollLeft = topScroll.scrollLeft;
+      setTimeout(() => { isSyncingRef.current = false; }, 0);
+    };
+
+    const handleKanbanScroll = () => {
+      if (isSyncingRef.current) return;
+      isSyncingRef.current = true;
+      topScroll.scrollLeft = kanbanScroll.scrollLeft;
+      setTimeout(() => { isSyncingRef.current = false; }, 0);
+    };
+
+    topScroll.addEventListener('scroll', handleTopScroll);
+    kanbanScroll.addEventListener('scroll', handleKanbanScroll);
+
+    return () => {
+      topScroll.removeEventListener('scroll', handleTopScroll);
+      kanbanScroll.removeEventListener('scroll', handleKanbanScroll);
+    };
+  }, []);
 
   // Group leads by status
   const leadsByStatus = useMemo(() => {
@@ -157,61 +190,79 @@ export function OutboundKanbanView({
     );
   }
 
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
-      <div className="flex gap-4 overflow-x-auto pb-4 min-h-[600px]">
-        {statuses.map((status) => {
-          const statusLeads = leadsByStatus[status.name] || [];
-          const leadIds = statusLeads.map(lead => lead.id);
+  // Calculate total width for scrollbar based on number of columns
+  const contentWidth = statuses.length * 320; // Each column is approximately 320px wide
 
-          return (
-            <OutboundKanbanColumn
-              key={status.name}
-              status={status}
-              leads={statusLeads}
-              isDraggingOver={isDragging}
-              selectedCount={statusLeads.filter(l => selectedLeadIds.has(l.id)).length}
-              selectedLeadIds={selectedLeadIds}
-              onSelectAll={onSelectAll}
-              onClearSelection={onClearSelection}
-            >
-              <SortableContext
-                items={leadIds}
-                strategy={verticalListSortingStrategy}
-              >
-                {statusLeads.map((lead) => (
-                  <OutboundLeadCard
-                    key={lead.id}
-                    lead={lead}
-                    isSelected={selectedLeadIds.has(lead.id)}
-                    onSelect={onLeadSelect}
-                    onClick={onLeadClick}
-                  />
-                ))}
-              </SortableContext>
-            </OutboundKanbanColumn>
-          );
-        })}
+  return (
+    <>
+      {/* Top horizontal scrollbar */}
+      <div 
+        ref={topScrollRef}
+        className="overflow-x-auto overflow-y-hidden mb-2"
+        style={{ height: '12px' }}
+      >
+        <div style={{ width: `${contentWidth}px`, height: '1px' }} />
       </div>
 
-      <DragOverlay>
-        {activeId && activeLead ? (
-          <div className="rotate-3 opacity-90">
-            <OutboundLeadCard
-              lead={activeLead}
-              isSelected={selectedLeadIds.has(activeId)}
-              onSelect={() => {}}
-              onClick={() => {}}
-              isDragOverlay
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+      {/* Kanban board */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div 
+          ref={kanbanScrollRef}
+          className="flex gap-4 overflow-x-auto pb-4 min-h-[600px]"
+        >
+          {statuses.map((status) => {
+            const statusLeads = leadsByStatus[status.name] || [];
+            const leadIds = statusLeads.map(lead => lead.id);
+
+            return (
+              <OutboundKanbanColumn
+                key={status.name}
+                status={status}
+                leads={statusLeads}
+                isDraggingOver={isDragging}
+                selectedCount={statusLeads.filter(l => selectedLeadIds.has(l.id)).length}
+                selectedLeadIds={selectedLeadIds}
+                onSelectAll={onSelectAll}
+                onClearSelection={onClearSelection}
+              >
+                <SortableContext
+                  items={leadIds}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {statusLeads.map((lead) => (
+                    <OutboundLeadCard
+                      key={lead.id}
+                      lead={lead}
+                      isSelected={selectedLeadIds.has(lead.id)}
+                      onSelect={onLeadSelect}
+                      onClick={onLeadClick}
+                    />
+                  ))}
+                </SortableContext>
+              </OutboundKanbanColumn>
+            );
+          })}
+        </div>
+
+        <DragOverlay>
+          {activeId && activeLead ? (
+            <div className="rotate-3 opacity-90">
+              <OutboundLeadCard
+                lead={activeLead}
+                isSelected={selectedLeadIds.has(activeId)}
+                onSelect={() => {}}
+                onClick={() => {}}
+                isDragOverlay
+              />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </>
   );
 }

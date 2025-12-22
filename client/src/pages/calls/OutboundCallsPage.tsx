@@ -852,33 +852,59 @@ export function OutboundCallsPage() {
       {/* System Leads Tab - For Browsing and Selection */}
       {!showResults && activeTab === 'system' && (
         <div className="space-y-4">
+          {/* Sticky Action Bar */}
+          <div className="sticky top-0 z-50 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <div className="w-full sm:w-48">
+                  <MultiStatusSelect
+                    statuses={statuses}
+                    selectedStatuses={selectedStatuses}
+                    onChange={setSelectedStatuses}
+                    placeholder="סנן לפי סטטוס"
+                    data-testid="system-kanban-status-filter"
+                  />
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="חיפוש לפי שם או טלפון..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pr-10 w-full"
+                    data-testid="input-kanban-lead-search"
+                  />
+                </div>
+              </div>
+              <Button
+                size="lg"
+                disabled={
+                  selectedLeads.size === 0 ||
+                  !canStartCalls ||
+                  startCallsMutation.isPending
+                }
+                onClick={handleStartCalls}
+                className="px-8 w-full sm:w-auto"
+                data-testid="button-start-calls"
+              >
+                {startCallsMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-5 w-5 ml-2 animate-spin" />
+                    מתחיל שיחות...
+                  </>
+                ) : (
+                  <>
+                    <PlayCircle className="h-5 w-5 ml-2" />
+                    הפעל {selectedLeads.size} שיחות
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
           {/* Kanban View */}
           {viewMode === 'kanban' && (
             <>
-              {/* Filters for Kanban View */}
-              <Card className="p-4">
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                  <div className="w-full sm:w-48">
-                    <MultiStatusSelect
-                      statuses={statuses}
-                      selectedStatuses={selectedStatuses}
-                      onChange={setSelectedStatuses}
-                      placeholder="סנן לפי סטטוס"
-                      data-testid="system-kanban-status-filter"
-                    />
-                  </div>
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      placeholder="חיפוש לפי שם או טלפון..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pr-10 w-full"
-                      data-testid="input-kanban-lead-search"
-                    />
-                  </div>
-                </div>
-              </Card>
 
               {(leadsLoading || statusesLoading) ? (
                 <div className="flex justify-center py-12">
@@ -994,36 +1020,6 @@ export function OutboundCallsPage() {
             )}
           </Card>
           )}
-
-          <div className="flex justify-center">
-            <Button
-              size="lg"
-              disabled={
-                selectedLeads.size === 0 ||
-                !canStartCalls ||
-                startCallsMutation.isPending
-              }
-              onClick={handleStartCalls}
-              className="px-8"
-              data-testid="button-start-calls"
-            >
-              {startCallsMutation.isPending ? (
-                <>
-                  <Loader2 className="h-5 w-5 ml-2 animate-spin" />
-                  מתחיל שיחות...
-                </>
-              ) : (
-                <>
-                  <PlayCircle className="h-5 w-5 ml-2" />
-                  הפעל {selectedLeads.size} שיחות
-                </>
-              )}
-            </Button>
-          </div>
-
-          <p className="text-sm text-gray-500 text-center">
-            ה-AI ישתמש בפרומפט שיחות יוצאות מהגדרות המערכת
-          </p>
         </div>
       )}
 
@@ -1241,35 +1237,61 @@ export function OutboundCallsPage() {
           </Card>
 
           {/* Imported Leads Display - Kanban or Table */}
+          {/* Sticky Action Bar for Imported Tab */}
+          <div className="sticky top-0 z-50 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <div className="w-full sm:w-48">
+                  <MultiStatusSelect
+                    statuses={statuses}
+                    selectedStatuses={selectedStatuses}
+                    onChange={setSelectedStatuses}
+                    placeholder="סנן לפי סטטוס"
+                    data-testid="imported-kanban-status-filter"
+                  />
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="חיפוש לפי שם או טלפון..."
+                    value={importedSearchQuery}
+                    onChange={(e) => {
+                      setImportedSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="pr-10 w-full"
+                    data-testid="input-imported-kanban-search"
+                  />
+                </div>
+              </div>
+              <Button
+                size="lg"
+                disabled={
+                  selectedImportedLeads.size === 0 ||
+                  !canStartCalls ||
+                  startCallsMutation.isPending
+                }
+                onClick={handleStartCalls}
+                className="px-8 w-full sm:w-auto"
+                data-testid="button-start-imported-calls"
+              >
+                {startCallsMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-5 w-5 ml-2 animate-spin" />
+                    מתחיל שיחות...
+                  </>
+                ) : (
+                  <>
+                    <PlayCircle className="h-5 w-5 ml-2" />
+                    הפעל {selectedImportedLeads.size} שיחות
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
           {viewMode === 'kanban' ? (
             <>
-              {/* Filters for Kanban View */}
-              <Card className="p-4">
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                  <div className="w-full sm:w-48">
-                    <MultiStatusSelect
-                      statuses={statuses}
-                      selectedStatuses={selectedStatuses}
-                      onChange={setSelectedStatuses}
-                      placeholder="סנן לפי סטטוס"
-                      data-testid="imported-kanban-status-filter"
-                    />
-                  </div>
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      placeholder="חיפוש לפי שם או טלפון..."
-                      value={importedSearchQuery}
-                      onChange={(e) => {
-                        setImportedSearchQuery(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      className="pr-10 w-full"
-                      data-testid="input-imported-kanban-search"
-                    />
-                  </div>
-                </div>
-              </Card>
 
               {(importedLoading || statusesLoading) ? (
                 <div className="flex justify-center py-12">
@@ -1474,37 +1496,6 @@ export function OutboundCallsPage() {
             )}
             </Card>
           )}
-
-          {/* Start Calls Button for Imported Leads */}
-          <div className="flex justify-center">
-            <Button
-              size="lg"
-              disabled={
-                selectedImportedLeads.size === 0 ||
-                !canStartCalls ||
-                startCallsMutation.isPending
-              }
-              onClick={handleStartCalls}
-              className="px-8"
-              data-testid="button-start-imported-calls"
-            >
-              {startCallsMutation.isPending ? (
-                <>
-                  <Loader2 className="h-5 w-5 ml-2 animate-spin" />
-                  מתחיל שיחות...
-                </>
-              ) : (
-                <>
-                  <PlayCircle className="h-5 w-5 ml-2" />
-                  הפעל {selectedImportedLeads.size} שיחות
-                </>
-              )}
-            </Button>
-          </div>
-
-          <p className="text-sm text-gray-500 text-center">
-            ה-AI ישתמש בפרומפט שיחות יוצאות מהגדרות המערכת
-          </p>
         </div>
       )}
 
