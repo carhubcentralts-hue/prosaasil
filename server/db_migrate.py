@@ -1327,6 +1327,25 @@ def apply_migrations():
                     migrations_applied.append('add_pipeline_status_fields_to_call_log')
                     log.info("✅ Added pipeline status fields to call_log")
                 
+                # Add normalized phone fields for deterministic lead binding
+                if not check_column_exists('call_log', 'from_number_norm'):
+                    log.info("Adding normalized phone fields to call_log...")
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN from_number_norm VARCHAR(64),
+                        ADD COLUMN to_number_norm VARCHAR(64)
+                    """))
+                    # Create indexes for fast lookup
+                    db.session.execute(text("CREATE INDEX idx_call_log_from_number_norm ON call_log(from_number_norm)"))
+                    db.session.execute(text("CREATE INDEX idx_call_log_to_number_norm ON call_log(to_number_norm)"))
+                    migrations_applied.append('add_normalized_phone_fields_to_call_log')
+                    log.info("✅ Added normalized phone fields to call_log")
+                    
+                    # Populate normalized phones for existing calls
+                    log.info("Populating normalized phones for existing calls...")
+                    # This will be done by Python code to use our normalize_phone function
+                    # We'll trigger this in the next section
+                
                 # Update existing calls to reflect current status based on existing data
                 # This ensures UI shows correct status for historical calls
                 log.info("Updating existing calls with inferred status...")
@@ -1349,8 +1368,39 @@ def apply_migrations():
                     WHERE recording_status = 'pending'  -- Only update rows that haven't been explicitly set
                 """))
                 log.info("✅ Updated existing call statuses based on current data")
+                
+                # Populate normalized phones using Python normalization function
+                try:
+                    from server.utils.phone_normalization import normalize_phone
+                    from server.models_sql import CallLog
+                    
+                    # Get all calls that need normalization
+                    calls_to_normalize = CallLog.query.filter(
+                        (CallLog.from_number_norm.is_(None)) | (CallLog.to_number_norm.is_(None))
+                    ).limit(10000).all()  # Process in batches
+                    
+                    if calls_to_normalize:
+                        log.info(f"Normalizing phones for {len(calls_to_normalize)} existing calls...")
+                        count = 0
+                        for call in calls_to_normalize:
+                            if call.from_number and not call.from_number_norm:
+                                call.from_number_norm = normalize_phone(call.from_number)
+                            if call.to_number and not call.to_number_norm:
+                                call.to_number_norm = normalize_phone(call.to_number)
+                            count += 1
+                            if count % 1000 == 0:
+                                db.session.commit()
+                                log.info(f"  ... normalized {count} calls")
+                        
+                        db.session.commit()
+                        log.info(f"✅ Normalized phones for {count} existing calls")
+                except ImportError:
+                    log.warning("⚠️ Could not import phone_normalization - skipping normalization of existing calls")
+                except Exception as norm_err:
+                    log.warning(f"⚠️ Error normalizing existing phones: {norm_err} - continuing anyway")
+                    db.session.rollback()
             
-            log.info("✅ Applied migration 44: Recording Pipeline Status Fields")
+            log.info("✅ Applied migration 44: Recording Pipeline Status Fields + Phone Normalization")
         except Exception as e:
             log.error(f"❌ Migration 44 failed: {e}")
             db.session.rollback()

@@ -85,6 +85,8 @@ class CallLog(db.Model):
     parent_call_sid = db.Column(db.String(64), nullable=True, index=True)  # 🔥 Parent call SID for child legs
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
+    from_number_norm = db.Column(db.String(64), index=True, nullable=True)  # 🔥 Normalized from_number for consistent matching
+    to_number_norm = db.Column(db.String(64), index=True, nullable=True)  # 🔥 Normalized to_number for consistent matching
     direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound (normalized)
     twilio_direction = db.Column(db.String(32), nullable=True)  # 🔥 Original Twilio direction (outbound-api, outbound-dial, etc.)
     duration = db.Column(db.Integer, default=0)  # ✅ BUILD 106: Call duration in seconds
