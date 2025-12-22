@@ -1823,6 +1823,11 @@ class MediaStreamHandler:
         self._barge_in_pending_cancel = False  # Flag: Cancel in progress, waiting for response.cancelled/done
         self._pending_user_text = None  # Store user text while waiting for cancel to complete
         
+        # 🔥 NO-AUDIO WATCHDOG: Detect "silent response" where response is created but no audio arrives
+        self._response_audio_watchdog = {}  # response_id -> {created_ts, first_audio_ts, audio_delta_count, transcript_delta_count}
+        self._no_audio_watchdog_timeout_sec = 1.2  # 1200ms - if no audio arrives, trigger recovery
+        self._no_audio_retry_attempted = set()  # Track response IDs we already retried (one retry per response)
+        
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
         self._post_greeting_window_active = False
@@ -4749,6 +4754,78 @@ class MediaStreamHandler:
                         # Store by response_id (not just _response_created_ts) for accurate lookup during cancel
                         self._response_created_ts[response_id] = time.monotonic()
                         
+                        # 🔥 NO-AUDIO WATCHDOG: Start tracking this response for silent response detection
+                        self._response_audio_watchdog[response_id] = {
+                            'created_ts': time.monotonic(),
+                            'first_audio_ts': None,
+                            'audio_delta_count': 0,
+                            'transcript_delta_count': 0
+                        }
+                        
+                        # 🔥 NO-AUDIO WATCHDOG: Start monitoring task for this response
+                        async def _no_audio_watchdog_task(resp_id):
+                            """Monitor for silent response - fires if no audio.delta arrives within timeout"""
+                            try:
+                                await asyncio.sleep(self._no_audio_watchdog_timeout_sec)
+                                
+                                # Check if this response_id is still being tracked
+                                if resp_id not in self._response_audio_watchdog:
+                                    return  # Response already completed/cleaned up
+                                
+                                watchdog_data = self._response_audio_watchdog[resp_id]
+                                audio_count = watchdog_data['audio_delta_count']
+                                transcript_count = watchdog_data['transcript_delta_count']
+                                
+                                # SILENT RESPONSE detected: has transcript but NO audio
+                                if audio_count == 0 and (transcript_count > 0 or True):  # Fire even without transcript
+                                    # Check if we already retried this response
+                                    if resp_id in self._no_audio_retry_attempted:
+                                        logger.warning(f"[NO_AUDIO_WATCHDOG] Already retried response {resp_id[:12]}... - not retrying again")
+                                        return
+                                    
+                                    # Mark as retried
+                                    self._no_audio_retry_attempted.add(resp_id)
+                                    
+                                    # Log the issue
+                                    _orig_print(
+                                        f"🚨 [NO_AUDIO_WATCHDOG] FIRED! resp={resp_id[:12]}... "
+                                        f"transcript_deltas={transcript_count} audio_deltas=0 - SILENT RESPONSE DETECTED",
+                                        flush=True
+                                    )
+                                    logger.error(f"[NO_AUDIO_WATCHDOG] Silent response detected: {resp_id[:20]}... transcript_deltas={transcript_count}")
+                                    
+                                    # Recovery: Cancel current response and create new one
+                                    try:
+                                        # 1. Cancel silent response
+                                        if self.active_response_id == resp_id:
+                                            print(f"🔄 [NO_AUDIO_WATCHDOG] Cancelling silent response: {resp_id[:20]}...")
+                                            await self.realtime_client.cancel_response(resp_id)
+                                            logger.info(f"[NO_AUDIO_WATCHDOG] Cancelled silent response")
+                                        
+                                        # 2. Wait a moment for cancel to complete
+                                        await asyncio.sleep(0.3)
+                                        
+                                        # 3. Create new response (retry once)
+                                        print(f"🔄 [NO_AUDIO_WATCHDOG] Creating retry response...")
+                                        triggered = await self.trigger_response("NO_AUDIO_WATCHDOG_RETRY", self.realtime_client)
+                                        if triggered:
+                                            _orig_print(f"✅ [NO_AUDIO_WATCHDOG] Retry response created - recovery complete", flush=True)
+                                        else:
+                                            _orig_print(f"⚠️ [NO_AUDIO_WATCHDOG] Retry blocked by guards", flush=True)
+                                    
+                                    except Exception as recovery_err:
+                                        logger.error(f"[NO_AUDIO_WATCHDOG] Recovery failed: {recovery_err}")
+                                        _orig_print(f"❌ [NO_AUDIO_WATCHDOG] Recovery error: {recovery_err}", flush=True)
+                                
+                            except asyncio.CancelledError:
+                                # Watchdog was cancelled (normal - response completed with audio)
+                                pass
+                            except Exception as e:
+                                logger.error(f"[NO_AUDIO_WATCHDOG] Task error: {e}")
+                        
+                        # Start the watchdog task
+                        asyncio.create_task(_no_audio_watchdog_task(response_id))
+                        
                         # Cleanup old entries (TTL)
                         now_monotonic = time.monotonic()
                         expired_ids = [
@@ -4757,6 +4834,9 @@ class MediaStreamHandler:
                         ]
                         for rid in expired_ids:
                             del self._response_created_ts[rid]
+                            # Also cleanup watchdog entries
+                            if rid in self._response_audio_watchdog:
+                                del self._response_audio_watchdog[rid]
                         
                         # 🔥 BUILD 187: Response grace period - track when response started (legacy single timestamp)
                         # This prevents false turn_detected from echo/noise in first 500ms
@@ -4807,6 +4887,12 @@ class MediaStreamHandler:
                                 'enqueued': 0, 'sent': 0, 'created_ts': time.time()
                             }
                         self._response_diagnostics[response_id]['audio_deltas'] += 1
+                    
+                    # 🔥 NO-AUDIO WATCHDOG: Mark first audio arrival
+                    if response_id and response_id in self._response_audio_watchdog:
+                        if self._response_audio_watchdog[response_id]['first_audio_ts'] is None:
+                            self._response_audio_watchdog[response_id]['first_audio_ts'] = time.monotonic()
+                        self._response_audio_watchdog[response_id]['audio_delta_count'] += 1
                     
                     if audio_b64:
                         # ═══════════════════════════════════════════════════════════════
@@ -5147,6 +5233,7 @@ class MediaStreamHandler:
                         _orig_print(
                             f"[AUDIO_DIAG] resp={response_id[:12]}... "
                             f"audio_deltas={diag['audio_deltas']} "
+                            f"transcript_deltas={diag['transcript_deltas']} "
                             f"enqueued={diag['enqueued']} "
                             f"sent={diag['sent']} "
                             f"tx_ready={tx_ready} "
@@ -5286,6 +5373,23 @@ class MediaStreamHandler:
                                     print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
 
                             asyncio.create_task(delayed_hangup())
+                
+                # 🔥 NO-AUDIO WATCHDOG: Track audio_transcript.delta count
+                elif event_type == "response.audio_transcript.delta":
+                    response_id = event.get("response_id", "")
+                    
+                    # Track transcript delta count for diagnostics
+                    if response_id and hasattr(self, '_response_diagnostics'):
+                        if response_id not in self._response_diagnostics:
+                            self._response_diagnostics[response_id] = {
+                                'audio_deltas': 0, 'transcript_deltas': 0,
+                                'enqueued': 0, 'sent': 0, 'created_ts': time.time()
+                            }
+                        self._response_diagnostics[response_id]['transcript_deltas'] += 1
+                    
+                    # Track in watchdog
+                    if response_id and response_id in self._response_audio_watchdog:
+                        self._response_audio_watchdog[response_id]['transcript_delta_count'] += 1
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
@@ -6120,6 +6224,10 @@ class MediaStreamHandler:
                             logger.info("[TEXT_BARGE_IN] ✅ TX queues flushed")
                         
                         # C. Store pending text instead of creating response now
+                        # Log if we're overwriting previous pending text (for debugging)
+                        if self._pending_user_text:
+                            logger.warning(f"[TEXT_BARGE_IN] Overwriting previous pending text: '{self._pending_user_text[:40]}...' with '{text[:40]}...'")
+                        
                         self._pending_user_text = text
                         logger.info(f"[TEXT_BARGE_IN] Stored pending text, waiting for response.cancelled/done")
                         print(f"⏸️ [TEXT_BARGE_IN] Text stored, will create response after cancel completes")
