@@ -671,18 +671,21 @@ def outbound_call():
     🔥 COST OPTIMIZATION: Outbound AI calls with conditional Media Stream
     
     Flow:
-    1. Initial TwiML: Simple pause (NO expensive Media Stream yet)
-    2. Wait for AnsweredBy (AMD) callback
+    1. Initial TwiML: Brief greeting/pause (NO expensive Media Stream yet)
+    2. Wait for AMD callback (DetectMessageEnd - 2-4 seconds)
     3. If human answered: Upgrade call to add Media Stream (AI conversation)
-    4. If voicemail/no-answer: Don't start Stream (save 30-50% cost)
+    4. If voicemail: Hang up immediately (save 30-50% cost)
+    5. If AMD uncertain/timeout: Fallback to upgrade (better safe than sorry)
     
-    This prevents starting expensive Media Stream + Realtime API for:
-    - Voicemail/answering machines
+    IMPORTANT: This prevents starting expensive Media Stream + Realtime API for:
+    - Voicemail/answering machines (biggest savings!)
     - No-answer calls
     - Busy signals
     - Failed calls
     
-    Savings: ~30-50% on unanswered outbound calls
+    Note: AMD itself has a cost, so this optimization is most effective for
+    high no-answer/voicemail rates (campaigns/lists). For calls with high
+    answer rates, the AMD cost may offset some savings.
     """
     t0 = time.time()
     logger.info(f"[COST_OPT] outbound_call START at {t0}")
@@ -707,10 +710,18 @@ def outbound_call():
     
     logger.info(f"📞 OUTBOUND_CALL webhook: call_sid={call_sid}, lead={lead_name}, template={template_id}")
     
+    # 🔥 GUARD: Check if Stream already started (prevent duplicate)
+    from server.stream_state import stream_registry
+    if call_sid and stream_registry.get_metadata(call_sid, '_stream_started'):
+        logger.warning(f"💰 [COST_OPT] Stream already started for {call_sid} - preventing duplicate")
+        # Return empty response to prevent re-initialization
+        vr = VoiceResponse()
+        vr.pause(length=1)
+        return _twiml(vr)
+    
     # 🔥 COST OPTIMIZATION: Store outbound call metadata for AMD upgrade
     # This will be used by amd_status webhook to add Media Stream if human answers
     if call_sid and business_id:
-        from server.stream_state import stream_registry
         stream_registry.set_metadata(call_sid, '_outbound_lead_id', lead_id)
         stream_registry.set_metadata(call_sid, '_outbound_lead_name', lead_name)
         stream_registry.set_metadata(call_sid, '_outbound_business_id', business_id)
@@ -742,28 +753,23 @@ def outbound_call():
             request.host
         ).split(",")[0].strip()
     
-    # 🔥 COST OPTIMIZATION: Initial TwiML with NO Media Stream
-    # Just a brief pause to wait for AMD result
-    # AMD callback will upgrade to Stream if human answers
+    # 🔥 COST OPTIMIZATION: Initial TwiML with brief greeting, NO Media Stream
+    # Play a short sound/pause to avoid awkward silence while waiting for AMD
     vr = VoiceResponse()
     
-    # Brief silence to allow AMD detection
-    # AMD will callback within ~2-4 seconds with AnsweredBy result
-    vr.pause(length=5)  # 5 second pause
+    # Brief "רגע אחד..." to acknowledge the call (not AI, just TTS)
+    # This prevents awkward silence while AMD is detecting
+    vr.say("רגע אחד", language="he-IL", voice="Google.he-IL-Wavenet-C")
     
-    # Fallback: If AMD doesn't callback, redirect to add Stream
-    # This handles edge cases where AMD fails or times out
+    # Pause for AMD detection (2-4 seconds)
+    vr.pause(length=3)
+    
+    # 🔥 FALLBACK: If AMD doesn't callback or is uncertain, redirect to upgrade
+    # This ensures we don't lose customers due to AMD failure
     vr.redirect(f"https://{host}/webhook/outbound_call_upgrade?call_sid={call_sid}&business_id={business_id}&lead_id={lead_id}&lead_name={lead_name}&template_id={template_id}")
     
-    # 🎙️ Start recording from second 0 (background, non-blocking)
-    # Recording works independently of Media Stream - always capture the call
-    if call_sid:
-        threading.Thread(
-            target=_start_recording_from_second_zero,
-            args=(call_sid, from_number, to_number),
-            daemon=True,
-            name=f"RecordingStart-{call_sid[:8]}"
-        ).start()
+    # 🎙️ IMPORTANT: Recording will be started by AMD callback after "answered"
+    # Don't start recording here - call might not connect yet (ringing/no-answer)
     
     t1 = time.time()
     twiml_ms = int((t1 - t0) * 1000)
@@ -821,10 +827,12 @@ def outbound_call_upgrade():
     
     Called when:
     1. AMD detects human answered (from amd_status webhook)
-    2. Fallback after pause timeout (if AMD didn't callback)
+    2. Fallback after pause timeout (if AMD didn't callback or uncertain)
     
     This adds the expensive Media Stream ONLY for answered calls,
     saving 30-50% cost on voicemail/no-answer calls.
+    
+    IMPORTANT: Sets guard flag to prevent duplicate Stream initialization.
     """
     # Get parameters from query string OR form data
     call_sid = request.args.get("call_sid") or request.form.get("CallSid", "")
@@ -834,12 +842,24 @@ def outbound_call_upgrade():
     template_id = request.args.get("template_id") or request.form.get("template_id", "")
     
     # Try to get from stream registry if not in params
+    from server.stream_state import stream_registry
     if call_sid and not business_id:
-        from server.stream_state import stream_registry
         business_id = stream_registry.get_metadata(call_sid, '_outbound_business_id')
         lead_id = stream_registry.get_metadata(call_sid, '_outbound_lead_id')
         lead_name = stream_registry.get_metadata(call_sid, '_outbound_lead_name')
         template_id = stream_registry.get_metadata(call_sid, '_outbound_template_id')
+    
+    # 🔥 GUARD: Check if Stream already started (prevent duplicate)
+    if call_sid and stream_registry.get_metadata(call_sid, '_stream_started'):
+        logger.warning(f"💰 [COST_OPT] Stream already started for {call_sid} - preventing duplicate upgrade")
+        # Return empty pause to prevent issues
+        vr = VoiceResponse()
+        vr.pause(length=1)
+        return _twiml(vr)
+    
+    # 🔥 GUARD: Mark Stream as started (idempotent)
+    if call_sid:
+        stream_registry.set_metadata(call_sid, '_stream_started', True)
     
     logger.info(f"💰 [COST_OPT] outbound_call_upgrade: call_sid={call_sid}, business_id={business_id}")
     
@@ -855,9 +875,19 @@ def outbound_call_upgrade():
         ).split(",")[0].strip()
     
     # Get to/from numbers from registry
-    from server.stream_state import stream_registry
     to_number = stream_registry.get_metadata(call_sid, '_outbound_to_number') or "unknown"
     from_number = stream_registry.get_metadata(call_sid, '_outbound_from_number') or "unknown"
+    
+    # 🎙️ CRITICAL: Start recording NOW (call is answered and active)
+    # Recording starts AFTER call is confirmed answered (not during ringing)
+    if call_sid:
+        threading.Thread(
+            target=_start_recording_from_second_zero,
+            args=(call_sid, from_number, to_number),
+            daemon=True,
+            name=f"RecordingStart-{call_sid[:8]}"
+        ).start()
+        logger.info(f"🎙️ [COST_OPT] Recording started for answered call: {call_sid}")
     
     # NOW add the Media Stream (expensive part)
     vr = VoiceResponse()
@@ -1419,13 +1449,22 @@ def amd_status():
                 db.session.rollback()
 
         # 🔥 COST OPTIMIZATION: Upgrade call to add Stream if human answered
+        # This is the key cost-saving mechanism - only start expensive AI for humans
         if is_human and call_sid:
             try:
+                # 🔥 GUARD: Check if Stream already started (prevent duplicate)
+                from server.stream_state import stream_registry
+                if stream_registry.get_metadata(call_sid, '_stream_started'):
+                    logger.info(f"💰 [COST_OPT] AMD_SKIP: Stream already started for {call_sid}")
+                    return resp
+                
+                # Mark as starting (will be confirmed by upgrade endpoint)
+                stream_registry.set_metadata(call_sid, '_amd_upgrade_triggered', True)
+                
                 account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
                 auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
                 if account_sid and auth_token:
                     # Get call metadata from registry
-                    from server.stream_state import stream_registry
                     import urllib.parse
                     
                     business_id = stream_registry.get_metadata(call_sid, '_outbound_business_id')
