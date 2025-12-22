@@ -1279,6 +1279,11 @@ def call_status():
     return resp
 
 
+# Call Status Constants - Max 32 chars (status field limit)
+CALL_STATUS_INITIATED = "initiated"
+CALL_STATUS_IN_PROGRESS = "in_progress"
+CALL_STATUS_STREAMING = "streaming"
+
 # AMD Status Constants - Max 32 chars (status field limit)
 AMD_STATUS_VOICEMAIL = "voicemail"  # Generic voicemail/machine
 AMD_STATUS_HUMAN = "answered_human"  # Human answered
@@ -1323,7 +1328,7 @@ def amd_status():
                         call_log.status = AMD_STATUS_VOICEMAIL
                     else:
                         # Human answered - update status but don't override summary
-                        if call_log.status in ["initiated", "in_progress", "streaming"]:
+                        if call_log.status in [CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING]:
                             call_log.status = AMD_STATUS_HUMAN
                     db.session.commit()
             except Exception as db_err:
