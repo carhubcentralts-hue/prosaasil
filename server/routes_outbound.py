@@ -1404,6 +1404,158 @@ def stop_queue():
         return jsonify({"error": "שגיאה בעצירת התור"}), 500
 
 
+@outbound_bp.route("/api/outbound/recent-calls", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_recent_calls():
+    """
+    Get recent outbound calls, sorted by most recent first
+    
+    Query params:
+    - page: Page number (default 1)
+    - page_size: Items per page (default 50, max 100)
+    - status: Optional status filter
+    - search: Optional search query (phone or lead name)
+    - run_id: Optional filter by specific run
+    
+    Returns:
+    {
+        "total": 123,
+        "page": 1,
+        "page_size": 50,
+        "items": [
+            {
+                "call_sid": "CA...",
+                "to_number": "+972...",
+                "lead_id": 123,
+                "lead_name": "John Doe",
+                "status": "completed",
+                "started_at": "2024-01-01T12:00:00Z",
+                "ended_at": "2024-01-01T12:05:00Z",
+                "duration": 300,
+                "recording_url": "https://...",
+                "recording_sid": "RE...",
+                "transcript": "...",
+                "summary": "..."
+            }
+        ]
+    }
+    """
+    from flask import session
+    from datetime import datetime
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({
+                "items": [], 
+                "total": 0, 
+                "page": 1, 
+                "page_size": 50,
+                "message": "בחר עסק לצפייה בשיחות"
+            })
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        page_size = min(100, max(1, int(request.args.get('page_size', 50))))
+        status_filter = request.args.get('status', '').strip()
+        search = request.args.get('search', '').strip()
+        run_id = request.args.get('run_id', type=int)
+        
+        # Build query for outbound calls
+        query = CallLog.query.filter_by(
+            business_id=tenant_id,
+            direction="outbound"
+        )
+        
+        # Filter by run_id if provided
+        if run_id:
+            from server.models_sql import OutboundCallJob
+            # Get call_log_ids from jobs in this run
+            job_call_ids = db.session.query(OutboundCallJob.call_log_id).filter_by(
+                run_id=run_id
+            ).filter(
+                OutboundCallJob.call_log_id.isnot(None)
+            ).all()
+            call_log_ids = [cid[0] for cid in job_call_ids]
+            if call_log_ids:
+                query = query.filter(CallLog.id.in_(call_log_ids))
+            else:
+                # No calls for this run yet
+                return jsonify({
+                    "items": [],
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size
+                })
+        
+        # Status filter
+        if status_filter and STATUS_FILTER_PATTERN.match(status_filter):
+            query = query.filter(func.lower(CallLog.call_status) == status_filter.lower())
+        
+        # Search filter
+        if search:
+            # Join with Lead to search by name
+            query = query.outerjoin(Lead, CallLog.lead_id == Lead.id)
+            search_term = f"%{search}%"
+            query = query.filter(
+                db.or_(
+                    CallLog.to_number.ilike(search_term),
+                    Lead.first_name.ilike(search_term),
+                    Lead.last_name.ilike(search_term)
+                )
+            )
+        
+        # Get total count
+        total = query.count()
+        
+        # Sort by most recent first (created_at is when call record was created, which is when call started)
+        query = query.order_by(CallLog.created_at.desc())
+        
+        # Paginate
+        calls = query.offset((page - 1) * page_size).limit(page_size).all()
+        
+        # Format response
+        items = []
+        for call in calls:
+            # Get lead info if available
+            lead_name = None
+            if call.lead_id:
+                lead = Lead.query.get(call.lead_id)
+                if lead:
+                    lead_name = lead.full_name
+            
+            items.append({
+                "call_sid": call.call_sid,
+                "to_number": call.to_number,
+                "lead_id": call.lead_id,
+                "lead_name": lead_name,
+                "status": call.call_status,
+                "started_at": call.created_at.isoformat() if call.created_at else None,
+                "ended_at": call.updated_at.isoformat() if call.updated_at and call.updated_at != call.created_at else None,
+                "duration": call.duration,
+                "recording_url": call.recording_url,
+                "recording_sid": call.recording_sid,
+                "transcript": call.final_transcript or call.transcription,
+                "summary": call.summary
+            })
+        
+        return jsonify({
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": items
+        })
+        
+    except Exception as e:
+        log.error(f"Error fetching recent calls: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "שגיאה בטעינת השיחות האחרונות"}), 500
+
+
 def fill_queue_slots_for_job(job_id: int):
     """
     Called when a call completes - tries to fill available slots in the queue

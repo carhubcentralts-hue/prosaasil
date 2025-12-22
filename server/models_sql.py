@@ -117,6 +117,11 @@ class CallLog(db.Model):
     # BUILD 174: Relationships for outbound calls
     lead = db.relationship("Lead", backref=db.backref("call_logs", lazy="dynamic"), foreign_keys="[CallLog.lead_id]")
     outbound_template = db.relationship("OutboundCallTemplate", backref=db.backref("calls", lazy="dynamic"), foreign_keys="[CallLog.outbound_template_id]")
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        db.Index('idx_call_log_recent_outbound', 'business_id', 'direction', 'created_at'),
+    )
 
 class ConversationTurn(db.Model):
     """תורות שיחה - כל הודעה בשיחה טלפונית או WhatsApp"""

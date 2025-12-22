@@ -16,7 +16,9 @@ import {
   FileSpreadsheet,
   Download,
   LayoutGrid,
-  List
+  List,
+  StopCircle,
+  Clock
 } from 'lucide-react';
 import { formatDateOnly } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
@@ -76,11 +78,26 @@ interface ImportedLeadsResponse {
   items: ImportedLead[];
 }
 
-type TabType = 'system' | 'active' | 'imported';
+type TabType = 'system' | 'active' | 'imported' | 'recent';
 
 // Default number of available call slots when counts haven't loaded yet
 const DEFAULT_AVAILABLE_SLOTS = 3;
 type ViewMode = 'table' | 'kanban';
+
+interface RecentCall {
+  call_sid: string;
+  to_number: string;
+  lead_id: number | null;
+  lead_name: string | null;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration: number;
+  recording_url: string | null;
+  recording_sid: string | null;
+  transcript: string | null;
+  summary: string | null;
+}
 
 export function OutboundCallsPage() {
   const navigate = useNavigate();
@@ -257,6 +274,39 @@ export function OutboundCallsPage() {
     retry: 1,
   });
 
+  // Query for recent calls
+  const [recentCallsPage, setRecentCallsPage] = useState(1);
+  const [recentCallsSearch, setRecentCallsSearch] = useState('');
+  const recentCallsPageSize = 50;
+  
+  const { data: recentCallsData, isLoading: recentCallsLoading, refetch: refetchRecentCalls } = useQuery({
+    queryKey: ['/api/outbound/recent-calls', recentCallsPage, recentCallsSearch, activeRunId],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(recentCallsPage),
+        page_size: String(recentCallsPageSize),
+      });
+      
+      if (recentCallsSearch) {
+        params.append('search', recentCallsSearch);
+      }
+      
+      // Filter by active run if available
+      if (activeRunId) {
+        params.append('run_id', String(activeRunId));
+      }
+
+      return await http.get(`/api/outbound/recent-calls?${params.toString()}`);
+    },
+    enabled: activeTab === 'recent',
+    retry: 1,
+    refetchInterval: activeTab === 'recent' && activeRunId ? 5000 : false, // Auto-refresh when viewing active run
+  });
+
+  const recentCalls: RecentCall[] = recentCallsData?.items || [];
+  const totalRecentCalls = recentCallsData?.total || 0;
+  const totalRecentPages = Math.ceil(totalRecentCalls / recentCallsPageSize);
+
   const systemLeads = Array.isArray(leadsData?.leads) ? leadsData.leads : [];
   const activeLeads = Array.isArray(activeLeadsData?.leads) ? activeLeadsData.leads : [];
   const importedLeads = importedLeadsData?.items || [];
@@ -314,12 +364,15 @@ export function OutboundCallsPage() {
         }]);
         // Start polling for queue status
         startQueuePolling(data.run_id);
+        // Switch to recent calls tab to show progress
+        setActiveTab('recent');
       } else {
         // Direct calls started
         setCallResults(data.calls || []);
         setShowResults(true);
       }
       refetchCounts();
+      refetchRecentCalls();
       queryClient.invalidateQueries({ queryKey: ['/api/calls'] });
     },
     onError: (error: any) => {
@@ -515,11 +568,18 @@ export function OutboundCallsPage() {
           failed: status.failed
         });
         
+        // Refetch recent calls to show new calls
+        if (activeTab === 'recent') {
+          refetchRecentCalls();
+        }
+        
         // Stop polling if queue is complete
-        if (status.status === 'completed' || status.status === 'failed') {
+        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
           clearInterval(pollInterval);
           setActiveRunId(null);
+          setQueueStatus(null);
           refetchCounts();
+          refetchRecentCalls();
         }
       } catch (error) {
         console.error('Queue status polling error:', error);
@@ -539,6 +599,7 @@ export function OutboundCallsPage() {
       setActiveRunId(null);
       setQueueStatus(null);
       refetchCounts();
+      refetchRecentCalls();
     } catch (error) {
       console.error('Failed to stop queue:', error);
     }
@@ -708,6 +769,34 @@ export function OutboundCallsPage() {
         </div>
         
         <div className="flex items-center gap-4">
+          {/* Stop Queue Button */}
+          {activeRunId && queueStatus && (
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <div className="text-sm">
+                    <div className="font-medium text-blue-900">תור פעיל</div>
+                    <div className="text-blue-600">
+                      בתור: {queueStatus.queued} | מתבצע: {queueStatus.in_progress} | הושלם: {queueStatus.completed}
+                      {queueStatus.failed > 0 && ` | נכשל: ${queueStatus.failed}`}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleStopQueue}
+                className="flex items-center gap-2"
+                data-testid="button-stop-queue"
+              >
+                <StopCircle className="h-4 w-4" />
+                עצור תור
+              </Button>
+            </div>
+          )}
+          
           {/* View Mode Toggle */}
           {(activeTab === 'system' || activeTab === 'active' || activeTab === 'imported') && !showResults && (
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
@@ -836,6 +925,29 @@ export function OutboundCallsPage() {
             {totalImported > 0 && (
               <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
                 {totalImported}
+              </span>
+            )}
+          </div>
+        </button>
+        <button
+          className={`px-6 py-3 font-medium text-sm transition-colors ${
+            activeTab === 'recent'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          onClick={() => {
+            setActiveTab('recent');
+            setShowResults(false);
+            setCallResults([]);
+          }}
+          data-testid="tab-recent-calls"
+        >
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            שיחות אחרונות
+            {totalRecentCalls > 0 && (
+              <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
+                {totalRecentCalls}
               </span>
             )}
           </div>
@@ -1556,6 +1668,189 @@ export function OutboundCallsPage() {
             )}
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Recent Calls Tab */}
+      {!showResults && activeTab === 'recent' && (
+        <div className="space-y-4">
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                שיחות אחרונות ({totalRecentCalls})
+              </h3>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="חיפוש..."
+                    value={recentCallsSearch}
+                    onChange={(e) => {
+                      setRecentCallsSearch(e.target.value);
+                      setRecentCallsPage(1);
+                    }}
+                    className="pr-10 w-48"
+                    data-testid="input-recent-calls-search"
+                  />
+                </div>
+                {activeRunId && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setActiveRunId(null);
+                      refetchRecentCalls();
+                    }}
+                    data-testid="button-show-all-calls"
+                  >
+                    הצג את כל השיחות
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {recentCallsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+              </div>
+            ) : recentCalls.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                {recentCallsSearch ? 'לא נמצאו שיחות מתאימות' : 'עדיין לא בוצעו שיחות יוצאות'}
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-right py-3 px-2 font-medium">זמן</th>
+                        <th className="text-right py-3 px-2 font-medium">טלפון</th>
+                        <th className="text-right py-3 px-2 font-medium">ליד</th>
+                        <th className="text-right py-3 px-2 font-medium">סטטוס</th>
+                        <th className="text-right py-3 px-2 font-medium">משך</th>
+                        <th className="text-right py-3 px-2 font-medium">הקלטה</th>
+                        <th className="text-right py-3 px-2 font-medium">סיכום</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentCalls.map((call) => {
+                        const duration = call.duration 
+                          ? `${Math.floor(call.duration / 60)}:${(call.duration % 60).toString().padStart(2, '0')}`
+                          : '-';
+                        
+                        return (
+                          <tr 
+                            key={call.call_sid} 
+                            className="border-b hover:bg-gray-50 cursor-pointer"
+                            onClick={() => {
+                              if (call.lead_id) {
+                                handleLeadClick(call.lead_id);
+                              }
+                            }}
+                            data-testid={`recent-call-row-${call.call_sid}`}
+                          >
+                            <td className="py-3 px-2">
+                              {call.started_at 
+                                ? new Date(call.started_at).toLocaleString('he-IL', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : '-'}
+                            </td>
+                            <td className="py-3 px-2" dir="ltr">{call.to_number || '-'}</td>
+                            <td className="py-3 px-2 font-medium">
+                              {call.lead_name || call.lead_id ? (
+                                <span className="text-blue-600 hover:underline">
+                                  {call.lead_name || `ליד #${call.lead_id}`}
+                                </span>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                            <td className="py-3 px-2">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                call.status === 'completed' || call.status === 'answered'
+                                  ? 'bg-green-100 text-green-800'
+                                  : call.status === 'no-answer' || call.status === 'busy'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : call.status === 'failed'
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {call.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2">{duration}</td>
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
+                              {call.recording_url ? (
+                                <a
+                                  href={call.recording_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline flex items-center gap-1"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  הורד
+                                </a>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                            <td className="py-3 px-2 max-w-xs">
+                              {call.summary ? (
+                                <div className="text-gray-600 truncate" title={call.summary}>
+                                  {call.summary}
+                                </div>
+                              ) : call.transcript ? (
+                                <div className="text-gray-500 text-xs truncate" title={call.transcript}>
+                                  {call.transcript}
+                                </div>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {totalRecentPages > 1 && (
+                  <div className="flex items-center justify-between mt-4">
+                    <div className="text-sm text-gray-500">
+                      עמוד {recentCallsPage} מתוך {totalRecentPages}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setRecentCallsPage(p => Math.max(1, p - 1))}
+                        disabled={recentCallsPage === 1}
+                        data-testid="button-prev-recent-page"
+                      >
+                        הקודם
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setRecentCallsPage(p => Math.min(totalRecentPages, p + 1))}
+                        disabled={recentCallsPage === totalRecentPages}
+                        data-testid="button-next-recent-page"
+                      >
+                        הבא
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
         </div>
       )}
 
