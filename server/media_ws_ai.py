@@ -1827,6 +1827,8 @@ class MediaStreamHandler:
         self._response_audio_watchdog = {}  # response_id -> {created_ts, first_audio_ts, audio_delta_count, transcript_delta_count}
         self._no_audio_watchdog_timeout_sec = 1.2  # 1200ms - if no audio arrives, trigger recovery
         self._no_audio_retry_attempted = set()  # Track response IDs we already retried (one retry per response)
+        self._no_audio_last_fired_ts = None  # Rule 3: Last time watchdog fired (for cooldown)
+        self._no_audio_cooldown_sec = 12.0  # Rule 3: 12 second cooldown between watchdog fires
         
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
@@ -3761,9 +3763,13 @@ class MediaStreamHandler:
         
         # 🔥 TEXT BARGE-IN GUARD: Block response.create if active response exists
         # Prevents "conversation_already_has_active_response" error
-        if getattr(self, 'ai_response_active', False) and not is_greeting and not force:
-            print(f"🛑 [RESPONSE GUARD] AI_RESPONSE_ACTIVE=True - blocking response.create ({reason})")
-            logger.debug(f"[RESPONSE GUARD] Active response exists (active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...)")
+        # Rule 2: Check BOTH conditions - active_response_id AND ai_response_active
+        has_active_response_id = bool(getattr(self, 'active_response_id', None))
+        has_ai_response_active = getattr(self, 'ai_response_active', False)
+        
+        if (has_active_response_id or has_ai_response_active) and not is_greeting and not force:
+            print(f"🛑 [RESPONSE GUARD] Active response exists - blocking response.create ({reason})")
+            logger.debug(f"[RESPONSE GUARD] active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}..., ai_response_active={has_ai_response_active}")
             return False
         
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
@@ -4184,10 +4190,12 @@ class MediaStreamHandler:
                                 if self._pending_user_text:
                                     txt = self._pending_user_text
                                     self._pending_user_text = None
-                                    print(f"🎯 [TEXT_BARGE_IN] response.done received, creating response for pending text")
+                                    # Smoke Test: Log completion sequence
+                                    print(f"🎯 [TEXT_BARGE_IN] response.done -> creating response.create")
                                     await self._create_response_from_text(txt)
                                     self._barge_in_event_count += 1
                                     logger.info(f"[TEXT_BARGE_IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
+                                    print(f"✅ [TEXT_BARGE_IN] Flow complete: detected -> cancel -> twilio_clear -> response.done -> response.create")
 
                             
                             _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
@@ -4282,10 +4290,12 @@ class MediaStreamHandler:
                         if self._pending_user_text:
                             txt = self._pending_user_text
                             self._pending_user_text = None
-                            print(f"🎯 [TEXT_BARGE_IN] response.cancelled received, creating response for pending text")
+                            # Smoke Test: Log completion sequence
+                            print(f"🎯 [TEXT_BARGE_IN] response.cancelled -> creating response.create")
                             await self._create_response_from_text(txt)
                             self._barge_in_event_count += 1
                             logger.info(f"[TEXT_BARGE_IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
+                            print(f"✅ [TEXT_BARGE_IN] Flow complete: detected -> cancel -> twilio_clear -> response.cancelled -> response.create")
 
                 
                 # 🔥 DEBUG: Log errors
@@ -4779,15 +4789,28 @@ class MediaStreamHandler:
                                 # SILENT RESPONSE detected: NO audio (regardless of transcript)
                                 # Fire watchdog if no audio.delta arrived, even if transcript also didn't arrive
                                 if audio_count == 0:
+                                    # Rule 3: Check cooldown - prevent loops in problematic calls
+                                    now = time.time()
+                                    if self._no_audio_last_fired_ts is not None:
+                                        time_since_last_fire = now - self._no_audio_last_fired_ts
+                                        if time_since_last_fire < self._no_audio_cooldown_sec:
+                                            logger.warning(
+                                                f"[NO_AUDIO_WATCHDOG] Cooldown active - {self._no_audio_cooldown_sec - time_since_last_fire:.1f}s remaining "
+                                                f"(fired {time_since_last_fire:.1f}s ago)"
+                                            )
+                                            _orig_print(f"⏸️ [NO_AUDIO_WATCHDOG] COOLDOWN - not firing (last fired {time_since_last_fire:.1f}s ago)", flush=True)
+                                            return
+                                    
                                     # Check if we already retried this response
                                     if resp_id in self._no_audio_retry_attempted:
                                         logger.warning(f"[NO_AUDIO_WATCHDOG] Already retried response {resp_id[:12]}... - not retrying again")
                                         return
                                     
-                                    # Mark as retried
+                                    # Mark as retried and update last fired timestamp
                                     self._no_audio_retry_attempted.add(resp_id)
+                                    self._no_audio_last_fired_ts = now
                                     
-                                    # Log the issue
+                                    # Log the issue with detailed state
                                     _orig_print(
                                         f"🚨 [NO_AUDIO_WATCHDOG] FIRED! resp={resp_id[:12]}... "
                                         f"transcript_deltas={transcript_count} audio_deltas=0 - SILENT RESPONSE DETECTED",
@@ -4796,27 +4819,51 @@ class MediaStreamHandler:
                                     logger.error(f"[NO_AUDIO_WATCHDOG] Silent response detected: {resp_id[:20]}... transcript_deltas={transcript_count}")
                                     
                                     # Recovery: Cancel current response and create new one
+                                    recovery_success = False
                                     try:
                                         # 1. Cancel silent response
                                         if self.active_response_id == resp_id:
-                                            print(f"🔄 [NO_AUDIO_WATCHDOG] Cancelling silent response: {resp_id[:20]}...")
+                                            print(f"🔄 [NO_AUDIO_WATCHDOG] Step 1: Cancelling silent response: {resp_id[:20]}...")
                                             await self.realtime_client.cancel_response(resp_id)
                                             logger.info(f"[NO_AUDIO_WATCHDOG] Cancelled silent response")
+                                            print(f"✅ [NO_AUDIO_WATCHDOG] cancel sent")
+                                        
+                                        # Rule 4: Clear stuck flags to prevent "stuck on flags" issue
+                                        # These flags are tied to the cancelled response
+                                        if self.active_response_id == resp_id:
+                                            print(f"🧹 [NO_AUDIO_WATCHDOG] Step 2: Clearing response flags...")
+                                            self.active_response_id = None
+                                            self.is_ai_speaking_event.clear()
+                                            if hasattr(self, 'ai_response_active'):
+                                                self.ai_response_active = False
+                                            if hasattr(self, 'speaking'):
+                                                self.speaking = False
+                                            print(f"✅ [NO_AUDIO_WATCHDOG] flags cleared (active_response_id=None, is_ai_speaking=False, ai_response_active=False)")
                                         
                                         # 2. Wait a moment for cancel to complete
                                         await asyncio.sleep(0.3)
                                         
                                         # 3. Create new response (retry once)
-                                        print(f"🔄 [NO_AUDIO_WATCHDOG] Creating retry response...")
+                                        print(f"🔄 [NO_AUDIO_WATCHDOG] Step 3: Creating retry response...")
                                         triggered = await self.trigger_response("NO_AUDIO_WATCHDOG_RETRY", self.realtime_client)
                                         if triggered:
+                                            recovery_success = True
                                             _orig_print(f"✅ [NO_AUDIO_WATCHDOG] Retry response created - recovery complete", flush=True)
+                                            _orig_print(f"⏰ [NO_AUDIO_WATCHDOG] Cooldown started ({self._no_audio_cooldown_sec}s)", flush=True)
                                         else:
                                             _orig_print(f"⚠️ [NO_AUDIO_WATCHDOG] Retry blocked by guards", flush=True)
                                     
                                     except Exception as recovery_err:
                                         logger.error(f"[NO_AUDIO_WATCHDOG] Recovery failed: {recovery_err}")
                                         _orig_print(f"❌ [NO_AUDIO_WATCHDOG] Recovery error: {recovery_err}", flush=True)
+                                    
+                                    # Log recovery result
+                                    result_str = "success" if recovery_success else "fail"
+                                    _orig_print(
+                                        f"📊 [NO_AUDIO_WATCHDOG] Recovery result: {result_str} | "
+                                        f"fired -> cancel -> retry -> {result_str} -> cooldown_start",
+                                        flush=True
+                                    )
                                 
                             except asyncio.CancelledError:
                                 # Watchdog was cancelled (normal - response completed with audio)
@@ -6187,18 +6234,20 @@ class MediaStreamHandler:
                         # A. Snapshot active response ID
                         rid = self.active_response_id
                         
-                        print(f"🎤 [TEXT_BARGE_IN] Detected text while AI speaking: '{text[:40]}...'")
+                        # Rule 1 & Smoke Test: Enhanced logging for text barge-in detection
+                        print(f"🎤 [TEXT_BARGE_IN] detected -> text='{text[:40]}...' while AI active")
                         logger.info(f"[TEXT_BARGE_IN] ai_speaking={is_ai_speaking}, active_response={rid[:20] if rid else 'None'}...")
                         
                         # B. Cancel + Clear + Flush (if we have active response)
                         if rid:
                             self._barge_in_pending_cancel = True
-                            print(f"🔄 [TEXT_BARGE_IN] Cancelling active response: {rid[:20]}...")
+                            print(f"🔄 [TEXT_BARGE_IN] cancel -> response_id={rid[:20]}...")
                             
                             try:
                                 # Cancel the active response
                                 await self.realtime_client.cancel_response(rid)
                                 logger.info(f"[TEXT_BARGE_IN] ✅ Cancel sent for: {rid[:20]}...")
+                                print(f"✅ [TEXT_BARGE_IN] cancel sent")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 if 'not_active' in error_str or 'no active' in error_str:
@@ -6215,14 +6264,15 @@ class MediaStreamHandler:
                                     }
                                     self._ws_send(json.dumps(clear_event))
                                     logger.info("[TEXT_BARGE_IN] ✅ Sent Twilio clear event")
-                                    print(f"📤 [TEXT_BARGE_IN] Twilio clear sent (stream_sid={self.stream_sid})")
+                                    print(f"📤 [TEXT_BARGE_IN] twilio_clear sent")
                                 except Exception as e:
                                     logger.warning(f"[TEXT_BARGE_IN] Failed to send Twilio clear: {e}")
                             
                             # Flush TX queue immediately
-                            print(f"🧹 [TEXT_BARGE_IN] Flushing TX queues...")
+                            print(f"🧹 [TEXT_BARGE_IN] flushing TX queues...")
                             self._flush_tx_queue_immediate("barge_in_text")
                             logger.info("[TEXT_BARGE_IN] ✅ TX queues flushed")
+                            print(f"✅ [TEXT_BARGE_IN] TX flushed")
                         
                         # C. Store pending text instead of creating response now
                         # Log if we're overwriting previous pending text (for debugging)
@@ -6231,7 +6281,7 @@ class MediaStreamHandler:
                         
                         self._pending_user_text = text
                         logger.info(f"[TEXT_BARGE_IN] Stored pending text, waiting for response.cancelled/done")
-                        print(f"⏸️ [TEXT_BARGE_IN] Text stored, will create response after cancel completes")
+                        print(f"⏸️ [TEXT_BARGE_IN] Pending text stored -> waiting for response.done")
                         
                         # Clear candidate flag - transcription received and handled
                         self._candidate_user_speaking = False
