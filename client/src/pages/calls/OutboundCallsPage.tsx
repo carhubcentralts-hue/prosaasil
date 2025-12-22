@@ -236,7 +236,26 @@ export function OutboundCallsPage() {
   }, [activeLeadsData]);
 
   const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
-    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery],
+    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(currentPage),
+        page_size: String(pageSize),
+      });
+      
+      if (importedSearchQuery) {
+        params.append('search', importedSearchQuery);
+      }
+
+      // ✅ Add multi-status filter for imported leads
+      if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => {
+          params.append('statuses[]', status);
+        });
+      }
+
+      return await http.get(`/api/outbound/import-leads?${params.toString()}`);
+    },
     enabled: activeTab === 'imported',
     retry: 1,
   });

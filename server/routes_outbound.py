@@ -219,8 +219,8 @@ def start_outbound_calls():
     if not lead_ids or not isinstance(lead_ids, list):
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
     
-    if len(lead_ids) > 3:
-        return jsonify({"error": "ניתן לבחור עד שלושה לידים לשיחות יוצאות במקביל"}), 400
+    # ✅ REMOVED: 3-lead limit restriction. Now supports unlimited selections.
+    # If more than 3 leads, the system automatically uses bulk queue mode.
     
     allowed, error_msg = check_call_limits(tenant_id, len(lead_ids))
     if not allowed:
@@ -931,6 +931,7 @@ def get_imported_leads():
     - page_size: Items per page (default 50, max 100)
     - list_id: Optional filter by list ID
     - search: Optional search query
+    - statuses[]: Optional multi-status filter (e.g., ?statuses[]=new&statuses[]=contacted)
     
     Returns:
     {
@@ -957,6 +958,7 @@ def get_imported_leads():
         page_size = min(100, max(1, int(request.args.get('page_size', 50))))
         list_id = request.args.get('list_id', type=int)
         search = request.args.get('search', '').strip()
+        statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
         
         # Build query
         query = Lead.query.filter_by(
@@ -966,6 +968,10 @@ def get_imported_leads():
         
         if list_id:
             query = query.filter_by(outbound_list_id=list_id)
+        
+        # ✅ Status filter: Support multi-status filtering
+        if statuses_filter:
+            query = query.filter(Lead.status.in_(statuses_filter))
         
         if search:
             search_term = f"%{search}%"
