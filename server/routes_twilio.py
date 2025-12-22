@@ -1217,6 +1217,48 @@ def call_status():
             save_call_status(call_sid, call_status_val, int(call_duration), 
                            normalized_direction, twilio_direction, parent_call_sid)
             
+            # 🔥 NEW: Check if this call is part of a queue run and fill slots
+            # This is the event-driven queue processing
+            try:
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if call_log:
+                    # Check if there's an associated job in a bulk run
+                    from server.models_sql import OutboundCallJob
+                    job = OutboundCallJob.query.filter_by(call_log_id=call_log.id).first()
+                    if job and job.status == "calling":
+                        # Update job status
+                        from datetime import datetime
+                        job.status = "completed" if call_status_val == "completed" else "failed"
+                        job.completed_at = datetime.utcnow()
+                        if call_status_val != "completed":
+                            job.error_message = f"Call ended with status: {call_status_val}"
+                        
+                        # Update run counts
+                        from server.models_sql import OutboundCallRun
+                        run = OutboundCallRun.query.get(job.run_id)
+                        if run:
+                            run.in_progress_count -= 1
+                            if call_status_val == "completed":
+                                run.completed_count += 1
+                            else:
+                                run.failed_count += 1
+                            db.session.commit()
+                            
+                            # Fill available slots - this is the key part!
+                            from server.routes_outbound import fill_queue_slots_for_job
+                            import threading
+                            threading.Thread(
+                                target=fill_queue_slots_for_job,
+                                args=(job.id,),
+                                daemon=True,
+                                name=f"FillSlots-{job.id}"
+                            ).start()
+                            log.info(f"✅ [QUEUE] Call completed for job {job.id}, filling slots")
+                        else:
+                            db.session.commit()
+            except Exception as queue_err:
+                log.warning(f"Queue slot fill error (non-critical): {queue_err}")
+            
             # 🔥 VERIFICATION #1: Close handler from webhook for terminal statuses
             if call_sid:
                 from server.media_ws_ai import close_handler_from_webhook

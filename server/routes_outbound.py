@@ -1324,6 +1324,225 @@ def get_run_status(run_id: int):
     })
 
 
+@outbound_bp.route("/api/outbound/stop-queue", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def stop_queue():
+    """
+    Stop an active bulk call queue/run
+    
+    Request body:
+    {
+        "run_id": 123
+    }
+    """
+    from flask import session
+    from server.models_sql import OutboundCallRun
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            # System admin can stop any run
+            pass
+        else:
+            return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "נתונים חסרים"}), 400
+    
+    run_id = data.get('run_id')
+    if not run_id:
+        return jsonify({"error": "חסר run_id"}), 400
+    
+    try:
+        # Get run (verify it belongs to tenant if not system admin)
+        if tenant_id:
+            run = OutboundCallRun.query.filter_by(
+                id=run_id,
+                business_id=tenant_id
+            ).first()
+        else:
+            run = OutboundCallRun.query.get(run_id)
+        
+        if not run:
+            return jsonify({"error": "הרצה לא נמצאה"}), 404
+        
+        # Mark as cancelled
+        run.status = "cancelled"
+        db.session.commit()
+        
+        log.info(f"✅ Stopped queue run {run_id}")
+        
+        return jsonify({
+            "success": True,
+            "message": "התור הופסק בהצלחה"
+        })
+        
+    except Exception as e:
+        log.error(f"Error stopping queue {run_id}: {e}")
+        db.session.rollback()
+        return jsonify({"error": "שגיאה בעצירת התור"}), 500
+
+
+def fill_queue_slots_for_job(job_id: int):
+    """
+    Called when a call completes - tries to fill available slots in the queue
+    This is the event-driven approach instead of polling
+    """
+    from server.app_factory import get_process_app
+    from server.models_sql import OutboundCallRun, OutboundCallJob, Lead, Business, CallLog
+    from datetime import datetime
+    
+    app = get_process_app()
+    
+    with app.app_context():
+        try:
+            # Get the job and run
+            job = OutboundCallJob.query.get(job_id)
+            if not job:
+                log.warning(f"[FillSlots] Job {job_id} not found")
+                return
+            
+            run = OutboundCallRun.query.get(job.run_id)
+            if not run or run.status != "running":
+                log.info(f"[FillSlots] Run {job.run_id} not running, skipping")
+                return
+            
+            log.info(f"[FillSlots] Filling slots for run {run.id} after job {job_id} completed")
+            
+            # Get business details
+            business = Business.query.get(run.business_id)
+            if not business or not business.phone_e164:
+                log.error(f"[FillSlots] Business {run.business_id} has no phone")
+                return
+            
+            from_phone = business.phone_e164
+            business_name = business.name or "העסק"
+            host = get_public_host()
+            
+            # Check how many active calls we have
+            active_count = OutboundCallJob.query.filter_by(
+                run_id=run.id,
+                status="calling"
+            ).count()
+            
+            # Fill available slots
+            while active_count < run.concurrency:
+                # Get next queued job
+                next_job = OutboundCallJob.query.filter_by(
+                    run_id=run.id,
+                    status="queued"
+                ).order_by(OutboundCallJob.id).first()
+                
+                if not next_job:
+                    # No more jobs queued
+                    if active_count == 0:
+                        # All done!
+                        run.status = "completed"
+                        run.completed_at = datetime.utcnow()
+                        db.session.commit()
+                        log.info(f"[FillSlots] Run {run.id} completed - all calls finished")
+                    break
+                
+                # Start this call
+                try:
+                    lead = Lead.query.get(next_job.lead_id)
+                    if not lead or not lead.phone_e164:
+                        next_job.status = "failed"
+                        next_job.error_message = "אין מספר טלפון לליד"
+                        next_job.completed_at = datetime.utcnow()
+                        run.failed_count += 1
+                        run.queued_count -= 1
+                        db.session.commit()
+                        continue
+                    
+                    # Update job status
+                    next_job.status = "calling"
+                    next_job.started_at = datetime.utcnow()
+                    run.in_progress_count += 1
+                    run.queued_count -= 1
+                    db.session.commit()
+                    
+                    # Normalize phone
+                    normalized_phone = normalize_israeli_phone(lead.phone_e164)
+                    
+                    # Create call log
+                    call_log = CallLog()
+                    call_log.business_id = run.business_id
+                    call_log.lead_id = lead.id
+                    call_log.from_number = from_phone
+                    call_log.to_number = normalized_phone
+                    call_log.direction = "outbound"
+                    call_log.status = "initiated"
+                    call_log.call_status = "initiated"
+                    db.session.add(call_log)
+                    db.session.flush()
+                    
+                    next_job.call_log_id = call_log.id
+                    db.session.commit()
+                    
+                    # Initiate Twilio call
+                    lead_name = lead.full_name or "לקוח"
+                    webhook_url = f"https://{host}/webhook/outbound_call"
+                    webhook_url += f"?call_id={call_log.id}"
+                    webhook_url += f"&lead_id={lead.id}"
+                    webhook_url += f"&lead_name={quote(lead_name, safe='')}"
+                    webhook_url += f"&business_id={run.business_id}"
+                    webhook_url += f"&business_name={quote(business_name, safe='')}"
+                    webhook_url += f"&run_id={run.id}"
+                    webhook_url += f"&job_id={next_job.id}"
+                    
+                    client = get_twilio_client()
+                    
+                    amd_callback_url = f"https://{host}/webhook/amd_status"
+                    
+                    try:
+                        twilio_call = client.calls.create(
+                            to=normalized_phone,
+                            from_=from_phone,
+                            url=webhook_url,
+                            status_callback=f"https://{host}/webhook/call_status",
+                            status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                            machine_detection="DetectMessageEnd",
+                            async_amd=True,
+                            async_amd_status_callback=amd_callback_url,
+                            async_amd_status_callback_method="POST",
+                            record=True
+                        )
+                    except TypeError:
+                        twilio_call = client.calls.create(
+                            to=normalized_phone,
+                            from_=from_phone,
+                            url=webhook_url,
+                            status_callback=f"https://{host}/webhook/call_status",
+                            status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                            record=True
+                        )
+                    
+                    call_log.call_sid = twilio_call.sid
+                    next_job.call_sid = twilio_call.sid
+                    db.session.commit()
+                    
+                    log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
+                    active_count += 1
+                    
+                except Exception as e:
+                    log.error(f"[FillSlots] Error starting call for job {next_job.id}: {e}")
+                    next_job.status = "failed"
+                    next_job.error_message = str(e)
+                    next_job.completed_at = datetime.utcnow()
+                    run.in_progress_count -= 1
+                    run.failed_count += 1
+                    db.session.commit()
+                    
+        except Exception as e:
+            log.error(f"[FillSlots] Error in fill_queue_slots_for_job: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 def process_bulk_call_run(run_id: int):
     """
     Background worker to process bulk call run
@@ -1358,6 +1577,12 @@ def process_bulk_call_run(run_id: int):
             
             # Process jobs in queue
             while True:
+                # Check if queue was stopped
+                db.session.refresh(run)
+                if run.status == "cancelled":
+                    log.info(f"[BulkCall] Run {run_id} was cancelled, stopping")
+                    break
+                
                 # Get current active count
                 active_jobs = OutboundCallJob.query.filter_by(
                     run_id=run_id,
