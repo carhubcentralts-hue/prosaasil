@@ -31,8 +31,8 @@ CALL_STATUS_INITIATED = "initiated"
 CALL_STATUS_IN_PROGRESS = "in_progress"
 CALL_STATUS_STREAMING = "streaming"
 
-# Early-stage call statuses that can be updated by AMD
-EARLY_STAGE_STATUSES = [CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING]
+# Early-stage call statuses that can be updated by AMD (set for O(1) lookup)
+EARLY_STAGE_STATUSES = {CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING}
 
 # AMD Status Constants - Max 32 chars (status field limit)
 AMD_STATUS_VOICEMAIL = "voicemail"  # Generic voicemail/machine
@@ -1335,7 +1335,7 @@ def amd_status():
                             call_log.status = AMD_STATUS_HUMAN
                         db.session.commit()
                     else:
-                        logger.info(f"AMD_STATUS: Skipping status update for {call_sid} - already in terminal status {call_log.status}")
+                        logger.info("AMD_STATUS: Skipping status update - already in terminal status", extra={"call_sid": call_sid, "status": call_log.status})
             except Exception as db_err:
                 logger.warning(f"AMD_STATUS db update failed: {db_err}")
                 db.session.rollback()
