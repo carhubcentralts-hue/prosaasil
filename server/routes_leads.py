@@ -2216,4 +2216,3 @@ def select_lead_ids():
         db.session.rollback()
         log.error(f"❌ Error in select_lead_ids: {e}")
         return jsonify({"error": "Failed to fetch lead IDs", "details": str(e)}), 500
-        return jsonify({"error": "Failed to delete attachment"}), 500
