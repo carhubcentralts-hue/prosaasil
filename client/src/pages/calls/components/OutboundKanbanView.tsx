@@ -47,6 +47,7 @@ interface OutboundKanbanViewProps {
   onStatusChange?: (leadId: number, newStatus: string) => Promise<void>;
   onSelectAll?: (leadIds: number[]) => void;
   onClearSelection?: () => void;
+  updatingStatusLeadId?: number;
 }
 
 export function OutboundKanbanView({
@@ -58,7 +59,8 @@ export function OutboundKanbanView({
   onLeadClick,
   onStatusChange,
   onSelectAll,
-  onClearSelection
+  onClearSelection,
+  updatingStatusLeadId
 }: OutboundKanbanViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -212,6 +214,13 @@ export function OutboundKanbanView({
     const statusLeads = currentStatus ? (leadsByStatus[currentStatus.name] || []) : [];
     const leadIds = statusLeads.map(lead => lead.id);
 
+    const handleSelectAllInCurrentStatus = async () => {
+      if (onSelectAll) {
+        // Call onSelectAll with all lead IDs in the current status
+        onSelectAll(leadIds);
+      }
+    };
+
     return (
       <div className="space-y-4">
         {/* Mobile status navigation */}
@@ -243,6 +252,19 @@ export function OutboundKanbanView({
             <ChevronLeft className="w-5 h-5" />
           </button>
         </div>
+
+        {/* "Select all in this status" button */}
+        {statusLeads.length > 0 && onSelectAll && (
+          <div className="flex justify-center">
+            <button
+              onClick={handleSelectAllInCurrentStatus}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              data-testid="button-select-all-in-status-mobile"
+            >
+              בחר את כל הלידים בסטטוס: {currentStatus?.label || ''} ({statusLeads.length})
+            </button>
+          </div>
+        )}
 
         {/* Status indicator dots */}
         <div className="flex justify-center gap-2">
@@ -278,6 +300,9 @@ export function OutboundKanbanView({
                   isSelected={selectedLeadIds.has(lead.id)}
                   onSelect={onLeadSelect}
                   onClick={onLeadClick}
+                  statuses={statuses}
+                  onStatusChange={onStatusChange}
+                  isUpdatingStatus={updatingStatusLeadId === lead.id}
                 />
               ))}
             </SortableContext>
@@ -346,6 +371,9 @@ export function OutboundKanbanView({
                         isSelected={selectedLeadIds.has(lead.id)}
                         onSelect={onLeadSelect}
                         onClick={onLeadClick}
+                        statuses={statuses}
+                        onStatusChange={onStatusChange}
+                        isUpdatingStatus={updatingStatusLeadId === lead.id}
                       />
                     ))}
                   </SortableContext>

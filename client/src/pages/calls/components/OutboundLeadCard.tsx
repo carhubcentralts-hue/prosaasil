@@ -3,6 +3,8 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Phone, Clock, GripVertical } from 'lucide-react';
 import { formatRelativeTime } from '../../../shared/utils/format';
+import { StatusCell } from '../../../shared/components/ui/StatusCell';
+import type { LeadStatusConfig } from '../../../shared/types/status';
 
 interface Lead {
   id: number;
@@ -22,6 +24,9 @@ interface OutboundLeadCardProps {
   onSelect: (leadId: number, isShiftKey?: boolean) => void;
   onClick?: (leadId: number) => void;
   isDragOverlay?: boolean;
+  statuses?: LeadStatusConfig[];
+  onStatusChange?: (leadId: number, newStatus: string) => Promise<void>;
+  isUpdatingStatus?: boolean;
 }
 
 export function OutboundLeadCard({
@@ -29,7 +34,10 @@ export function OutboundLeadCard({
   isSelected,
   onSelect,
   onClick,
-  isDragOverlay = false
+  isDragOverlay = false,
+  statuses = [],
+  onStatusChange,
+  isUpdatingStatus = false
 }: OutboundLeadCardProps) {
   const {
     attributes,
@@ -66,9 +74,11 @@ export function OutboundLeadCard({
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Don't trigger card click if clicking on checkbox area or drag handle
+    // Don't trigger card click if clicking on checkbox area, drag handle, or status dropdown
     const target = e.target as HTMLElement;
-    if (target.closest('[data-checkbox-wrapper]') || target.closest('[data-drag-handle]')) {
+    if (target.closest('[data-checkbox-wrapper]') || 
+        target.closest('[data-drag-handle]') ||
+        target.closest('[data-status-cell]')) {
       return;
     }
     if (!isDragOverlay && onClick) {
@@ -135,6 +145,25 @@ export function OutboundLeadCard({
             <div className="flex items-center gap-1 text-xs text-gray-400 mt-2">
               <Clock className="w-3 h-3" />
               <span>{formatRelativeTime(lead.last_contact_at)}</span>
+            </div>
+          )}
+
+          {/* Status dropdown (if statuses and handler provided) */}
+          {statuses.length > 0 && onStatusChange && (
+            <div 
+              className="mt-2" 
+              data-status-cell
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <StatusCell
+                leadId={lead.id}
+                currentStatus={lead.status}
+                statuses={statuses}
+                onStatusChange={onStatusChange}
+                isUpdating={isUpdatingStatus}
+              />
             </div>
           )}
         </div>

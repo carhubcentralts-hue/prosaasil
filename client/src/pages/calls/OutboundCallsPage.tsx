@@ -972,6 +972,7 @@ export function OutboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
+                    updatingStatusLeadId={updatingStatusLeadId}
                   />
                 </div>
               )}
@@ -1120,6 +1121,7 @@ export function OutboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
+                    updatingStatusLeadId={updatingStatusLeadId}
                   />
                 </div>
               )}
@@ -1374,6 +1376,7 @@ export function OutboundCallsPage() {
                     onStatusChange={handleStatusChange}
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
+                    updatingStatusLeadId={updatingStatusLeadId}
                   />
                 </div>
               )}
