@@ -1,19 +1,12 @@
 import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Select } from './Select';
-
-interface LeadStatus {
-  name: string;
-  label: string;
-  color: string;
-  order_index: number;
-  is_system?: boolean;
-}
+import { LeadStatusConfig } from '../../types/status';
 
 interface StatusCellProps {
   leadId: number;
   currentStatus: string;
-  statuses: LeadStatus[];
+  statuses: LeadStatusConfig[];
   onStatusChange: (leadId: number, newStatus: string) => Promise<void>;
   isUpdating?: boolean;
 }
@@ -21,11 +14,37 @@ interface StatusCellProps {
 /**
  * StatusCell - Unified inline status editor for all lead list views
  * 
- * Features:
- * - Dropdown for status selection
- * - Loading state during update
- * - Single source of truth from API statuses
- * - Used in System, Active, and Import List table views
+ * A reusable component that provides a dropdown for editing lead status inline.
+ * Used across System, Active, and Import List table views to ensure consistency.
+ * 
+ * @component
+ * @example
+ * ```tsx
+ * <StatusCell
+ *   leadId={123}
+ *   currentStatus="new"
+ *   statuses={statusesFromAPI}
+ *   onStatusChange={async (id, status) => {
+ *     await updateLeadStatus(id, status);
+ *   }}
+ *   isUpdating={false}
+ * />
+ * ```
+ * 
+ * @param {StatusCellProps} props - Component properties
+ * @param {number} props.leadId - Unique identifier of the lead
+ * @param {string} props.currentStatus - Current status name of the lead
+ * @param {LeadStatusConfig[]} props.statuses - Available status options from API
+ * @param {Function} props.onStatusChange - Async callback when status changes
+ * @param {boolean} [props.isUpdating=false] - External loading state
+ * 
+ * @returns {JSX.Element} Status dropdown or loading indicator
+ * 
+ * @remarks
+ * - Shows loading spinner during update
+ * - Prevents parent row click when interacting with dropdown
+ * - Uses optimistic updates via parent component
+ * - Single source of truth: statuses from /api/lead-statuses
  */
 export function StatusCell({
   leadId,

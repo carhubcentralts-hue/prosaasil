@@ -28,14 +28,10 @@ import { StatusCell } from '../../shared/components/ui/StatusCell';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
+import type { LeadStatusConfig } from '../../shared/types/status';
 
-interface LeadStatus {
-  name: string;
-  label: string;
-  color: string;
-  order_index: number;
-  is_system?: boolean;
-}
+// Type alias for backward compatibility
+type LeadStatus = LeadStatusConfig;
 
 interface ImportedLead {
   id: number;

@@ -961,9 +961,8 @@ def get_imported_leads():
         statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
         
         # ✅ Validate status filter values against allowed statuses
+        # Sanitize: only allow alphanumeric, underscore, dash (prevent injection)
         if statuses_filter:
-            # Sanitize: only allow alphanumeric, underscore, dash (prevent injection)
-            import re
             statuses_filter = [
                 s for s in statuses_filter 
                 if s and re.match(r'^[a-zA-Z0-9_-]+$', s) and len(s) <= 64
