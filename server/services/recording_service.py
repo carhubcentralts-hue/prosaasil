@@ -105,13 +105,13 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:
     """
-    ✅ BUILD 342: Download recording in best quality format
-    Priority: Dual-channel WAV > Mono WAV > MP3
+    ✅ COST OPTIMIZED: Download recording in best available format
+    Priority: WAV > MP3 (single channel recordings only)
     
-    Dual-channel provides:
-    - Separate tracks for customer/bot (cleaner transcription)
-    - Less TTS "bleeding" into customer transcript
-    - Higher quality audio (WAV > MP3)
+    Single-channel recordings provide:
+    - Full conversation capture (merged audio)
+    - 10-15% cost savings vs dual-channel
+    - Sufficient quality for transcription
     
     Args:
         recording_url: URL from CallLog.recording_url
@@ -132,11 +132,10 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
         if not base_url.startswith("http"):
             base_url = f"https://api.twilio.com{base_url}"
         
-        # 🔥 BUILD 342: Try best quality first - Dual-channel WAV > Mono WAV > MP3
-        # RequestedChannels=2 gives separate tracks for customer/bot (when available)
+        # 🔥 COST OPTIMIZATION: Single-channel recordings (WAV or MP3)
+        # No need to request dual-channel anymore - we're using single-channel recording
         urls_to_try = [
-            (f"{base_url}.wav?RequestedChannels=2", "Dual-channel WAV (best quality)"),
-            (f"{base_url}.wav", "Mono WAV (high quality)"),
+            (f"{base_url}.wav", "WAV (high quality)"),
             (f"{base_url}.mp3", "MP3 (fallback)"),
             (base_url, "Default format (last resort)"),
         ]
