@@ -612,6 +612,37 @@ export function OutboundCallsPage() {
     }
   };
 
+  const handleSelectAllInStatuses = async () => {
+    // Select all leads matching the selected statuses (across pagination)
+    if (selectedStatuses.length === 0) {
+      alert('יש לבחור לפחות סטטוס אחד');
+      return;
+    }
+
+    try {
+      const response = await http.post('/api/leads/select-ids', {
+        statuses: selectedStatuses,
+        search: activeTab === 'imported' ? importedSearchQuery : searchQuery,
+        tab: activeTab,
+        source: '', // Can be extended if needed
+        direction: activeTab === 'active' ? 'outbound' : ''
+      });
+
+      const leadIds = response.lead_ids || [];
+      
+      if (activeTab === 'imported') {
+        setSelectedImportedLeads(new Set(leadIds));
+      } else {
+        setSelectedLeads(new Set(leadIds));
+      }
+
+      console.log(`[OutboundCallsPage] ✅ Selected ${leadIds.length} leads from ${selectedStatuses.length} statuses`);
+    } catch (error) {
+      console.error('[OutboundCallsPage] ❌ Failed to select leads by status:', error);
+      alert('שגיאה בבחירת לידים');
+    }
+  };
+
   const handleClearSelection = () => {
     if (activeTab === 'imported') {
       setSelectedImportedLeads(new Set());
@@ -869,6 +900,17 @@ export function OutboundCallsPage() {
                     data-testid="system-kanban-status-filter"
                   />
                 </div>
+                {selectedStatuses.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleSelectAllInStatuses}
+                    className="whitespace-nowrap"
+                    data-testid="button-select-all-in-statuses"
+                  >
+                    בחר הכל בסטטוסים ({selectedStatuses.length})
+                  </Button>
+                )}
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
@@ -1254,6 +1296,17 @@ export function OutboundCallsPage() {
                     data-testid="imported-kanban-status-filter"
                   />
                 </div>
+                {selectedStatuses.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleSelectAllInStatuses}
+                    className="whitespace-nowrap"
+                    data-testid="button-select-all-in-statuses-imported"
+                  >
+                    בחר הכל בסטטוסים ({selectedStatuses.length})
+                  </Button>
+                )}
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
