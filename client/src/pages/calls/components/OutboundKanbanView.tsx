@@ -13,7 +13,7 @@ import {
   SortableContext,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { OutboundLeadCard } from './OutboundLeadCard';
 import { OutboundKanbanColumn } from './OutboundKanbanColumn';
 
@@ -63,9 +63,22 @@ export function OutboundKanbanView({
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [mobileColumnIndex, setMobileColumnIndex] = useState(0); // For mobile column pager
   const topScrollRef = React.useRef<HTMLDivElement>(null);
   const kanbanScrollRef = React.useRef<HTMLDivElement>(null);
   const isSyncingRef = React.useRef(false);
+
+  // Detect mobile view
+  const [isMobile, setIsMobile] = useState(false);
+  
+  React.useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -193,6 +206,86 @@ export function OutboundKanbanView({
   // Calculate total width for scrollbar based on number of columns
   const contentWidth = statuses.length * 320; // Each column is approximately 320px wide
 
+  // Mobile column pager mode
+  if (isMobile) {
+    const currentStatus = statuses[mobileColumnIndex];
+    const statusLeads = leadsByStatus[currentStatus?.name] || [];
+    const leadIds = statusLeads.map(lead => lead.id);
+
+    return (
+      <div className="space-y-4">
+        {/* Mobile status navigation */}
+        <div className="flex items-center justify-between gap-2 bg-white p-4 rounded-lg border border-gray-200">
+          <button
+            onClick={() => setMobileColumnIndex(prev => Math.max(0, prev - 1))}
+            disabled={mobileColumnIndex === 0}
+            className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="עמודה קודמת"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+          
+          <div className="flex-1 text-center">
+            <div className="font-semibold text-lg">{currentStatus?.label}</div>
+            <div className="text-sm text-gray-500">
+              {mobileColumnIndex + 1} מתוך {statuses.length} • {statusLeads.length} לידים
+            </div>
+          </div>
+          
+          <button
+            onClick={() => setMobileColumnIndex(prev => Math.min(statuses.length - 1, prev + 1))}
+            disabled={mobileColumnIndex === statuses.length - 1}
+            className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="עמודה הבאה"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Status indicator dots */}
+        <div className="flex justify-center gap-2">
+          {statuses.map((status, index) => (
+            <button
+              key={status.name}
+              onClick={() => setMobileColumnIndex(index)}
+              className={`w-2 h-2 rounded-full transition-all ${
+                index === mobileColumnIndex 
+                  ? 'bg-blue-600 w-8' 
+                  : 'bg-gray-300 hover:bg-gray-400'
+              }`}
+              aria-label={`עבור ל-${status.label}`}
+            />
+          ))}
+        </div>
+
+        {/* Lead cards for current status */}
+        <div className="space-y-2 pb-4">
+          {statusLeads.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              אין לידים בסטטוס זה
+            </div>
+          ) : (
+            <SortableContext
+              items={leadIds}
+              strategy={verticalListSortingStrategy}
+            >
+              {statusLeads.map((lead) => (
+                <OutboundLeadCard
+                  key={lead.id}
+                  lead={lead}
+                  isSelected={selectedLeadIds.has(lead.id)}
+                  onSelect={onLeadSelect}
+                  onClick={onLeadClick}
+                />
+              ))}
+            </SortableContext>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop kanban view
   return (
     <>
       {/* Top horizontal scrollbar */}
@@ -214,37 +307,48 @@ export function OutboundKanbanView({
         <div 
           ref={kanbanScrollRef}
           className="flex gap-4 overflow-x-auto pb-4 min-h-[600px]"
+          style={{
+            scrollSnapType: 'x mandatory',
+            WebkitOverflowScrolling: 'touch'
+          }}
         >
           {statuses.map((status) => {
             const statusLeads = leadsByStatus[status.name] || [];
             const leadIds = statusLeads.map(lead => lead.id);
 
             return (
-              <OutboundKanbanColumn
+              <div 
                 key={status.name}
-                status={status}
-                leads={statusLeads}
-                isDraggingOver={isDragging}
-                selectedCount={statusLeads.filter(l => selectedLeadIds.has(l.id)).length}
-                selectedLeadIds={selectedLeadIds}
-                onSelectAll={onSelectAll}
-                onClearSelection={onClearSelection}
+                style={{ 
+                  minWidth: '320px',
+                  scrollSnapAlign: 'start'
+                }}
               >
-                <SortableContext
-                  items={leadIds}
-                  strategy={verticalListSortingStrategy}
+                <OutboundKanbanColumn
+                  status={status}
+                  leads={statusLeads}
+                  isDraggingOver={isDragging}
+                  selectedCount={statusLeads.filter(l => selectedLeadIds.has(l.id)).length}
+                  selectedLeadIds={selectedLeadIds}
+                  onSelectAll={onSelectAll}
+                  onClearSelection={onClearSelection}
                 >
-                  {statusLeads.map((lead) => (
-                    <OutboundLeadCard
-                      key={lead.id}
-                      lead={lead}
-                      isSelected={selectedLeadIds.has(lead.id)}
-                      onSelect={onLeadSelect}
-                      onClick={onLeadClick}
-                    />
-                  ))}
-                </SortableContext>
-              </OutboundKanbanColumn>
+                  <SortableContext
+                    items={leadIds}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {statusLeads.map((lead) => (
+                      <OutboundLeadCard
+                        key={lead.id}
+                        lead={lead}
+                        isSelected={selectedLeadIds.has(lead.id)}
+                        onSelect={onLeadSelect}
+                        onClick={onLeadClick}
+                      />
+                    ))}
+                  </SortableContext>
+                </OutboundKanbanColumn>
+              </div>
             );
           })}
         </div>

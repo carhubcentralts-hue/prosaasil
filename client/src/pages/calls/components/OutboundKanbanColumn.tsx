@@ -73,7 +73,7 @@ export function OutboundKanbanColumn({
   };
 
   return (
-    <div className="flex-shrink-0 w-80 flex flex-col">
+    <div className="flex-shrink-0 w-80 min-w-[320px] flex flex-col">
       {/* Column Header */}
       <div className={`p-3 rounded-t-lg ${bgColorClass} border-b-2 ${isOver ? 'border-blue-500' : 'border-transparent'}`}>
         <div className="flex items-center justify-between">

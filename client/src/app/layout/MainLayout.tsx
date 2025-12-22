@@ -212,9 +212,16 @@ export function MainLayout() {
     navigate('/login');
   };
 
-  // Focus trap for mobile drawer
+  // Focus trap for mobile drawer + body scroll lock
   useEffect(() => {
-    if (!sidebarOpen) return;
+    if (!sidebarOpen) {
+      // Restore body scroll when sidebar closes
+      document.body.style.overflow = '';
+      return;
+    }
+
+    // Lock body scroll when sidebar opens
+    document.body.style.overflow = 'hidden';
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -235,6 +242,8 @@ export function MainLayout() {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mousedown', handleClickOutside);
+      // Ensure scroll is restored on cleanup
+      document.body.style.overflow = '';
     };
   }, [sidebarOpen]);
 
@@ -289,13 +298,13 @@ export function MainLayout() {
       {isImpersonating && <ImpersonationBanner />}
       
       <div className="flex-1 flex flex-row-reverse overflow-hidden">
-      {/* Mobile sidebar overlay */}
+      {/* Sidebar backdrop overlay - visible when sidebar is open on mobile */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 md:hidden"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
+          data-testid="sidebar-backdrop"
         />
       )}
 

@@ -857,7 +857,7 @@ export function OutboundCallsPage() {
       {!showResults && activeTab === 'system' && (
         <div className="space-y-4">
           {/* Sticky Action Bar */}
-          <div className="sticky top-0 z-50 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
+          <div className="sticky top-0 z-30 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <div className="w-full sm:w-48">
@@ -1242,7 +1242,7 @@ export function OutboundCallsPage() {
 
           {/* Imported Leads Display - Kanban or Table */}
           {/* Sticky Action Bar for Imported Tab */}
-          <div className="sticky top-0 z-50 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
+          <div className="sticky top-0 z-30 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <div className="w-full sm:w-48">
