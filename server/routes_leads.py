@@ -2124,3 +2124,94 @@ def delete_attachment(attachment_id):
         db.session.rollback()
         log.error(f"Error deleting attachment from database: {e}")
         return jsonify({"error": "Failed to delete attachment"}), 500
+
+
+@leads_bp.route("/api/leads/select-ids", methods=["POST"])
+@require_api_auth()
+def select_lead_ids():
+    """
+    Get lead IDs based on filter criteria (for bulk selection across pagination)
+    
+    Request body:
+    {
+        "statuses": ["no_answer_1", "no_answer_2", "no_answer_3"],
+        "search": "",
+        "tab": "system|active|imported",
+        "source": "phone|whatsapp",
+        "direction": "inbound|outbound"
+    }
+    
+    Response:
+    {
+        "lead_ids": [1, 2, 3, ...],
+        "count": 3
+    }
+    """
+    try:
+        user = get_current_user()
+        is_system_admin = user.get('role') == 'system_admin' if user else False
+        
+        # BUILD 135: ONLY system_admin can see ALL leads
+        if is_system_admin:
+            query = Lead.query
+        else:
+            tenant_id = get_current_tenant()
+            if not tenant_id:
+                return jsonify({"error": "No tenant access"}), 403
+            query = Lead.query.filter_by(tenant_id=tenant_id)
+        
+        # Parse request body
+        data = request.get_json() or {}
+        statuses_filter = data.get('statuses', [])
+        search_query = data.get('search', '')
+        tab = data.get('tab', 'system')
+        source_filter = data.get('source', '')
+        direction_filter = data.get('direction', '')
+        
+        # Apply status filter
+        if statuses_filter:
+            query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
+        
+        # Apply tab-specific filters
+        if tab == 'active':
+            # Active outbound leads
+            query = query.filter(Lead.last_call_direction == 'outbound')
+        elif tab == 'imported':
+            # Imported leads (leads with outbound_list_id)
+            query = query.filter(Lead.outbound_list_id.isnot(None))
+        # 'system' tab has no additional filter
+        
+        # Apply source filter
+        if source_filter:
+            if source_filter == 'phone':
+                phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
+                query = query.filter(Lead.source.in_(phone_sources))
+            elif source_filter == 'whatsapp':
+                whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
+                query = query.filter(Lead.source.in_(whatsapp_sources))
+        
+        # Apply direction filter
+        if direction_filter and direction_filter != 'all':
+            query = query.filter(Lead.last_call_direction == direction_filter)
+        
+        # Apply search filter
+        if search_query:
+            search_term = f"%{search_query}%"
+            query = query.filter(
+                or_(
+                    Lead.first_name.ilike(search_term),
+                    Lead.last_name.ilike(search_term),
+                    Lead.phone_e164.ilike(search_term)
+                )
+            )
+        
+        # Get only IDs (efficient query)
+        lead_ids = [lead_id for (lead_id,) in query.with_entities(Lead.id).all()]
+        
+        return jsonify({
+            "lead_ids": lead_ids,
+            "count": len(lead_ids)
+        })
+    except Exception as e:
+        log.error(f"❌ Error in select_lead_ids: {e}")
+        return jsonify({"error": "Failed to fetch lead IDs", "details": str(e)}), 500
