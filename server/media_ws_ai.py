@@ -3426,11 +3426,8 @@ class MediaStreamHandler:
                         # 🎯 BUG FIX #4: Don't interfere during barge-in cancellation
                         response_stuck_seconds = 10.0
                         
-                        # Skip if barge-in cancel is pending
-                        if getattr(self, '_barge_in_pending_cancel', False):
-                            # Don't touch response state during barge-in cancellation
-                            pass
-                        elif self.active_response_id:
+                        # Skip if barge-in cancel is pending (don't interfere with cancellation)
+                        if not getattr(self, '_barge_in_pending_cancel', False) and self.active_response_id:
                             # Get response start time - use _response_created_ts dict lookup
                             # 🔥 FIX: _response_created_ts is a dict (response_id -> timestamp), not a single value
                             response_started_val = None
@@ -8777,9 +8774,7 @@ class MediaStreamHandler:
                                         logger.info(f"[BARGE_IN_AUDIO] ✅ Cancel complete for: {active_response_id_snapshot[:20]}...")
                                     except Exception as e:
                                         logger.error(f"[BARGE_IN_AUDIO] ❌ Cancel failed: {e}")
-                                    finally:
-                                        # Note: Pending flag will be released in response.done/cancelled handler
-                                        pass
+                                    # Note: Pending flag will be released in response.done/cancelled handler
                                 
                                 # Create task to execute cancel
                                 try:
