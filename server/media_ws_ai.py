@@ -1981,7 +1981,7 @@ class MediaStreamHandler:
         # ✅ HARD SILENCE WATCHDOG (telephony): hang up on real inactivity (not AI-dependent)
         # Updated on input_audio_buffer.speech_started and response.audio.delta.
         self._last_user_voice_started_ts = None
-        self._hard_silence_hangup_sec = 25.0
+        self._hard_silence_hangup_sec = 20.0  # 🔥 AUTO-HANGUP: 20 seconds of continuous silence
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
@@ -10798,7 +10798,7 @@ class MediaStreamHandler:
                     last_user_voice = getattr(self, "_last_user_voice_started_ts", None)
                     last_ai_audio = getattr(self, "last_ai_audio_ts", None)
                     last_activity = max([t for t in [last_user_voice, last_ai_audio] if t is not None] or [self._last_speech_time])
-                    hard_timeout = float(getattr(self, "_hard_silence_hangup_sec", 25.0))
+                    hard_timeout = float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
                     if (now_ts - last_activity) >= hard_timeout:
                         # Only hang up when nothing is actively happening.
