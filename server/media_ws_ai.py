@@ -3432,9 +3432,11 @@ class MediaStreamHandler:
                                     self.ws._socket.shutdown(socket.SHUT_RDWR)
                                     print(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
                                 else:
-                                    # Fallback: try to close normally
-                                    self.ws.close()
-                                    print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
+                                    # Fallback: try to close normally (check flag to prevent double close)
+                                    if not self._ws_closed:
+                                        self.ws.close()
+                                        self._ws_closed = True
+                                        print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
                             except Exception as e:
                                 print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
                         
