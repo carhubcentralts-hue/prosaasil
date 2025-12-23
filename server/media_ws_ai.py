@@ -2506,6 +2506,11 @@ class MediaStreamHandler:
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
         logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
+        # 🔥 FIX: Initialize task variables to prevent UnboundLocalError
+        audio_in_task = None
+        audio_out_task = None
+        text_in_task = None
+        
         # Helper function for session configuration (used for initial config and retry)
         async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
             """Send session.update event with specified configuration
@@ -3024,6 +3029,16 @@ class MediaStreamHandler:
                     flush=True,
                 )
                 print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                
+                # 🔥 FIX: Start audio/text bridges after greeting trigger (MISSING CODE PATH)
+                # This was the critical bug - tasks weren't created when greeting succeeded!
+                # 🔥 SAFETY: Only create if not already created (prevent duplicate task creation)
+                logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger success)...")
+                if audio_in_task is None:
+                    audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                if text_in_task is None:
+                    text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                logger.debug("[REALTIME] Audio/text tasks created successfully")
             else:
                 print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
                 # Reset flags since greeting failed
@@ -3033,9 +3048,12 @@ class MediaStreamHandler:
                 # 🚀 Start audio/text bridges after greeting trigger attempt:
                 # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
                 # - If greeting failed: still start so the call can proceed
+                # 🔥 SAFETY: Only create if not already created (prevent duplicate task creation)
                 logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
-                audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-                text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                if audio_in_task is None:
+                    audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                if text_in_task is None:
+                    text_in_task = asyncio.create_task(self._realtime_text_sender(client))
                 logger.debug("[REALTIME] Audio/text tasks created successfully")
 
                 # ═══════════════════════════════════════════════════════════════════════
@@ -3220,7 +3238,25 @@ class MediaStreamHandler:
                 self.crm_context = None
             
             logger.debug(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
-            await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
+            
+            # 🔥 FIX: Only gather tasks that exist (not None)
+            tasks = []
+            if audio_in_task is not None:
+                tasks.append(audio_in_task)
+            if audio_out_task is not None:
+                tasks.append(audio_out_task)
+            if text_in_task is not None:
+                tasks.append(text_in_task)
+            
+            # 🔥 SAFETY: return_exceptions=True prevents one task failure from killing all tasks
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Log any exceptions from tasks
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"[REALTIME] Task {i} failed with exception: {result}")
+                    _orig_print(f"⚠️ [REALTIME] Task failed: {result}", flush=True)
+            
             logger.debug(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
@@ -3410,9 +3446,11 @@ class MediaStreamHandler:
                                     self.ws._socket.shutdown(socket.SHUT_RDWR)
                                     print(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
                                 else:
-                                    # Fallback: try to close normally
-                                    self.ws.close()
-                                    print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
+                                    # Fallback: try to close normally (check flag to prevent double close)
+                                    if not self._ws_closed:
+                                        self.ws.close()
+                                        self._ws_closed = True
+                                        print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
                             except Exception as e:
                                 print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
                         
