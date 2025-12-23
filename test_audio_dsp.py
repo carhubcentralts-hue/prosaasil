@@ -53,10 +53,10 @@ def test_basic_functionality():
     test_audio = generate_test_audio(duration_ms=20, frequency=440)
     print(f"✅ Generated test audio: {len(test_audio)} bytes")
     
-    # Process audio
+    # Process audio (bytes input)
     try:
         processed_audio = processor.process(test_audio)
-        print(f"✅ DSP processing succeeded: {len(processed_audio)} bytes")
+        print(f"✅ DSP processing succeeded (bytes): {len(processed_audio)} bytes")
         return True
     except Exception as e:
         print(f"❌ DSP processing failed: {e}")
