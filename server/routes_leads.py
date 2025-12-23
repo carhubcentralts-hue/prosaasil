@@ -2214,4 +2214,183 @@ def select_lead_ids():
         })
     except Exception as e:
         log.error(f"❌ Error in select_lead_ids: {e}")
+
+
+@leads_bp.route("/api/leads/export", methods=["GET"])
+@require_api_auth()
+def export_leads():
+    """
+    Export leads to CSV with comprehensive filtering support
+    
+    Supports all the same filters as list_leads:
+    - status: Single status filter
+    - statuses[]: Multiple status filter
+    - source: Source filter (phone/whatsapp)
+    - owner: Owner user ID
+    - outbound_list_id: Import list ID
+    - direction: Call direction (inbound/outbound/all)
+    - q: Search query (name/phone)
+    - from: Start date (ISO format)
+    - to: End date (ISO format)
+    
+    Returns:
+    CSV file with all lead data including status, source, owner, etc.
+    """
+    from flask import Response
+    import csv
+    import io
+    
+    try:
+        user = get_current_user()
+        is_system_admin = user.get('role') == 'system_admin' if user else False
+        
+        # BUILD 135: ONLY system_admin can see ALL leads
+        if is_system_admin:
+            # System admin sees all leads across all businesses
+            query = Lead.query
+            tenant_id = None
+        else:
+            # BUILD 135: owner/admin/agent see only their tenant's leads
+            tenant_id = get_current_tenant()
+            if not tenant_id:
+                return jsonify({"error": "No tenant access"}), 403
+            query = Lead.query.filter_by(tenant_id=tenant_id)
+        
+        # Parse query parameters (same as list_leads)
+        status_filter = request.args.get('status', '')
+        statuses_filter = request.args.getlist('statuses[]')
+        source_filter = request.args.get('source', '')
+        owner_filter = request.args.get('owner', '')
+        outbound_list_id = request.args.get('outbound_list_id', '')
+        direction_filter = request.args.get('direction', '')
+        q_filter = request.args.get('q', '')
+        from_date = request.args.get('from', '')
+        to_date = request.args.get('to', '')
+        
+        # Apply filters (same logic as list_leads)
+        if statuses_filter:
+            query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
+        elif status_filter:
+            query = query.filter(func.lower(Lead.status) == status_filter.lower())
+        
+        if source_filter:
+            if source_filter == 'phone':
+                phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
+                query = query.filter(Lead.source.in_(phone_sources))
+            elif source_filter == 'whatsapp':
+                whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
+                query = query.filter(Lead.source.in_(whatsapp_sources))
+        
+        if owner_filter:
+            query = query.filter(Lead.owner_user_id == owner_filter)
+        
+        if outbound_list_id:
+            query = query.filter(Lead.outbound_list_id == int(outbound_list_id))
+        
+        if direction_filter and direction_filter != 'all':
+            query = query.filter(Lead.last_call_direction == direction_filter)
+        
+        if q_filter:
+            search_term = f"%{q_filter}%"
+            query = query.filter(
+                or_(
+                    Lead.first_name.ilike(search_term),
+                    Lead.last_name.ilike(search_term),
+                    Lead.phone_e164.ilike(search_term)
+                )
+            )
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                query = query.filter(Lead.created_at >= from_dt)
+            except ValueError:
+                pass
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                query = query.filter(Lead.created_at <= to_dt)
+            except ValueError:
+                pass
+        
+        # Order by created_at DESC
+        query = query.order_by(Lead.created_at.desc())
+        
+        # Fetch all leads (no pagination for export)
+        leads = query.all()
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        
+        # Use UTF-8 with BOM for Excel Hebrew compatibility
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            'id',
+            'full_name',
+            'first_name',
+            'last_name',
+            'phone',
+            'email',
+            'status',
+            'source',
+            'owner_user_id',
+            'outbound_list_id',
+            'last_call_direction',
+            'summary',
+            'tags',
+            'created_at',
+            'updated_at',
+            'last_contact_at'
+        ])
+        
+        # Write lead rows
+        for lead in leads:
+            writer.writerow([
+                lead.id,
+                lead.full_name or '',
+                lead.first_name or '',
+                lead.last_name or '',
+                lead.phone_e164 or '',
+                lead.email or '',
+                lead.status or '',
+                normalize_source(lead.source),
+                lead.owner_user_id or '',
+                lead.outbound_list_id or '',
+                lead.last_call_direction or '',
+                lead.summary or '',
+                ','.join(lead.tags or []),
+                lead.created_at.isoformat() if lead.created_at else '',
+                lead.updated_at.isoformat() if lead.updated_at else '',
+                lead.last_contact_at.isoformat() if lead.last_contact_at else ''
+            ])
+        
+        # Get CSV content with UTF-8 BOM
+        csv_content = '\ufeff' + output.getvalue()
+        output.close()
+        
+        # Generate filename
+        today = datetime.now().strftime('%Y-%m-%d')
+        filename = f"leads_export_{today}.csv"
+        
+        log.info(f"📊 Exporting {len(leads)} leads for tenant {tenant_id} (filters: status={status_filter}, source={source_filter}, list={outbound_list_id})")
+        
+        # Return CSV file
+        return Response(
+            csv_content,
+            mimetype='text/csv; charset=utf-8',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'text/csv; charset=utf-8'
+            }
+        )
+        
+    except Exception as e:
+        log.error(f"Error exporting leads: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"שגיאה בייצוא: {str(e)}"}), 500
+
         return jsonify({"error": "Failed to fetch lead IDs", "details": str(e)}), 500
