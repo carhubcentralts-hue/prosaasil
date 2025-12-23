@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNavigate } from 'react-router-dom';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X, ChevronLeft, ChevronRight, Loader2, Download } from 'lucide-react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
@@ -59,6 +59,7 @@ export default function LeadsPage() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isExporting, setIsExporting] = useState(false);
   const PAGE_SIZE = 25;
   
   // Debounce search input for better performance (150ms delay)
@@ -362,6 +363,55 @@ export default function LeadsPage() {
     }
   };
 
+  // 🔥 NEW: Export leads with current filters
+  const handleExportLeads = async () => {
+    setIsExporting(true);
+    try {
+      // Build query params from current filters (same as list_leads)
+      const params = new URLSearchParams();
+      
+      if (selectedStatus !== 'all') {
+        params.append('status', selectedStatus);
+      }
+      if (selectedSource !== 'all') {
+        params.append('source', selectedSource);
+      }
+      if (selectedDirection !== 'all') {
+        params.append('direction', selectedDirection);
+      }
+      if (selectedOutboundList !== 'all') {
+        params.append('outbound_list_id', selectedOutboundList);
+      }
+      if (debouncedSearch) {
+        params.append('q', debouncedSearch);
+      }
+      if (dateFrom) {
+        params.append('from', dateFrom);
+      }
+      if (dateTo) {
+        params.append('to', dateTo);
+      }
+
+      // Create download URL
+      const url = `/api/leads/export?${params.toString()}`;
+      
+      // Trigger download by creating a temporary link
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `leads_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log('✅ Export started:', url);
+    } catch (error: any) {
+      console.error('Failed to export leads:', error);
+      alert('שגיאה בייצוא הלידים');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <main className="container mx-auto px-2 sm:px-4 pb-24 max-w-full" dir="rtl">
       {/* Header - sticky at absolute top with no gap */}
@@ -509,6 +559,24 @@ export default function LeadsPage() {
               <Filter className="w-4 h-4" />
               {sortedLeads.length} לידים
             </div>
+            
+            {/* 🔥 NEW: Export button */}
+            <Button
+              onClick={handleExportLeads}
+              variant="secondary"
+              size="sm"
+              disabled={isExporting || loading}
+              className="w-full sm:w-auto"
+              data-testid="button-export-leads"
+              title="ייצא לידים לפי הפילטרים הנוכחיים"
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 ml-2" />
+              )}
+              ייצא ל-CSV
+            </Button>
           </div>
         </div>
       </Card>

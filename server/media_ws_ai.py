@@ -11,6 +11,15 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
+# 🔥 HOTFIX: Import websockets exceptions for graceful connection closure handling
+try:
+    from websockets.exceptions import ConnectionClosedOK, ConnectionClosed
+except ImportError:
+    # Fallback if websockets not available (should not happen in production)
+    ConnectionClosedOK = None
+    ConnectionClosed = None
+
+
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
 # - Server parses date/time deterministically after STT_FINAL
 # - Server checks availability + schedules (DB) and injects an exact sentence to speak
@@ -167,6 +176,7 @@ HUMAN_CONFIRMED_MIN_LENGTH = 2  # "הלו" or similar short greeting
 SILENCE_NUDGE_TIMEOUT_SEC = 7.0  # Silence duration before nudge
 SILENCE_NUDGE_MAX_COUNT = 2  # Maximum number of nudges
 SILENCE_NUDGE_COOLDOWN_SEC = 25  # Cooldown between nudges
+SILENCE_HANGUP_TIMEOUT_SEC = 20.0  # 🔥 NEW: Auto-hangup after 20s true silence
 
 # D) Watchdog for silent mode
 WATCHDOG_TIMEOUT_SEC = 3.0  # Time to wait before retry
@@ -2974,6 +2984,9 @@ class MediaStreamHandler:
             # For inbound calls, trigger greeting immediately as before
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
             
+            # 🔥 HOTFIX: Initialize triggered to prevent UnboundLocalError in outbound path
+            triggered = False
+            
             if is_outbound and not self.human_confirmed:
                 # 🔥 OUTBOUND: Don't trigger greeting yet - wait for first valid STT_FINAL
                 print(f"🎤 [OUTBOUND] Waiting for human_confirmed before greeting (human on line)")
@@ -3495,7 +3508,20 @@ class MediaStreamHandler:
                 if _frames_sent == 0:
                     _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
                 
-                await client.send_audio_chunk(audio_chunk)
+                # 🔥 HOTFIX: Handle ConnectionClosed gracefully (normal WebSocket close)
+                try:
+                    await client.send_audio_chunk(audio_chunk)
+                except Exception as send_err:
+                    # Check if it's a normal connection close (OK or general ConnectionClosed)
+                    is_connection_closed = (
+                        (ConnectionClosedOK and isinstance(send_err, ConnectionClosedOK)) or
+                        (ConnectionClosed and isinstance(send_err, ConnectionClosed))
+                    )
+                    if is_connection_closed:
+                        logger.info("[REALTIME] Audio sender exiting - WebSocket closed cleanly")
+                        break
+                    # For other exceptions, re-raise to be handled by outer try-except
+                    raise
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
                 now = time.time()
@@ -11213,6 +11239,26 @@ class MediaStreamHandler:
                                     print(f"✅ [7SEC_SILENCE] Nudge triggered")
                             except Exception as e:
                                 print(f"❌ [7SEC_SILENCE] Failed to send nudge: {e}")
+                    
+                    # 🔥 NEW REQUIREMENT: 20-second true silence → auto-hangup
+                    # After 7s nudges, if still 20s of true silence → hang up cleanly
+                    # 🔥 CRITICAL: For outbound, don't hangup before human_confirmed (still waiting for pickup)
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    can_hangup_on_silence = not (is_outbound and not self.human_confirmed)
+                    
+                    if (silence_since_user >= SILENCE_HANGUP_TIMEOUT_SEC and 
+                        silence_since_ai >= SILENCE_HANGUP_TIMEOUT_SEC and
+                        ai_truly_idle and
+                        can_hangup_on_silence and
+                        self.call_state == CallState.ACTIVE and
+                        not self.hangup_triggered and
+                        not getattr(self, 'pending_hangup', False)):
+                        
+                        print(f"🔇 [AUTO_HANGUP] 20s true silence detected - hanging up cleanly")
+                        logger.info(f"[AUTO_HANGUP] 20s silence: user={silence_since_user:.1f}s, ai={silence_since_ai:.1f}s")
+                        self.call_state = CallState.CLOSING
+                        await self.request_hangup("silence_20s", "silence_monitor")
+                        return
 
                 if not self.user_has_spoken:
                     # User hasn't spoken yet - check for idle timeout
