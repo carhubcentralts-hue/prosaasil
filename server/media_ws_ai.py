@@ -1276,10 +1276,11 @@ HEBREW_FILLER_WORDS = {
 
 # 🔥 NEW REQUIREMENT B: Human greeting detection for outbound calls
 # Only these phrases confirm a real human is on the line (not ringback/music/IVR)
+# These are flexible - will match as substring (e.g., "כן?" will match "כן")
 HUMAN_GREETING_PHRASES = {
-    "שלום", "הלו", "הלוא", "כן", "מדבר", "מי זה", "רגע", 
+    "שלום", "הלו", "הלוא", "כן", "מדבר", "מי", "רגע", 
     "הי", "היי", "בוקר טוב", "ערב טוב", "צהריים טובים",
-    "כן מדבר", "מי מדבר", "מי זה", "מדבר כן"
+    "מדברים", "תפוס", "עסוק"  # Common variations
 }
 
 # 🔥 NEW REQUIREMENT B: Utterance duration for human confirmation
@@ -1457,6 +1458,8 @@ def contains_human_greeting(text: str) -> bool:
     Check if text contains a human greeting phrase.
     Used for outbound human_confirmed detection.
     
+    Flexible matching: accepts variations like "כן?", "מי?", "שלום, מי זה?"
+    
     Args:
         text: Transcribed text from STT
         
@@ -1466,16 +1469,25 @@ def contains_human_greeting(text: str) -> bool:
     if not text or not text.strip():
         return False
     
-    # Normalize and tokenize
-    text_lower = text.lower().strip()
+    # Normalize: lowercase and remove punctuation
+    import re
+    text_normalized = text.lower().strip()
+    # Remove common punctuation but keep the words
+    text_normalized = re.sub(r'[?,!.;:]', ' ', text_normalized)
     
-    # Check for exact matches or substring matches
-    for phrase in HUMAN_GREETING_PHRASES:
-        if phrase in text_lower:
-            return True
+    # Split into words
+    words = text_normalized.split()
+    
+    # Check if any word matches any greeting phrase (allows "כן?" to match "כן")
+    for word in words:
+        for phrase in HUMAN_GREETING_PHRASES:
+            # Check if word starts with phrase or phrase is in word
+            # This handles: "כן" matches "כן", "כן?", "כנים", etc.
+            # But also: "מי" matches "מי", "מי זה", etc.
+            if word.startswith(phrase) or phrase in word:
+                return True
     
     # Also check if it's 2+ words (likely human, not just tone/beep)
-    words = text_lower.split()
     if len(words) >= 2:
         return True
     
@@ -5936,13 +5948,20 @@ class MediaStreamHandler:
                         if has_human_greeting and has_min_duration:
                             self.human_confirmed = True
                             print(f"✅ [HUMAN_CONFIRMED] Set to True: text='{text[:30]}...', duration={utterance_duration_ms:.0f}ms")
+                            print(f"   Human greeting detected: {has_human_greeting}, Duration check: {utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
                             logger.info(f"[HUMAN_CONFIRMED] Confirmed human: greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
                             
                             # 🔥 OUTBOUND: If this is an outbound call and greeting hasn't been sent, trigger it now
                             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                             if is_outbound and not self.greeting_sent:
-                            # Trigger the greeting now that we know a human is on the line
-                            print(f"🎤 [OUTBOUND] Human confirmed - triggering greeting now")
+                                # Trigger the greeting now that we know a human is on the line
+                                print(f"🎤 [OUTBOUND] Human confirmed - triggering GREETING now")
+                        elif not self.human_confirmed:
+                            # Log why it was rejected (for debugging)
+                            print(f"⏳ [HUMAN_CONFIRMED] Not yet: text='{text[:30]}...', greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms/{HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
+                        
+                        # Continue with greeting trigger if conditions met
+                        if self.human_confirmed and is_outbound and not self.greeting_sent:
                             
                             # Set greeting flags
                             greeting_start_ts = time.time()
