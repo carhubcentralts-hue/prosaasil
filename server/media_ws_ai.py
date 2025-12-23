@@ -2218,6 +2218,11 @@ class MediaStreamHandler:
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
         self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
+        # 🔥 NEW: Enhanced frame drop categorization
+        self._frames_dropped_bargein_flush = 0  # Frames dropped during barge-in flush
+        self._frames_dropped_tx_queue_overflow = 0  # Frames dropped due to TX queue overflow
+        self._frames_dropped_shutdown_drain = 0  # Frames dropped during shutdown/drain
+        self._frames_dropped_unknown = 0  # Frames dropped for unknown reasons (should be 0 in SIMPLE_MODE)
 
         # ═══════════════════════════════════════════════════════════════════════════
         # 🔥 NEW REQUIREMENTS: Outbound call improvements
@@ -2249,6 +2254,13 @@ class MediaStreamHandler:
         # 🔥 FIX #3: Track cancel state to prevent double cancel
         self._last_cancel_ts = 0  # Timestamp of last cancel operation
         self._response_done_ids = set()  # Track response IDs that are done (prevent cancel after done)
+        
+        # 🔥 DOUBLE RESPONSE FIX: One response per user turn lock
+        self._response_create_in_flight = False  # True when response.create sent, cleared on response.created
+        self._response_create_started_ts = 0.0  # Timestamp when response.create was sent
+        self._last_user_turn_fingerprint = None  # Fingerprint of last user utterance (for deduplication)
+        self._last_user_turn_timestamp = 0.0  # Timestamp of last user utterance
+        self._watchdog_retry_done = False  # Prevents multiple watchdog retries in same turn
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3845,6 +3857,19 @@ class MediaStreamHandler:
                 _orig_print(f"🛑 [RESPONSE GUARD] Session not confirmed - blocking response.create ({reason})", flush=True)
                 return False
         
+        # 🔥 DOUBLE RESPONSE FIX A: Check if response.create is already in flight
+        # Prevent duplicate response.create calls within same turn
+        if self._response_create_in_flight and not (force and is_greeting):
+            elapsed = time.time() - self._response_create_started_ts
+            # If less than 5-6 seconds elapsed, it's a duplicate call - block it
+            if elapsed < 6.0:
+                logger.debug(f"[RESPONSE GUARD] response.create already in flight (elapsed={elapsed:.1f}s) - blocking ({reason})")
+                return False
+            else:
+                # More than 6 seconds passed - might be stuck, allow retry
+                logger.warning(f"[RESPONSE GUARD] response.create in flight for {elapsed:.1f}s - allowing retry ({reason})")
+                self._response_create_in_flight = False  # Reset stuck flag
+        
         # 🔥 FIX: Cancel/replace ONLY on real barge-in (user speaking while AI speaking)
         # Do NOT cancel just because active_response_id exists - let AI finish speaking
         # Cancel only happens in the barge-in handler (speech_started event), not here
@@ -3912,6 +3937,11 @@ class MediaStreamHandler:
             if force and is_greeting and self.response_pending_event.is_set():
                 self.response_pending_event.clear()
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+            
+            # 🔥 DOUBLE RESPONSE FIX: Set in-flight flag before sending
+            self._response_create_in_flight = True
+            self._response_create_started_ts = time.time()
+            
             await _client.send_event({"type": "response.create"})
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
@@ -3921,6 +3951,7 @@ class MediaStreamHandler:
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
             self.response_pending_event.clear()
+            self._response_create_in_flight = False  # 🔥 Clear in-flight flag on error
             print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
             return False
     
@@ -4058,6 +4089,9 @@ class MediaStreamHandler:
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
+                        
+                        # 🔥 DOUBLE RESPONSE FIX: Clear in-flight flag on response.done
+                        self._response_create_in_flight = False
                         
                         # 🔥 FIX #3: Track completed response IDs to prevent cancel after done
                         if resp_id and resp_id != "?":
@@ -4346,6 +4380,12 @@ class MediaStreamHandler:
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
+                        
+                        # 🔥 DOUBLE RESPONSE FIX: Clear in-flight flag when response is created
+                        self._response_create_in_flight = False
+                        
+                        # Reset watchdog retry flag for next turn
+                        self._watchdog_retry_done = False
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Per-response markers to track audio delivery quality
                         # ═══════════════════════════════════════════════════════════════════════
@@ -4365,6 +4405,9 @@ class MediaStreamHandler:
                 if event_type == "response.cancelled":
                     _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
                     
+                    # 🔥 DOUBLE RESPONSE FIX: Clear in-flight flag on response.cancelled
+                    self._response_create_in_flight = False
+                    
                     # Extract response_id from event
                     cancelled_resp_id = event.get("response_id")
                     if not cancelled_resp_id and "response" in event:
@@ -4382,6 +4425,9 @@ class MediaStreamHandler:
                 if event_type == "error":
                     error = event.get("error", {})
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
+                    
+                    # 🔥 DOUBLE RESPONSE FIX: Clear in-flight flag on error
+                    self._response_create_in_flight = False
                     
                     # 🔥 CRITICAL: Validate session.update errors
                     # If session.update fails, the session uses default settings which causes:
@@ -6154,6 +6200,61 @@ class MediaStreamHandler:
                         f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, text_len={len(text)}"
                     )
                     
+                    # 🔥 DOUBLE RESPONSE FIX B: Deduplication - Check for duplicate utterance
+                    # Create fingerprint from normalized text + time bucket (2-second buckets)
+                    import hashlib
+                    time_bucket = int(now_sec / 2.0)  # 2-second buckets
+                    fingerprint = hashlib.sha1(f"{text}|{time_bucket}".encode()).hexdigest()[:16]
+                    
+                    # 🔥 CRITICAL: Only drop if BOTH conditions are met:
+                    # 1. Same fingerprint (same text + close time)
+                    # 2. One of these race condition indicators:
+                    #    - response.create already in flight (duplicate trigger)
+                    #    - AI is currently speaking (shouldn't have new utterance)
+                    #    - No new speech_started event (not a real new turn)
+                    should_check_duplicate = False
+                    duplicate_reason = ""
+                    
+                    if self._last_user_turn_fingerprint == fingerprint:
+                        time_since_last = now_sec - self._last_user_turn_timestamp
+                        if time_since_last < 4.0:  # Within 4-second window
+                            # Check for race condition indicators
+                            if self._response_create_in_flight:
+                                should_check_duplicate = True
+                                duplicate_reason = "response.create in flight"
+                            elif getattr(self, 'ai_response_active', False):
+                                should_check_duplicate = True
+                                duplicate_reason = "AI response active"
+                            elif self.is_ai_speaking_event.is_set():
+                                should_check_duplicate = True
+                                duplicate_reason = "AI is speaking"
+                            
+                            # If duplicate detected with race condition, drop it
+                            if should_check_duplicate:
+                                logger.warning(
+                                    f"[UTTERANCE_DEDUP] Dropping duplicate utterance: '{text[:40]}...' "
+                                    f"(same as {time_since_last:.1f}s ago, reason: {duplicate_reason})"
+                                )
+                                print(f"🚫 [UTTERANCE_DEDUP] Dropped duplicate: '{text[:30]}...' "
+                                      f"({time_since_last:.1f}s since last, reason: {duplicate_reason})")
+                                # Clear candidate flag and continue without processing
+                                self._candidate_user_speaking = False
+                                self._utterance_start_ts = None
+                                continue
+                            else:
+                                # Same text but no race condition - allow it (user might repeat intentionally)
+                                logger.info(
+                                    f"[UTTERANCE_DEDUP] Allowing repeated text: '{text[:40]}...' "
+                                    f"({time_since_last:.1f}s since last, no race condition detected)"
+                                )
+                    
+                    # Update fingerprint tracking for next utterance
+                    self._last_user_turn_fingerprint = fingerprint
+                    self._last_user_turn_timestamp = now_sec
+                    
+                    # Reset watchdog retry flag for new turn
+                    self._watchdog_retry_done = False
+                    
                     # 🔥 BUILD 341: Set user_has_spoken ONLY after validated transcription with meaningful text
                     # This ensures all guards pass before we mark user as having spoken
                     # Minimum requirement: At least MIN_TRANSCRIPTION_LENGTH characters after cleanup
@@ -6294,9 +6395,20 @@ class MediaStreamHandler:
                         Minimal watchdog: if AI doesn't respond after 3s, retry response.create ONCE.
                         
                         🔥 FIX #4: Guards to prevent response.create in invalid states
+                        🔥 DOUBLE RESPONSE FIX: Enhanced checks to prevent duplicate retries
                         """
                         try:
                             await asyncio.sleep(WATCHDOG_TIMEOUT_SEC)  # Wait 3 seconds
+                            
+                            # 🔥 DOUBLE RESPONSE FIX C: Check if response.create already in flight
+                            if self._response_create_in_flight:
+                                logger.debug("[WATCHDOG] Skip retry: response.create already in flight")
+                                return
+                            
+                            # 🔥 DOUBLE RESPONSE FIX C: Check if watchdog retry already done for this turn
+                            if self._watchdog_retry_done:
+                                logger.debug("[WATCHDOG] Skip retry: already retried this turn")
+                                return
                             
                             # 🔥 FIX #4: Early exit checks before response.create
                             if getattr(self, "closing", False) or getattr(self, "hangup_pending", False):
@@ -6307,8 +6419,14 @@ class MediaStreamHandler:
                                 logger.debug("[WATCHDOG] Skip retry: greeting lock active")
                                 return
                             
+                            # 🔥 DOUBLE RESPONSE FIX C: Check if AI response is already active
                             if getattr(self, "ai_response_active", False) or self.is_ai_speaking_event.is_set():
                                 logger.debug("[WATCHDOG] Skip retry: AI already responding/speaking")
+                                return
+                            
+                            # 🔥 DOUBLE RESPONSE FIX C: Check if active_response_id exists
+                            if getattr(self, "active_response_id", None):
+                                logger.debug("[WATCHDOG] Skip retry: active_response_id already set")
                                 return
                             
                             # Optional but recommended: require VAD calibration
@@ -6329,14 +6447,21 @@ class MediaStreamHandler:
                                 print(f"🐕 [WATCHDOG] No response after 3s - retrying response.create")
                                 logger.warning(f"[WATCHDOG] Retrying response.create after 3s timeout")
                                 
+                                # Mark that watchdog retry is done for this turn
+                                self._watchdog_retry_done = True
+                                
                                 # Get realtime client
                                 realtime_client = getattr(self, 'realtime_client', None)
                                 if realtime_client:
                                     try:
                                         # Simple retry - just send response.create
                                         await realtime_client.send_event({"type": "response.create"})
+                                        # Set in-flight flag for the retry
+                                        self._response_create_in_flight = True
+                                        self._response_create_started_ts = time.time()
                                         print(f"✅ [WATCHDOG] Retry response.create sent")
                                     except Exception as e:
+                                        self._response_create_in_flight = False  # Clear on error
                                         print(f"❌ [WATCHDOG] Error retrying response: {e}")
                         except asyncio.CancelledError:
                             pass
@@ -8271,6 +8396,14 @@ class MediaStreamHandler:
             if not DEBUG:
                 _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
             try:
+                # 🔥 DOUBLE RESPONSE FIX: Clear all flags on session close
+                self._response_create_in_flight = False
+                self._watchdog_retry_done = False
+                
+                # Clear response pending flag
+                if hasattr(self, 'response_pending_event'):
+                    self.response_pending_event.clear()
+                
                 # Clear speaking state
                 if hasattr(self, 'is_ai_speaking_event'):
                     self.is_ai_speaking_event.clear()
@@ -14630,6 +14763,8 @@ class MediaStreamHandler:
             
             total_flushed = realtime_flushed + tx_flushed
             if total_flushed > 0:
+                # 🔥 DOUBLE RESPONSE FIX D: Track barge-in flush drops
+                self._frames_dropped_bargein_flush += total_flushed
                 _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {total_flushed} frames total (realtime_queue={realtime_flushed}, tx_queue={tx_flushed})", flush=True)
             else:
                 _orig_print(f"🧹 [BARGE-IN FLUSH] Both queues already empty", flush=True)
@@ -15236,18 +15371,45 @@ class MediaStreamHandler:
             frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
+            # 🔥 DOUBLE RESPONSE FIX D: Enhanced frame drop categorization
+            frames_dropped_bargein_flush = getattr(self, '_frames_dropped_bargein_flush', 0)
+            frames_dropped_tx_queue_overflow = getattr(self, '_frames_dropped_tx_queue_overflow', 0)
+            frames_dropped_shutdown_drain = getattr(self, '_frames_dropped_shutdown_drain', 0)
+            frames_dropped_unknown = getattr(self, '_frames_dropped_unknown', 0)
+            
+            # Calculate categorized total (should match frames_dropped_total)
+            frames_dropped_categorized = (
+                frames_dropped_by_greeting_lock +
+                frames_dropped_by_filters +
+                frames_dropped_by_queue_full +
+                frames_dropped_bargein_flush +
+                frames_dropped_tx_queue_overflow +
+                frames_dropped_shutdown_drain +
+                frames_dropped_unknown
+            )
+            
+            # 🔥 DOUBLE RESPONSE FIX D: If total doesn't match categorized, put difference in unknown
+            if frames_dropped_total > frames_dropped_categorized:
+                frames_dropped_unknown += (frames_dropped_total - frames_dropped_categorized)
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
             # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
             # Filters should also respect SIMPLE_MODE (passthrough)
-            if SIMPLE_MODE and frames_dropped_total > 0:
-                logger.warning(
-                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
-                    f"greeting_lock={frames_dropped_by_greeting_lock}, "
-                    f"filters={frames_dropped_by_filters}, "
-                    f"queue_full={frames_dropped_by_queue_full}. "
-                    f"In SIMPLE_MODE, no frames should be dropped."
-                )
+            # Unknown drops MUST be zero in SIMPLE_MODE
+            if SIMPLE_MODE:
+                if frames_dropped_unknown > 0:
+                    logger.error(
+                        f"[CALL_METRICS] 🚨 SIMPLE_MODE BUG: {frames_dropped_unknown} frames dropped for UNKNOWN reason! "
+                        f"This indicates a bug in frame drop tracking or untracked drop location."
+                    )
+                if frames_dropped_total > 0:
+                    logger.warning(
+                        f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
+                        f"Breakdown: greeting_lock={frames_dropped_by_greeting_lock}, "
+                        f"filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}, "
+                        f"bargein_flush={frames_dropped_bargein_flush}, tx_overflow={frames_dropped_tx_queue_overflow}, "
+                        f"shutdown={frames_dropped_shutdown_drain}, unknown={frames_dropped_unknown}"
+                    )
             
             # Log comprehensive metrics
             logger.info(
@@ -15268,6 +15430,10 @@ class MediaStreamHandler:
                 "frames_dropped_greeting=%(frames_dropped_greeting)d, "
                 "frames_dropped_filters=%(frames_dropped_filters)d, "
                 "frames_dropped_queue=%(frames_dropped_queue)d, "
+                "frames_dropped_bargein=%(frames_dropped_bargein)d, "
+                "frames_dropped_tx_overflow=%(frames_dropped_tx_overflow)d, "
+                "frames_dropped_shutdown=%(frames_dropped_shutdown)d, "
+                "frames_dropped_unknown=%(frames_dropped_unknown)d, "
                 "false_trigger_suspected=%(false_trigger_suspected)d, "
                 "missed_short_utterance=%(missed_short_utterance)d",
                 {
@@ -15288,6 +15454,10 @@ class MediaStreamHandler:
                     'frames_dropped_greeting': frames_dropped_by_greeting_lock,
                     'frames_dropped_filters': frames_dropped_by_filters,
                     'frames_dropped_queue': frames_dropped_by_queue_full,
+                    'frames_dropped_bargein': frames_dropped_bargein_flush,
+                    'frames_dropped_tx_overflow': frames_dropped_tx_queue_overflow,
+                    'frames_dropped_shutdown': frames_dropped_shutdown_drain,
+                    'frames_dropped_unknown': frames_dropped_unknown,
                     'false_trigger_suspected': getattr(self, '_false_trigger_suspected_count', 0),
                     'missed_short_utterance': getattr(self, '_missed_short_utterance_count', 0)
                 }
@@ -15304,13 +15474,19 @@ class MediaStreamHandler:
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
-            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            print(f"   Drop breakdown: greeting={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, "
+                  f"queue={frames_dropped_by_queue_full}, bargein={frames_dropped_bargein_flush}, "
+                  f"tx_overflow={frames_dropped_tx_queue_overflow}, shutdown={frames_dropped_shutdown_drain}, "
+                  f"unknown={frames_dropped_unknown}")
             
             # 🎯 SUCCESS METRICS: Log DSP/VAD effectiveness
             false_trigger_count = getattr(self, '_false_trigger_suspected_count', 0)
             missed_utterance_count = getattr(self, '_missed_short_utterance_count', 0)
             print(f"   🎯 Success Metrics: false_triggers={false_trigger_count}, missed_short_utterances={missed_utterance_count}")
             
+            # 🔥 DOUBLE RESPONSE FIX D: SIMPLE_MODE validation warning
+            if SIMPLE_MODE and frames_dropped_unknown > 0:
+                print(f"   🚨 SIMPLE_MODE BUG: {frames_dropped_unknown} frames dropped for UNKNOWN reason!")
             if SIMPLE_MODE and frames_dropped_total > 0:
                 print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
             
