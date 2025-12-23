@@ -90,7 +90,8 @@ interface RecentCall {
   to_number: string;
   lead_id: number | null;
   lead_name: string | null;
-  status: string;
+  lead_status: string | null;  // ✅ FIX: Add lead_status field
+  status: string;  // call status (completed, failed, etc.)
   started_at: string | null;
   ended_at: string | null;
   duration: number;
@@ -1801,7 +1802,8 @@ export function OutboundCallsPage() {
                         <th className="text-right py-3 px-2 font-medium">זמן</th>
                         <th className="text-right py-3 px-2 font-medium">טלפון</th>
                         <th className="text-right py-3 px-2 font-medium">ליד</th>
-                        <th className="text-right py-3 px-2 font-medium">סטטוס</th>
+                        <th className="text-right py-3 px-2 font-medium">סטטוס ליד</th>
+                        <th className="text-right py-3 px-2 font-medium">סטטוס שיחה</th>
                         <th className="text-right py-3 px-2 font-medium">משך</th>
                         <th className="text-right py-3 px-2 font-medium">הקלטה</th>
                         <th className="text-right py-3 px-2 font-medium">סיכום</th>
@@ -1843,6 +1845,21 @@ export function OutboundCallsPage() {
                                 </span>
                               ) : (
                                 '-'
+                              )}
+                            </td>
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
+                              {call.lead_id && call.lead_status ? (
+                                <StatusDropdownWithWebhook
+                                  leadId={call.lead_id}
+                                  currentStatus={call.lead_status}
+                                  statuses={statuses}
+                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
+                                  source="recent_calls_tab"
+                                  hasWebhook={hasWebhook}
+                                  size="sm"
+                                />
+                              ) : (
+                                <span className="text-gray-400 text-xs">אין ליד</span>
                               )}
                             </td>
                             <td className="py-3 px-2">
