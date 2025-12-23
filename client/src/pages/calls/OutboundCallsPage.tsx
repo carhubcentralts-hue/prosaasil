@@ -1883,7 +1883,7 @@ export function OutboundCallsPage() {
                                   leadId={call.lead_id}
                                   currentStatus={call.lead_status}
                                   statuses={statuses}
-                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
+                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id, newStatus)}
                                   source="recent_calls_tab"
                                   hasWebhook={hasWebhook}
                                   size="sm"

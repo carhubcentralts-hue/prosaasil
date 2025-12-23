@@ -130,10 +130,9 @@ export function StatusDropdownWithWebhook({
     if (pendingStatus) {
       const success = await dispatchWebhook(leadId, pendingStatus.old, pendingStatus.new, source);
       if (success) {
-        // Show success message briefly
-        setTimeout(() => {
-          alert('✅ Webhook נשלח בהצלחה');
-        }, 100);
+        // Show success message briefly (non-blocking)
+        console.info('✅ Webhook נשלח בהצלחה');
+        // TODO: Replace with toast notification system for better UX
       }
     }
     setPendingStatus(null);
@@ -161,7 +160,8 @@ export function StatusDropdownWithWebhook({
       return true;
     } catch (error) {
       console.error('❌ Failed to dispatch webhook:', error);
-      // Show error to user
+      // Show error to user (blocking alert for errors is acceptable)
+      // TODO: Replace with toast notification system for better UX
       setTimeout(() => {
         alert('❌ שגיאה בשליחת Webhook. אנא נסה שוב.');
       }, 100);
