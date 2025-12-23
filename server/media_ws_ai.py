@@ -159,6 +159,19 @@ if _env_model:
     )
     OPENAI_REALTIME_MODEL = _env_model
 
+# 🔥 NEW REQUIREMENTS: Outbound call improvements constants
+# B) Human confirmation - minimum text length to confirm human is on line
+HUMAN_CONFIRMED_MIN_LENGTH = 2  # "הלו" or similar short greeting
+
+# C) 7-second silence detection
+SILENCE_NUDGE_TIMEOUT_SEC = 7.0  # Silence duration before nudge
+SILENCE_NUDGE_MAX_COUNT = 2  # Maximum number of nudges
+SILENCE_NUDGE_COOLDOWN_SEC = 25  # Cooldown between nudges
+
+# D) Watchdog for silent mode
+WATCHDOG_TIMEOUT_SEC = 3.0  # Time to wait before retry
+WATCHDOG_UTTERANCE_ID_LENGTH = 20  # Length of text slice for utterance ID
+
 print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
 print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
@@ -1261,6 +1274,19 @@ HEBREW_FILLER_WORDS = {
     "הממ", "אהם", "אהממ", "ממ", "הם"
 }
 
+# 🔥 NEW REQUIREMENT B: Human greeting detection for outbound calls
+# Only these phrases confirm a real human is on the line (not ringback/music/IVR)
+# These are flexible - will match as substring (e.g., "כן?" will match "כן")
+HUMAN_GREETING_PHRASES = {
+    "שלום", "הלו", "הלוא", "כן", "מדבר", "מי", "רגע", 
+    "הי", "היי", "בוקר טוב", "ערב טוב", "צהריים טובים",
+    "מדברים", "תפוס", "עסוק"  # Common variations
+}
+
+# 🔥 NEW REQUIREMENT B: Utterance duration for human confirmation
+# Minimum duration to ensure it's human speech, not a tone/beep
+HUMAN_CONFIRMED_MIN_DURATION_MS = 600  # 600ms minimum speech duration
+
 # 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
@@ -1425,6 +1451,48 @@ def is_valid_transcript(text: str) -> bool:
     # Everything else is accepted - NO FILTERS
     # No filler check, no length check
     return True
+
+
+def contains_human_greeting(text: str) -> bool:
+    """
+    Check if text contains a human greeting phrase.
+    Used for outbound human_confirmed detection.
+    
+    Flexible matching: accepts variations like "כן?", "מי?", "שלום, מי זה?"
+    
+    Args:
+        text: Transcribed text from STT
+        
+    Returns:
+        True if contains human greeting, False otherwise
+    """
+    if not text or not text.strip():
+        return False
+    
+    # Normalize: lowercase and remove punctuation
+    import re
+    text_normalized = text.lower().strip()
+    # Remove common punctuation but keep the words
+    text_normalized = re.sub(r'[?,!.;:]', ' ', text_normalized)
+    
+    # Split into words
+    words = text_normalized.split()
+    
+    # Check if any word matches any greeting phrase (allows "כן?" to match "כן")
+    for word in words:
+        for phrase in HUMAN_GREETING_PHRASES:
+            # Check if word starts with phrase or phrase is in word
+            # This handles: "כן" matches "כן", "כן?", "כנים", etc.
+            # But also: "מי" matches "מי", "מי זה", etc.
+            if word.startswith(phrase) or phrase in word:
+                return True
+    
+    # Also check if it's 2+ words (likely human, not just tone/beep)
+    if len(words) >= 2:
+        return True
+    
+    return False
+
 
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
                                      rms_snapshot: float, noise_floor: float,
@@ -2096,6 +2164,26 @@ class MediaStreamHandler:
         self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
 
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🔥 NEW REQUIREMENTS: Outbound call improvements
+        # ═══════════════════════════════════════════════════════════════════════════
+        
+        # A) Outbound prompt-only mode tracking
+        self.call_mode = None  # Will be set to "outbound_prompt_only" for outbound calls
+        
+        # B) Human confirmation - wait for real human speech before greeting
+        self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
+        
+        # C) 7-second silence detection
+        self.last_user_activity_ts = time.time()  # Track last user audio/speech activity
+        self.last_ai_activity_ts = time.time()  # Track last AI audio sent
+        self.silence_nudge_count = 0  # Count of "are you with me?" nudges
+        self.last_silence_nudge_ts = 0  # Last time we sent a silence nudge
+        
+        # D) Watchdog for silent mode (bot gets stuck)
+        self._watchdog_timer_active = False  # Track if watchdog is active
+        self._watchdog_utterance_id = None  # Track which utterance watchdog is for (idempotent)
+
     def _build_realtime_tools_for_call(self) -> list:
         """
         🎯 SMART TOOL SELECTION for Realtime phone calls
@@ -2104,11 +2192,18 @@ class MediaStreamHandler:
         - Default: NO tools (pure conversation)
         - If business has appointments enabled: ONLY appointment scheduling tool
         - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
+        - 🔥 NEW REQUIREMENT A: NEVER tools for outbound calls (outbound_prompt_only mode)
         
         Returns:
             list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
         """
         tools = []
+        
+        # 🔥 NEW REQUIREMENT A: Block ALL tools for outbound calls
+        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+        if is_outbound:
+            logger.info("[TOOLS][REALTIME] OUTBOUND call - NO tools (prompt-only mode)")
+            return []  # Always return empty list explicitly
         
         # 🔥 SERVER-FIRST: Do NOT expose scheduling tools to Realtime.
         # Server will decide when to check/schedule and will inject verbatim sentences.
@@ -2870,27 +2965,44 @@ class MediaStreamHandler:
             if hasattr(self, '_metrics_openai_connect_ms') and self.call_sid:
                 stream_registry.set_metric(self.call_sid, 'openai_connect_ms', self._metrics_openai_connect_ms)
             
-            # 🔥 MASTER FIX: Always trigger greeting (hardcoded bot-first behavior)
-            greeting_start_ts = time.time()
-            print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
-            self.greeting_sent = True  # Mark greeting as sent to allow audio through
-            self.is_playing_greeting = True
-            self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
-            # 🔴 FINAL CRITICAL FIX #1: Greeting lock ON immediately at greeting response.create trigger
-            self.greeting_lock_active = True
-            self._greeting_lock_response_id = None
-            self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-            # Log once (not hot path) so production verification can see lock state.
-            logger.info("[GREETING_LOCK] activated (awaiting greeting response_id)")
-            _orig_print("🔒 [GREETING_LOCK] activated", flush=True)
-            # ✅ CRITICAL: Wait until Twilio streamSid exists before greeting trigger (inbound + outbound)
-            # This ensures the first audio frames can be delivered immediately to the caller.
-            sid_wait_start = time.time()
-            while not getattr(self, "stream_sid", None) and (time.time() - sid_wait_start) < 2.0:
-                await asyncio.sleep(0.01)
+            # 🔥 NEW REQUIREMENT B: For outbound calls, wait for human_confirmed before greeting
+            # For inbound calls, trigger greeting immediately as before
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            
+            if is_outbound and not self.human_confirmed:
+                # 🔥 OUTBOUND: Don't trigger greeting yet - wait for first valid STT_FINAL
+                print(f"🎤 [OUTBOUND] Waiting for human_confirmed before greeting (human on line)")
+                logger.info("[OUTBOUND] Skipping greeting trigger - waiting for human confirmation")
+                
+                # Don't set greeting flags yet - they'll be set when human_confirmed becomes True
+                # Start audio/text bridges so we can listen for user speech
+                logger.debug("[REALTIME] Starting audio/text sender tasks (listening mode for outbound)...")
+                audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                logger.debug("[REALTIME] Audio/text tasks created successfully (listening mode)")
+            else:
+                # 🔥 INBOUND or human_confirmed=True: Trigger greeting immediately
+                # This is the original bot-speaks-first behavior
+                greeting_start_ts = time.time()
+                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
+                self.greeting_sent = True  # Mark greeting as sent to allow audio through
+                self.is_playing_greeting = True
+                self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
+                # 🔴 FINAL CRITICAL FIX #1: Greeting lock ON immediately at greeting response.create trigger
+                self.greeting_lock_active = True
+                self._greeting_lock_response_id = None
+                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
+                # Log once (not hot path) so production verification can see lock state.
+                logger.info("[GREETING_LOCK] activated (awaiting greeting response_id)")
+                _orig_print("🔒 [GREETING_LOCK] activated", flush=True)
+                # ✅ CRITICAL: Wait until Twilio streamSid exists before greeting trigger (inbound + outbound)
+                # This ensures the first audio frames can be delivered immediately to the caller.
+                sid_wait_start = time.time()
+                while not getattr(self, "stream_sid", None) and (time.time() - sid_wait_start) < 2.0:
+                    await asyncio.sleep(0.01)
 
-            # 🔥 BUILD 200: Use trigger_response for greeting (forced, no user_speaking/user_has_spoken dependency)
-            triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True)
+                # 🔥 BUILD 200: Use trigger_response for greeting (forced, no user_speaking/user_has_spoken dependency)
+                triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True)
             if triggered:
                 t_speak = time.time()
                 total_openai_ms = (t_speak - t_start) * 1000
@@ -2918,19 +3030,19 @@ class MediaStreamHandler:
                 self.greeting_sent = False
                 self.is_playing_greeting = False
 
-            # 🚀 Start audio/text bridges after greeting trigger attempt:
-            # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
-            # - If greeting failed: still start so the call can proceed
-            logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
-            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
-            logger.debug("[REALTIME] Audio/text tasks created successfully")
+                # 🚀 Start audio/text bridges after greeting trigger attempt:
+                # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
+                # - If greeting failed: still start so the call can proceed
+                logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
+                audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                logger.debug("[REALTIME] Audio/text tasks created successfully")
 
-            # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
-            # ═══════════════════════════════════════════════════════════════════════
-            if triggered:
-                async def _greeting_audio_timeout_watchdog():
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
+                # ═══════════════════════════════════════════════════════════════════════
+                if triggered:
+                    async def _greeting_audio_timeout_watchdog():
                     """Monitor for greeting audio timeout - cancel if no audio within timeout window."""
                     watchdog_start = time.time()
                     timeout_sec = self._greeting_audio_timeout_sec
@@ -4664,6 +4776,9 @@ class MediaStreamHandler:
                                     # 🎯 PROBE 4: Track enqueue for rate monitoring
                                     self._enq_counter += 1
                                     
+                                    # 🔥 NEW REQUIREMENT C: Update AI activity timestamp
+                                    self.last_ai_activity_ts = time.time()
+                                    
                                     # 🔥 TX DIAGNOSTICS: Log greeting audio bytes queued
                                     if not hasattr(self, '_greeting_audio_bytes_queued'):
                                         self._greeting_audio_bytes_queued = 0
@@ -4799,6 +4914,10 @@ class MediaStreamHandler:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
                                 self._enq_counter += 1
+                                
+                                # 🔥 NEW REQUIREMENT C: Update AI activity timestamp
+                                self.last_ai_activity_ts = time.time()
+                                
                                 now_mono = time.monotonic()
                                 if now_mono - self._enq_last_log_time >= 1.0:
                                     qsize = self.realtime_audio_out_queue.qsize()
@@ -5814,6 +5933,71 @@ class MediaStreamHandler:
                         # Log when we get text but it's too short to count
                         print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
                     
+                    # 🔥 NEW REQUIREMENT B: Set human_confirmed for outbound calls
+                    # TWO conditions must BOTH be met:
+                    # 1. STT_FINAL contains human greeting phrase ("שלום/הלו/כן" etc.)
+                    # 2. Audio duration >= 600ms (ensures it's human speech, not tone/beep)
+                    if not self.human_confirmed and text:
+                        # Check condition 1: Contains human greeting
+                        has_human_greeting = contains_human_greeting(text)
+                        
+                        # Check condition 2: Minimum speech duration (600ms)
+                        has_min_duration = utterance_duration_ms >= HUMAN_CONFIRMED_MIN_DURATION_MS
+                        
+                        # Both conditions must be true
+                        if has_human_greeting and has_min_duration:
+                            self.human_confirmed = True
+                            print(f"✅ [HUMAN_CONFIRMED] Set to True: text='{text[:30]}...', duration={utterance_duration_ms:.0f}ms")
+                            print(f"   Human greeting detected: {has_human_greeting}, Duration check: {utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
+                            logger.info(f"[HUMAN_CONFIRMED] Confirmed human: greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
+                            
+                            # 🔥 OUTBOUND: If this is an outbound call and greeting hasn't been sent, trigger it now
+                            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                            if is_outbound and not self.greeting_sent:
+                                # Trigger the greeting now that we know a human is on the line
+                                print(f"🎤 [OUTBOUND] Human confirmed - triggering GREETING now")
+                        elif not self.human_confirmed:
+                            # Log why it was rejected (for debugging)
+                            print(f"⏳ [HUMAN_CONFIRMED] Not yet: text='{text[:30]}...', greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms/{HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
+                        
+                        # Continue with greeting trigger if conditions met
+                        if self.human_confirmed and is_outbound and not self.greeting_sent:
+                            
+                            # Set greeting flags
+                            greeting_start_ts = time.time()
+                            self.greeting_sent = True
+                            self.is_playing_greeting = True
+                            self.greeting_mode_active = True
+                            self.greeting_lock_active = True
+                            self._greeting_lock_response_id = None
+                            self._greeting_start_ts = greeting_start_ts
+                            logger.info("[GREETING_LOCK] activated (post human_confirmed)")
+                            
+                            # Trigger the greeting response
+                            # Note: We're in the OpenAI event loop, so we can await
+                            # Get the realtime client from the handler
+                            realtime_client = getattr(self, 'realtime_client', None)
+                            if realtime_client:
+                                # Create task to trigger greeting (don't block STT processing)
+                                async def _trigger_delayed_greeting():
+                                    try:
+                                        await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
+                                        triggered = await self.trigger_response("GREETING_DELAYED", realtime_client, is_greeting=True, force=True)
+                                        if triggered:
+                                            print(f"✅ [OUTBOUND] Greeting triggered after human confirmation")
+                                        else:
+                                            print(f"❌ [OUTBOUND] Failed to trigger greeting after human confirmation")
+                                            self.greeting_sent = False
+                                            self.is_playing_greeting = False
+                                    except Exception as e:
+                                        print(f"❌ [OUTBOUND] Error triggering greeting: {e}")
+                                        import traceback
+                                        traceback.print_exc()
+                                
+                                asyncio.create_task(_trigger_delayed_greeting())
+                            else:
+                                print(f"⚠️ [OUTBOUND] No realtime_client available for greeting trigger")
+                    
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call
                     logger.info(
@@ -5858,6 +6042,49 @@ class MediaStreamHandler:
                         logger.debug(f"[TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     else:
                         print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                    
+                    # 🔥 NEW REQUIREMENT D: Watchdog for silent mode (MINIMAL - one retry only)
+                    # Start a 3-second timer. If no response.created by then, retry response.create ONCE
+                    utterance_id = f"{time.time()}_{text[:WATCHDOG_UTTERANCE_ID_LENGTH]}"  # Unique ID for this utterance
+                    
+                    async def _watchdog_retry_response(watchdog_utterance_id):
+                        """
+                        Minimal watchdog: if AI doesn't respond after 3s, retry response.create ONCE.
+                        """
+                        try:
+                            await asyncio.sleep(WATCHDOG_TIMEOUT_SEC)  # Wait 3 seconds
+                            
+                            # Check if this watchdog is still relevant
+                            if self._watchdog_utterance_id != watchdog_utterance_id:
+                                return
+                            
+                            # Check if AI has responded
+                            if (not self.response_pending_event.is_set() and
+                                not self.is_ai_speaking_event.is_set() and
+                                not getattr(self, "has_pending_ai_response", False)):
+                                
+                                # AI didn't respond - retry response.create ONCE
+                                print(f"🐕 [WATCHDOG] No response after 3s - retrying response.create")
+                                logger.warning(f"[WATCHDOG] Retrying response.create after 3s timeout")
+                                
+                                # Get realtime client
+                                realtime_client = getattr(self, 'realtime_client', None)
+                                if realtime_client:
+                                    try:
+                                        # Simple retry - just send response.create
+                                        await realtime_client.send_event({"type": "response.create"})
+                                        print(f"✅ [WATCHDOG] Retry response.create sent")
+                                    except Exception as e:
+                                        print(f"❌ [WATCHDOG] Error retrying response: {e}")
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as e:
+                            print(f"❌ [WATCHDOG] Error in watchdog: {e}")
+                    
+                    # Only start watchdog if not a filler
+                    if not is_filler_only:
+                        self._watchdog_utterance_id = utterance_id
+                        asyncio.create_task(_watchdog_retry_response(utterance_id))
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -8118,6 +8345,14 @@ class MediaStreamHandler:
                             self.call_direction = incoming_direction
                             print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
                             _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
+                            
+                            # 🔥 NEW REQUIREMENT A: Set call_mode for outbound calls
+                            if self.call_direction == "outbound":
+                                self.call_mode = "outbound_prompt_only"
+                                self.human_confirmed = False  # Start False, becomes True after first valid STT
+                                print(f"🔒 [OUTBOUND] call_mode=outbound_prompt_only, human_confirmed=False")
+                            else:
+                                self.human_confirmed = True  # Inbound: human is already on the line
                         
                         self.outbound_lead_id = custom_params.get("lead_id")
                         self.outbound_lead_name = custom_params.get("lead_name")
@@ -8184,6 +8419,14 @@ class MediaStreamHandler:
                             self.call_direction = incoming_direction
                             print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
                             _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
+                            
+                            # 🔥 NEW REQUIREMENT A: Set call_mode for outbound calls
+                            if self.call_direction == "outbound":
+                                self.call_mode = "outbound_prompt_only"
+                                self.human_confirmed = False  # Start False, becomes True after first valid STT
+                                print(f"🔒 [OUTBOUND] call_mode=outbound_prompt_only, human_confirmed=False")
+                            else:
+                                self.human_confirmed = True  # Inbound: human is already on the line
                         
                         self.outbound_lead_id = evt.get("lead_id")
                         self.outbound_lead_name = evt.get("lead_name")
@@ -8425,6 +8668,10 @@ class MediaStreamHandler:
                     # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
                     pcm16 = mulaw_to_pcm16_fast(mulaw)
                     self.last_rx_ts = time.time()
+                    
+                    # 🔥 NEW REQUIREMENT C: Update user activity timestamp
+                    self.last_user_activity_ts = time.time()
+                    
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
@@ -10888,6 +11135,46 @@ class MediaStreamHandler:
                             return
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
+
+                # 🔥 NEW REQUIREMENT C: 7-second silence detection with "are you with me?" nudge
+                # Check every 2 seconds (not 0.5-1s to avoid overhead)
+                # Only trigger if human_confirmed=True and real silence from both sides
+                if self.human_confirmed:
+                    now = time.time()
+                    silence_since_user = now - self.last_user_activity_ts
+                    silence_since_ai = now - self.last_ai_activity_ts
+                    
+                    # 🔥 NEW: Use state flags instead of events for more stability
+                    # Check: AI is truly idle (no response in progress, no audio playing, queue empty)
+                    ai_truly_idle = (
+                        not getattr(self, "has_pending_ai_response", False) and
+                        not self.is_ai_speaking_event.is_set() and
+                        self.realtime_audio_out_queue.qsize() == 0
+                    )
+                    
+                    # Check all conditions for 7-second silence nudge
+                    if (silence_since_user >= SILENCE_NUDGE_TIMEOUT_SEC and 
+                        silence_since_ai >= SILENCE_NUDGE_TIMEOUT_SEC and
+                        ai_truly_idle and
+                        self.silence_nudge_count < SILENCE_NUDGE_MAX_COUNT):
+                        
+                        # Check if enough time passed since last nudge (25 seconds)
+                        if self.last_silence_nudge_ts == 0 or (now - self.last_silence_nudge_ts) >= SILENCE_NUDGE_COOLDOWN_SEC:
+                            # Send nudge
+                            self.silence_nudge_count += 1
+                            self.last_silence_nudge_ts = now
+                            print(f"🔇 [7SEC_SILENCE] Nudge {self.silence_nudge_count}/{SILENCE_NUDGE_MAX_COUNT} - sending 'are you with me?'")
+                            
+                            # Trigger AI to ask if user is still there
+                            try:
+                                # Get the realtime client
+                                realtime_client = getattr(self, 'realtime_client', None)
+                                if realtime_client:
+                                    # Simple response.create - let AI handle based on context
+                                    await realtime_client.send_event({"type": "response.create"})
+                                    print(f"✅ [7SEC_SILENCE] Nudge triggered")
+                            except Exception as e:
+                                print(f"❌ [7SEC_SILENCE] Failed to send nudge: {e}")
 
                 if not self.user_has_spoken:
                     # User hasn't spoken yet - check for idle timeout
