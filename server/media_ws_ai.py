@@ -189,6 +189,8 @@ if _env_model:
 # 🔥 NEW REQUIREMENTS: Outbound call improvements constants
 # B) Human confirmation - minimum text length to confirm human is on line
 HUMAN_CONFIRMED_MIN_LENGTH = 2  # "הלו" or similar short greeting
+HUMAN_CONFIRM_TIMEOUT_MS = 2000  # 🔥 NEW: Timeout to enable normal mode if no human_confirmed
+HUMAN_CONFIRM_NO_UTTERANCE_FALLBACK_MS = 1500  # 🔥 NEW: Send proactive greeting if still no utterance
 
 # C) 7-second silence detection
 SILENCE_NUDGE_TIMEOUT_SEC = 7.0  # Silence duration before nudge
@@ -2017,6 +2019,7 @@ class MediaStreamHandler:
         self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
         self.has_pending_ai_response = False  # Is AI response pending?
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
+        self.last_audio_out_ts = None  # 🔥 NEW: Last time audio was sent to Twilio (for barge-in check)
         self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
         self.last_user_turn_id = None  # Last user conversation item ID
         
@@ -2332,6 +2335,9 @@ class MediaStreamHandler:
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
         self.greeting_pending = False  # 🔥 FIX: Flag to defer greeting if active response exists
         self.outbound_first_response_sent = False  # 🔥 OUTBOUND FIX: Lock to prevent multiple greeting triggers
+        self._human_confirm_timeout_triggered = False  # 🔥 NEW: Track if we enabled fallback mode
+        self._outbound_connection_start_ts = None  # 🔥 NEW: Track when outbound call started listening
+        self._fallback_greeting_sent = False  # 🔥 NEW: Track if we sent proactive greeting
         
         # C) 7-second silence detection
         self.last_user_activity_ts = time.time()  # Track last user audio/speech activity
@@ -3192,12 +3198,18 @@ class MediaStreamHandler:
                 print(f"🎤 [OUTBOUND] Waiting for human_confirmed before greeting (human on line)")
                 logger.info("[OUTBOUND] Skipping greeting trigger - waiting for human confirmation")
                 
+                # 🔥 NEW: Start tracking timeout for human confirmation
+                self._outbound_connection_start_ts = time.time()
+                
                 # Don't set greeting flags yet - they'll be set when human_confirmed becomes True
                 # Start audio/text bridges so we can listen for user speech
                 logger.debug("[REALTIME] Starting audio/text sender tasks (listening mode for outbound)...")
                 audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
                 text_in_task = asyncio.create_task(self._realtime_text_sender(client))
                 logger.debug("[REALTIME] Audio/text tasks created successfully (listening mode)")
+                
+                # 🔥 NEW: Start timeout task to enable fallback mode if no human_confirmed
+                asyncio.create_task(self._outbound_human_confirm_timeout(client))
             else:
                 # 🔥 INBOUND or human_confirmed=True: Trigger greeting immediately
                 # This is the original bot-speaks-first behavior
@@ -3976,6 +3988,80 @@ class MediaStreamHandler:
             self._response_create_count -= 1
             print(f"❌ [RESPONSE_CREATE] Failed - rolled back counter to: {self._response_create_count}")
             raise
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 NEW: OUTBOUND HUMAN CONFIRMATION TIMEOUT - Fallback if AMD/STT fails
+    # ═══════════════════════════════════════════════════════════════════════════════
+    async def _outbound_human_confirm_timeout(self, client):
+        """
+        🔥 NEW: Timeout handler for outbound human confirmation.
+        
+        Problem: Sometimes AMD doesn't trigger, or STT doesn't detect voice on Android/weak audio.
+        Solution: After HUMAN_CONFIRM_TIMEOUT_MS (2000ms), enable normal mode even without confirmation.
+        
+        🚨 CRITICAL: DO NOT send auto-greeting without real voice indication!
+        Only enable STT + responses. Proactive greeting only if:
+        - AMD status == human, OR
+        - speech_started event detected, OR  
+        - Valid utterance received
+        """
+        try:
+            # Wait for initial timeout
+            await asyncio.sleep(HUMAN_CONFIRM_TIMEOUT_MS / 1000.0)
+            
+            # Check if we're still waiting for confirmation
+            if not self.human_confirmed and not self._human_confirm_timeout_triggered:
+                self._human_confirm_timeout_triggered = True
+                
+                # Check for real voice activity indicators (strong check - require >=250ms speech)
+                # Calculate speech duration if VAD detected voice
+                speech_duration_ms = 0
+                if getattr(self, '_last_user_voice_started_ts', None) is not None:
+                    speech_duration_ms = (time.time() - self._last_user_voice_started_ts) * 1000
+                
+                has_speech_activity = (
+                    getattr(self, '_realtime_speech_active', False) or  # OpenAI detected speech
+                    getattr(self, 'user_utterance_count', 0) > 0 or     # Got any utterance
+                    (speech_duration_ms >= 250)  # VAD detected voice for >=250ms
+                )
+                
+                logger.info(f"[OUTBOUND_GATE] TIMEOUT voice_check: speech_active={getattr(self, '_realtime_speech_active', False)}, "
+                           f"utterances={getattr(self, 'user_utterance_count', 0)}, speech_duration_ms={speech_duration_ms:.0f}")
+                
+                if has_speech_activity:
+                    # Real voice detected - enable normal mode
+                    logger.info("[OUTBOUND_GATE] TIMEOUT → enabling STT responses (voice activity detected)")
+                    print(f"⏰ [OUTBOUND_GATE] Timeout with voice activity - enabling normal mode")
+                    
+                    # Wait a bit more for utterance to complete
+                    await asyncio.sleep(HUMAN_CONFIRM_NO_UTTERANCE_FALLBACK_MS / 1000.0)
+                    
+                    # If still no confirmation but we have activity, send greeting
+                    stt_utterances = getattr(self, 'user_utterance_count', 0)
+                    if not self.human_confirmed and stt_utterances == 0 and not self._fallback_greeting_sent:
+                        self._fallback_greeting_sent = True
+                        logger.info("[OUTBOUND_GATE] Voice detected but no valid utterance → sending proactive greeting")
+                        print(f"🎤 [OUTBOUND_GATE] Sending greeting after voice activity detected")
+                        
+                        # Trigger greeting
+                        if client and not self.greeting_sent and not self.outbound_first_response_sent:
+                            self.greeting_sent = True
+                            self.is_playing_greeting = True
+                            self.greeting_mode_active = True
+                            self.greeting_lock_active = True
+                            self._greeting_lock_response_id = None
+                            self._greeting_start_ts = time.time()
+                            logger.info("[GREETING_LOCK] activated (fallback greeting with voice activity)")
+                            
+                            await self.trigger_response("GREETING_VOICE_FALLBACK", client, is_greeting=True, force=True, source="timeout_voice_fallback")
+                else:
+                    # NO voice activity - just enable STT, don't speak
+                    logger.info("[OUTBOUND_GATE] TIMEOUT → enabling STT responses (NO auto-greeting without voice)")
+                    print(f"⏰ [OUTBOUND_GATE] Timeout without voice - enabling STT only (no auto-greeting)")
+                    # Note: human_confirmed stays False, but we don't block STT anymore via timeout flag
+                    
+        except Exception as e:
+            logger.error(f"[OUTBOUND_GATE] Error in human_confirm_timeout: {e}")
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
@@ -4986,11 +5072,34 @@ class MediaStreamHandler:
                         and not is_greeting_now
                     )
                     
-                    # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
-                    # Don't check ai_response_active or is_ai_speaking - just cancel!
+                    # 🔥 NEW: Check if AI is ACTUALLY playing audio (not just response_active flag)
+                    # Barge-in should only trigger if we're sending audio to Twilio NOW
+                    now = time.time()
+                    last_audio_sent_ms = (now - self.last_audio_out_ts) * 1000 if self.last_audio_out_ts else 999999
+                    tx_queue_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                    realtime_queue_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                    
+                    # is_actually_playing: PRIMARY check is recent audio output (< 350ms)
+                    # This is the most reliable indicator that audio is being sent to Twilio
+                    is_actually_playing = (last_audio_sent_ms < 350)
+                    
+                    # Log barge-in decision details (queues for diagnostics only)
+                    if has_active_response:
+                        logger.info(
+                            f"[BARGE_IN] Decision check: "
+                            f"active_resp_id={self.active_response_id[:20] if self.active_response_id else 'None'}... | "
+                            f"actually_playing={is_actually_playing} | "
+                            f"last_audio_ms={last_audio_sent_ms:.0f} | "
+                            f"tx_q={tx_queue_size} (diagnostic) | "
+                            f"realtime_q={realtime_queue_size} (diagnostic)"
+                        )
+                    
+                    # 🔥 GOLDEN RULE (REFINED): Cancel only if AI is ACTUALLY sending audio
+                    # Don't cancel if response was just created but no audio yet - let it play!
                     # 🔥 FIX #3: Use enhanced can_cancel check with cooldown
-                    if has_active_response and self.realtime_client and barge_in_allowed_now:
-                        # AI has active response - user is interrupting, cancel IMMEDIATELY
+                    if has_active_response and is_actually_playing and self.realtime_client and barge_in_allowed_now:
+                        # AI is actually playing audio - user is interrupting, cancel IMMEDIATELY
+                        logger.info(f"[BARGE_IN] Real interruption detected - cancelling active audio output")
                         
                         # Step 1: Cancel active response (with enhanced duplicate guard and cooldown)
                         if self._can_cancel_response() and self._should_send_cancel(self.active_response_id):
@@ -5000,7 +5109,7 @@ class MediaStreamHandler:
                                 self._last_cancel_ts = time.time()
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
+                                logger.info(f"[BARGE-IN] ✅ Cancelled response {self.active_response_id[:20]}... (real audio interruption)")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors
@@ -5011,37 +5120,24 @@ class MediaStreamHandler:
                                     logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
                         else:
                             logger.debug("[BARGE-IN] Skip cancel: not active / already done / cooldown")
+                    elif has_active_response and not is_actually_playing:
+                        # Response exists but no audio playing yet - DON'T cancel, let it play
+                        # The user's utterance will be handled normally after response.done
+                        logger.info(
+                            f"[BARGE_IN] Skipped cancel: not_actually_playing "
+                            f"(response_id={self.active_response_id[:20] if self.active_response_id else 'None'}... exists but no audio output yet)"
+                        )
+                        print(f"⏸️ [BARGE_IN] Response exists but not playing - will handle utterance after response.done")
                         
-                        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
-                        # 🔥 CRITICAL: Clear Twilio queue immediately to prevent AI audio from continuing
-                        if self.stream_sid:
-                            try:
-                                clear_event = {
-                                    "event": "clear",
-                                    "streamSid": self.stream_sid
-                                }
-                                self._ws_send(json.dumps(clear_event))
-                                logger.debug("[BARGE-IN] Sent Twilio clear event")
-                            except Exception as e:
-                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
-                        
-                        # Step 3: Flush TX queue (clear all pending audio frames)
-                        # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
-                        self._flush_tx_queue()
-                        
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
-                        # 🔥 NOTE: For barge-in, clear is_ai_speaking IMMEDIATELY after queue flush
-                        # This is different from natural completion (response.audio.done) which waits for drain
-                        # Barge-in = forced interruption, so immediate clear is correct
-                        self.is_ai_speaking_event.clear()
-                        self.active_response_id = None
-                        if hasattr(self, 'ai_response_active'):
-                            self.ai_response_active = False
-                        
-                        # Step 5: Set barge-in flag with timestamp
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        # Mark that we have a pending user utterance to process after response completes
+                        # This ensures we don't lose the user's speech
+                        if not hasattr(self, '_pending_utterances'):
+                            self._pending_utterances = []
+                        self._pending_utterances.append({
+                            'timestamp': time.time(),
+                            'source': 'speech_started_during_response_creation'
+                        })
+                        logger.info("[BARGE_IN] Marked pending utterance - will process after response.done")
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
@@ -6544,9 +6640,47 @@ class MediaStreamHandler:
                         else:
                             print(f"✅ [BARGE_IN] Cancel completed successfully for {cancelled_response_id[:20]}...")
                         
-                        # Now continue processing the utterance normally
-                        # The text is already stored and will flow through the normal pipeline
-                        logger.info(f"[BARGE_IN] Ready for new response after cancel (pending_utterance='{text[:40]}...')")
+                        # 🔥 CRITICAL: Now create new response from pending utterance
+                        # This is THE fix for "silence after user speaks" - always create response after cancel
+                        pending_utterance = getattr(self, '_pending_barge_in_utterance', text)
+                        logger.info(f"[BARGE_IN] pending_utterance_stored len={len(pending_utterance)}")
+                        logger.info(f"[BARGE_IN] cancel_ack_received={cancel_ack_received}")
+                        
+                        # Store in conversation history first (if not filler)
+                        if not is_filler_only and pending_utterance:
+                            self.conversation_history.append({
+                                "speaker": "user",
+                                "text": pending_utterance,
+                                "timestamp": time.time()
+                            })
+                        
+                        # Now trigger response for the pending utterance
+                        # Skip the normal pipeline since we already have the text
+                        logger.info(f"[BARGE_IN] creating_new_response source=barge_in_pending utterance='{pending_utterance[:40]}...'")
+                        print(f"🎤 [BARGE_IN] Creating new response from pending utterance: '{pending_utterance[:40]}...'")
+                        
+                        # Clear pending after using it
+                        self._pending_barge_in_utterance = None
+                        self._pending_barge_in_raw_text = None
+                        
+                        # Mark turn open and trigger response
+                        self.user_turn_open = True
+                        triggered = await self.trigger_response(
+                            reason="BARGE_IN_PENDING",
+                            client=client,
+                            is_greeting=False,
+                            force=False,
+                            source="barge_in_pending"
+                        )
+                        if triggered:
+                            logger.info(f"[BARGE_IN] Response created successfully from pending utterance")
+                            print(f"✅ [BARGE_IN] New response created from interrupt")
+                        else:
+                            logger.error(f"[BARGE_IN] FAILED to create response from pending utterance")
+                            print(f"❌ [BARGE_IN] Failed to create new response - watchdog will retry")
+                        
+                        # Continue to avoid duplicate processing
+                        continue
                     
                     # 🔥 DOUBLE RESPONSE FIX B: Deduplication - Check for duplicate utterance
                     # Create fingerprint from normalized text + time bucket (2-second buckets)
@@ -9127,8 +9261,9 @@ class MediaStreamHandler:
                             # 🔥 NEW REQUIREMENT A: Set call_mode for outbound calls
                             if self.call_direction == "outbound":
                                 self.call_mode = "outbound_prompt_only"
-                                self.human_confirmed = False  # Start False, becomes True after first valid STT
+                                self.human_confirmed = False  # Start False, becomes True after first valid STT or real-time AMD event
                                 print(f"🔒 [OUTBOUND] call_mode=outbound_prompt_only, human_confirmed=False")
+                                logger.info("[OUTBOUND_GATE] status=WAITING - will rely on STT/timeout (not DB AMD)")
                             else:
                                 self.human_confirmed = True  # Inbound: human is already on the line
                         
@@ -15212,6 +15347,8 @@ class MediaStreamHandler:
                         # 🔥 FIX: Update last_ai_audio_ts to prevent false silence detection
                         # This ensures the silence watchdog knows AI audio was sent recently
                         self.last_ai_audio_ts = time.time()
+                        # 🔥 NEW: Track last audio output timestamp for barge-in detection
+                        self.last_audio_out_ts = time.time()
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
