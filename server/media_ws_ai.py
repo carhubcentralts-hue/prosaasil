@@ -1827,6 +1827,11 @@ class MediaStreamHandler:
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
         
+        # 🔥 NEW REQUIREMENT: First utterance protection (SIMPLEST APPROACH)
+        # Bot always speaks first - NO barge-in during first sentence only
+        self.first_utterance_protected = True  # Protection ON until first response completes
+        self.first_response_id = None  # Track first response ID to turn off protection
+        
         # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
         # This is THE key to making barge-in actually listen (not just stop talking)
         self.user_speaking = False  # True from speech_started until speech_stopped+transcription.completed
@@ -4286,17 +4291,20 @@ class MediaStreamHandler:
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 GREETING PROTECTION FIX + SIMPLE BARGE-IN
+                    # 🔥 NEW REQUIREMENT: First Utterance Protection (SIMPLEST APPROACH)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Issue: Greeting sometimes interrupted by false speech_started from echo/noise
-                    # Solution: During greeting, require REAL speech before allowing barge-in
+                    # Bot always speaks first - NO barge-in during first sentence ONLY
                     # 
-                    # Rules:
-                    # 1. During greeting (first 500ms): Block barge-in on speech_started alone
-                    #    - Wait for transcription.completed OR 250ms+ of continuous speech
-                    #    - This prevents false triggers from echo/background noise
-                    # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
-                    # 3. Set barge_in=True flag and wait for transcription.completed
+                    # Rule:
+                    # 1. First sentence (first_utterance_protected=True): NO barge-in
+                    #    → User can speak but AI won't cancel
+                    # 2. After first sentence completes (first_utterance_protected=False): 
+                    #    → Barge-in ALWAYS works for rest of call
+                    # 
+                    # Simple:
+                    # - ONE flag: first_utterance_protected
+                    # - ONE response_id: first_response_id  
+                    # - Turns OFF only on response.audio.done for first_response_id
                     # ═══════════════════════════════════════════════════════════════════════
                     
                     if DEBUG:
@@ -4362,30 +4370,26 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - SIMPLEST APPROACH (Golden Rule)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
+                    # NEW REQUIREMENT: Bot always speaks first (first sentence only)
                     # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
+                    # Simple Rule:
+                    # - First sentence: NO barge-in (first_utterance_protected = True)
+                    # - After first sentence completes: barge-in ALWAYS works
+                    # - ONE flag controls everything: first_utterance_protected
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ NEW: Cancel on speech_started if ANY active_response_id exists
+                    # ✅ SIMPLEST CONDITIONS: Just one flag!
                     has_active_response = bool(self.active_response_id)
-                    is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
+                    # 🔥 NEW: Single condition - only check first_utterance_protected
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
                         and getattr(self, "barge_in_enabled", True)
-                        and getattr(self, "barge_in_enabled_after_greeting", False)
-                        and not is_greeting_now
+                        and not getattr(self, "first_utterance_protected", False)
                     )
                     
-                    # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
-                    # Don't check ai_response_active or is_ai_speaking - just cancel!
+                    # 🔥 GOLDEN RULE: If active_response_id exists AND protection is OFF, cancel it NOW
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
@@ -4559,6 +4563,14 @@ class MediaStreamHandler:
                         if getattr(self, "greeting_lock_active", False) and not getattr(self, "_greeting_lock_response_id", None):
                             self._greeting_lock_response_id = response_id
                             _orig_print(f"🔒 [GREETING_LOCK] bound greeting_response_id={response_id[:20]}...", flush=True)
+                        
+                        # 🔥 NEW REQUIREMENT: Track first response ID for first utterance protection
+                        # Bot always speaks first - NO barge-in during first sentence only
+                        if self.first_response_id is None:
+                            self.first_response_id = response_id
+                            # Note: first_utterance_protected already initialized to True in __init__
+                            _orig_print(f"🔒 [FIRST_UTTERANCE] Marked first response: id={response_id[:20]}... (protection=ON)", flush=True)
+                            print(f"🔒 [FIRST_UTTERANCE] NO barge-in allowed until this response completes")
                         
                         # 🔥 NEW: Set ai_response_active=True immediately (per requirements)
                         # This is THE fix for barge-in timing issues
@@ -4837,6 +4849,15 @@ class MediaStreamHandler:
                                 flush=True,
                             )
                             logger.info("[GREETING_LOCK] released (audio.done)")
+
+                    # 🔥 NEW REQUIREMENT: Turn OFF first utterance protection when first response completes
+                    # This is the ONLY place to turn off protection - when audio actually finishes
+                    if event_type == "response.audio.done":
+                        done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        if done_resp_id and self.first_response_id and done_resp_id == self.first_response_id:
+                            self.first_utterance_protected = False
+                            _orig_print(f"✅ [FIRST_UTTERANCE] Protection OFF - first response completed (id={done_resp_id[:20]}...)", flush=True)
+                            print(f"✅ [FIRST_UTTERANCE] Barge-in now ENABLED for rest of call")
 
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:

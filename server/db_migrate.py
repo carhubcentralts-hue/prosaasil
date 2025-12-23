@@ -1309,6 +1309,66 @@ def apply_migrations():
             db.session.rollback()
             raise
         
+        # Migration 44: WhatsApp Broadcast System - Campaign management tables
+        checkpoint("Migration 44: WhatsApp Broadcast System")
+        try:
+            # Create whatsapp_broadcasts table
+            if not check_table_exists('whatsapp_broadcasts'):
+                log.info("Creating whatsapp_broadcasts table...")
+                db.session.execute(text("""
+                    CREATE TABLE whatsapp_broadcasts (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        name VARCHAR(255),
+                        provider VARCHAR(32),
+                        message_type VARCHAR(32),
+                        template_id VARCHAR(255),
+                        template_name VARCHAR(255),
+                        message_text TEXT,
+                        audience_filter JSON,
+                        status VARCHAR(32) DEFAULT 'pending',
+                        total_recipients INTEGER DEFAULT 0,
+                        sent_count INTEGER DEFAULT 0,
+                        failed_count INTEGER DEFAULT 0,
+                        created_by INTEGER REFERENCES users(id),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        started_at TIMESTAMP,
+                        completed_at TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcasts_business ON whatsapp_broadcasts(business_id)"))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcasts_status ON whatsapp_broadcasts(status)"))
+                migrations_applied.append('create_whatsapp_broadcasts_table')
+                log.info("✅ Created whatsapp_broadcasts table")
+            
+            # Create whatsapp_broadcast_recipients table
+            if not check_table_exists('whatsapp_broadcast_recipients'):
+                log.info("Creating whatsapp_broadcast_recipients table...")
+                db.session.execute(text("""
+                    CREATE TABLE whatsapp_broadcast_recipients (
+                        id SERIAL PRIMARY KEY,
+                        broadcast_id INTEGER NOT NULL REFERENCES whatsapp_broadcasts(id),
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        phone VARCHAR(64) NOT NULL,
+                        lead_id INTEGER REFERENCES leads(id),
+                        status VARCHAR(32) DEFAULT 'queued',
+                        error_message TEXT,
+                        message_id VARCHAR(255),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        sent_at TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcast_recipients_broadcast ON whatsapp_broadcast_recipients(broadcast_id)"))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_whatsapp_broadcast_recipients_status ON whatsapp_broadcast_recipients(status)"))
+                migrations_applied.append('create_whatsapp_broadcast_recipients_table')
+                log.info("✅ Created whatsapp_broadcast_recipients table")
+            
+            log.info("✅ Applied migration 44: WhatsApp Broadcast System")
+        except Exception as e:
+            log.error(f"❌ Migration 44 failed: {e}")
+            db.session.rollback()
+            raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
