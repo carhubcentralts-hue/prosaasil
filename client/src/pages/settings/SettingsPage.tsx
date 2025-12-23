@@ -100,6 +100,8 @@ interface IntegrationSettings {
   // BUILD 183: Separate webhooks for inbound/outbound
   inbound_webhook_url?: string;
   outbound_webhook_url?: string;
+  // UI SPRINT: Status change webhook
+  status_webhook_url?: string;
 }
 
 interface AISettings {
@@ -159,7 +161,9 @@ export function SettingsPage() {
     generic_webhook_url: '',
     // BUILD 183: Separate webhooks
     inbound_webhook_url: '',
-    outbound_webhook_url: ''
+    outbound_webhook_url: '',
+    // UI SPRINT: Status webhook
+    status_webhook_url: ''
   });
 
   const [aiSettings, setAISettings] = useState<AISettings>({
@@ -213,6 +217,8 @@ export function SettingsPage() {
     // BUILD 183: Separate webhooks
     inbound_webhook_url?: string | null;
     outbound_webhook_url?: string | null;
+    // UI SPRINT: Status webhook
+    status_webhook_url?: string | null;
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture?: boolean;
     auto_end_on_goodbye?: boolean;
@@ -253,11 +259,13 @@ export function SettingsPage() {
 
       // BUILD 177: Load webhook URLs
       // BUILD 183: Load separate inbound/outbound webhooks
+      // UI SPRINT: Load status webhook URL
       setIntegrationSettings(prev => ({
         ...prev,
         generic_webhook_url: businessData.generic_webhook_url || '',
         inbound_webhook_url: businessData.inbound_webhook_url || '',
-        outbound_webhook_url: businessData.outbound_webhook_url || ''
+        outbound_webhook_url: businessData.outbound_webhook_url || '',
+        status_webhook_url: businessData.status_webhook_url || ''
       }));
 
       // ✅ Load working days from opening_hours_json
@@ -869,8 +877,8 @@ export function SettingsPage() {
               <div className="flex items-center gap-3 mb-4">
                 <Link2 className="w-6 h-6 text-orange-600" />
                 <h3 className="text-lg font-semibold text-gray-900">הגדרות Webhook</h3>
-                <Badge variant={(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.generic_webhook_url) ? 'success' : 'default'}>
-                  {(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.generic_webhook_url) ? 'מוגדר' : 'לא מוגדר'}
+                <Badge variant={(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.status_webhook_url || integrationSettings.generic_webhook_url) ? 'success' : 'default'}>
+                  {(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.status_webhook_url || integrationSettings.generic_webhook_url) ? 'מוגדר' : 'לא מוגדר'}
                 </Badge>
               </div>
               
@@ -914,6 +922,33 @@ export function SettingsPage() {
                   <p className="text-xs text-green-600 mt-1">שיחות AI ליזום קשר עם לידים. אם לא מוגדר - לא יישלח Webhook לשיחות יוצאות</p>
                 </div>
 
+                {/* Status Change Webhook - UI SPRINT */}
+                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <label className="block text-sm font-medium text-purple-800 mb-2">
+                    🔄 Webhook לשינויי סטטוס לידים
+                  </label>
+                  <input
+                    type="url"
+                    value={integrationSettings.status_webhook_url || ''}
+                    onChange={(e) => setIntegrationSettings({...integrationSettings, status_webhook_url: e.target.value})}
+                    placeholder="https://n8n.example.com/webhook/status-changes"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    dir="ltr"
+                    data-testid="input-status-webhook-url"
+                  />
+                  <p className="text-xs text-purple-600 mt-1">קבל התראות על כל שינוי סטטוס של ליד (חדש → יצרנו קשר וכו')</p>
+                  <div className="mt-2 p-2 bg-white rounded border border-purple-200">
+                    <p className="text-xs font-medium text-purple-800 mb-1">המידע שיישלח:</p>
+                    <ul className="text-xs text-purple-700 space-y-0.5 list-disc list-inside">
+                      <li>מזהה ליד ופרטים (שם, טלפון)</li>
+                      <li>סטטוס ישן וסטטוס חדש (בעברית)</li>
+                      <li>מקור השינוי (דף ליד/טבלת שיחות)</li>
+                      <li>משתמש שביצע את השינוי</li>
+                      <li>זמן השינוי</li>
+                    </ul>
+                  </div>
+                </div>
+
                 {/* Generic Webhook (fallback) */}
                 <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -939,7 +974,8 @@ export function SettingsPage() {
                         body: { 
                           generic_webhook_url: integrationSettings.generic_webhook_url || null,
                           inbound_webhook_url: integrationSettings.inbound_webhook_url || null,
-                          outbound_webhook_url: integrationSettings.outbound_webhook_url || null
+                          outbound_webhook_url: integrationSettings.outbound_webhook_url || null,
+                          status_webhook_url: integrationSettings.status_webhook_url || null
                         }
                       });
                       queryClient.invalidateQueries({ queryKey: ['/api/business/current'] });
@@ -954,6 +990,38 @@ export function SettingsPage() {
                   <Save className="w-4 h-4 mr-2" />
                   שמור הגדרות Webhook
                 </Button>
+                
+                {/* Test Status Webhook Button */}
+                {integrationSettings.status_webhook_url && (
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const response = await apiRequest('/api/webhooks/status/dispatch', {
+                          method: 'POST',
+                          body: {
+                            lead_id: 1, // Test lead ID
+                            old_status: 'new',
+                            new_status: 'contacted',
+                            source: 'settings_test'
+                          }
+                        });
+                        if (response.success) {
+                          alert('✅ Webhook נשלח בהצלחה! בדוק את השירות החיצוני שלך.');
+                        } else {
+                          alert('⚠️ Webhook נשלח אבל עם שגיאה. בדוק לוגים.');
+                        }
+                      } catch (error) {
+                        alert('❌ שגיאה בשליחת Webhook. וודא שה-URL תקין.');
+                      }
+                    }}
+                    className="w-full justify-center"
+                    data-testid="button-test-status-webhook"
+                  >
+                    <Zap className="w-4 h-4 mr-2" />
+                    בדוק Status Webhook
+                  </Button>
+                )}
                 
                 <div className="mt-4 p-3 bg-blue-50 rounded-md text-sm">
                   <h4 className="font-medium text-blue-800 mb-2">📋 מידע שנשלח ב-Webhook:</h4>
