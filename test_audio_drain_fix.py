@@ -41,9 +41,18 @@ class MockHandler:
         self.response_pending_event = Mock()
         self.response_pending_event.clear = Mock()
         self.ai_response_active = True
+        self._drain_tasks = {}
     
     async def _check_audio_drain_and_clear_speaking(self, response_id: str):
-        """Simplified version of the drain check logic"""
+        """Simplified version of the drain check logic with response_id matching"""
+        # Prevent task storms
+        if response_id in self._drain_tasks:
+            existing_task = self._drain_tasks[response_id]
+            if existing_task and not existing_task.done():
+                return "DUPLICATE_SKIPPED"
+        
+        self._drain_tasks[response_id] = asyncio.current_task()
+        
         DRAIN_TIMEOUT_SEC = 0.5
         POLL_INTERVAL_MS = 50
         
@@ -52,36 +61,53 @@ class MockHandler:
         max_checks = int((DRAIN_TIMEOUT_SEC * 1000) / POLL_INTERVAL_MS)
         
         while checks < max_checks:
+            # 🔥 MOKEESH #1: Check response_id match before clearing!
+            current_active_id = getattr(self, 'active_response_id', None)
+            if current_active_id != response_id:
+                # Response changed - don't clear!
+                self._drain_tasks.pop(response_id, None)
+                return "RESPONSE_CHANGED"
+            
             # Check if queues are empty
             tx_size = self.tx_q.qsize()
             audio_out_size = self.realtime_audio_out_queue.qsize()
             
             if tx_size == 0 and audio_out_size == 0:
-                # Both queues empty - clear flags
-                if self.is_ai_speaking_event.is_set():
-                    self.is_ai_speaking_event.clear()
-                self.speaking = False
-                self.ai_speaking_start_ts = None
-                self.has_pending_ai_response = False
-                self.active_response_id = None
-                self.response_pending_event.clear()
-                self.ai_response_active = False
-                return "CLEARED_ON_EMPTY"
+                # Final check before clearing
+                if self.active_response_id == response_id:
+                    # Clear all flags
+                    if self.is_ai_speaking_event.is_set():
+                        self.is_ai_speaking_event.clear()
+                    self.speaking = False
+                    self.ai_speaking_start_ts = None
+                    self.has_pending_ai_response = False
+                    self.active_response_id = None
+                    self.response_pending_event.clear()
+                    self.ai_response_active = False
+                    self._drain_tasks.pop(response_id, None)
+                    return "CLEARED_ON_EMPTY"
+                else:
+                    self._drain_tasks.pop(response_id, None)
+                    return "RESPONSE_CHANGED"
             
-            # Queues not empty yet - wait and check again
             await asyncio.sleep(POLL_INTERVAL_MS / 1000.0)
             checks += 1
         
-        # Timeout reached - clear flags anyway
-        if self.is_ai_speaking_event.is_set():
-            self.is_ai_speaking_event.clear()
-        self.speaking = False
-        self.ai_speaking_start_ts = None
-        self.has_pending_ai_response = False
-        self.active_response_id = None
-        self.response_pending_event.clear()
-        self.ai_response_active = False
-        return "CLEARED_ON_TIMEOUT"
+        # Timeout - check one more time
+        if self.active_response_id == response_id:
+            if self.is_ai_speaking_event.is_set():
+                self.is_ai_speaking_event.clear()
+            self.speaking = False
+            self.ai_speaking_start_ts = None
+            self.has_pending_ai_response = False
+            self.active_response_id = None
+            self.response_pending_event.clear()
+            self.ai_response_active = False
+            self._drain_tasks.pop(response_id, None)
+            return "CLEARED_ON_TIMEOUT"
+        else:
+            self._drain_tasks.pop(response_id, None)
+            return "RESPONSE_CHANGED"
 
 
 class TestAudioDrainLogic:
@@ -93,9 +119,11 @@ class TestAudioDrainLogic:
         # Queues already empty
         handler.tx_q._size = 0
         handler.realtime_audio_out_queue._size = 0
+        # Use matching response_id!
+        handler.active_response_id = "test_response_123"
         
-        # Run drain check
-        result = asyncio.run(handler._check_audio_drain_and_clear_speaking("test_resp_123"))
+        # Run drain check with matching response_id
+        result = asyncio.run(handler._check_audio_drain_and_clear_speaking("test_response_123"))
         
         # Should clear immediately
         assert result == "CLEARED_ON_EMPTY", f"Should clear on empty, got {result}"
@@ -110,6 +138,8 @@ class TestAudioDrainLogic:
         # Queues have audio
         handler.tx_q._size = 3
         handler.realtime_audio_out_queue._size = 2
+        # Use matching response_id!
+        handler.active_response_id = "test_response_123"
         
         # Simulate draining while check is running
         async def drain_while_checking():
@@ -122,7 +152,7 @@ class TestAudioDrainLogic:
         # Run both tasks
         async def run_test():
             drain_task = asyncio.create_task(drain_while_checking())
-            check_result = await handler._check_audio_drain_and_clear_speaking("test_resp_123")
+            check_result = await handler._check_audio_drain_and_clear_speaking("test_response_123")
             await drain_task
             return check_result
         
@@ -139,10 +169,12 @@ class TestAudioDrainLogic:
         # Queues never empty (stuck)
         handler.tx_q._size = 100
         handler.realtime_audio_out_queue._size = 50
+        # Use matching response_id!
+        handler.active_response_id = "test_response_123"
         
         # Run drain check (will timeout)
         start_time = time.time()
-        result = asyncio.run(handler._check_audio_drain_and_clear_speaking("test_resp_123"))
+        result = asyncio.run(handler._check_audio_drain_and_clear_speaking("test_response_123"))
         elapsed = time.time() - start_time
         
         # Should timeout and clear
@@ -175,6 +207,99 @@ class TestAudioDrainLogic:
         assert handler.ai_speaking_start_ts is None, "ai_speaking_start_ts should be cleared"
         handler.is_ai_speaking_event.clear.assert_called()
         handler.response_pending_event.clear.assert_called()
+    
+    def test_response_id_mismatch_skips_clear(self):
+        """🔥 MOKEESH #1: Verify drain check skips clear if response_id changed"""
+        handler = MockHandler()
+        handler.tx_q._size = 0
+        handler.realtime_audio_out_queue._size = 0
+        
+        # Set active_response_id to DIFFERENT value
+        handler.active_response_id = "NEW_RESPONSE_999"
+        
+        # Try to drain OLD response
+        result = asyncio.run(handler._check_audio_drain_and_clear_speaking("OLD_RESPONSE_123"))
+        
+        # Should NOT clear because response_id changed!
+        assert result == "RESPONSE_CHANGED", f"Should skip on mismatch, got {result}"
+        # Flags should NOT be cleared
+        assert handler.active_response_id == "NEW_RESPONSE_999", "Should keep NEW response_id"
+        # is_ai_speaking should NOT be cleared
+        handler.is_ai_speaking_event.clear.assert_not_called()
+    
+    def test_response_id_change_during_drain(self):
+        """🔥 MOKEESH #1: Verify drain detects response_id change mid-drain"""
+        handler = MockHandler()
+        handler.tx_q._size = 10
+        handler.realtime_audio_out_queue._size = 5
+        handler.active_response_id = "OLD_RESPONSE_123"
+        
+        # Simulate response changing mid-drain
+        async def change_response_mid_drain():
+            await asyncio.sleep(0.1)  # Let drain start
+            handler.active_response_id = "NEW_RESPONSE_999"
+            handler.tx_q._size = 0  # Drain queues
+            handler.realtime_audio_out_queue._size = 0
+        
+        async def run_test():
+            change_task = asyncio.create_task(change_response_mid_drain())
+            result = await handler._check_audio_drain_and_clear_speaking("OLD_RESPONSE_123")
+            await change_task
+            return result
+        
+        result = asyncio.run(run_test())
+        
+        # Should detect change and NOT clear
+        assert result == "RESPONSE_CHANGED", f"Should detect change, got {result}"
+        assert handler.active_response_id == "NEW_RESPONSE_999", "Should preserve new response_id"
+    
+    def test_prevent_task_storm(self):
+        """🔥 MOKEESH #4: Verify only one drain task runs per response_id"""
+        handler = MockHandler()
+        handler.tx_q._size = 10
+        handler.realtime_audio_out_queue._size = 5
+        handler.active_response_id = "test_123"  # Set matching response_id
+        
+        # Track which tasks completed
+        completed = []
+        
+        # Start first drain task
+        async def run_test():
+            # Start two drain tasks for same response_id
+            async def task1_wrapper():
+                result = await handler._check_audio_drain_and_clear_speaking("test_123")
+                completed.append(("task1", result))
+                return result
+            
+            async def task2_wrapper():
+                result = await handler._check_audio_drain_and_clear_speaking("test_123")
+                completed.append(("task2", result))
+                return result
+            
+            task1 = asyncio.create_task(task1_wrapper())
+            await asyncio.sleep(0.05)  # Let task1 start and register
+            task2 = asyncio.create_task(task2_wrapper())
+            
+            # Wait for task2 to check and skip
+            await asyncio.sleep(0.05)
+            
+            # Drain queues to let task1 complete
+            handler.tx_q._size = 0
+            handler.realtime_audio_out_queue._size = 0
+            
+            # Wait for both to finish
+            await task1
+            await task2
+        
+        asyncio.run(run_test())
+        
+        # Check results
+        assert len(completed) == 2, f"Should have 2 results, got {len(completed)}"
+        
+        # One should be skipped, one should complete
+        results = [r for _, r in completed]
+        assert "DUPLICATE_SKIPPED" in results, f"One task should be skipped, got {results}"
+        assert any(r in ["CLEARED_ON_EMPTY", "CLEARED_ON_TIMEOUT"] for r in results), f"One task should complete, got {results}"
 
 
 class TestBargeInImmediate:

@@ -5121,7 +5121,8 @@ class MediaStreamHandler:
                         self._audio_done_received[done_resp_id] = time.time()
                         print(f"🔇 [AUDIO_DONE] Received for response_id={done_resp_id[:20] if done_resp_id else 'None'}..., queues: tx={self.tx_q.qsize()}, audio_out={self.realtime_audio_out_queue.qsize()}")
                     
-                    # Schedule drain check to clear is_ai_speaking after queues empty OR timeout
+                    # 🔥 FIX: Schedule drain check - it will clear flags only after queues empty
+                    # DON'T clear active_response_id/has_pending_ai_response here - drain check does it!
                     asyncio.create_task(self._check_audio_drain_and_clear_speaking(done_resp_id))
                     
                     # 🔥 Track when AI finished speaking (for metrics only, no cooldown enforcement)
@@ -5137,10 +5138,6 @@ class MediaStreamHandler:
                     queue_size = self.realtime_audio_out_queue.qsize()
                     if queue_size > 0:
                         print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (NO TRUNCATION)")
-                    
-                    self.has_pending_ai_response = False
-                    self.active_response_id = None  # Clear response ID
-                    self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                     
                     # 🔥 FIX: response.audio.done should ONLY update audio state, NOT cause hangup
                     # Hangup is executed ONLY if pending_hangup was previously set by request_hangup()
@@ -11158,15 +11155,32 @@ class MediaStreamHandler:
         🔥 FIX: Check if audio queues have drained and clear is_ai_speaking only when:
         1. Received response.audio.done for this response_id
         2. Both tx_q and realtime_audio_out_queue are empty
+        3. active_response_id still matches the done response_id
         OR after drain timeout (500ms)
         
         This ensures is_ai_speaking remains True until audio is actually delivered,
         preventing premature barge-in cancellation.
         
+        ⚠️ CRITICAL: Must check response_id match to avoid clearing flags for a NEW response!
+        
         Args:
             response_id: The response_id from response.audio.done event
         """
         try:
+            # 🔥 MOKEESH #4: Prevent task storms - check if already running for this response
+            if not hasattr(self, '_drain_tasks'):
+                self._drain_tasks = {}
+            
+            # If already have a drain task for this response, don't create another
+            if response_id in self._drain_tasks:
+                existing_task = self._drain_tasks[response_id]
+                if existing_task and not existing_task.done():
+                    print(f"⏭️ [AUDIO_DRAIN] Already draining response_id={response_id[:20] if response_id else 'None'}... - skipping duplicate")
+                    return
+            
+            # Store this task
+            self._drain_tasks[response_id] = asyncio.current_task()
+            
             DRAIN_TIMEOUT_SEC = 0.5  # 500ms timeout - between 300-600ms as specified
             POLL_INTERVAL_MS = 50     # Check every 50ms for responsive drain detection
             
@@ -11175,28 +11189,50 @@ class MediaStreamHandler:
             max_checks = int((DRAIN_TIMEOUT_SEC * 1000) / POLL_INTERVAL_MS)
             
             while checks < max_checks:
-                # Check if queues are empty
+                # 🔥 MOKEESH #1: כלל זהב - בדוק response_id match לפני איפוס!
+                current_active_id = getattr(self, 'active_response_id', None)
+                if current_active_id != response_id:
+                    # Response ID changed - a NEW response started, don't clear!
+                    print(f"⚠️ [AUDIO_DRAIN] Response ID mismatch! done={response_id[:20] if response_id else 'None'}... active={current_active_id[:20] if current_active_id else 'None'}... - NOT clearing (new response started)")
+                    # Cleanup task tracking
+                    self._drain_tasks.pop(response_id, None)
+                    return
+                
+                # 🔥 MOKEESH #2: Check both TX queues (these are the actual Twilio output queues)
                 tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                 audio_out_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                 
                 if tx_size == 0 and audio_out_size == 0:
-                    # Both queues empty - safe to clear is_ai_speaking
+                    # Both queues empty AND response_id still matches - safe to clear
                     elapsed_ms = (time.time() - start_time) * 1000
-                    print(f"✅ [AUDIO_DRAIN] Queues empty after {elapsed_ms:.0f}ms - clearing is_ai_speaking (response_id={response_id[:20] if response_id else 'None'}...)")
                     
-                    # Clear all AI speaking flags
-                    if self.is_ai_speaking_event.is_set():
-                        self.is_ai_speaking_event.clear()
-                    self.speaking = False
-                    self.ai_speaking_start_ts = None
-                    self.has_pending_ai_response = False
-                    self.active_response_id = None
-                    self.response_pending_event.clear()
+                    # 🔥 MOKEESH #3: Log detailed metrics for calibration
+                    print(f"✅ [AUDIO_DRAIN] Queues empty after {elapsed_ms:.0f}ms - clearing is_ai_speaking")
+                    print(f"   response_id={response_id[:20] if response_id else 'None'}...")
+                    print(f"   tx_q={tx_size}, audio_out_q={audio_out_size}")
+                    print(f"   drain_elapsed_ms={elapsed_ms:.0f}")
                     
-                    # Also clear ai_response_active if it exists
-                    if hasattr(self, 'ai_response_active'):
-                        self.ai_response_active = False
+                    # Final response_id check before clearing
+                    if self.active_response_id == response_id:
+                        # Clear all AI speaking flags
+                        if self.is_ai_speaking_event.is_set():
+                            self.is_ai_speaking_event.clear()
+                        self.speaking = False
+                        self.ai_speaking_start_ts = None
+                        self.has_pending_ai_response = False
+                        self.active_response_id = None
+                        self.response_pending_event.clear()
+                        
+                        # Also clear ai_response_active if it exists
+                        if hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        
+                        print(f"✅ [AUDIO_DRAIN] All flags cleared for response {response_id[:20] if response_id else 'None'}...")
+                    else:
+                        print(f"⚠️ [AUDIO_DRAIN] Response changed during clear - skipped")
                     
+                    # Cleanup task tracking
+                    self._drain_tasks.pop(response_id, None)
                     return
                 
                 # Queues not empty yet - wait and check again
@@ -11206,32 +11242,50 @@ class MediaStreamHandler:
                 await asyncio.sleep(POLL_INTERVAL_MS / 1000.0)
                 checks += 1
             
-            # Timeout reached - clear flags anyway to prevent stuck state
+            # 🔥 MOKEESH #3: Timeout reached - log detailed metrics
             tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
             audio_out_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
-            print(f"⏰ [AUDIO_DRAIN] Timeout ({DRAIN_TIMEOUT_SEC}s) - clearing is_ai_speaking even with queues: tx={tx_size}, audio_out={audio_out_size}")
+            elapsed_ms = (time.time() - start_time) * 1000
             
-            # Clear all AI speaking flags
-            if self.is_ai_speaking_event.is_set():
-                self.is_ai_speaking_event.clear()
-            self.speaking = False
-            self.ai_speaking_start_ts = None
-            self.has_pending_ai_response = False
-            self.active_response_id = None
-            self.response_pending_event.clear()
+            print(f"⏰ [AUDIO_DRAIN] TIMEOUT after {elapsed_ms:.0f}ms")
+            print(f"   response_id={response_id[:20] if response_id else 'None'}...")
+            print(f"   tx_q={tx_size}, audio_out_q={audio_out_size}")
+            print(f"   drain_elapsed_ms={elapsed_ms:.0f}")
+            print(f"   ⚠️ Clearing anyway to prevent stuck state (failsafe)")
             
-            # Also clear ai_response_active if it exists
-            if hasattr(self, 'ai_response_active'):
-                self.ai_response_active = False
+            # 🔥 MOKEESH #1: Final response_id check before timeout clear
+            if self.active_response_id == response_id:
+                # Clear flags even on timeout (failsafe)
+                if self.is_ai_speaking_event.is_set():
+                    self.is_ai_speaking_event.clear()
+                self.speaking = False
+                self.ai_speaking_start_ts = None
+                self.has_pending_ai_response = False
+                self.active_response_id = None
+                self.response_pending_event.clear()
+                
+                if hasattr(self, 'ai_response_active'):
+                    self.ai_response_active = False
+                
+                print(f"✅ [AUDIO_DRAIN] Timeout clear completed for {response_id[:20] if response_id else 'None'}...")
+            else:
+                print(f"⚠️ [AUDIO_DRAIN] Response changed during timeout - skipped clear")
+            
+            # Cleanup task tracking
+            self._drain_tasks.pop(response_id, None)
                 
         except Exception as e:
             logger.error(f"[AUDIO_DRAIN] Error in drain check: {e}")
             import traceback
             traceback.print_exc()
-            # On error, clear flags to prevent stuck state
-            if self.is_ai_speaking_event.is_set():
-                self.is_ai_speaking_event.clear()
-            self.speaking = False
+            # Cleanup task tracking
+            if hasattr(self, '_drain_tasks'):
+                self._drain_tasks.pop(response_id, None)
+            # On error, only clear if response_id still matches
+            if hasattr(self, 'active_response_id') and self.active_response_id == response_id:
+                if self.is_ai_speaking_event.is_set():
+                    self.is_ai_speaking_event.clear()
+                self.speaking = False
     
     # 🔥 BUILD 172: SILENCE MONITORING - Auto-hangup on prolonged silence
     async def _start_silence_monitor(self):
