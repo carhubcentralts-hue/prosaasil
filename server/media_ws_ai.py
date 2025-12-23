@@ -4426,6 +4426,9 @@ class MediaStreamHandler:
                     error = event.get("error", {})
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
                     
+                    # 🔥 DOUBLE RESPONSE FIX: Clear in-flight flag on error
+                    self._response_create_in_flight = False
+                    
                     # 🔥 CRITICAL: Validate session.update errors
                     # If session.update fails, the session uses default settings which causes:
                     # - PCM16 instead of G.711 μ-law → "vacuum cleaner" noise on Twilio
@@ -6203,19 +6206,47 @@ class MediaStreamHandler:
                     time_bucket = int(now_sec / 2.0)  # 2-second buckets
                     fingerprint = hashlib.sha1(f"{text}|{time_bucket}".encode()).hexdigest()[:16]
                     
-                    # Check if this is a duplicate within the dedup window (3-4 seconds)
+                    # 🔥 CRITICAL: Only drop if BOTH conditions are met:
+                    # 1. Same fingerprint (same text + close time)
+                    # 2. One of these race condition indicators:
+                    #    - response.create already in flight (duplicate trigger)
+                    #    - AI is currently speaking (shouldn't have new utterance)
+                    #    - No new speech_started event (not a real new turn)
+                    should_check_duplicate = False
+                    duplicate_reason = ""
+                    
                     if self._last_user_turn_fingerprint == fingerprint:
                         time_since_last = now_sec - self._last_user_turn_timestamp
-                        if time_since_last < 4.0:  # 4-second dedup window
-                            logger.warning(
-                                f"[UTTERANCE_DEDUP] Dropping duplicate utterance: '{text[:40]}...' "
-                                f"(same as {time_since_last:.1f}s ago)"
-                            )
-                            print(f"🚫 [UTTERANCE_DEDUP] Dropped duplicate: '{text[:30]}...' ({time_since_last:.1f}s since last)")
-                            # Clear candidate flag and continue without processing
-                            self._candidate_user_speaking = False
-                            self._utterance_start_ts = None
-                            continue
+                        if time_since_last < 4.0:  # Within 4-second window
+                            # Check for race condition indicators
+                            if self._response_create_in_flight:
+                                should_check_duplicate = True
+                                duplicate_reason = "response.create in flight"
+                            elif getattr(self, 'ai_response_active', False):
+                                should_check_duplicate = True
+                                duplicate_reason = "AI response active"
+                            elif self.is_ai_speaking_event.is_set():
+                                should_check_duplicate = True
+                                duplicate_reason = "AI is speaking"
+                            
+                            # If duplicate detected with race condition, drop it
+                            if should_check_duplicate:
+                                logger.warning(
+                                    f"[UTTERANCE_DEDUP] Dropping duplicate utterance: '{text[:40]}...' "
+                                    f"(same as {time_since_last:.1f}s ago, reason: {duplicate_reason})"
+                                )
+                                print(f"🚫 [UTTERANCE_DEDUP] Dropped duplicate: '{text[:30]}...' "
+                                      f"({time_since_last:.1f}s since last, reason: {duplicate_reason})")
+                                # Clear candidate flag and continue without processing
+                                self._candidate_user_speaking = False
+                                self._utterance_start_ts = None
+                                continue
+                            else:
+                                # Same text but no race condition - allow it (user might repeat intentionally)
+                                logger.info(
+                                    f"[UTTERANCE_DEDUP] Allowing repeated text: '{text[:40]}...' "
+                                    f"({time_since_last:.1f}s since last, no race condition detected)"
+                                )
                     
                     # Update fingerprint tracking for next utterance
                     self._last_user_turn_fingerprint = fingerprint
@@ -8365,6 +8396,14 @@ class MediaStreamHandler:
             if not DEBUG:
                 _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
             try:
+                # 🔥 DOUBLE RESPONSE FIX: Clear all flags on session close
+                self._response_create_in_flight = False
+                self._watchdog_retry_done = False
+                
+                # Clear response pending flag
+                if hasattr(self, 'response_pending_event'):
+                    self.response_pending_event.clear()
+                
                 # Clear speaking state
                 if hasattr(self, 'is_ai_speaking_event'):
                     self.is_ai_speaking_event.clear()

@@ -112,8 +112,8 @@ class TestUtteranceDeduplication:
         
         assert fp1 != fp2, "Different text should produce different fingerprint"
     
-    def test_duplicate_within_window_is_dropped(self):
-        """Verify duplicate utterance within 4-second window is dropped"""
+    def test_duplicate_within_window_is_dropped_with_race_condition(self):
+        """Verify duplicate utterance within 4-second window is dropped ONLY with race condition"""
         text = "פריצת דלת."
         now_sec = time.time()
         time_bucket = int(now_sec / 2.0)
@@ -122,14 +122,54 @@ class TestUtteranceDeduplication:
         _last_user_turn_fingerprint = fingerprint
         _last_user_turn_timestamp = now_sec
         
-        # Same utterance 2 seconds later
+        # Same utterance 2 seconds later WITH race condition
         now_sec_2 = now_sec + 2.0
         time_since_last = now_sec_2 - _last_user_turn_timestamp
         
-        # Check if it should be dropped
-        is_duplicate = (_last_user_turn_fingerprint == fingerprint) and (time_since_last < 4.0)
+        # Simulate race condition (response.create in flight)
+        _response_create_in_flight = True
         
-        assert is_duplicate, "Duplicate within 4 seconds should be detected"
+        # Check if it should be dropped
+        is_duplicate = (
+            (_last_user_turn_fingerprint == fingerprint) and 
+            (time_since_last < 4.0) and
+            _response_create_in_flight  # Race condition indicator
+        )
+        
+        assert is_duplicate, "Duplicate with race condition should be detected"
+    
+    def test_duplicate_within_window_allowed_without_race_condition(self):
+        """Verify duplicate utterance within window is ALLOWED without race condition"""
+        text = "פריצת דלת."
+        now_sec = time.time()
+        time_bucket = int(now_sec / 2.0)
+        fingerprint = hashlib.sha1(f"{text}|{time_bucket}".encode()).hexdigest()[:16]
+        
+        _last_user_turn_fingerprint = fingerprint
+        _last_user_turn_timestamp = now_sec
+        
+        # Same utterance 2 seconds later WITHOUT race condition
+        now_sec_2 = now_sec + 2.0
+        time_since_last = now_sec_2 - _last_user_turn_timestamp
+        
+        # NO race condition (response.create not in flight, AI not speaking)
+        _response_create_in_flight = False
+        ai_response_active = False
+        is_ai_speaking = False
+        
+        # Check if it should be dropped
+        has_race_condition = (
+            _response_create_in_flight or 
+            ai_response_active or 
+            is_ai_speaking
+        )
+        is_duplicate = (
+            (_last_user_turn_fingerprint == fingerprint) and 
+            (time_since_last < 4.0) and
+            has_race_condition
+        )
+        
+        assert not is_duplicate, "Duplicate without race condition should be ALLOWED (user might repeat intentionally)"
     
     def test_duplicate_after_window_is_allowed(self):
         """Verify duplicate utterance after 4-second window is allowed"""
