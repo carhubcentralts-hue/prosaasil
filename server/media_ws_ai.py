@@ -2124,11 +2124,18 @@ class MediaStreamHandler:
         - Default: NO tools (pure conversation)
         - If business has appointments enabled: ONLY appointment scheduling tool
         - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
+        - 🔥 NEW REQUIREMENT A: NEVER tools for outbound calls (outbound_prompt_only mode)
         
         Returns:
             list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
         """
         tools = []
+        
+        # 🔥 NEW REQUIREMENT A: Block ALL tools for outbound calls
+        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+        if is_outbound:
+            logger.info("[TOOLS][REALTIME] OUTBOUND call - NO tools (prompt-only mode)")
+            return tools
         
         # 🔥 SERVER-FIRST: Do NOT expose scheduling tools to Realtime.
         # Server will decide when to check/schedule and will inject verbatim sentences.
@@ -5949,6 +5956,49 @@ class MediaStreamHandler:
                         logger.debug(f"[TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     else:
                         print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                    
+                    # 🔥 NEW REQUIREMENT D: Watchdog for silent mode (MINIMAL - one retry only)
+                    # Start a 3-second timer. If no response.created by then, retry response.create ONCE
+                    utterance_id = f"{time.time()}_{text[:20]}"  # Unique ID for this utterance
+                    
+                    async def _watchdog_retry_response(watchdog_utterance_id):
+                        """
+                        Minimal watchdog: if AI doesn't respond after 3s, retry response.create ONCE.
+                        """
+                        try:
+                            await asyncio.sleep(3.0)  # Wait 3 seconds
+                            
+                            # Check if this watchdog is still relevant
+                            if self._watchdog_utterance_id != watchdog_utterance_id:
+                                return
+                            
+                            # Check if AI has responded
+                            if (not self.response_pending_event.is_set() and
+                                not self.is_ai_speaking_event.is_set() and
+                                not getattr(self, "has_pending_ai_response", False)):
+                                
+                                # AI didn't respond - retry response.create ONCE
+                                print(f"🐕 [WATCHDOG] No response after 3s - retrying response.create")
+                                logger.warning(f"[WATCHDOG] Retrying response.create after 3s timeout")
+                                
+                                # Get realtime client
+                                realtime_client = getattr(self, 'realtime_client', None)
+                                if realtime_client:
+                                    try:
+                                        # Simple retry - just send response.create
+                                        await realtime_client.send_event({"type": "response.create"})
+                                        print(f"✅ [WATCHDOG] Retry response.create sent")
+                                    except Exception as e:
+                                        print(f"❌ [WATCHDOG] Error retrying response: {e}")
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as e:
+                            print(f"❌ [WATCHDOG] Error in watchdog: {e}")
+                    
+                    # Only start watchdog if not a filler
+                    if not is_filler_only:
+                        self._watchdog_utterance_id = utterance_id
+                        asyncio.create_task(_watchdog_retry_response(utterance_id))
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -10999,6 +11049,39 @@ class MediaStreamHandler:
                             return
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
+
+                # 🔥 NEW REQUIREMENT C: 7-second silence detection with "are you with me?" nudge
+                # Check every 2 seconds (not 0.5-1s to avoid overhead)
+                # Only trigger if human_confirmed=True and real silence from both sides
+                if self.human_confirmed:
+                    now = time.time()
+                    silence_since_user = now - self.last_user_activity_ts
+                    silence_since_ai = now - self.last_ai_activity_ts
+                    
+                    # Check all conditions for 7-second silence nudge
+                    if (silence_since_user >= 7.0 and 
+                        silence_since_ai >= 7.0 and
+                        not self.is_ai_speaking_event.is_set() and
+                        not self.response_pending_event.is_set() and
+                        self.silence_nudge_count < 2):
+                        
+                        # Check if enough time passed since last nudge (25 seconds)
+                        if self.last_silence_nudge_ts == 0 or (now - self.last_silence_nudge_ts) >= 25:
+                            # Send nudge
+                            self.silence_nudge_count += 1
+                            self.last_silence_nudge_ts = now
+                            print(f"🔇 [7SEC_SILENCE] Nudge {self.silence_nudge_count}/2 - sending 'are you with me?'")
+                            
+                            # Trigger AI to ask if user is still there
+                            try:
+                                # Get the realtime client
+                                realtime_client = getattr(self, 'realtime_client', None)
+                                if realtime_client:
+                                    # Simple response.create - let AI handle based on context
+                                    await realtime_client.send_event({"type": "response.create"})
+                                    print(f"✅ [7SEC_SILENCE] Nudge triggered")
+                            except Exception as e:
+                                print(f"❌ [7SEC_SILENCE] Failed to send nudge: {e}")
 
                 if not self.user_has_spoken:
                     # User hasn't spoken yet - check for idle timeout

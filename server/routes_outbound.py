@@ -1387,21 +1387,89 @@ def stop_queue():
         if not run:
             return jsonify({"error": "הרצה לא נמצאה"}), 404
         
-        # Mark as cancelled
-        run.status = "cancelled"
+        # Mark as stopping (worker will check this before each call)
+        run.status = "stopping"
         db.session.commit()
         
-        log.info(f"✅ Stopped queue run {run_id}")
+        log.info(f"✅ Stopping queue run {run_id} (set to 'stopping' state)")
         
         return jsonify({
             "success": True,
-            "message": "התור הופסק בהצלחה"
+            "message": "התור מופסק בהדרגה (שיחות פעילות יסתיימו)"
         })
         
     except Exception as e:
         log.error(f"Error stopping queue {run_id}: {e}")
         db.session.rollback()
         return jsonify({"error": "שגיאה בעצירת התור"}), 500
+
+
+@outbound_bp.route("/api/outbound/bulk/active", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_active_bulk_run():
+    """
+    Get active bulk call run for the current business
+    
+    Returns:
+    {
+        "active": true/false,
+        "run": {
+            "run_id": 123,
+            "status": "running",
+            "queued": 450,
+            "in_progress": 3,
+            "completed": 47,
+            "failed": 0,
+            "total_leads": 500,
+            "concurrency": 3
+        }
+    }
+    or
+    {
+        "active": false
+    }
+    """
+    from flask import session
+    from server.models_sql import OutboundCallRun
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק"}), 400
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        # Find active run for this business
+        active_run = OutboundCallRun.query.filter_by(
+            business_id=tenant_id,
+            status="running"
+        ).order_by(OutboundCallRun.created_at.desc()).first()
+        
+        if not active_run:
+            return jsonify({"active": False})
+        
+        return jsonify({
+            "active": True,
+            "run": {
+                "run_id": active_run.id,
+                "status": active_run.status,
+                "queued": active_run.queued_count,
+                "in_progress": active_run.in_progress_count,
+                "completed": active_run.completed_count,
+                "failed": active_run.failed_count,
+                "total_leads": active_run.total_leads,
+                "concurrency": active_run.concurrency,
+                "created_at": active_run.created_at.isoformat() if active_run.created_at else None
+            }
+        })
+        
+    except Exception as e:
+        log.error(f"Error getting active bulk run: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "שגיאה בקבלת מידע"}), 500
 
 
 @outbound_bp.route("/api/outbound/recent-calls", methods=["GET"])
@@ -1747,8 +1815,12 @@ def process_bulk_call_run(run_id: int):
             while True:
                 # Check if queue was stopped
                 db.session.refresh(run)
-                if run.status == "cancelled":
-                    log.info(f"[BulkCall] Run {run_id} was cancelled, stopping")
+                if run.status in ("stopping", "stopped", "cancelled"):
+                    log.info(f"[BulkCall] Run {run_id} was stopped (status={run.status}), exiting")
+                    # Mark as stopped if it was in stopping state
+                    if run.status == "stopping":
+                        run.status = "stopped"
+                        db.session.commit()
                     break
                 
                 # Get current active count
