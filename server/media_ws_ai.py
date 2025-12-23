@@ -1312,9 +1312,15 @@ HUMAN_GREETING_PHRASES = {
     "מדברים", "תפוס", "עסוק"  # Common variations
 }
 
+# 🔥 OUTBOUND FIX: Dial tone and noise patterns that should NOT trigger human confirmation
+# These indicate the phone is ringing or connecting, not a real human
+DIAL_TONE_NOISE_PATTERNS = {
+    "טוט", "טוּט", "תוּת", "ביפ", "beep", "tone", "טון", "בּיפּ"
+}
+
 # 🔥 NEW REQUIREMENT B: Utterance duration for human confirmation
 # Minimum duration to ensure it's human speech, not a tone/beep
-HUMAN_CONFIRMED_MIN_DURATION_MS = 600  # 600ms minimum speech duration
+HUMAN_CONFIRMED_MIN_DURATION_MS = 400  # 400-600ms minimum speech duration (lowered from 600 per requirement)
 
 # 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
@@ -1484,10 +1490,20 @@ def is_valid_transcript(text: str) -> bool:
 
 def contains_human_greeting(text: str) -> bool:
     """
+    🎯 OUTBOUND FIX: Robust human greeting detection with dial tone filtering.
+    
     Check if text contains a human greeting phrase.
     Used for outbound human_confirmed detection.
     
-    Flexible matching: accepts variations like "כן?", "מי?", "שלום, מי זה?"
+    Filters OUT:
+    - Dial tones: "טוט", "ביפ", "beep", "tone"
+    - Single short gibberish words (< 3 chars)
+    - Empty or whitespace-only text
+    
+    Accepts:
+    - Known human greetings: "שלום", "הלו", "כן", "מי", etc.
+    - Multi-word phrases (≥ 2 words)
+    - Valid Hebrew text (≥ 3 chars)
     
     Args:
         text: Transcribed text from STT
@@ -1507,6 +1523,21 @@ def contains_human_greeting(text: str) -> bool:
     # Split into words
     words = text_normalized.split()
     
+    # 🔥 OUTBOUND FIX: Filter out dial tones and noise patterns
+    # Check if ANY word is a dial tone/noise pattern
+    for word in words:
+        for noise_pattern in DIAL_TONE_NOISE_PATTERNS:
+            if noise_pattern in word or word in noise_pattern:
+                logger.info(f"[OUTBOUND] human_confirmed=false reason=tone_detected text='{text[:50]}'")
+                return False
+    
+    # 🔥 OUTBOUND FIX: Minimum text length check (≥ 2-3 chars for Hebrew)
+    # Count actual Hebrew/Latin characters (ignore spaces and punctuation)
+    char_count = sum(1 for c in text if c.isalpha())
+    if char_count < 2:
+        logger.info(f"[OUTBOUND] human_confirmed=false reason=too_short chars={char_count} text='{text[:50]}'")
+        return False
+    
     # Check if any word matches any greeting phrase (allows "כן?" to match "כן")
     for word in words:
         for phrase in HUMAN_GREETING_PHRASES:
@@ -1514,12 +1545,22 @@ def contains_human_greeting(text: str) -> bool:
             # This handles: "כן" matches "כן", "כן?", "כנים", etc.
             # But also: "מי" matches "מי", "מי זה", etc.
             if word.startswith(phrase) or phrase in word:
+                logger.info(f"[OUTBOUND] human_confirmed=true reason=greeting_detected phrase='{phrase}' text='{text[:50]}'")
                 return True
     
     # Also check if it's 2+ words (likely human, not just tone/beep)
     if len(words) >= 2:
+        logger.info(f"[OUTBOUND] human_confirmed=true reason=multi_word words={len(words)} text='{text[:50]}'")
         return True
     
+    # 🔥 OUTBOUND FIX: Reject single short gibberish words
+    # If we get here, we have 1 word that doesn't match greetings
+    # Accept only if it's ≥ 3 chars (likely a valid word, not gibberish)
+    if len(words) == 1 and len(words[0]) >= 3:
+        logger.info(f"[OUTBOUND] human_confirmed=true reason=valid_word length={len(words[0])} text='{text[:50]}'")
+        return True
+    
+    logger.info(f"[OUTBOUND] human_confirmed=false reason=no_match text='{text[:50]}'")
     return False
 
 
@@ -2234,6 +2275,7 @@ class MediaStreamHandler:
         # B) Human confirmation - wait for real human speech before greeting
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
         self.greeting_pending = False  # 🔥 FIX: Flag to defer greeting if active response exists
+        self.outbound_first_response_sent = False  # 🔥 OUTBOUND FIX: Lock to prevent multiple greeting triggers
         
         # C) 7-second silence detection
         self.last_user_activity_ts = time.time()  # Track last user audio/speech activity
@@ -6119,6 +6161,13 @@ class MediaStreamHandler:
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
+                    # 🔥 OUTBOUND FIX: Guard against STT after session close
+                    # If session is closing or already closed, ignore all STT events
+                    if getattr(self, 'closing', False) or getattr(self, 'session_closed', False) or self.call_state == CallState.CLOSING:
+                        logger.info(f"[STT_GUARD] Ignoring STT after session close: closing={getattr(self, 'closing', False)}, "
+                                   f"session_closed={getattr(self, 'session_closed', False)}, state={self.call_state}, text='{raw_text[:50]}'")
+                        continue
+                    
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript (DEBUG only)
                     logger.debug(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
@@ -6268,12 +6317,12 @@ class MediaStreamHandler:
                     # 🔥 NEW REQUIREMENT B: Set human_confirmed for outbound calls
                     # TWO conditions must BOTH be met:
                     # 1. STT_FINAL contains human greeting phrase ("שלום/הלו/כן" etc.)
-                    # 2. Audio duration >= 600ms (ensures it's human speech, not tone/beep)
+                    # 2. Audio duration >= 400ms (ensures it's human speech, not tone/beep)
                     if not self.human_confirmed and text:
                         # Check condition 1: Contains human greeting
                         has_human_greeting = contains_human_greeting(text)
                         
-                        # Check condition 2: Minimum speech duration (600ms)
+                        # Check condition 2: Minimum speech duration (400ms)
                         has_min_duration = utterance_duration_ms >= HUMAN_CONFIRMED_MIN_DURATION_MS
                         
                         # Both conditions must be true
@@ -6285,7 +6334,7 @@ class MediaStreamHandler:
                             
                             # 🔥 OUTBOUND: If this is an outbound call and greeting hasn't been sent, trigger it now
                             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                            if is_outbound and not self.greeting_sent:
+                            if is_outbound and not self.greeting_sent and not self.outbound_first_response_sent:
                                 # Trigger the greeting now that we know a human is on the line
                                 print(f"🎤 [OUTBOUND] Human confirmed - triggering GREETING now")
                         elif not self.human_confirmed:
@@ -6293,7 +6342,10 @@ class MediaStreamHandler:
                             print(f"⏳ [HUMAN_CONFIRMED] Not yet: text='{text[:30]}...', greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms/{HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
                         
                         # Continue with greeting trigger if conditions met
-                        if self.human_confirmed and is_outbound and not self.greeting_sent:
+                        if self.human_confirmed and is_outbound and not self.greeting_sent and not self.outbound_first_response_sent:
+                            
+                            # 🔥 OUTBOUND FIX: Set lock immediately to prevent duplicate triggers
+                            self.outbound_first_response_sent = True
                             
                             # 🔥 FIX: Check if there's already an active response before triggering greeting
                             # If yes, mark greeting_pending=True and trigger after response.done
@@ -6316,30 +6368,34 @@ class MediaStreamHandler:
                                 self._greeting_start_ts = greeting_start_ts
                                 logger.info("[GREETING_LOCK] activated (post human_confirmed)")
                                 
-                                # Trigger the greeting response
+                                # 🔥 OUTBOUND FIX: Trigger the greeting response IMMEDIATELY
                                 # Note: We're in the OpenAI event loop, so we can await
                                 # Get the realtime client from the handler
                                 realtime_client = getattr(self, 'realtime_client', None)
                                 if realtime_client:
-                                    # Create task to trigger greeting (don't block STT processing)
-                                    async def _trigger_delayed_greeting():
+                                    # 🔥 OUTBOUND FIX: Trigger immediately without delay - human is waiting!
+                                    async def _trigger_outbound_greeting():
                                         try:
-                                            await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
-                                            triggered = await self.trigger_response("GREETING_DELAYED", realtime_client, is_greeting=True, force=True)
+                                            # No sleep - trigger immediately after human confirmation
+                                            triggered = await self.trigger_response("OUTBOUND_HUMAN_CONFIRMED", realtime_client, is_greeting=True, force=True)
                                             if triggered:
-                                                print(f"✅ [OUTBOUND] Greeting triggered after human confirmation")
+                                                print(f"✅ [OUTBOUND] Greeting triggered immediately after human confirmation")
+                                                logger.info(f"[OUTBOUND] response.create triggered text='{text[:50]}'")
                                             else:
                                                 print(f"❌ [OUTBOUND] Failed to trigger greeting after human confirmation")
+                                                logger.error(f"[OUTBOUND] response.create FAILED after human_confirmed")
                                                 self.greeting_sent = False
                                                 self.is_playing_greeting = False
+                                                self.outbound_first_response_sent = False  # Allow retry
                                         except Exception as e:
                                             print(f"❌ [OUTBOUND] Error triggering greeting: {e}")
-                                            import traceback
-                                            traceback.print_exc()
+                                            logger.exception(f"[OUTBOUND] Error triggering greeting")
+                                            self.outbound_first_response_sent = False  # Allow retry
                                     
-                                    asyncio.create_task(_trigger_delayed_greeting())
+                                    asyncio.create_task(_trigger_outbound_greeting())
                                 else:
                                     print(f"⚠️ [OUTBOUND] No realtime_client available for greeting trigger")
+                                    self.outbound_first_response_sent = False  # Allow retry
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call
@@ -12448,11 +12504,32 @@ class MediaStreamHandler:
                     self.pending_hangup_reason = reason
                     self.pending_hangup_source = source
                     self.pending_hangup_response_id = bound_response_id
+                    # 🔥 OUTBOUND FIX: Set closing flag to prevent new response.create
+                    self.closing = True
             else:
                 self.pending_hangup = True
                 self.pending_hangup_reason = reason
                 self.pending_hangup_source = source
                 self.pending_hangup_response_id = bound_response_id
+                # 🔥 OUTBOUND FIX: Set closing flag to prevent new response.create
+                self.closing = True
+            
+            # 🔥 OUTBOUND FIX: Cancel watchdog and turn_end tasks to prevent response.create after hangup
+            try:
+                watchdog_task = getattr(self, '_watchdog_task', None)
+                if watchdog_task and not watchdog_task.done():
+                    watchdog_task.cancel()
+                    logger.debug("[HANGUP_REQUEST] Cancelled watchdog task")
+            except Exception as e:
+                logger.debug(f"[HANGUP_REQUEST] Error cancelling watchdog: {e}")
+            
+            try:
+                turn_end_task = getattr(self, '_turn_end_task', None)
+                if turn_end_task and not turn_end_task.done():
+                    turn_end_task.cancel()
+                    logger.debug("[HANGUP_REQUEST] Cancelled turn_end task")
+            except Exception as e:
+                logger.debug(f"[HANGUP_REQUEST] Error cancelling turn_end: {e}")
 
             # Fallback: if we never get response.audio.done for this response_id (mismatch/cancel/missed event),
             # don't get stuck pending forever. Fire after >=6s (and do not cut bot audio if still playing).
