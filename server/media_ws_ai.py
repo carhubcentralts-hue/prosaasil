@@ -4897,7 +4897,6 @@ class MediaStreamHandler:
                             print(f"📞 [HANGUP FLOW] Now executing hangup because AI audio finished (response.audio.done)")
                             
                             # STRICT: Only hang up after audio.done for the SAME response_id we bound.
-                            # STRICT: Only hang up after audio.done for the SAME response_id we bound.
                             # If we don't have a bound id (should be rare), allow first audio.done to release.
                             if pending_id and done_resp_id and pending_id != done_resp_id:
                                 print(
@@ -11416,17 +11415,19 @@ class MediaStreamHandler:
         # This prevents technical events (audio.done, queue_empty) from causing premature disconnects
         ALLOWED_HANGUP_REASONS = {
             "hard_silence_timeout",       # True 20-second silence (no RX + no TX)
-            "explicit_user_end",          # User said goodbye/bye/etc
-            "user_goodbye",               # User closing phrases
-            "bot_goodbye",                # Bot closing phrases
+            "user_goodbye",               # User said goodbye/bye/etc (closing phrases)
+            "bot_goodbye",                # Bot said goodbye/bye/etc (closing phrases)
             "silence_timeout",            # Regular silence warnings exceeded
             "idle_timeout_no_user_speech", # User never spoke after 30s
             "voicemail_detected",         # AMD detection
             "flow_completed",             # Bot completed script and user confirmed
         }
         
+        # Invalid reasons that should be blocked (technical events, not real hangup reasons)
+        BLOCKED_HANGUP_REASONS = ["queue_empty", "audio_done", "response.done", "response.audio.done"]
+        
         # Block invalid/empty reasons
-        if not reason or reason in ["queue_empty", "audio_done", "response.done", "response.audio.done"]:
+        if not reason or reason in BLOCKED_HANGUP_REASONS:
             force_print(
                 f"[HANGUP_DECISION] allowed=False reason={reason or 'EMPTY'} source={source} "
                 f"- BLOCKED (invalid reason)"
