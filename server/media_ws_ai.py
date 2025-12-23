@@ -1831,6 +1831,8 @@ class MediaStreamHandler:
         # Bot always speaks first - NO barge-in during first sentence only
         self.first_utterance_protected = True  # Protection ON until first response completes
         self.first_response_id = None  # Track first response ID to turn off protection
+        self._first_utterance_start_ts = None  # Track when first response starts
+        self._first_utterance_timeout_sec = 5.0  # Safety timeout: clear protection after 5s
         
         # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
         # This is THE key to making barge-in actually listen (not just stop talking)
@@ -1893,6 +1895,10 @@ class MediaStreamHandler:
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
         self.barge_in_active = False
         self._barge_in_started_ts = None  # When barge-in started (for timeout)
+        
+        # 🔥 BARGE-IN FIX: Audio generation guard to drop stale frames
+        # When response is cancelled, increment generation counter and drop old frames
+        self.audio_generation = 0  # Current audio generation (incremented on cancel)
         
         # 🔥 GREETING PROTECT: Transcription confirmation flag for intelligent greeting protection
         self._greeting_needs_transcription_confirm = False  # Wait for transcription to confirm interruption
@@ -4291,6 +4297,38 @@ class MediaStreamHandler:
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
                     # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 BARGE-IN FIX: LOG AT START - BEFORE ANY CONDITIONS
+                    # This ensures we can always see when speech_started is received
+                    # ═══════════════════════════════════════════════════════════════════════
+                    is_ai_active = bool(self.active_response_id) or getattr(self, 'ai_response_active', False)
+                    is_ai_speaking = self.is_ai_speaking_event.is_set()
+                    is_protected = getattr(self, "first_utterance_protected", False)
+                    greeting_lock = getattr(self, "greeting_lock_active", False)
+                    
+                    # 🔥 SAFETY: Check first utterance protection timeout
+                    # If protection is still on but timeout expired, clear it
+                    if is_protected and self._first_utterance_start_ts:
+                        elapsed = time.time() - self._first_utterance_start_ts
+                        if elapsed > self._first_utterance_timeout_sec:
+                            self.first_utterance_protected = False
+                            is_protected = False
+                            _orig_print(
+                                f"⏱️ [FIRST_UTTERANCE] Protection timeout ({elapsed:.1f}s > {self._first_utterance_timeout_sec}s) - clearing protection",
+                                flush=True
+                            )
+                    
+                    # 🔥 MANDATORY LOG: Always print, even in DEBUG mode
+                    _orig_print(
+                        f"[VAD] speech_started received: "
+                        f"ai_active={is_ai_active}, "
+                        f"ai_speaking={is_ai_speaking}, "
+                        f"active_resp={'Yes:'+self.active_response_id[:12] if self.active_response_id else 'None'}, "
+                        f"protected={is_protected}, "
+                        f"greeting_lock={greeting_lock}",
+                        flush=True
+                    )
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 NEW REQUIREMENT: First Utterance Protection (SIMPLEST APPROACH)
                     # ═══════════════════════════════════════════════════════════════════════
                     # Bot always speaks first - NO barge-in during first sentence ONLY
@@ -4370,18 +4408,25 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - SIMPLEST APPROACH (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - EXPANDED FIX (checks active_response_id)
                     # ═══════════════════════════════════════════════════════════════════════
                     # NEW REQUIREMENT: Bot always speaks first (first sentence only)
                     # 
-                    # Simple Rule:
-                    # - First sentence: NO barge-in (first_utterance_protected = True)
-                    # - After first sentence completes: barge-in ALWAYS works
-                    # - ONE flag controls everything: first_utterance_protected
+                    # CRITICAL FIX: Check for active_response_id OR ai_response_active
+                    # Problem: is_ai_speaking becomes True AFTER first audio.delta arrives
+                    # If user speaks BEFORE that, barge-in won't trigger!
+                    # 
+                    # Solution: Check if there's an ACTIVE response (active_response_id exists)
+                    # This covers the time window between response.created and first audio.delta
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ SIMPLEST CONDITIONS: Just one flag!
-                    has_active_response = bool(self.active_response_id)
+                    # ✅ EXPANDED CONDITIONS: Check active_response_id OR ai_response_active
+                    # This catches interruptions BEFORE first audio.delta arrives
+                    has_active_response = bool(
+                        self.active_response_id  # Response exists (even if audio not started yet)
+                        or getattr(self, 'ai_response_active', False)  # Alternative flag
+                    )
+                    
                     # 🔥 NEW: Single condition - only check first_utterance_protected
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
@@ -4392,6 +4437,10 @@ class MediaStreamHandler:
                     # 🔥 GOLDEN RULE: If active_response_id exists AND protection is OFF, cancel it NOW
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
+                        _orig_print(
+                            f"[BARGE_IN] Cancelling response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
+                            flush=True
+                        )
                         
                         # Step 1: Cancel active response (with duplicate guard)
                         if self._should_send_cancel(self.active_response_id):
@@ -4420,28 +4469,34 @@ class MediaStreamHandler:
                                     "streamSid": self.stream_sid
                                 }
                                 self._ws_send(json.dumps(clear_event))
-                                logger.debug("[BARGE-IN] Sent Twilio clear event")
+                                _orig_print("[BARGE-IN] twilio_clear sent", flush=True)
                             except Exception as e:
-                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
+                                _orig_print(f"[BARGE-IN] Error sending clear event: {e}", flush=True)
                         
                         # Step 3: Flush TX queue (clear all pending audio frames)
                         # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
-                        self._flush_tx_queue()
+                        flushed_count = self._flush_tx_queue()
+                        _orig_print(f"[AUDIO] tx_queue cleared frames={flushed_count}", flush=True)
                         
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
+                        # Step 4: Bump audio generation to drop stale frames
+                        # 🔥 CRITICAL: Increment generation counter so old frames are dropped
+                        self.audio_generation += 1
+                        _orig_print(f"[BARGE_IN] audio_generation bumped to {self.audio_generation}", flush=True)
+                        
+                        # Step 5: Reset state (ONLY after successful cancel + cleanup)
                         self.is_ai_speaking_event.clear()
                         self.active_response_id = None
                         if hasattr(self, 'ai_response_active'):
                             self.ai_response_active = False
                         
-                        # Step 5: Set barge-in flag with timestamp
+                        # Step 6: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush+generation bump complete")
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
-                            f"⚠️ [BARGE-IN] Response exists but barge-in blocked (greeting_lock={is_greeting_now}, enabled={barge_in_allowed_now})",
+                            f"⚠️ [BARGE-IN] Response exists but barge-in blocked (greeting_lock={greeting_lock}, enabled={barge_in_allowed_now})",
                             flush=True,
                         )
                     
@@ -4568,6 +4623,8 @@ class MediaStreamHandler:
                         # Bot always speaks first - NO barge-in during first sentence only
                         if self.first_response_id is None:
                             self.first_response_id = response_id
+                            self._first_utterance_start_ts = time.time()
+                            _orig_print(f"🔒 [FIRST_UTTERANCE] Protection active for response {response_id[:20]}... (timeout={self._first_utterance_timeout_sec}s)", flush=True)
                             # Note: first_utterance_protected already initialized to True in __init__
                             _orig_print(f"🔒 [FIRST_UTTERANCE] Marked first response: id={response_id[:20]}... (protection=ON)", flush=True)
                             print(f"🔒 [FIRST_UTTERANCE] NO barge-in allowed until this response completes")
@@ -7621,6 +7678,11 @@ class MediaStreamHandler:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - exiting loop (frames_enqueued={self.realtime_tx_frames})", flush=True)
                     break
                 
+                # 🔥 GENERATION GUARD: Store generation with frame to detect stale audio
+                # When response is cancelled, audio_generation is bumped
+                # Old frames (with old generation) are dropped in TX loop
+                current_generation = getattr(self, 'audio_generation', 0)
+                
                 # 🎯 PROBE 4: Count frames dequeued from realtime_audio_out_queue
                 _enqueue_rate_counter += 1
                 
@@ -7656,7 +7718,8 @@ class MediaStreamHandler:
                     twilio_frame = {
                         "event": "media",
                         "streamSid": self.stream_sid,
-                        "media": {"payload": frame_b64}
+                        "media": {"payload": frame_b64},
+                        "generation": current_generation  # 🔥 Tag frame with generation for guard
                     }
                     
                     # ═══════════════════════════════════════════════════════════════════════
@@ -9694,6 +9757,7 @@ class MediaStreamHandler:
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         🔥 VERIFICATION #3: Block enqueue when session is closed
+        🔥 BARGE-IN FIX: Tag frames with generation for stale frame detection
         """
         # 🔥 VERIFICATION #3: No enqueue after close
         if self.closed:
@@ -9714,6 +9778,12 @@ class MediaStreamHandler:
                 pass  # Allow clear/mark commands through
             else:
                 return  # Silently drop AI audio during barge-in
+        
+        # 🔥 GENERATION GUARD: Tag media frames with current generation if not already tagged
+        # This ensures legacy TTS paths (Google TTS, beeps) also have generation tracking
+        if isinstance(item, dict) and item.get("type") == "media" and "generation" not in item:
+            item["generation"] = getattr(self, 'audio_generation', 0)
+        
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
@@ -13847,6 +13917,9 @@ class MediaStreamHandler:
         Flushes:
         1. realtime_audio_out_queue - Audio from OpenAI not yet in TX queue
         2. tx_q - Audio waiting to be sent to Twilio
+        
+        Returns:
+            int: Total number of frames flushed
         """
         realtime_flushed = 0
         tx_flushed = 0
@@ -13875,8 +13948,11 @@ class MediaStreamHandler:
                 _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {total_flushed} frames total (realtime_queue={realtime_flushed}, tx_queue={tx_flushed})", flush=True)
             else:
                 _orig_print(f"🧹 [BARGE-IN FLUSH] Both queues already empty", flush=True)
+            
+            return total_flushed
         except Exception as e:
             _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queues: {e}", flush=True)
+            return 0
     
     def _tx_loop(self):
         """
@@ -13916,6 +13992,17 @@ class MediaStreamHandler:
                 
                 # Handle "media" event - send audio to Twilio (NO LOGS)
                 if item.get("type") == "media" or item.get("event") == "media":
+                    # 🔥 GENERATION GUARD: Drop stale frames from old responses
+                    # When response is cancelled, audio_generation is bumped
+                    # Frames with old generation are dropped to prevent AI continuing to speak
+                    frame_generation = item.get("generation", 0)
+                    current_generation = getattr(self, 'audio_generation', 0)
+                    
+                    if frame_generation < current_generation:
+                        # Stale frame from cancelled response - drop it silently
+                        # NO LOG INSIDE LOOP - just continue to next frame
+                        continue
+                    
                     # Send frame to Twilio WS (item already has correct format from enqueue)
                     if item.get("event") == "media" and "media" in item:
                         success = self._ws_send(json.dumps(item))
