@@ -3542,7 +3542,16 @@ class MediaStreamHandler:
                 # Uses per-call processor instance to avoid state leaking between calls
                 # Toggle: Set ENABLE_MIN_DSP=0 to disable
                 if self.dsp_processor is not None:
-                    audio_chunk = self.dsp_processor.process(audio_chunk)
+                    # 🔧 FIX: DSP works with bytes, but audio_chunk is Base64 string
+                    # Decode → Process → Encode
+                    import base64
+                    try:
+                        mulaw_bytes = base64.b64decode(audio_chunk)
+                        processed_bytes = self.dsp_processor.process(mulaw_bytes)
+                        audio_chunk = base64.b64encode(processed_bytes).decode("ascii")
+                    except Exception as e:
+                        logger.error(f"[DSP] Failed to process audio: {e}")
+                        # Keep original audio_chunk on failure
                 
                 # 🔥 HOTFIX: Handle ConnectionClosed gracefully (normal WebSocket close)
                 try:
