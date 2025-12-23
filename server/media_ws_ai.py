@@ -9741,6 +9741,7 @@ class MediaStreamHandler:
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         🔥 VERIFICATION #3: Block enqueue when session is closed
+        🔥 BARGE-IN FIX: Tag frames with generation for stale frame detection
         """
         # 🔥 VERIFICATION #3: No enqueue after close
         if self.closed:
@@ -9761,6 +9762,12 @@ class MediaStreamHandler:
                 pass  # Allow clear/mark commands through
             else:
                 return  # Silently drop AI audio during barge-in
+        
+        # 🔥 GENERATION GUARD: Tag media frames with current generation if not already tagged
+        # This ensures legacy TTS paths (Google TTS, beeps) also have generation tracking
+        if isinstance(item, dict) and item.get("type") == "media" and "generation" not in item:
+            item["generation"] = getattr(self, 'audio_generation', 0)
+        
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
