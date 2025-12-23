@@ -4165,6 +4165,39 @@ class MediaStreamHandler:
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
                             _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
+                            
+                            # 🔥 FIX: Check if greeting was pending and trigger it now
+                            if getattr(self, 'greeting_pending', False) and not getattr(self, 'greeting_sent', False):
+                                self.greeting_pending = False
+                                is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                                if is_outbound:
+                                    print(f"✅ [GREETING_PENDING] Active response done - triggering deferred greeting now")
+                                    logger.info("[GREETING_PENDING] Triggering deferred greeting after response.done")
+                                    # Trigger greeting asynchronously
+                                    async def _trigger_deferred_greeting():
+                                        try:
+                                            greeting_start_ts = time.time()
+                                            self.greeting_sent = True
+                                            self.is_playing_greeting = True
+                                            self.greeting_mode_active = True
+                                            self.greeting_lock_active = True
+                                            self._greeting_lock_response_id = None
+                                            self._greeting_start_ts = greeting_start_ts
+                                            logger.info("[GREETING_LOCK] activated (deferred after response.done)")
+                                            
+                                            triggered = await self.trigger_response("GREETING_DEFERRED", client, is_greeting=True, force=True)
+                                            if triggered:
+                                                print(f"✅ [GREETING_PENDING] Deferred greeting triggered successfully")
+                                            else:
+                                                print(f"❌ [GREETING_PENDING] Failed to trigger deferred greeting")
+                                                self.greeting_sent = False
+                                                self.is_playing_greeting = False
+                                        except Exception as e:
+                                            print(f"❌ [GREETING_PENDING] Error triggering deferred greeting: {e}")
+                                            import traceback
+                                            traceback.print_exc()
+                                    
+                                    asyncio.create_task(_trigger_deferred_greeting())
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)

@@ -2320,34 +2320,84 @@ def export_leads():
         # Fetch all leads (no pagination for export)
         leads = query.all()
         
+        # 🔥 FIX: Load status labels from LeadStatus table (Hebrew labels)
+        # Build a mapping of status name -> Hebrew label for this business
+        from server.models_sql import LeadStatus, OutboundLeadList
+        
+        status_labels = {}
+        if tenant_id:
+            # Get all statuses for this business
+            business_statuses = LeadStatus.query.filter_by(
+                business_id=tenant_id,
+                is_active=True
+            ).all()
+            for s in business_statuses:
+                status_labels[s.name.lower()] = s.label
+        
+        # Fallback labels for standard statuses (if not in DB)
+        fallback_labels = {
+            'new': 'חדש',
+            'attempting': 'מנסה ליצור קשר',
+            'contacted': 'יצרנו קשר',
+            'qualified': 'מתאים',
+            'won': 'נצחנו',
+            'lost': 'איבדנו',
+            'unqualified': 'לא מתאים',
+        }
+        
+        # 🔥 FIX: Load outbound list names (not just IDs)
+        list_names = {}
+        if tenant_id:
+            lists = OutboundLeadList.query.filter_by(tenant_id=tenant_id).all()
+            for lst in lists:
+                list_names[lst.id] = lst.name
+        
         # Create CSV in memory
         output = io.StringIO()
         
         # Use UTF-8 with BOM for Excel Hebrew compatibility
         writer = csv.writer(output)
         
-        # Write header
+        # 🔥 FIX: Write Hebrew headers matching UI
         writer.writerow([
-            'id',
-            'full_name',
-            'first_name',
-            'last_name',
-            'phone',
-            'email',
-            'status',
-            'source',
-            'owner_user_id',
-            'outbound_list_id',
-            'last_call_direction',
-            'summary',
-            'tags',
-            'created_at',
-            'updated_at',
-            'last_contact_at'
+            'מזהה',  # id
+            'שם מלא',  # full_name
+            'שם פרטי',  # first_name
+            'שם משפחה',  # last_name
+            'טלפון',  # phone
+            'אימייל',  # email
+            'סטטוס',  # status (Hebrew label)
+            'מקור',  # source
+            'אחראי',  # owner_user_id
+            'רשימת ייבוא',  # outbound_list_name (not ID)
+            'כיוון שיחה',  # last_call_direction
+            'סיכום',  # summary
+            'תגיות',  # tags
+            'תאריך יצירה',  # created_at
+            'תאריך עדכון',  # updated_at
+            'מועד שיחה אחרונה'  # last_contact_at
         ])
         
         # Write lead rows
         for lead in leads:
+            # 🔥 FIX: Get Hebrew status label
+            status_internal = (lead.status or '').lower()
+            status_display = status_labels.get(status_internal) or fallback_labels.get(status_internal) or lead.status or ''
+            
+            # 🔥 FIX: Get outbound list name (not just ID)
+            list_name = ''
+            if lead.outbound_list_id:
+                list_name = list_names.get(lead.outbound_list_id, f'רשימה {lead.outbound_list_id}')
+            
+            # 🔥 FIX: Format dates in Hebrew-friendly format (DD/MM/YYYY HH:MM)
+            def format_date(dt):
+                if not dt:
+                    return ''
+                try:
+                    return dt.strftime('%d/%m/%Y %H:%M')
+                except:
+                    return dt.isoformat() if dt else ''
+            
             writer.writerow([
                 lead.id,
                 lead.full_name or '',
@@ -2355,16 +2405,16 @@ def export_leads():
                 lead.last_name or '',
                 lead.phone_e164 or '',
                 lead.email or '',
-                lead.status or '',
+                status_display,  # 🔥 FIX: Hebrew label instead of internal enum
                 normalize_source(lead.source),
                 lead.owner_user_id or '',
-                lead.outbound_list_id or '',
+                list_name,  # 🔥 FIX: List name instead of ID
                 lead.last_call_direction or '',
                 lead.summary or '',
                 ','.join(lead.tags or []),
-                lead.created_at.isoformat() if lead.created_at else '',
-                lead.updated_at.isoformat() if lead.updated_at else '',
-                lead.last_contact_at.isoformat() if lead.last_contact_at else ''
+                format_date(lead.created_at),
+                format_date(lead.updated_at),
+                format_date(lead.last_contact_at)
             ])
         
         # Get CSV content with UTF-8 BOM
