@@ -1912,6 +1912,11 @@ class MediaStreamHandler:
         # ✅ P0 FIX: Track which response IDs we've sent cancel for (prevent duplicate cancel)
         self._cancel_sent_for_response_ids = set()  # Response IDs we've already sent cancel event for
         
+        # 🔥 BARGE-IN FIX: HARD_MUTE_AI_OUTPUT - Prevent audio from cancelled response
+        # When barge-in occurs, mute AI output for 300-600ms to prevent residual audio
+        self._hard_mute_until_ts = None  # Timestamp until which AI audio should be muted
+        self._hard_mute_duration_ms = 400  # Duration to mute (300-600ms range, using 400ms middle ground)
+        
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
         self._post_greeting_window_active = False
@@ -4572,20 +4577,22 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - IMPROVED WITH PROPER STATE CHECKS
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
+                    # REQUIREMENT: speech_started => cancel ONLY if truly active
                     # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
+                    # Improved Rule: Cancel if active_response_id exists AND ai_response_active=True
+                    # - Check both active_response_id and ai_response_active state
+                    # - Cancel immediately and flush BOTH audio queues
+                    # - Set HARD_MUTE window to prevent residual audio from cancelled response
                     # 
                     # Exception: Still protect greeting_lock (hard lock during greeting)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ NEW: Cancel on speech_started if ANY active_response_id exists
+                    # ✅ IMPROVED: Cancel only if active_response_id exists AND ai_response_active=True
                     has_active_response = bool(self.active_response_id)
+                    ai_response_active = bool(getattr(self, "ai_response_active", False))
+                    is_ai_speaking = self.is_ai_speaking_event.is_set()
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
@@ -4594,9 +4601,13 @@ class MediaStreamHandler:
                         and not is_greeting_now
                     )
                     
-                    # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
-                    # Don't check ai_response_active or is_ai_speaking - just cancel!
-                    if has_active_response and self.realtime_client and barge_in_allowed_now:
+                    # 🔥 IMPROVED RULE: Cancel only if BOTH conditions met
+                    # This prevents cancelling responses that have already completed/cancelled
+                    should_cancel = (has_active_response and 
+                                   (ai_response_active or is_ai_speaking) and 
+                                   barge_in_allowed_now)
+                    
+                    if should_cancel and self.realtime_client:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
                         # Step 1: Cancel active response (with duplicate guard)
@@ -4605,13 +4616,13 @@ class MediaStreamHandler:
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
+                                logger.info(f"[BARGE-IN] ✅ Cancelled response {self.active_response_id} on speech_started (active={ai_response_active}, speaking={is_ai_speaking})")
                             except Exception as e:
                                 error_str = str(e).lower()
-                                # Gracefully handle not_active errors
+                                # Gracefully handle not_active errors - these are expected and normal
                                 if ('not_active' in error_str or 'no active' in error_str or 
                                     'already_cancelled' in error_str or 'already_completed' in error_str):
-                                    logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
+                                    logger.info("[BARGE-IN] response_cancel_not_active (response already ended - this is normal)")
                                 else:
                                     logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
                         else:
@@ -4630,20 +4641,28 @@ class MediaStreamHandler:
                             except Exception as e:
                                 logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
                         
-                        # Step 3: Flush TX queue (clear all pending audio frames)
+                        # Step 3: Flush BOTH audio queues (OpenAI→TX and TX→Twilio)
                         # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
+                        # This is essential to prevent buffered audio from playing
                         self._flush_tx_queue()
                         
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
+                        # Step 4: Activate HARD_MUTE window (300-600ms)
+                        # 🔥 NEW FIX: Prevent any audio from the cancelled response for a short window
+                        # This stops residual audio chunks that may arrive after cancel
+                        now = time.time()
+                        self._hard_mute_until_ts = now + (self._hard_mute_duration_ms / 1000.0)
+                        logger.info(f"[BARGE-IN] 🔇 HARD_MUTE activated for {self._hard_mute_duration_ms}ms (until {self._hard_mute_until_ts:.3f})")
+                        
+                        # Step 5: Reset state (ONLY after successful cancel + cleanup)
                         self.is_ai_speaking_event.clear()
                         self.active_response_id = None
                         if hasattr(self, 'ai_response_active'):
                             self.ai_response_active = False
                         
-                        # Step 5: Set barge-in flag with timestamp
+                        # Step 6: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush+mute complete")
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
@@ -4869,6 +4888,18 @@ class MediaStreamHandler:
                             self.is_playing_greeting = True
                             # 🔥 VERIFICATION #3: Block enqueue if closed
                             if not self.closed:
+                                # 🔥 BARGE-IN FIX: Check HARD_MUTE window (even for greeting, for consistency)
+                                # If we're in the mute window, drop all AI audio
+                                now_check = time.time()
+                                if self._hard_mute_until_ts and now_check < self._hard_mute_until_ts:
+                                    # Drop this audio frame - we're in HARD_MUTE period
+                                    if DEBUG:
+                                        logger.debug(f"[HARD_MUTE] Dropping greeting audio frame (mute until {self._hard_mute_until_ts:.3f})")
+                                    continue
+                                elif self._hard_mute_until_ts and now_check >= self._hard_mute_until_ts:
+                                    # Mute period expired - clear the flag
+                                    self._hard_mute_until_ts = None
+                                
                                 try:
                                     self.realtime_audio_out_queue.put_nowait(audio_b64)
                                     # 🎯 PROBE 4: Track enqueue for rate monitoring
@@ -5008,6 +5039,20 @@ class MediaStreamHandler:
                         
                         # 🔥 VERIFICATION #3: Block audio enqueue if closed
                         if not self.closed:
+                            # 🔥 BARGE-IN FIX: Check HARD_MUTE window
+                            # If we're in the mute window, drop all AI audio to prevent residual playback
+                            now = time.time()
+                            if self._hard_mute_until_ts and now < self._hard_mute_until_ts:
+                                # Drop this audio frame - we're in HARD_MUTE period
+                                if DEBUG:
+                                    logger.debug(f"[HARD_MUTE] Dropping AI audio frame (mute until {self._hard_mute_until_ts:.3f}, now={now:.3f})")
+                                continue
+                            elif self._hard_mute_until_ts and now >= self._hard_mute_until_ts:
+                                # Mute period expired - clear the flag
+                                if DEBUG:
+                                    logger.debug(f"[HARD_MUTE] Mute period expired, resuming audio")
+                                self._hard_mute_until_ts = None
+                            
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
