@@ -1180,7 +1180,9 @@ def _cleanup_stale_sessions():
         ]
     
     for call_sid in stale_call_sids:
-        if DEBUG: print(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
+        # 🔥 PRODUCTION: Only log in development mode
+        if not DEBUG:
+            logger.debug(f"[REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
         _close_session(call_sid)
 
 # Start session reaper thread
@@ -1192,11 +1194,11 @@ def _start_session_reaper():
             try:
                 _cleanup_stale_sessions()
             except Exception as e:
-                print(f"⚠️ [REAPER] Error during cleanup: {e}")
+                logger.error(f"[REAPER] Error during cleanup: {e}")
     
     reaper_thread = threading.Thread(target=reaper_loop, daemon=True, name="SessionReaper")
     reaper_thread.start()
-    print("🧹 [REAPER] Session cleanup thread started")
+    logger.info(f"[BOOT] Session cleanup thread started")
 
 # Start reaper on module load (only if streaming enabled)
 if USE_STREAMING_STT:
@@ -1732,22 +1734,20 @@ class MediaStreamHandler:
                 # ⚠️ Warn if send takes >5ms (indicates blocking/backpressure)
                 if send_duration_ms > 5.0:
                     self._slow_send_count += 1
-                    now = time.time()
-                    # Log warning every 5 seconds (throttled to avoid spam)
-                    if now - self._last_slow_send_warning > 5.0:
-                        _orig_print(f"⚠️ [TX_SLOW] WebSocket send took {send_duration_ms:.1f}ms (>5ms threshold) - potential backpressure (count={self._slow_send_count})", flush=True)
-                        self._last_slow_send_warning = now
+                    # 🔥 Use rate limiter instead of manual throttling
+                    if rl.every(f"tx_slow_{self.call_sid}", 5.0):
+                        logger.warning(f"[TX_SLOW] WebSocket send took {send_duration_ms:.1f}ms (>5ms threshold) - potential backpressure (count={self._slow_send_count})")
                 
                 self.failed_send_count = 0  # Reset on success
                 return True
             except Exception as e:
                 self.failed_send_count += 1
                 if self.failed_send_count <= 3:  # Only log first 3 errors
-                    print(f"❌ WebSocket send error #{self.failed_send_count}: {e}")
+                    logger.error(f"[WEBSOCKET] Send error #{self.failed_send_count}: {e}")
                 
                 if self.failed_send_count >= 10:  # Increased threshold - After 10 failures, mark as dead
                     self.ws_connection_failed = True
-                    print(f"🚨 WebSocket connection marked as FAILED after {self.failed_send_count} attempts")
+                    logger.error(f"[WEBSOCKET] Connection marked as FAILED after {self.failed_send_count} attempts")
                 
                 return False
         
@@ -1833,12 +1833,14 @@ class MediaStreamHandler:
         # ═══════════════════════════════════════════════════════════════════════════
         # 🎯 TASK 0.1: Log AUDIO_CONFIG at startup (Master QA - Single Source of Truth)
         # ═══════════════════════════════════════════════════════════════════════════
-        _orig_print(f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
-                   f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
-                   f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
-                   f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
-                   f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
-                   f"sample_rate=8000, encoding=pcmu", flush=True)
+        # 🔥 PRODUCTION: Only log in development mode (one-time per call)
+        if once.once(f"audio_mode_{self.call_sid}"):
+            logger.debug(f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+                       f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+                       f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+                       f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+                       f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
+                       f"sample_rate=8000, encoding=pcmu")
         
         # 🎯 MINIMAL DSP: Create per-call DSP processor instance (lazy import)
         # Default to None - only create instance when enabled
@@ -1849,18 +1851,23 @@ class MediaStreamHandler:
             try:
                 from server.services.audio_dsp import AudioDSPProcessor
                 self.dsp_processor = AudioDSPProcessor()
-                _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter) - per-call instance", flush=True)
+                # 🔥 PRODUCTION: Only log once per call
+                if once.once(f"dsp_enabled_{self.call_sid}"):
+                    logger.info(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter)")
             except ImportError as e:
-                _orig_print(f"[DSP] WARNING: Could not import AudioDSPProcessor: {e}", flush=True)
-                _orig_print(f"[DSP] DSP disabled - audio will pass through unprocessed", flush=True)
+                logger.warning(f"[DSP] WARNING: Could not import AudioDSPProcessor: {e}")
+                logger.warning(f"[DSP] DSP disabled - audio will pass through unprocessed")
         else:
-            _orig_print(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)", flush=True)
+            # 🔥 PRODUCTION: Only log once per call
+            if once.once(f"dsp_disabled_{self.call_sid}"):
+                logger.debug(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)")
         
         # 🎯 SUCCESS METRICS: Track DSP/VAD effectiveness
         self._false_trigger_suspected_count = 0  # AI responded to noise/music (not real speech)
         self._missed_short_utterance_count = 0   # Short valid utterances missed ("כן", "לא", "הלו")
         
-        print("🎯 AI CONVERSATION STARTED")
+        # 🔥 CALL_START is a macro event - log as INFO
+        logger.info(f"[CALL_START] AI conversation started for {self.call_sid}")
         
         # מאפיינים לזיהוי עסק
         self.business_id = None  # ✅ יזוהה דינמית לפי to_number
@@ -2381,7 +2388,9 @@ class MediaStreamHandler:
                 utt_state["final_received"] = threading.Event()  # ⚡ NEW: wait for final
                 utt_state["last_partial"] = ""  # ⚡ NEW: save last partial as backup
             
-            if DEBUG: print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
+            # 🔥 PRODUCTION: Only log in development mode
+            if not DEBUG:
+                logger.debug(f"[UTTERANCE] {utt_state['id']} BEGIN for {self.call_sid[:8]}")
     
     def _utterance_end(self, timeout=0.850):
         """
@@ -2389,16 +2398,16 @@ class MediaStreamHandler:
         ⚡ BUILD 118: Increased timeout to 850ms - streaming STT needs time for final results
         """
         if not self.call_sid:
-            print("⚠️ _utterance_end: No call_sid")
+            logger.debug(f"[UTTERANCE] _utterance_end: No call_sid")
             return ""
         
         utt_state = _get_utterance_state(self.call_sid)
         if utt_state is None:
-            print(f"⚠️ _utterance_end: No utterance state for call {self.call_sid[:8]}")
+            logger.debug(f"[UTTERANCE] _utterance_end: No utterance state for call {self.call_sid[:8]}")
             return ""
         
         utt_id = utt_state.get("id", "???")
-        print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
+        logger.debug(f"[UTTERANCE] {self.call_sid[:8]} _utterance_end: Collecting results for {utt_id} (timeout={timeout}s)")
         
         # ⚡ BUILD 118: Wait 850ms for streaming results - allows time for final transcription
         # Streaming STT enabled by default → fast partial results
@@ -2409,9 +2418,9 @@ class MediaStreamHandler:
             got_final = final_event.wait(timeout=timeout)  # 850ms wait for streaming
             wait_duration = time.time() - wait_start
             if got_final:
-                print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Got final event in {wait_duration:.3f}s")
             else:
-                print(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_duration:.3f}s - using fallback")  
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Timeout after {wait_duration:.3f}s - using fallback")
         
         # Collect text - prioritize partial over finals
         with _registry_lock:
@@ -2425,13 +2434,13 @@ class MediaStreamHandler:
             # Use partial if available, otherwise finals
             if last_partial:
                 text = last_partial
-                print(f"✅ [{self.call_sid[:8]}] Using partial: '{text[:50]}...' ({len(text)} chars)")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Using partial: '{text[:50]}...' ({len(text)} chars)")
             elif finals_text:
                 text = finals_text
-                print(f"✅ [{self.call_sid[:8]}] Using final: '{text[:50]}...' ({len(text)} chars)")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Using final: '{text[:50]}...' ({len(text)} chars)")
             else:
                 text = ""
-                print(f"⚠️ [{self.call_sid[:8]}] No text available - returning empty")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} No text available - returning empty")
             
             # Reset dispatcher
             utt_state["id"] = None
@@ -2440,9 +2449,9 @@ class MediaStreamHandler:
             utt_state["final_received"] = None
             utt_state["last_partial"] = ""
         
-        # ⚡ BUILD 114: Detailed latency logging
-        print(f"🏁 [{self.call_sid[:8]}] Utterance {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
-        print(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
+        # ⚡ BUILD 114: Detailed latency logging (DEBUG level to avoid production spam)
+        logger.debug(f"[UTTERANCE] {self.call_sid[:8]} {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
+        logger.debug(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
         
         return text
 
