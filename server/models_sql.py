@@ -165,6 +165,8 @@ class BusinessSettings(db.Model):
     # 🔥 BUILD 183: Separate webhooks for inbound/outbound calls
     inbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for inbound calls only
     outbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for outbound calls only (if not set, outbound calls don't send webhooks)
+    # 🔥 UI SPRINT: Status change webhook - sends lead status changes to external integrations
+    status_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook URL for lead status changes
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected

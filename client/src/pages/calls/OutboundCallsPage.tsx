@@ -27,6 +27,7 @@ import { Input } from '../../shared/components/ui/Input';
 import { Select } from '../../shared/components/ui/Select';
 import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
 import { StatusCell } from '../../shared/components/ui/StatusCell';
+import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDropdownWithWebhook';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
@@ -108,6 +109,7 @@ export function OutboundCallsPage() {
   // Tab and view state
   const [activeTab, setActiveTab] = useState<TabType>('system');
   const [viewMode, setViewMode] = useState<ViewMode>('kanban'); // Default to Kanban
+  const [hasWebhook, setHasWebhook] = useState(false);
   
   // Existing leads state
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
@@ -170,6 +172,19 @@ export function OutboundCallsPage() {
       console.log('[OutboundCallsPage] ✅ Lead statuses loaded:', statusesData);
     }
   }, [statusesData]);
+
+  // Check if business has status webhook configured
+  useEffect(() => {
+    const loadWebhookStatus = async () => {
+      try {
+        const response = await http.get('/api/business/current');
+        setHasWebhook(!!response.status_webhook_url);
+      } catch (error) {
+        console.error('Error loading webhook status:', error);
+      }
+    };
+    loadWebhookStatus();
+  }, []);
 
   const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery({
     queryKey: ['/api/leads', 'system', searchQuery, selectedStatuses],
@@ -1210,12 +1225,14 @@ export function OutboundCallsPage() {
                     <div className="flex items-center gap-2">
                       {/* ✅ Editable status dropdown */}
                       <div onClick={(e) => e.stopPropagation()}>
-                        <StatusCell
+                        <StatusDropdownWithWebhook
                           leadId={lead.id}
                           currentStatus={lead.status}
                           statuses={statuses}
-                          onStatusChange={handleStatusChange}
-                          isUpdating={updatingStatusLeadId === lead.id}
+                          onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
+                          source="outbound_calls"
+                          hasWebhook={hasWebhook}
+                          size="sm"
                         />
                       </div>
                       <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
@@ -1347,12 +1364,14 @@ export function OutboundCallsPage() {
                     </div>
                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       {/* ✅ Editable status dropdown */}
-                      <StatusCell
+                      <StatusDropdownWithWebhook
                         leadId={lead.id}
                         currentStatus={lead.status}
                         statuses={statuses}
-                        onStatusChange={handleStatusChange}
-                        isUpdating={updatingStatusLeadId === lead.id}
+                        onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
+                        source="outbound_calls"
+                        hasWebhook={hasWebhook}
+                        size="sm"
                       />
                     </div>
                   </div>
@@ -1656,12 +1675,14 @@ export function OutboundCallsPage() {
                             <td className="py-3 px-2" dir="ltr">{lead.phone}</td>
                             <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
                               {/* ✅ Use unified StatusCell component */}
-                              <StatusCell
+                              <StatusDropdownWithWebhook
                                 leadId={lead.id}
                                 currentStatus={lead.status}
                                 statuses={statuses}
-                                onStatusChange={handleStatusChange}
-                                isUpdating={updatingStatusLeadId === lead.id}
+                                onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
+                                source="outbound_calls"
+                                hasWebhook={hasWebhook}
+                                size="sm"
                               />
                             </td>
                             <td className="py-3 px-2 text-gray-500 max-w-[150px] truncate">

@@ -19,6 +19,7 @@ import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '
 import { Select, SelectOption } from '../../shared/components/ui/Select';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
+import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDropdownWithWebhook';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import LeadCreateModal from './components/LeadCreateModal';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
@@ -60,6 +61,7 @@ export default function LeadsPage() {
   const [dateTo, setDateTo] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isExporting, setIsExporting] = useState(false);
+  const [hasWebhook, setHasWebhook] = useState(false);
   const PAGE_SIZE = 25;
   
   // Debounce search input for better performance (150ms delay)
@@ -77,6 +79,19 @@ export default function LeadsPage() {
   useEffect(() => {
     refreshStatuses();
   }, [refreshStatuses]);
+  
+  // Check if business has status webhook configured
+  useEffect(() => {
+    const loadWebhookStatus = async () => {
+      try {
+        const response = await http.get('/api/business/current');
+        setHasWebhook(!!response.status_webhook_url);
+      } catch (error) {
+        console.error('Error loading webhook status:', error);
+      }
+    };
+    loadWebhookStatus();
+  }, []);
   
   // Load outbound lists for filter
   useEffect(() => {
@@ -723,10 +738,13 @@ export default function LeadsPage() {
                   
                   <TableCell data-testid={`text-status-${lead.id}`} className="min-w-[130px]">
                     <div onClick={(e) => e.stopPropagation()}>
-                      <StatusDropdown
+                      <StatusDropdownWithWebhook
                         currentStatus={lead.status}
                         statuses={statuses}
+                        leadId={lead.id}
                         onStatusChange={(newStatus) => handleStatusChange(lead.id, newStatus as LeadStatus)}
+                        source="leads_list"
+                        hasWebhook={hasWebhook}
                         size="sm"
                         data-testid={`status-dropdown-${lead.id}`}
                       />
@@ -1010,10 +1028,13 @@ export default function LeadsPage() {
                   </div>
                   <div className="flex-shrink-0">
                     <div onClick={(e) => e.stopPropagation()}>
-                      <StatusDropdown
+                      <StatusDropdownWithWebhook
                         currentStatus={lead.status}
                         statuses={statuses}
+                        leadId={lead.id}
                         onStatusChange={(newStatus) => handleStatusChange(lead.id, newStatus as LeadStatus)}
+                        source="leads_list"
+                        hasWebhook={hasWebhook}
                         size="sm"
                         data-testid={`status-dropdown-mobile-${lead.id}`}
                       />

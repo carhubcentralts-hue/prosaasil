@@ -29,6 +29,9 @@ body, html {
   direction: rtl;
   background-color: var(--bg);
   color: var(--text);
+  /* Mobile optimization - prevent horizontal overflow */
+  overflow-x: hidden;
+  max-width: 100%;
 }
 
 /* Numbers and Latin text should be LTR with Inter */
@@ -134,5 +137,46 @@ body, html {
   
   .scrollbar-hide::-webkit-scrollbar {
     display: none;  /* Chrome, Safari and Opera */
+  }
+  
+  /* Mobile optimization utilities */
+  .mobile-safe-flex {
+    min-width: 0;
+  }
+  
+  .mobile-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  /* Responsive grid for lead details */
+  .responsive-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: 1fr;
+  }
+  
+  @media (min-width: 768px) {
+    .responsive-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  @media (min-width: 1024px) {
+    .responsive-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  
+  /* Horizontal scroll for tabs on mobile */
+  .tab-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  
+  .tab-scroll::-webkit-scrollbar {
+    display: none;
   }
 }

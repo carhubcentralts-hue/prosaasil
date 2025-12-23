@@ -1369,6 +1369,22 @@ def apply_migrations():
             db.session.rollback()
             raise
         
+        # Migration 45: Status Webhook - Add status_webhook_url to business_settings for lead status change notifications
+        checkpoint("Migration 45: Status Webhook URL for lead status changes")
+        if check_table_exists('business_settings') and not check_column_exists('business_settings', 'status_webhook_url'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    ALTER TABLE business_settings 
+                    ADD COLUMN status_webhook_url VARCHAR(512) NULL
+                """))
+                migrations_applied.append('add_status_webhook_url')
+                log.info("✅ Added status_webhook_url column to business_settings")
+            except Exception as e:
+                log.error(f"❌ Migration 45 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

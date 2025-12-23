@@ -8,6 +8,8 @@ import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
 import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
+import { AudioPlayer } from '../../shared/components/AudioPlayer';
+import { LeadNavigationArrows } from '../../shared/components/LeadNavigationArrows';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -271,8 +273,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 חזור לרשימת הלידים
               </Button>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900" data-testid="text-lead-name">
+                <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2" data-testid="text-lead-name">
                   {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם'}
+                  {/* Desktop navigation arrows */}
+                  <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="desktop" />
                 </h1>
                 <p className="text-sm text-gray-500" data-testid="text-lead-phone">
                   {lead.phone_e164}
@@ -471,6 +475,11 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           onSuccess={fetchLead}
         />
       )}
+      
+      {/* Mobile navigation arrows - floating in bottom-right */}
+      <div className="sm:hidden">
+        <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="mobile" />
+      </div>
     </div>
   );
 }
@@ -1062,22 +1071,17 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                             הורד
                           </button>
                         </div>
-                        {/* 🔥 FIX: Use blob URL with authentication for audio playback */}
-                        {loadingRecording === getCallId(call) ? (
+                        {/* Audio Player with playback speed controls */}
+                        {recordingUrls[getCallId(call)] ? (
+                          <AudioPlayer
+                            src={recordingUrls[getCallId(call)]}
+                            loading={loadingRecording === getCallId(call)}
+                          />
+                        ) : loadingRecording === getCallId(call) ? (
                           <div className="flex items-center justify-center py-4">
                             <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
                             <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
                           </div>
-                        ) : recordingUrls[getCallId(call)] ? (
-                          <audio 
-                            controls 
-                            playsInline
-                            preload="none"
-                            className="w-full" 
-                            src={recordingUrls[getCallId(call)]}
-                          >
-                            הדפדפן שלך לא תומך בנגן אודיו
-                          </audio>
                         ) : (
                           <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                             <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
