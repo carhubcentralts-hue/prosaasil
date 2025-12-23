@@ -735,6 +735,8 @@ def get_current_business():
             # 🔥 BUILD 183: Separate inbound/outbound webhooks
             "inbound_webhook_url": getattr(settings, 'inbound_webhook_url', None) if settings else None,
             "outbound_webhook_url": getattr(settings, 'outbound_webhook_url', None) if settings else None,
+            # 🔥 UI SPRINT: Status change webhook
+            "status_webhook_url": getattr(settings, 'status_webhook_url', None) if settings else None,
             # 🔥 BUILD 163: Auto hang-up settings
             "auto_end_after_lead_capture": getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
             "auto_end_on_goodbye": getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
@@ -842,6 +844,10 @@ def update_current_business_settings():
             settings.inbound_webhook_url = data['inbound_webhook_url'] or None
         if 'outbound_webhook_url' in data:
             settings.outbound_webhook_url = data['outbound_webhook_url'] or None
+        
+        # 🔥 UI SPRINT: Status change webhook
+        if 'status_webhook_url' in data:
+            settings.status_webhook_url = data['status_webhook_url'] or None
         
         # 🔥 BUILD 163: Auto hang-up settings
         if 'auto_end_after_lead_capture' in data:
