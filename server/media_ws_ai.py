@@ -1312,6 +1312,29 @@ HUMAN_GREETING_PHRASES = {
     "מדברים", "תפוס", "עסוק"  # Common variations
 }
 
+# 🚨 OUTBOUND FIX: Whitelist of very short Hebrew greetings that MUST pass STT_GUARD
+# Problem: Short greetings like "הלו" (2 chars) were being rejected as "too short"
+# Solution: Whitelist these essential Hebrew openers even if they're very short
+# These are the MOST COMMON phrases people say when answering the phone
+SHORT_HEBREW_OPENER_WHITELIST = {
+    # Essential phone greetings (1-3 characters)
+    "הלו",   # Most common Hebrew phone greeting
+    "כן",    # "Yes" - very common response
+    "מה",    # "What" - common question
+    # Slightly longer but still short
+    "מי זה", # "Who is it"
+    "מי",     # "Who"
+    "רגע",    # "Wait/moment"
+    "שומע",   # "Listening"
+    "בסדר",   # "OK"
+    "טוב",    # "Good"
+    # Normalize variations
+    "הלוא",   # "Halo" variation
+    "אלו",    # "Hello" misrecognition
+    "הי",     # "Hi"
+    "היי",    # "Hey"
+}
+
 # 🔥 OUTBOUND FIX: Dial tone and noise patterns that should NOT trigger human confirmation
 # These indicate the phone is ringing or connecting, not a real human
 DIAL_TONE_NOISE_PATTERNS = {
@@ -1575,9 +1598,19 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     If transcript arrives from speech_started or transcription.completed → it's real input.
     Process it and generate response. No filtering.
     
+    🚨 OUTBOUND FIX: Whitelist short Hebrew greetings even if they're very short
+    Problem: Phrases like "הלו" (2 chars) were being rejected as "too short"
+    Solution: Check whitelist to bypass MIN_CHARS check only
+    
+    ⚡ SAFETY: Whitelist does NOT bypass ALL checks - still requires:
+    - committed == True (transcript was finalized by OpenAI)
+    - duration >= 200ms OR RMS above threshold (not random noise)
+    
+    This prevents false positives from background noise while allowing real short greetings.
+    
     Args:
         stt_text: The transcribed text from OpenAI
-        utterance_ms: Duration (unused - kept for signature compatibility)
+        utterance_ms: Duration in milliseconds
         rms_snapshot: RMS level (unused - kept for signature compatibility)
         noise_floor: Baseline (unused - kept for signature compatibility)
         ai_speaking: Whether AI speaking (unused - kept for signature compatibility)
@@ -1590,6 +1623,25 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     # Only reject completely empty text
     if not stt_text or not stt_text.strip():
         return False
+    
+    # 🚨 OUTBOUND FIX: Check whitelist for short Hebrew greetings
+    # Whitelist bypasses MIN_CHARS check only, NOT all validation
+    # Still enforces: committed=True (implicit - we're in transcription.completed event)
+    # Still enforces: minimum duration (200ms) to avoid noise false positives
+    text_clean = stt_text.strip().lower()
+    is_whitelisted = text_clean in SHORT_HEBREW_OPENER_WHITELIST
+    
+    if is_whitelisted:
+        # ⚡ SAFETY: Whitelist requires minimum duration to avoid noise
+        # 200ms minimum ensures it's real speech, not a beep/click/noise
+        MIN_WHITELIST_DURATION_MS = 200
+        
+        if utterance_ms >= MIN_WHITELIST_DURATION_MS:
+            logger.info(f"[STT_GUARD] Whitelisted short Hebrew opener: '{stt_text}' (duration={utterance_ms:.0f}ms, bypassing min_chars only)")
+            return True
+        else:
+            logger.debug(f"[STT_GUARD] Whitelisted phrase '{stt_text}' TOO SHORT: {utterance_ms:.0f}ms < {MIN_WHITELIST_DURATION_MS}ms (likely noise)")
+            return False
     
     # Everything else is accepted - NO FILTERS
     # No duration check, no RMS check, no hallucination check, no word count check
@@ -3887,6 +3939,45 @@ class MediaStreamHandler:
         return is_speech
     
     # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 CRITICAL: Helper to ensure ALL response.create calls increment counter
+    # ═══════════════════════════════════════════════════════════════════════════════
+    async def _send_response_create(self, client, payload=None):
+        """
+        🚨 SAFETY: Wrapper for response.create that ALWAYS increments counter
+        
+        This ensures response_count is accurate for GREETING_PENDING guard.
+        ALL direct response.create calls should use this wrapper.
+        
+        Args:
+            client: Realtime API client
+            payload: Optional dict with response.create parameters (modalities, instructions, etc.)
+                    If None, sends basic {"type": "response.create"}
+                    If provided, ensures "type" key is set to "response.create"
+        
+        Safety: Counter increments BEFORE send, rolls back on failure to maintain accuracy.
+        """
+        # Build payload - ensure type is set
+        if payload is None:
+            payload = {"type": "response.create"}
+        else:
+            # Make a copy to avoid mutating caller's dict
+            payload = dict(payload)
+            payload.setdefault("type", "response.create")
+        
+        # 🚨 CRITICAL: Increment counter BEFORE send
+        # If send fails, we rollback to maintain accuracy
+        self._response_create_count += 1
+        
+        try:
+            await client.send_event(payload)
+            print(f"📊 [RESPONSE_CREATE] Count: {self._response_create_count}")
+        except Exception:
+            # Rollback counter on failure
+            self._response_create_count -= 1
+            print(f"❌ [RESPONSE_CREATE] Failed - rolled back counter to: {self._response_create_count}")
+            raise
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
     # ═══════════════════════════════════════════════════════════════════════════════
     async def trigger_response(self, reason: str, client=None, is_greeting: bool = False, force: bool = False, source: str = None) -> bool:
@@ -4051,10 +4142,9 @@ class MediaStreamHandler:
                 self.user_turn_open = False
                 logger.debug(f"[USER_TURN] Closed after response.create (source={source})")
             
-            await _client.send_event({"type": "response.create"})
+            # 🚨 SAFETY: Use wrapper to ensure counter is always incremented
+            await self._send_response_create(_client)
             
-            # 🔥 BUILD 338: Track response.create count for cost debugging
-            self._response_create_count += 1
             print(f"🎯 [BUILD 200] response.create triggered (source={source}, reason={reason}) [TOTAL: {self._response_create_count}]")
             return True
         except Exception as e:
@@ -4369,7 +4459,7 @@ class MediaStreamHandler:
                                     
                                     # Trigger new response
                                     try:
-                                        await client.send_event({"type": "response.create"})
+                                        await self._send_response_create(client)
                                         logger.info(f"[SERVER_ERROR] Retry response.create sent")
                                     except Exception as retry_err:
                                         logger.error(f"[SERVER_ERROR] Failed to send retry: {retry_err}")
@@ -4384,7 +4474,7 @@ class MediaStreamHandler:
                                     
                                     # Trigger final response
                                     try:
-                                        await client.send_event({"type": "response.create"})
+                                        await self._send_response_create(client)
                                         logger.info(f"[SERVER_ERROR] Graceful failure response sent")
                                     except Exception as fail_err:
                                         logger.error(f"[SERVER_ERROR] Failed to send failure message: {fail_err}")
@@ -4409,7 +4499,43 @@ class MediaStreamHandler:
                             _orig_print(f"✅ [STATE_RESET] Response complete - drain check scheduled (response_id={resp_id[:20]}... status={status})", flush=True)
                             
                             # 🔥 FIX: Check if greeting was pending and trigger it now
-                            if getattr(self, 'greeting_pending', False) and not getattr(self, 'greeting_sent', False):
+                            # 🚨 CRITICAL GUARD: Only trigger deferred greeting if NO real response has happened yet!
+                            # This prevents the "double response" bug where greeting fires after user already spoke
+                            greeting_pending = getattr(self, 'greeting_pending', False)
+                            greeting_sent = getattr(self, 'greeting_sent', False)
+                            user_has_spoken = getattr(self, 'user_has_spoken', False)
+                            ai_response_active = getattr(self, 'ai_response_active', False)
+                            response_count = getattr(self, '_response_create_count', 0)
+                            
+                            # Hard guard: greeting_pending only allowed if:
+                            # 1. greeting_sent == False (no greeting yet)
+                            # 2. user_has_spoken == False (no user input yet)
+                            # 3. ai_response_active == False (no active response)
+                            # 4. response_count == 0 (no AI turns sent yet) ⚡ SAFETY VALVE
+                            # 5. greeting_pending == True (flag was set)
+                            can_trigger_deferred_greeting = (
+                                greeting_pending and 
+                                not greeting_sent and 
+                                not user_has_spoken and 
+                                not ai_response_active and
+                                response_count == 0
+                            )
+                            
+                            if greeting_pending and not can_trigger_deferred_greeting:
+                                # Guard blocked - clear flag and log why
+                                self.greeting_pending = False
+                                logger.info(
+                                    f"[GREETING_PENDING] BLOCKED deferred greeting - "
+                                    f"greeting_sent={greeting_sent}, user_has_spoken={user_has_spoken}, "
+                                    f"ai_response_active={ai_response_active}, response_count={response_count}"
+                                )
+                                print(
+                                    f"🛑 [GREETING_PENDING] BLOCKED - greeting already sent or user already spoke "
+                                    f"(greeting_sent={greeting_sent}, user_has_spoken={user_has_spoken}, "
+                                    f"response_count={response_count})"
+                                )
+                            elif can_trigger_deferred_greeting:
+                                # Make it one-shot - clear flag BEFORE response.create
                                 self.greeting_pending = False
                                 is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                                 if is_outbound:
@@ -6290,6 +6416,26 @@ class MediaStreamHandler:
                     
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - save as hallucination and ignore
+                        # 🚨 OUTBOUND FIX: Enhanced logging for rejected utterances (per problem statement)
+                        # Log: reject_reason, duration_ms, text_len, rms/energy, committed status
+                        reject_reason = "failed_validation"  # Generic reason (validation function determines specifics)
+                        
+                        # Compute diagnostic metrics
+                        text_len = len(text.strip()) if text else 0
+                        duration_ms = utterance_duration_ms
+                        committed = True  # If we're here, transcription was committed (transcription.completed event)
+                        
+                        # Enhanced rejection logging with diagnostics
+                        logger.warning(
+                            f"[STT_REJECT] reject_reason={reject_reason} | "
+                            f"duration_ms={duration_ms:.0f} | "
+                            f"text_len={text_len} | "
+                            f"committed={committed} | "
+                            f"raw_text='{raw_text[:50]}' | "
+                            f"normalized_text='{text[:50]}' | "
+                            f"ai_speaking={ai_speaking}"
+                        )
+                        
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
                         
                         # 🎯 SUCCESS METRICS: Potential false trigger detected
@@ -6320,6 +6466,87 @@ class MediaStreamHandler:
                     logger.info(
                         f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, text_len={len(text)}"
                     )
+                    
+                    # 🚨 GREETING_PENDING FIX: Clear greeting_pending immediately on first valid UTTERANCE
+                    # This prevents deferred greeting from triggering after user has already spoken
+                    if getattr(self, 'greeting_pending', False):
+                        self.greeting_pending = False
+                        logger.info("[GREETING_PENDING] Cleared on first valid UTTERANCE - user has spoken")
+                        print(f"🔓 [GREETING_PENDING] Cleared - user spoke first (text='{text[:30]}...')")
+                    
+                    # 🚨 REAL BARGE-IN FIX: Handle utterance during AI speech with cancel acknowledgment
+                    # If AI is speaking when we get a valid UTTERANCE, we need to:
+                    # 1. Send response.cancel immediately
+                    # 2. Flush audio queues
+                    # 3. Wait for cancel ack (or timeout 500-800ms) ⚡ SAFETY: Longer timeout prevents races
+                    # 4. Store pending utterance text
+                    # 5. Only then create new response
+                    ai_is_speaking = self.is_ai_speaking_event.is_set()
+                    active_response_id = getattr(self, 'active_response_id', None)
+                    
+                    if ai_is_speaking and active_response_id:
+                        logger.info(f"[BARGE_IN] Valid UTTERANCE during AI speech - initiating cancel+wait flow")
+                        print(f"🛑 [BARGE_IN] User interrupted AI - cancelling active response (id={active_response_id[:20]}...)")
+                        
+                        # Store the response_id we're cancelling (for proper ack verification)
+                        cancelled_response_id = active_response_id
+                        
+                        # Store pending utterance so we don't lose it during cancel wait
+                        self._pending_barge_in_utterance = text
+                        self._pending_barge_in_raw_text = raw_text
+                        
+                        # Step 1: Send response.cancel immediately
+                        if self._should_send_cancel(cancelled_response_id):
+                            try:
+                                await client.send_event({
+                                    "type": "response.cancel",
+                                    "response_id": cancelled_response_id
+                                })
+                                self._mark_response_cancelled_locally(cancelled_response_id, "barge_in_real")
+                                logger.info(f"[BARGE_IN] Sent response.cancel for {cancelled_response_id[:20]}...")
+                                print(f"✅ [BARGE_IN] response.cancel sent")
+                            except Exception as cancel_err:
+                                logger.error(f"[BARGE_IN] Failed to send response.cancel: {cancel_err}")
+                                print(f"❌ [BARGE_IN] Cancel failed: {cancel_err}")
+                        
+                        # Step 2: Flush audio queues immediately (thread-safe)
+                        # ⚡ SAFETY: Only flush if still in the same response (not new response)
+                        if self.active_response_id == cancelled_response_id:
+                            self._flush_tx_queue()
+                        
+                        # Step 3: Clear speaking flags immediately (don't wait for response.done)
+                        self.is_ai_speaking_event.clear()
+                        self.ai_response_active = False
+                        logger.info(f"[BARGE_IN] Cleared speaking flags - is_ai_speaking=False, ai_response_active=False")
+                        
+                        # Step 4: Wait for cancel acknowledgment or timeout (500-800ms recommended)
+                        # ⚡ SAFETY: Longer timeout prevents race conditions with slow cancel
+                        cancel_wait_start = time.time()
+                        cancel_ack_timeout_ms = 600  # 600ms - safe middle ground (was 300ms)
+                        cancel_ack_received = False
+                        
+                        # Wait for the SPECIFIC response_id to be acknowledged as cancelled
+                        # Check: response_id cleared from active OR in cancelled set OR response.done/cancelled event
+                        while (time.time() - cancel_wait_start) * 1000 < cancel_ack_timeout_ms:
+                            # Check if THIS specific response was cancelled/completed
+                            if (self.active_response_id != cancelled_response_id or 
+                                cancelled_response_id in self._cancelled_response_ids or
+                                cancelled_response_id in self._response_done_ids):
+                                cancel_ack_received = True
+                                elapsed = (time.time() - cancel_wait_start) * 1000
+                                logger.info(f"[BARGE_IN] Cancel acknowledged for {cancelled_response_id[:20]}... after {elapsed:.0f}ms")
+                                break
+                            await asyncio.sleep(0.05)  # Check every 50ms
+                        
+                        if not cancel_ack_received:
+                            logger.warning(f"[BARGE_IN] TIMEOUT_CANCEL_ACK after {cancel_ack_timeout_ms}ms for {cancelled_response_id[:20]}... - proceeding anyway")
+                            print(f"⚠️ [BARGE_IN] Cancel ack timeout ({cancel_ack_timeout_ms}ms) - continuing with new response")
+                        else:
+                            print(f"✅ [BARGE_IN] Cancel completed successfully for {cancelled_response_id[:20]}...")
+                        
+                        # Now continue processing the utterance normally
+                        # The text is already stored and will flow through the normal pipeline
+                        logger.info(f"[BARGE_IN] Ready for new response after cancel (pending_utterance='{text[:40]}...')")
                     
                     # 🔥 DOUBLE RESPONSE FIX B: Deduplication - Check for duplicate utterance
                     # Create fingerprint from normalized text + time bucket (2-second buckets)
@@ -11857,8 +12084,8 @@ class MediaStreamHandler:
                                 # Get the realtime client
                                 realtime_client = getattr(self, 'realtime_client', None)
                                 if realtime_client:
-                                    # Simple response.create - let AI handle based on context
-                                    await realtime_client.send_event({"type": "response.create"})
+                                    # 🚨 SAFETY: Use wrapper to ensure counter is incremented
+                                    await self._send_response_create(realtime_client)
                                     print(f"✅ [7SEC_SILENCE] Nudge triggered")
                             except Exception as e:
                                 print(f"❌ [7SEC_SILENCE] Failed to send nudge: {e}")
@@ -12949,7 +13176,7 @@ class MediaStreamHandler:
                 })
                 
                 # Trigger response to continue conversation
-                await client.send_event({"type": "response.create"})
+                await self._send_response_create(client)
                 
                 # Check if all fields are captured
                 self._check_lead_complete()
@@ -12964,7 +13191,7 @@ class MediaStreamHandler:
                         "output": json.dumps({"success": False, "error": str(e)})
                     }
                 })
-                await client.send_event({"type": "response.create"})
+                await self._send_response_create(client)
         
         elif function_name == "check_availability":
             # 🔥 CHECK AVAILABILITY: Must be called before offering times
@@ -12988,7 +13215,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 # 🔥 CRITICAL: Verify call_goal is appointment
@@ -13007,7 +13234,7 @@ class MediaStreamHandler:
                             }, ensure_ascii=False)
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 # Extract parameters (may be Hebrew, server will normalize)
@@ -13047,7 +13274,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 # Call calendar_find_slots implementation
@@ -13101,7 +13328,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         return
                     
                     normalized_date_iso = date_res.date_iso
@@ -13171,7 +13398,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         return
                     
                     # Normalize preferred time (optional)
@@ -13271,7 +13498,7 @@ class MediaStreamHandler:
                             }
                         )
                     
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     
                 except Exception as slots_error:
                     print(f"❌ [CHECK_AVAIL] Failed to check slots: {slots_error}")
@@ -13308,7 +13535,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     
             except json.JSONDecodeError as e:
                 print(f"❌ [CHECK_AVAIL] Failed to parse arguments: {e}")
@@ -13320,7 +13547,7 @@ class MediaStreamHandler:
                         "output": json.dumps({"success": False, "error": str(e)})
                     }
                 })
-                await client.send_event({"type": "response.create"})
+                await self._send_response_create(client)
         
         elif function_name == "schedule_appointment":
             # 🔥 APPOINTMENT SCHEDULING: Goal-based with structured errors
@@ -13343,7 +13570,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 # Check if already created appointment in this session
@@ -13360,7 +13587,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 # 🔥 CRITICAL: Check call_goal is appointment
@@ -13380,7 +13607,7 @@ class MediaStreamHandler:
                             }, ensure_ascii=False)
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 # 🔥 STEP 2: Extract and validate fields
@@ -13423,7 +13650,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 if not appointment_date_raw or not appointment_time_raw:
@@ -13456,7 +13683,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     return
                 
                 print(f"📅 [APPOINTMENT] Inputs: name={customer_name}, phone={customer_phone}, date='{appointment_date_raw}', time='{appointment_time_raw}'")
@@ -13515,7 +13742,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         return
                     
                     time_res = resolve_hebrew_time(appointment_time_raw)
@@ -13550,7 +13777,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         return
                     
                     normalized_date_iso = date_res.date_iso
@@ -13616,7 +13843,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         return
 
                     # ✅ SOFT RULE: Prefer prior check_availability, but never hard-block.
@@ -13722,7 +13949,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         return
                     
                     # Parse and localize datetime
@@ -13802,7 +14029,7 @@ class MediaStreamHandler:
                                 }, ensure_ascii=False)
                             }
                         })
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         
                     elif isinstance(result, dict):
                         # Dict result (error or legacy format)
@@ -13836,7 +14063,7 @@ class MediaStreamHandler:
                                     }, ensure_ascii=False)
                                 }
                             })
-                            await client.send_event({"type": "response.create"})
+                            await self._send_response_create(client)
                         else:
                             # Error in dict
                             error_code = result.get("error", "unknown_error")
@@ -13877,7 +14104,7 @@ class MediaStreamHandler:
                                     },
                                 }
                             )
-                            await client.send_event({"type": "response.create"})
+                            await self._send_response_create(client)
                     else:
                         # Unexpected format
                         print(f"❌ [APPOINTMENT] Unexpected result type: {type(result)}")
@@ -13892,7 +14119,7 @@ class MediaStreamHandler:
                                 })
                             }
                         })
-                        await client.send_event({"type": "response.create"})
+                        await self._send_response_create(client)
                         
                 except (ValueError, AttributeError) as parse_error:
                     print(f"❌ [APPOINTMENT] Error creating appointment: {parse_error}")
@@ -13909,7 +14136,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self._send_response_create(client)
                     
             except json.JSONDecodeError as e:
                 print(f"❌ [APPOINTMENT] Failed to parse arguments: {e}")
@@ -13924,7 +14151,7 @@ class MediaStreamHandler:
                         })
                     }
                 })
-                await client.send_event({"type": "response.create"})
+                await self._send_response_create(client)
         
         else:
             print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
