@@ -9,6 +9,7 @@ import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
 import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import { AudioPlayer } from '../../shared/components/AudioPlayer';
+import { LeadNavigationArrows } from '../../shared/components/LeadNavigationArrows';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -272,8 +273,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 חזור לרשימת הלידים
               </Button>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900" data-testid="text-lead-name">
+                <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2" data-testid="text-lead-name">
                   {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם'}
+                  {/* Desktop navigation arrows */}
+                  <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="desktop" />
                 </h1>
                 <p className="text-sm text-gray-500" data-testid="text-lead-phone">
                   {lead.phone_e164}
@@ -472,6 +475,11 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           onSuccess={fetchLead}
         />
       )}
+      
+      {/* Mobile navigation arrows - floating in bottom-right */}
+      <div className="sm:hidden">
+        <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="mobile" />
+      </div>
     </div>
   );
 }
