@@ -135,6 +135,7 @@ export function OutboundCallsPage() {
     completed: number;
     failed: number;
   } | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null); // Store interval ID
 
   // Support deep-link from Lead page tiles: /app/outbound-calls?phone=... or ?leadId=...
   useEffect(() => {
@@ -248,6 +249,31 @@ export function OutboundCallsPage() {
       console.log('[OutboundCallsPage] ✅ Active outbound leads loaded:', activeLeadsData.leads.length, 'leads');
     }
   }, [activeLeadsData]);
+
+  // 🔥 NEW REQUIREMENT E: Check for active bulk call run on mount
+  useEffect(() => {
+    const checkActiveRun = async () => {
+      try {
+        const response = await http.get<{ active: boolean; run?: any }>('/api/outbound/bulk/active');
+        if (response.active && response.run) {
+          console.log('[OutboundCallsPage] ✅ Active run found on mount:', response.run);
+          setActiveRunId(response.run.run_id);
+          setQueueStatus({
+            queued: response.run.queued,
+            in_progress: response.run.in_progress,
+            completed: response.run.completed,
+            failed: response.run.failed
+          });
+          // Start polling for this run
+          startQueuePolling(response.run.run_id);
+        }
+      } catch (error) {
+        console.error('[OutboundCallsPage] Failed to check active run:', error);
+      }
+    };
+    
+    checkActiveRun();
+  }, []); // Run once on mount
 
   const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
     queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses],
@@ -558,7 +584,14 @@ export function OutboundCallsPage() {
   };
   
   const startQueuePolling = (runId: number) => {
-    const pollInterval = setInterval(async () => {
+    // Clear any existing poll interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    
+    // Start new polling - check every 5 seconds (per requirement)
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const status = await http.get(`/api/outbound/runs/${runId}`);
         setQueueStatus({
@@ -573,9 +606,12 @@ export function OutboundCallsPage() {
           refetchRecentCalls();
         }
         
-        // Stop polling if queue is complete
-        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
-          clearInterval(pollInterval);
+        // Stop polling if queue is complete/stopped/cancelled
+        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled' || status.status === 'stopped') {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
           setActiveRunId(null);
           setQueueStatus(null);
           refetchCounts();
@@ -583,19 +619,36 @@ export function OutboundCallsPage() {
         }
       } catch (error) {
         console.error('Queue status polling error:', error);
-        clearInterval(pollInterval);
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
       }
-    }, 2000); // Poll every 2 seconds
-    
-    // Clean up on unmount
-    return () => clearInterval(pollInterval);
+    }, 5000); // Poll every 5 seconds (per requirement)
   };
+
+  // Clean up polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   const handleStopQueue = async () => {
     if (!activeRunId) return;
     
     try {
       await http.post(`/api/outbound/stop-queue`, { run_id: activeRunId });
+      
+      // Clear polling
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      
       setActiveRunId(null);
       setQueueStatus(null);
       refetchCounts();
