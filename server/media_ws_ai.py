@@ -1274,6 +1274,18 @@ HEBREW_FILLER_WORDS = {
     "הממ", "אהם", "אהממ", "ממ", "הם"
 }
 
+# 🔥 NEW REQUIREMENT B: Human greeting detection for outbound calls
+# Only these phrases confirm a real human is on the line (not ringback/music/IVR)
+HUMAN_GREETING_PHRASES = {
+    "שלום", "הלו", "הלוא", "כן", "מדבר", "מי זה", "רגע", 
+    "הי", "היי", "בוקר טוב", "ערב טוב", "צהריים טובים",
+    "כן מדבר", "מי מדבר", "מי זה", "מדבר כן"
+}
+
+# 🔥 NEW REQUIREMENT B: Utterance duration for human confirmation
+# Minimum duration to ensure it's human speech, not a tone/beep
+HUMAN_CONFIRMED_MIN_DURATION_MS = 600  # 600ms minimum speech duration
+
 # 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
@@ -1438,6 +1450,37 @@ def is_valid_transcript(text: str) -> bool:
     # Everything else is accepted - NO FILTERS
     # No filler check, no length check
     return True
+
+
+def contains_human_greeting(text: str) -> bool:
+    """
+    Check if text contains a human greeting phrase.
+    Used for outbound human_confirmed detection.
+    
+    Args:
+        text: Transcribed text from STT
+        
+    Returns:
+        True if contains human greeting, False otherwise
+    """
+    if not text or not text.strip():
+        return False
+    
+    # Normalize and tokenize
+    text_lower = text.lower().strip()
+    
+    # Check for exact matches or substring matches
+    for phrase in HUMAN_GREETING_PHRASES:
+        if phrase in text_lower:
+            return True
+    
+    # Also check if it's 2+ words (likely human, not just tone/beep)
+    words = text_lower.split()
+    if len(words) >= 2:
+        return True
+    
+    return False
+
 
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
                                      rms_snapshot: float, noise_floor: float,
@@ -2148,7 +2191,7 @@ class MediaStreamHandler:
         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
         if is_outbound:
             logger.info("[TOOLS][REALTIME] OUTBOUND call - NO tools (prompt-only mode)")
-            return tools
+            return []  # Always return empty list explicitly
         
         # 🔥 SERVER-FIRST: Do NOT expose scheduling tools to Realtime.
         # Server will decide when to check/schedule and will inject verbatim sentences.
@@ -5878,15 +5921,26 @@ class MediaStreamHandler:
                         # Log when we get text but it's too short to count
                         print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
                     
-                    # 🔥 NEW REQUIREMENT B: Set human_confirmed for outbound calls after first valid STT
-                    # This triggers the greeting for outbound calls
-                    if not self.human_confirmed and text and len(text.strip()) >= HUMAN_CONFIRMED_MIN_LENGTH:
-                        self.human_confirmed = True
-                        print(f"✅ [HUMAN_CONFIRMED] Set to True after valid STT (text='{text[:30]}...', len={len(text.strip())})")
+                    # 🔥 NEW REQUIREMENT B: Set human_confirmed for outbound calls
+                    # TWO conditions must BOTH be met:
+                    # 1. STT_FINAL contains human greeting phrase ("שלום/הלו/כן" etc.)
+                    # 2. Audio duration >= 600ms (ensures it's human speech, not tone/beep)
+                    if not self.human_confirmed and text:
+                        # Check condition 1: Contains human greeting
+                        has_human_greeting = contains_human_greeting(text)
                         
-                        # 🔥 OUTBOUND: If this is an outbound call and greeting hasn't been sent, trigger it now
-                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                        if is_outbound and not self.greeting_sent:
+                        # Check condition 2: Minimum speech duration (600ms)
+                        has_min_duration = utterance_duration_ms >= HUMAN_CONFIRMED_MIN_DURATION_MS
+                        
+                        # Both conditions must be true
+                        if has_human_greeting and has_min_duration:
+                            self.human_confirmed = True
+                            print(f"✅ [HUMAN_CONFIRMED] Set to True: text='{text[:30]}...', duration={utterance_duration_ms:.0f}ms")
+                            logger.info(f"[HUMAN_CONFIRMED] Confirmed human: greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
+                            
+                            # 🔥 OUTBOUND: If this is an outbound call and greeting hasn't been sent, trigger it now
+                            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                            if is_outbound and not self.greeting_sent:
                             # Trigger the greeting now that we know a human is on the line
                             print(f"🎤 [OUTBOUND] Human confirmed - triggering greeting now")
                             
@@ -11071,11 +11125,18 @@ class MediaStreamHandler:
                     silence_since_user = now - self.last_user_activity_ts
                     silence_since_ai = now - self.last_ai_activity_ts
                     
+                    # 🔥 NEW: Use state flags instead of events for more stability
+                    # Check: AI is truly idle (no response in progress, no audio playing, queue empty)
+                    ai_truly_idle = (
+                        not getattr(self, "has_pending_ai_response", False) and
+                        not self.is_ai_speaking_event.is_set() and
+                        self.realtime_audio_out_queue.qsize() == 0
+                    )
+                    
                     # Check all conditions for 7-second silence nudge
                     if (silence_since_user >= SILENCE_NUDGE_TIMEOUT_SEC and 
                         silence_since_ai >= SILENCE_NUDGE_TIMEOUT_SEC and
-                        not self.is_ai_speaking_event.is_set() and
-                        not self.response_pending_event.is_set() and
+                        ai_truly_idle and
                         self.silence_nudge_count < SILENCE_NUDGE_MAX_COUNT):
                         
                         # Check if enough time passed since last nudge (25 seconds)

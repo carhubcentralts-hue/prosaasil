@@ -1442,9 +1442,11 @@ def get_active_bulk_run():
     
     try:
         # Find active run for this business
+        # Check for multiple statuses: queued, running, stopping (not just running)
         active_run = OutboundCallRun.query.filter_by(
-            business_id=tenant_id,
-            status="running"
+            business_id=tenant_id
+        ).filter(
+            OutboundCallRun.status.in_(['queued', 'running', 'stopping'])
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not active_run:

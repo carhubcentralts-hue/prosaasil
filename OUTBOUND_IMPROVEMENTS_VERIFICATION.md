@@ -21,11 +21,11 @@ This document provides a simple verification checklist for the 5 critical outbou
 is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
 if is_outbound:
     logger.info("[TOOLS][REALTIME] OUTBOUND call - NO tools (prompt-only mode)")
-    return tools  # Empty list
+    return []  # Always return empty list explicitly
 ```
 
 **What to check**:
-- Outbound calls return empty tools list immediately
+- Outbound calls return empty list `[]` explicitly (not variable `tools`)
 - No text replacement logic in conversation history
 
 ---
@@ -34,7 +34,9 @@ if is_outbound:
 
 ### Requirements
 - ✅ `human_confirmed=False` at start of every outbound call
-- ✅ `human_confirmed=True` ONLY after STT_FINAL with real text (>=2 chars, not "אהה/שלום שלום")
+- ✅ `human_confirmed=True` ONLY after TWO conditions:
+  1. STT_FINAL contains human greeting ("שלום/הלו/כן/מדבר/מי זה/רגע")
+  2. Audio duration >= 600ms (ensures human speech, not tone/beep)
 - ✅ Before `human_confirmed=True`: NO `response.create` at all (no early greeting)
 
 ### Verification
@@ -63,21 +65,36 @@ else:
     triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True)
 ```
 
-**Part 3 - Set True After STT** (lines ~5870-5940):
+**Part 3 - Set True After STT** (lines ~5924-5940):
 ```python
-if not self.human_confirmed and text and len(text.strip()) >= HUMAN_CONFIRMED_MIN_LENGTH:
+# TWO conditions must BOTH be met:
+# 1. STT_FINAL contains human greeting phrase
+has_human_greeting = contains_human_greeting(text)  # "שלום/הלו/כן" etc.
+
+# 2. Audio duration >= 600ms
+has_min_duration = utterance_duration_ms >= HUMAN_CONFIRMED_MIN_DURATION_MS  # 600ms
+
+# Both conditions must be true
+if has_human_greeting and has_min_duration:
     self.human_confirmed = True
-    print(f"✅ [HUMAN_CONFIRMED] Set to True after valid STT")
-    
-    # If outbound and no greeting sent yet, trigger it now
-    if is_outbound and not self.greeting_sent:
-        # Trigger greeting
+    print(f"✅ [HUMAN_CONFIRMED] Set to True: text='{text[:30]}...', duration={utterance_duration_ms:.0f}ms")
+```
+
+**Human Greeting Detection** (lines ~1277-1286):
+```python
+HUMAN_GREETING_PHRASES = {
+    "שלום", "הלו", "הלוא", "כן", "מדבר", "מי זה", "רגע", 
+    "הי", "היי", "בוקר טוב", "ערב טוב", "צהריים טובים",
+    "כן מדבר", "מי מדבר", "מדבר כן"
+}
+HUMAN_CONFIRMED_MIN_DURATION_MS = 600  # 600ms minimum
 ```
 
 **What to check**:
 - Outbound starts with `human_confirmed=False`
-- No greeting until STT_FINAL with >=2 real characters
+- No greeting until BOTH: human greeting phrase + 600ms duration
 - Greeting triggered immediately after human confirmed
+- No false positives from ringback/music (they won't produce valid STT_FINAL with greeting phrases)
 
 ---
 
@@ -93,7 +110,7 @@ if not self.human_confirmed and text and len(text.strip()) >= HUMAN_CONFIRMED_MI
 - ✅ Limits: max 2 per call, cooldown 25-30 seconds
 
 ### Verification
-**File**: `server/media_ws_ai.py` → `_silence_monitor_loop()` (lines ~11053-11084)
+**File**: `server/media_ws_ai.py` → `_silence_monitor_loop()` (lines ~11120-11150)
 
 ```python
 # Only trigger if human_confirmed=True
@@ -102,11 +119,17 @@ if self.human_confirmed:
     silence_since_user = now - self.last_user_activity_ts
     silence_since_ai = now - self.last_ai_activity_ts
     
+    # Use state flags instead of events for stability
+    ai_truly_idle = (
+        not getattr(self, "has_pending_ai_response", False) and
+        not self.is_ai_speaking_event.is_set() and
+        self.realtime_audio_out_queue.qsize() == 0
+    )
+    
     # Check ALL conditions
     if (silence_since_user >= SILENCE_NUDGE_TIMEOUT_SEC and  # 7.0
         silence_since_ai >= SILENCE_NUDGE_TIMEOUT_SEC and
-        not self.is_ai_speaking_event.is_set() and
-        not self.response_pending_event.is_set() and
+        ai_truly_idle and  # State flags, not just events
         self.silence_nudge_count < SILENCE_NUDGE_MAX_COUNT):  # 2
         
         # Check cooldown (25 seconds)
@@ -125,7 +148,8 @@ SILENCE_NUDGE_COOLDOWN_SEC = 25   # Cooldown between nudges
 
 **What to check**:
 - Nudge only after `human_confirmed=True`
-- All 5 conditions checked before nudge
+- Uses state flags (has_pending_ai_response, tx_queue size) not just events
+- All conditions checked before nudge (7s silence + AI truly idle)
 - Max 2 nudges with 25s cooldown
 - Activity timestamps updated on audio in/out
 
@@ -188,15 +212,17 @@ WATCHDOG_TIMEOUT_SEC = 3.0  # Time to wait before retry
 
 ### Verification
 
-**Backend - New Endpoint** (`server/routes_outbound.py`, lines ~1407-1470):
+**Backend - New Endpoint** (`server/routes_outbound.py`, lines ~1443-1466):
 ```python
 @outbound_bp.route("/api/outbound/bulk/active", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_active_bulk_run():
     """Get active bulk call run for the current business"""
+    # Check multiple statuses: queued, running, stopping (not just "running")
     active_run = OutboundCallRun.query.filter_by(
-        business_id=tenant_id,
-        status="running"
+        business_id=tenant_id
+    ).filter(
+        OutboundCallRun.status.in_(['queued', 'running', 'stopping'])
     ).order_by(OutboundCallRun.created_at.desc()).first()
     
     if not active_run:
@@ -262,7 +288,9 @@ const startQueuePolling = (runId: number) => {
 ```
 
 **What to check**:
-- `/api/outbound/bulk/active` endpoint exists and returns active run
+- `/api/outbound/bulk/active` endpoint exists and checks multiple statuses: `['queued', 'running', 'stopping']`
+- Not just "running" - also queued/stopping are considered "active"
+- Only `['completed', 'failed', 'stopped', 'cancelled']` are considered inactive
 - Frontend checks on mount (useEffect with empty deps)
 - Polling only starts when `activeRunId` is set
 - Worker checks state before each new call
