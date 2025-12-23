@@ -1905,7 +1905,7 @@ export function OutboundCallsPage() {
                               {call.recording_url ? (
                                 <div className="space-y-2">
                                   <a
-                                    href={call.recording_url}
+                                    href={`/api/calls/${call.call_sid}/download`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-blue-600 hover:underline flex items-center gap-1"
@@ -1913,7 +1913,7 @@ export function OutboundCallsPage() {
                                     <Download className="h-4 w-4" />
                                     הורד
                                   </a>
-                                  <AudioPlayer src={call.recording_url} />
+                                  <AudioPlayer src={`/api/calls/${call.call_sid}/download`} />
                                 </div>
                               ) : (
                                 '-'
