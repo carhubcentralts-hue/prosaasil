@@ -218,7 +218,8 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete
       month: 'long',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: 'Asia/Jerusalem'
     });
   };
 
@@ -312,7 +313,9 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete
                   <div className="flex justify-between">
                     <span className="text-slate-600">תאריך יעד:</span>
                     <span className="font-medium">
-                      {new Date(notification.metadata.dueAt).toLocaleString('he-IL')}
+                      {new Date(notification.metadata.dueAt).toLocaleString('he-IL', {
+                        timeZone: 'Asia/Jerusalem'
+                      })}
                     </span>
                   </div>
                 )}
@@ -580,7 +583,8 @@ export function UrgentNotificationPopup({ notification, onDismiss, onCloseAll, o
             <p className="text-lg font-semibold text-slate-900">
               {new Date(notification.metadata.dueAt).toLocaleString('he-IL', {
                 dateStyle: 'short',
-                timeStyle: 'short'
+                timeStyle: 'short',
+                timeZone: 'Asia/Jerusalem'
               })}
             </p>
           </div>

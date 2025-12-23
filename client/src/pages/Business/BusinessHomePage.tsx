@@ -145,7 +145,8 @@ export function BusinessHomePage() {
                 weekday: 'long', 
                 year: 'numeric', 
                 month: 'long', 
-                day: 'numeric' 
+                day: 'numeric',
+                timeZone: 'Asia/Jerusalem'
               })}
             </p>
             <div className="flex gap-2 flex-wrap">

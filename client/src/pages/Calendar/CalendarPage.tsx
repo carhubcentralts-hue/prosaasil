@@ -603,7 +603,8 @@ export function CalendarPage() {
             <h2 className="text-base md:text-xl font-semibold text-slate-900 truncate flex-1">
               {currentDate.toLocaleDateString('he-IL', { 
                 month: 'long', 
-                year: 'numeric' 
+                year: 'numeric',
+                timeZone: 'Asia/Jerusalem'
               })}
             </h2>
             <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
@@ -718,7 +719,8 @@ export function CalendarPage() {
                     פגישות ליום {(selectedDate || new Date(filterDate)).toLocaleDateString('he-IL', {
                       weekday: 'long',
                       day: 'numeric',
-                      month: 'long'
+                      month: 'long',
+                      timeZone: 'Asia/Jerusalem'
                     })} ({filteredAppointments.length})
                   </>
                 ) : (
@@ -796,7 +798,8 @@ export function CalendarPage() {
                           {formatDateOnly(appointment.start_time)} • 
                           {new Date(appointment.start_time).toLocaleTimeString('he-IL', { 
                             hour: '2-digit', 
-                            minute: '2-digit' 
+                            minute: '2-digit',
+                            timeZone: 'Asia/Jerusalem'
                           })}
                         </span>
                       </div>

@@ -54,7 +54,8 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
     return new Date(dateStr).toLocaleDateString('he-IL', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'Asia/Jerusalem'
     });
   };
 
@@ -256,7 +257,8 @@ function BusinessCardList({ businesses, onBusinessClick, onActionClick }: Busine
     return new Date(dateStr).toLocaleDateString('he-IL', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'Asia/Jerusalem'
     });
   };
 

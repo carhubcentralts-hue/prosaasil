@@ -20,7 +20,7 @@ import {
   StopCircle,
   Clock
 } from 'lucide-react';
-import { formatDateOnly } from '../../shared/utils/format';
+import { formatDateOnly, formatDate } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
@@ -28,6 +28,7 @@ import { Select } from '../../shared/components/ui/Select';
 import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
 import { StatusCell } from '../../shared/components/ui/StatusCell';
 import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDropdownWithWebhook';
+import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
@@ -1858,13 +1859,7 @@ export function OutboundCallsPage() {
                           >
                             <td className="py-3 px-2">
                               {call.started_at 
-                                ? new Date(call.started_at).toLocaleString('he-IL', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                    year: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
+                                ? formatDate(call.started_at)
                                 : '-'}
                             </td>
                             <td className="py-3 px-2" dir="ltr">{call.to_number || '-'}</td>
@@ -1908,15 +1903,18 @@ export function OutboundCallsPage() {
                             <td className="py-3 px-2">{duration}</td>
                             <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
                               {call.recording_url ? (
-                                <a
-                                  href={call.recording_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:underline flex items-center gap-1"
-                                >
-                                  <Download className="h-4 w-4" />
-                                  הורד
-                                </a>
+                                <div className="space-y-2">
+                                  <a
+                                    href={call.recording_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:underline flex items-center gap-1"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                    הורד
+                                  </a>
+                                  <AudioPlayer src={call.recording_url} />
+                                </div>
                               ) : (
                                 '-'
                               )}

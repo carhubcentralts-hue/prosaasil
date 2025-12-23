@@ -159,7 +159,8 @@ export function BusinessDetailsPage() {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: 'Asia/Jerusalem'
     });
   };
 
@@ -167,7 +168,8 @@ export function BusinessDetailsPage() {
     return new Date(dateStr).toLocaleDateString('he-IL', {
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'Asia/Jerusalem'
     });
   };
 
