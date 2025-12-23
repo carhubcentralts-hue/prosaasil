@@ -3032,9 +3032,12 @@ class MediaStreamHandler:
                 
                 # 🔥 FIX: Start audio/text bridges after greeting trigger (MISSING CODE PATH)
                 # This was the critical bug - tasks weren't created when greeting succeeded!
+                # 🔥 SAFETY: Only create if not already created (prevent duplicate task creation)
                 logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger success)...")
-                audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-                text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                if audio_in_task is None:
+                    audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                if text_in_task is None:
+                    text_in_task = asyncio.create_task(self._realtime_text_sender(client))
                 logger.debug("[REALTIME] Audio/text tasks created successfully")
             else:
                 print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
@@ -3045,9 +3048,12 @@ class MediaStreamHandler:
                 # 🚀 Start audio/text bridges after greeting trigger attempt:
                 # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
                 # - If greeting failed: still start so the call can proceed
+                # 🔥 SAFETY: Only create if not already created (prevent duplicate task creation)
                 logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
-                audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-                text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                if audio_in_task is None:
+                    audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                if text_in_task is None:
+                    text_in_task = asyncio.create_task(self._realtime_text_sender(client))
                 logger.debug("[REALTIME] Audio/text tasks created successfully")
 
                 # ═══════════════════════════════════════════════════════════════════════
@@ -3242,7 +3248,15 @@ class MediaStreamHandler:
             if text_in_task is not None:
                 tasks.append(text_in_task)
             
-            await asyncio.gather(*tasks)
+            # 🔥 SAFETY: return_exceptions=True prevents one task failure from killing all tasks
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Log any exceptions from tasks
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"[REALTIME] Task {i} failed with exception: {result}")
+                    _orig_print(f"⚠️ [REALTIME] Task failed: {result}", flush=True)
+            
             logger.debug(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
