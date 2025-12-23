@@ -904,23 +904,16 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         int (appointment ID) for backwards compatibility OR
         None on error
     """
-    print(f"")
-    print(f"🔧 [CREATE_APPT] ========== create_appointment_from_realtime called ==========")
-    print(f"🔧 [CREATE_APPT] Input parameters:")
-    print(f"🔧 [CREATE_APPT]   - business_id: {business_id}")
-    print(f"🔧 [CREATE_APPT]   - customer_name: {customer_name}")
-    print(f"🔧 [CREATE_APPT]   - customer_phone: {customer_phone}")
-    print(f"🔧 [CREATE_APPT]   - treatment_type: {treatment_type}")
-    print(f"🔧 [CREATE_APPT]   - start_iso: {start_iso}")
-    print(f"🔧 [CREATE_APPT]   - end_iso: {end_iso}")
-    print(f"🔧 [CREATE_APPT]   - notes: {notes}")
+    logger.debug(f"[CREATE_APPT] create_appointment_from_realtime called")
+    logger.debug(f"[CREATE_APPT] business_id={business_id}, customer_name={customer_name}, customer_phone={customer_phone}")
+    logger.debug(f"[CREATE_APPT] treatment_type={treatment_type}, start_iso={start_iso}, end_iso={end_iso}")
     
     try:
         from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
         
         app = _get_flask_app()
         with app.app_context():
-            print(f"🔧 [CREATE_APPT] Creating CreateAppointmentInput...")
+            logger.debug(f"[CREATE_APPT] Creating CreateAppointmentInput...")
             input_data = CreateAppointmentInput(
                 business_id=business_id,
                 customer_name=customer_name,
@@ -931,20 +924,16 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 notes=notes,
                 source="realtime_phone"
             )
-            print(f"🔧 [CREATE_APPT] Input created successfully, calling _calendar_create_appointment_impl...")
+            logger.debug(f"[CREATE_APPT] Calling _calendar_create_appointment_impl...")
             
             result = _calendar_create_appointment_impl(input_data, context=None, session=None)
-            print(f"🔧 [CREATE_APPT] _calendar_create_appointment_impl returned: {type(result)}")
             
             # 🔥 FIX: Handle CreateAppointmentOutput dataclass (not dict!)
             if hasattr(result, 'appointment_id'):
                 # Success - got CreateAppointmentOutput
                 appt_id = result.appointment_id
-                print(f"✅ [CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
-                print(f"✅ [CREATE_APPT]   - status: {result.status}")
-                print(f"✅ [CREATE_APPT]   - whatsapp_status: {result.whatsapp_status}")
-                print(f"✅ [CREATE_APPT]   - lead_id: {result.lead_id}")
-                print(f"✅ [CREATE_APPT]   - message: {result.confirmation_message}")
+                logger.info(f"[CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
+                logger.debug(f"[CREATE_APPT] status={result.status}, whatsapp_status={result.whatsapp_status}, lead_id={result.lead_id}")
                 # Return dict for backwards compatibility
                 return {
                     "ok": True,
@@ -956,24 +945,23 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 }
             elif isinstance(result, dict):
                 # Legacy dict format
-                print(f"🔧 [CREATE_APPT] Got dict result: {result}")
                 if result.get("ok"):
                     appt_id = result.get("appointment_id")
-                    print(f"✅ [CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
+                    logger.info(f"[CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
                 else:
                     error_msg = result.get("message", "Unknown error")
-                    print(f"❌ [CREATE_APPT] FAILED (dict): {error_msg}")
+                    logger.warning(f"[CREATE_APPT] FAILED (dict): {error_msg}")
                 return result
             else:
                 # Unexpected result format
-                print(f"❌ [CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
-                print(f"❌ [CREATE_APPT] Result value: {result}")
+                logger.error(f"[CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
+                logger.debug(f"[CREATE_APPT] Result value: {result}")
                 return None
                 
     except Exception as e:
-        print(f"❌ [CRM] create_appointment_from_realtime error: {e}")
+        logger.error(f"[CRM] create_appointment_from_realtime error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -1062,7 +1050,9 @@ def _register_session(call_sid: str, session, tenant_id=None):
             "tenant": tenant_id,
             "ts": time.time()
         }
-        if DEBUG: print(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
+        # 🔥 PRODUCTION: Only log in development mode
+        if not DEBUG:
+            logger.debug(f"[REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
 
 def _get_session(call_sid: str):
     """Get STT session for a call (thread-safe)"""
@@ -1084,15 +1074,21 @@ def _close_session(call_sid: str):
     if item:
         try:
             item["session"].close()
-            if DEBUG: print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
+            # 🔥 PRODUCTION: Only log in development mode
+            if not DEBUG:
+                logger.debug(f"[REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
-            if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
+            # 🔥 PRODUCTION: Only log in development mode
+            if not DEBUG:
+                logger.debug(f"[REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
 def _register_handler(call_sid: str, handler):
     """Register MediaStreamHandler for webhook-triggered close (thread-safe)"""
     with _handler_registry_lock:
         _handler_registry[call_sid] = handler
-        _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
+        # 🔥 PRODUCTION: Only log in development mode
+        if not DEBUG:
+            logger.debug(f"[HANDLER_REGISTRY] Registered handler for {call_sid}")
 
 def _get_handler(call_sid: str):
     """Get MediaStreamHandler for a call (thread-safe)"""
@@ -1103,8 +1099,9 @@ def _unregister_handler(call_sid: str):
     """Remove handler from registry (thread-safe)"""
     with _handler_registry_lock:
         handler = _handler_registry.pop(call_sid, None)
-        if handler:
-            _orig_print(f"✅ [HANDLER_REGISTRY] Unregistered handler for {call_sid}", flush=True)
+        if handler and not DEBUG:
+            # 🔥 PRODUCTION: Only log in development mode
+            logger.debug(f"[HANDLER_REGISTRY] Unregistered handler for {call_sid}")
         return handler
 
 def close_handler_from_webhook(call_sid: str, reason: str):
@@ -1116,11 +1113,12 @@ def close_handler_from_webhook(call_sid: str, reason: str):
     """
     handler = _get_handler(call_sid)
     if handler and hasattr(handler, 'close_session'):
-        _orig_print(f"🔥 [WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}", flush=True)
+        # 🔥 This is a macro event - log as INFO
+        logger.info(f"[WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}")
         handler.close_session(reason)
         return True
     else:
-        _orig_print(f"⚠️ [WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})", flush=True)
+        logger.warning(f"[WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})")
         return False
 
 def _create_dispatcher_callbacks(call_sid: str):
