@@ -28,6 +28,41 @@ export interface LeadNavigationResult {
   hasNext: boolean;
 }
 
+// Cache for lead IDs to improve navigation performance
+interface NavigationCache {
+  key: string;
+  leadIds: number[];
+  timestamp: number;
+}
+
+let navigationCache: NavigationCache | null = null;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Generate cache key from navigation context
+ */
+function getCacheKey(context: NavigationContext): string {
+  const parts = [
+    context.from,
+    context.tab || '',
+    context.filters?.status || '',
+    context.filters?.source || '',
+    context.filters?.direction || '',
+    context.filters?.outbound_list_id || '',
+    context.filters?.search || '',
+    context.filters?.dateFrom || '',
+    context.filters?.dateTo || '',
+  ];
+  return parts.join('|');
+}
+
+/**
+ * Clear navigation cache
+ */
+export function clearNavigationCache() {
+  navigationCache = null;
+}
+
 /**
  * Parse navigation context from URL search params
  */
@@ -106,8 +141,7 @@ export function encodeNavigationContext(context: NavigationContext): URLSearchPa
  * Get prev/next lead IDs based on navigation context
  * 
  * This function should be called from the lead detail page to determine
- * which leads to navigate to. The actual implementation would fetch
- * the lead list from the API based on the context.
+ * which leads to navigate to. Uses caching to improve performance.
  */
 export async function getPrevNextLeads(
   currentLeadId: number,
@@ -115,66 +149,92 @@ export async function getPrevNextLeads(
   apiClient: any // http client
 ): Promise<LeadNavigationResult> {
   try {
-    // Build API query based on context
-    let endpoint = '/api/leads';
-    const params = new URLSearchParams();
-    
-    // Apply filters from context
-    if (context.filters) {
-      if (context.filters.status) params.set('status', context.filters.status);
-      if (context.filters.source) params.set('source', context.filters.source);
-      if (context.filters.direction) params.set('direction', context.filters.direction);
-      if (context.filters.outbound_list_id) params.set('outbound_list_id', context.filters.outbound_list_id);
-      if (context.filters.search) params.set('search', context.filters.search);
-      if (context.filters.dateFrom) params.set('from', context.filters.dateFrom);
-      if (context.filters.dateTo) params.set('to', context.filters.dateTo);
-    }
-    
-    // Special handling for different contexts
-    switch (context.from) {
-      case 'recent_calls':
-        endpoint = '/api/calls';
-        break;
-      case 'inbound_calls':
-        endpoint = '/api/calls';
-        params.set('direction', 'inbound');
-        break;
-      case 'outbound_calls':
-        endpoint = '/api/calls';
-        params.set('direction', 'outbound');
-        break;
-      case 'whatsapp':
-        // WhatsApp leads might have a different filter
-        params.set('source', 'whatsapp');
-        break;
-    }
-    
-    // Fetch the list
-    const queryString = params.toString();
-    const url = queryString ? `${endpoint}?${queryString}` : endpoint;
-    const response = await apiClient.get(url);
-    
-    // Extract lead IDs from response
+    const cacheKey = getCacheKey(context);
     let leadIds: number[] = [];
     
-    if (context.from === 'recent_calls' || context.from === 'inbound_calls' || context.from === 'outbound_calls') {
-      // For calls, extract lead_id from call records
-      const calls = response?.calls || [];
-      leadIds = calls
-        .filter((call: any) => call.lead_id)
-        .map((call: any) => call.lead_id);
-    } else {
-      // For leads
-      const leads = response?.leads || [];
-      leadIds = leads.map((lead: any) => lead.id);
+    // Check cache first
+    if (navigationCache && navigationCache.key === cacheKey) {
+      const cacheAge = Date.now() - navigationCache.timestamp;
+      if (cacheAge < CACHE_TTL) {
+        // Use cached lead IDs
+        leadIds = navigationCache.leadIds;
+      } else {
+        // Cache expired
+        navigationCache = null;
+      }
     }
     
-    // Remove duplicates and find current position
-    leadIds = Array.from(new Set(leadIds));
+    // If no valid cache, fetch from API
+    if (leadIds.length === 0) {
+      // Build API query based on context
+      let endpoint = '/api/leads';
+      const params = new URLSearchParams();
+      
+      // Apply filters from context
+      if (context.filters) {
+        if (context.filters.status) params.set('status', context.filters.status);
+        if (context.filters.source) params.set('source', context.filters.source);
+        if (context.filters.direction) params.set('direction', context.filters.direction);
+        if (context.filters.outbound_list_id) params.set('outbound_list_id', context.filters.outbound_list_id);
+        if (context.filters.search) params.set('search', context.filters.search);
+        if (context.filters.dateFrom) params.set('from', context.filters.dateFrom);
+        if (context.filters.dateTo) params.set('to', context.filters.dateTo);
+      }
+      
+      // Special handling for different contexts
+      switch (context.from) {
+        case 'recent_calls':
+          endpoint = '/api/calls';
+          break;
+        case 'inbound_calls':
+          endpoint = '/api/calls';
+          params.set('direction', 'inbound');
+          break;
+        case 'outbound_calls':
+          endpoint = '/api/calls';
+          params.set('direction', 'outbound');
+          break;
+        case 'whatsapp':
+          // WhatsApp leads might have a different filter
+          params.set('source', 'whatsapp');
+          break;
+      }
+      
+      // Fetch the list
+      const queryString = params.toString();
+      const url = queryString ? `${endpoint}?${queryString}` : endpoint;
+      const response = await apiClient.get(url);
+      
+      // Extract lead IDs from response
+      if (context.from === 'recent_calls' || context.from === 'inbound_calls' || context.from === 'outbound_calls') {
+        // For calls, extract lead_id from call records
+        const calls = response?.calls || [];
+        leadIds = calls
+          .filter((call: any) => call.lead_id)
+          .map((call: any) => call.lead_id);
+      } else {
+        // For leads
+        const leads = response?.leads || [];
+        leadIds = leads.map((lead: any) => lead.id);
+      }
+      
+      // Remove duplicates
+      leadIds = Array.from(new Set(leadIds));
+      
+      // Cache the result
+      navigationCache = {
+        key: cacheKey,
+        leadIds,
+        timestamp: Date.now(),
+      };
+    }
+    
+    // Find current position
     const currentIndex = leadIds.indexOf(currentLeadId);
     
     if (currentIndex === -1) {
-      // Current lead not in list
+      // Current lead not in list - clear cache and return empty
+      navigationCache = null;
       return {
         prevLeadId: null,
         nextLeadId: null,
