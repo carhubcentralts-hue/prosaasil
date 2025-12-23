@@ -1786,6 +1786,7 @@ class MediaStreamHandler:
         self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 325: Uses MIN_SPEECH_RMS=60 - allow quiet speech
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
+        self._logged_bargein_not_calibrated = False  # 🔥 FIX: Once-per-call log flag
         
         # 🔥 BUILD 171: CONSECUTIVE FRAME TRACKING - Prevent noise spikes from triggering transcription
         self._consecutive_voice_frames = 0  # Count of consecutive frames above RMS threshold
@@ -4607,24 +4608,22 @@ class MediaStreamHandler:
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    if DEBUG:
-                        logger.debug(f"[SPEECH_STARTED] User started speaking")
-                    else:
-                        print(f"🎤 [SPEECH_STARTED] User started speaking")
+                    logger.debug(f"[SPEECH_STARTED] User started speaking")
 
                     # 🔴 GREETING_LOCK (HARD):
                     # While greeting_lock_active, ignore ALL user speech during greeting.
                     # Do NOT cancel, do NOT clear/flush, and do NOT mark utterance metadata.
                     if getattr(self, "greeting_lock_active", False):
                         logger.info("[GREETING_LOCK] ignoring user speech during greeting")
-                        print("🔒 [GREETING_LOCK] ignoring user speech during greeting")
                         continue
                     
                     # 🔥 FIX #1: Require VAD calibration before treating as real user speech
                     # This prevents false speech_started from RMS/echo before VAD is stable
                     if not getattr(self, "is_calibrated", False):
-                        logger.debug("[BARGE-IN] Ignored speech_started: VAD not calibrated yet")
-                        print("⏭️ [BARGE-IN] Ignored speech_started: VAD not calibrated yet")
+                        # 🔥 FIX: Once-per-call logging to prevent spam
+                        if not getattr(self, "_logged_bargein_not_calibrated", False):
+                            logger.info("[BARGE-IN] Ignored speech_started: VAD not calibrated yet (will log once per call)")
+                            self._logged_bargein_not_calibrated = True
                         continue
                     
                     # 🔥 FIX #1 (OPTIONAL): Extra safety - barge-in only after first real user speech
@@ -4632,7 +4631,6 @@ class MediaStreamHandler:
                     # Uncomment if you want maximum safety (recommended for production)
                     # if not getattr(self, "user_has_spoken", False):
                     #     logger.debug("[BARGE-IN] Ignored speech_started: user_has_spoken=False (anti-echo)")
-                    #     print("⏭️ [BARGE-IN] Ignored speech_started: user_has_spoken=False (anti-echo)")
                     #     continue
                     
                     # Track utterance start for validation
@@ -9007,15 +9005,13 @@ class MediaStreamHandler:
                         # Complete calibration after 40 quiet frames OR 4 seconds timeout
                         if self.calibration_frames >= 40 or total_frames >= 200:
                             if self.calibration_frames < 10:
-                                # 🔥 BUILD 325: Use config constants for VAD thresholds
-                                self.vad_threshold = VAD_BASELINE_TIMEOUT  # 80.0 from config
-                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
+                                # 🔥 FIX: Use max of baseline and measured noise floor + offset
+                                self.vad_threshold = max(VAD_BASELINE_TIMEOUT, self.noise_floor + VAD_ADAPTIVE_OFFSET)
+                                logger.warning(f"[VAD] TIMEOUT - using threshold={self.vad_threshold:.1f} (baseline or measured)")
                             else:
                                 # 🔥 BUILD 325: Adaptive: noise + offset, capped for quiet speakers
                                 self.vad_threshold = min(VAD_ADAPTIVE_CAP, self.noise_floor + VAD_ADAPTIVE_OFFSET)
-                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
+                                logger.info(f"[VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, frames={total_frames}")
                             self.is_calibrated = True
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
