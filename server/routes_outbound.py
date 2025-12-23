@@ -1894,3 +1894,153 @@ def process_bulk_call_run(run_id: int):
                     db.session.commit()
             except:
                 pass
+
+
+@outbound_bp.route("/api/outbound/leads/export", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def export_leads_by_status():
+    """
+    Export leads filtered by status to CSV format
+    
+    Query params:
+    - status_id: Status name/ID to filter by (required)
+    - format: Export format (csv only for now, default: csv)
+    
+    Returns:
+    CSV file with leads data including status information
+    
+    Filename format: outbound_leads_status_<statusId>_<statusName>_<YYYY-MM-DD>.csv
+    """
+    from flask import session, Response
+    import csv
+    import io
+    from server.models_sql import LeadStatus
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני ייצוא"}), 400
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    # Get parameters
+    status_name = request.args.get('status_id', '').strip()
+    export_format = request.args.get('format', 'csv').lower()
+    
+    if not status_name:
+        return jsonify({"error": "חסר פרמטר status_id"}), 400
+    
+    if export_format != 'csv':
+        return jsonify({"error": "נתמך רק פורמט CSV כרגע"}), 400
+    
+    # Validate status name (security)
+    if not STATUS_FILTER_PATTERN.match(status_name) or len(status_name) > 64:
+        return jsonify({"error": "שם סטטוס לא תקין"}), 400
+    
+    try:
+        # Get status info for proper labeling
+        status_obj = LeadStatus.query.filter_by(
+            tenant_id=tenant_id,
+            name=status_name.lower()
+        ).first()
+        
+        status_label = status_obj.label if status_obj else status_name
+        
+        # Query leads with this status for this tenant
+        leads = Lead.query.filter_by(
+            tenant_id=tenant_id,
+            status=status_name.lower()
+        ).order_by(Lead.created_at.desc()).all()
+        
+        # Get last call information for each lead
+        lead_call_info = {}
+        if leads:
+            lead_ids = [lead.id for lead in leads]
+            # Get most recent call for each lead
+            recent_calls = db.session.query(
+                CallLog.lead_id,
+                func.max(CallLog.created_at).label('last_call_at')
+            ).filter(
+                CallLog.lead_id.in_(lead_ids),
+                CallLog.business_id == tenant_id
+            ).group_by(CallLog.lead_id).all()
+            
+            for lead_id, last_call_at in recent_calls:
+                # Get the actual call record to get status
+                call = CallLog.query.filter_by(
+                    lead_id=lead_id,
+                    business_id=tenant_id
+                ).order_by(CallLog.created_at.desc()).first()
+                
+                lead_call_info[lead_id] = {
+                    'last_call_at': last_call_at,
+                    'last_call_status': call.call_status if call else None
+                }
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        
+        # Use UTF-8 with BOM for Excel Hebrew compatibility
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            'status_id',
+            'status_name',
+            'lead_id',
+            'full_name',
+            'phone',
+            'email',
+            'created_at',
+            'last_call_at',
+            'last_call_status',
+            'source',
+            'notes'
+        ])
+        
+        # Write lead rows
+        for lead in leads:
+            call_info = lead_call_info.get(lead.id, {})
+            
+            writer.writerow([
+                status_name.lower(),
+                status_label,
+                lead.id,
+                lead.full_name or '',
+                lead.phone_e164 or '',
+                lead.email or '',
+                lead.created_at.isoformat() if lead.created_at else '',
+                call_info.get('last_call_at').isoformat() if call_info.get('last_call_at') else '',
+                call_info.get('last_call_status') or '',
+                lead.source or '',
+                lead.notes or ''
+            ])
+        
+        # Get CSV content with UTF-8 BOM
+        csv_content = '\ufeff' + output.getvalue()
+        output.close()
+        
+        # Generate filename
+        today = datetime.now().strftime('%Y-%m-%d')
+        # Sanitize status name for filename (remove special chars)
+        safe_status_name = re.sub(r'[^a-zA-Z0-9_-]', '', status_name)
+        filename = f"outbound_leads_status_{safe_status_name}_{today}.csv"
+        
+        log.info(f"📊 Exporting {len(leads)} leads with status '{status_name}' for tenant {tenant_id}")
+        
+        # Return CSV file
+        return Response(
+            csv_content,
+            mimetype='text/csv; charset=utf-8',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'text/csv; charset=utf-8'
+            }
+        )
+        
+    except Exception as e:
+        log.error(f"Error exporting leads by status: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"שגיאה בייצוא: {str(e)}"}), 500

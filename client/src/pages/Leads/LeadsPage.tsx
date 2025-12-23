@@ -96,19 +96,30 @@ export default function LeadsPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo]);
+  
+  // Debug logging for outbound list filter
+  useEffect(() => {
+    if (selectedOutboundList !== 'all') {
+      console.log('[LeadsPage] Selected outbound list:', selectedOutboundList);
+    }
+  }, [selectedOutboundList]);
 
   // Memoize filters using debounced search to prevent excessive API calls
-  const filters = useMemo(() => ({
-    search: debouncedSearch,
-    status: selectedStatus === 'all' ? undefined : selectedStatus,
-    source: selectedSource === 'all' ? undefined : selectedSource,
-    direction: selectedDirection === 'all' ? undefined : selectedDirection,
-    outbound_list_id: selectedOutboundList === 'all' ? undefined : selectedOutboundList,
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
-    page: currentPage,
-    pageSize: PAGE_SIZE,
-  }), [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo, currentPage]);
+  const filters = useMemo(() => {
+    const filterObj = {
+      search: debouncedSearch,
+      status: selectedStatus === 'all' ? undefined : selectedStatus,
+      source: selectedSource === 'all' ? undefined : selectedSource,
+      direction: selectedDirection === 'all' ? undefined : selectedDirection,
+      outbound_list_id: selectedOutboundList === 'all' ? undefined : selectedOutboundList,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      page: currentPage,
+      pageSize: PAGE_SIZE,
+    };
+    console.log('[LeadsPage] Building filters:', filterObj);
+    return filterObj;
+  }, [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo, currentPage]);
 
   const {
     leads,

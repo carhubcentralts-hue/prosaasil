@@ -61,6 +61,8 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
       if (filters.status) params.append('status', filters.status);
       if (filters.source) params.append('source', filters.source);
       if (filters.owner_user_id) params.append('owner_user_id', filters.owner_user_id.toString());
+      if (filters.outbound_list_id) params.append('outbound_list_id', filters.outbound_list_id.toString());
+      if (filters.direction) params.append('direction', filters.direction);
       if (filters.page) params.append('page', filters.page.toString());
       if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());
 
@@ -69,7 +71,14 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
-      console.log('[useLeads] Fetching:', url, 'search:', filters.search);
+      console.log('[useLeads] Fetching:', url);
+      console.log('[useLeads] Filters:', {
+        search: filters.search,
+        status: filters.status,
+        source: filters.source,
+        outbound_list_id: filters.outbound_list_id,
+        direction: filters.direction
+      });
       
       const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url, {
         signal: controller.signal
