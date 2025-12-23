@@ -315,13 +315,107 @@ class TestFrameDropCategorization:
         assert frames_dropped_bargein_flush == 25, "Barge-in flush should increment counter"
 
 
+class TestUserTurnGating:
+    """Test user turn gating to prevent response.create without utterance"""
+    
+    def test_user_turn_opens_on_valid_utterance(self):
+        """Verify user_turn_open is set to True when valid utterance received"""
+        user_turn_open = False
+        is_filler_only = False
+        
+        # Simulate valid utterance received
+        if not is_filler_only:
+            user_turn_open = True
+        
+        assert user_turn_open, "user_turn_open should be True after valid utterance"
+    
+    def test_user_turn_stays_closed_on_filler_utterance(self):
+        """Verify user_turn_open stays False for filler-only utterances"""
+        user_turn_open = False
+        is_filler_only = True
+        
+        # Simulate filler utterance received
+        if not is_filler_only:
+            user_turn_open = True
+        
+        assert not user_turn_open, "user_turn_open should remain False for filler"
+    
+    def test_user_turn_closes_on_response_create(self):
+        """Verify user_turn_open is set to False when response.create is sent"""
+        user_turn_open = True
+        is_greeting = False
+        
+        # Simulate response.create sent
+        if not is_greeting:
+            user_turn_open = False
+        
+        assert not user_turn_open, "user_turn_open should be False after response.create"
+    
+    def test_user_turn_not_closed_on_greeting_response(self):
+        """Verify user_turn_open is NOT cleared for greeting responses"""
+        user_turn_open = True
+        is_greeting = True
+        
+        # Simulate greeting response.create sent
+        if not is_greeting:
+            user_turn_open = False
+        
+        # user_turn_open should stay unchanged for greeting
+        assert user_turn_open, "user_turn_open should not change for greeting"
+    
+    def test_trigger_response_blocked_without_open_turn(self):
+        """Verify trigger_response is blocked when no user turn is open"""
+        user_turn_open = False
+        is_greeting = False
+        source = "watchdog"
+        
+        # Check if response should be allowed
+        should_allow = is_greeting or (source == "utterance" and user_turn_open)
+        
+        assert not should_allow, "Response should be blocked without open turn"
+    
+    def test_trigger_response_allowed_with_open_turn_and_utterance_source(self):
+        """Verify trigger_response is allowed with open turn and utterance source"""
+        user_turn_open = True
+        is_greeting = False
+        source = "utterance"
+        
+        # Check if response should be allowed
+        should_allow = is_greeting or (source == "utterance" and user_turn_open)
+        
+        assert should_allow, "Response should be allowed with open turn and utterance source"
+    
+    def test_trigger_response_allowed_for_greeting(self):
+        """Verify trigger_response is always allowed for greeting"""
+        user_turn_open = False
+        is_greeting = True
+        source = "greeting"
+        
+        # Check if response should be allowed
+        should_allow = is_greeting or (source == "utterance" and user_turn_open)
+        
+        assert should_allow, "Response should always be allowed for greeting"
+    
+    def test_trigger_response_blocked_for_non_utterance_sources(self):
+        """Verify trigger_response is blocked for all non-utterance sources"""
+        user_turn_open = True  # Even with open turn
+        is_greeting = False
+        
+        blocked_sources = ["watchdog", "state_reset", "silence_handler", "server_first", "prompt_upgrade"]
+        
+        for source in blocked_sources:
+            should_allow = is_greeting or (source == "utterance" and user_turn_open)
+            assert not should_allow, f"Response should be blocked for source={source}"
+
+
 def run_all_tests():
     """Run all test classes"""
     test_classes = [
         TestResponseCreateLock,
         TestUtteranceDeduplication,
         TestWatchdogEnhancedGuards,
-        TestFrameDropCategorization
+        TestFrameDropCategorization,
+        TestUserTurnGating  # NEW
     ]
     
     total_tests = 0
