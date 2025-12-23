@@ -47,30 +47,40 @@ ENABLE_MIN_DSP = os.getenv("ENABLE_MIN_DSP", "1") == "1"
 # ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
 
-# ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
-# 🔥 DEBUG=1 → PRODUCTION (minimal logs, quiet mode)
-# 🔥 DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
+# 🔥 NEW PRODUCTION LOGGING POLICY
+# DEBUG=1 → PRODUCTION (minimal logs, NO prints except errors)
+# DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
 DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
-_orig_print = builtins.print
-
-def _dprint(*args, **kwargs):
-    """Print only when DEBUG=1 (gating for hot path)"""
-    if DEBUG:
-        _orig_print(*args, **kwargs)
-
-def force_print(*args, **kwargs):
-    """Always print (for critical errors only)"""
-    _orig_print(*args, **kwargs)
-
-# חונקים כל print במודול הזה כש-DEBUG=0
-builtins.print = _dprint
 
 # ⚡ PHASE 1 Task 4: טלמטריה - 4 מדדים בכל TURN
 import logging
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
+
+# Import rate limiting and once-per-call helpers
+from server.logging_setup import RateLimiter, OncePerCall
+
+# Create per-module rate limiter and once-per-call tracker
+rl = RateLimiter()
+once = OncePerCall()
+
+# 🔥 DEPRECATED: All print() statements should be converted to logger calls
+# Legacy print override kept only for backward compatibility during transition
+_orig_print = builtins.print
+
+def _dprint(*args, **kwargs):
+    """DEPRECATED: Print only in development mode (DEBUG=0)"""
+    if not DEBUG:  # 🔥 INVERTED: print only in development (DEBUG=0)
+        _orig_print(*args, **kwargs)
+
+def force_print(*args, **kwargs):
+    """DEPRECATED: Use logger.error() instead"""
+    _orig_print(*args, **kwargs)
+
+# Override print - but all code should migrate to logger calls
+builtins.print = _dprint
 
 _now_ms = lambda: int(time.time() * 1000)
 
@@ -190,8 +200,9 @@ SILENCE_HANGUP_TIMEOUT_SEC = 20.0  # 🔥 NEW: Auto-hangup after 20s true silenc
 WATCHDOG_TIMEOUT_SEC = 3.0  # Time to wait before retry
 WATCHDOG_UTTERANCE_ID_LENGTH = 20  # Length of text slice for utterance ID
 
-print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
-print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
+# 🔥 Boot-time INFO logs - these are macro events, allowed in production
+logger.info(f"[BOOT] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
+logger.info(f"[BOOT] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -599,10 +610,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                 requested_dt_aware = requested_dt
             
             if requested_dt_aware < min_allowed_time:
-                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                logger.debug(f"[VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
                 return False
             else:
-                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
+                logger.debug(f"[VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
         
         # Check booking window (max days ahead)
         if policy.booking_window_days > 0:
@@ -613,10 +624,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                 requested_dt_aware = requested_dt
             
             if requested_dt_aware > max_booking_date:
-                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                logger.debug(f"[VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
                 return False
             else:
-                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+                logger.debug(f"[VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
         
         # 🔥 STEP 1: Check business hours (skip for 24/7)
         if not policy.allow_24_7:
@@ -634,13 +645,13 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             
             weekday_key = weekday_map.get(requested_dt.weekday())
             if not weekday_key:
-                print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+                logger.debug(f"[VALIDATION] Invalid weekday: {requested_dt.weekday()}")
                 return False
             
             # Get opening hours for this day
             day_hours = policy.opening_hours.get(weekday_key, [])
             if not day_hours:
-                print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+                logger.debug(f"[VALIDATION] Business closed on {weekday_key}")
                 return False
             
             # Check if time falls within any window
@@ -667,12 +678,12 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                         break
             
             if not time_valid:
-                print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+                logger.debug(f"[VALIDATION] Slot {requested_time} outside business hours {day_hours}")
                 return False
             else:
-                print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
+                logger.debug(f"[VALIDATION] Slot {requested_time} within business hours")
         else:
-            print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
+            logger.debug(f"[VALIDATION] 24/7 business - hours check skipped")
         
         # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
         # Calculate end time using slot_size_min from policy
@@ -707,16 +718,16 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             ).count()
             
             if overlapping > 0:
-                print(f"❌ [VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
+                logger.debug(f"[VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
                 return False
             else:
-                print(f"✅ [VALIDATION] Calendar available - no conflicts")
+                logger.debug(f"[VALIDATION] Calendar available - no conflicts")
                 return True
         
     except Exception as e:
-        print(f"❌ [VALIDATION] Error validating slot: {e}")
+        logger.error(f"[VALIDATION] Error validating slot: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[VALIDATION] Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -771,7 +782,7 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                     lead.last_contact_at = datetime.utcnow()
                     session.commit()
                     lead_id = lead.id
-                    print(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
+                    logger.debug(f"[CRM] Found existing lead #{lead_id} for {phone}")
                     return lead_id
                 else:
                     # Create new lead
@@ -787,23 +798,23 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                     session.add(lead)
                     session.commit()
                     lead_id = lead.id
-                    print(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
+                    logger.debug(f"[CRM] Created new lead #{lead_id} for {phone}")
                     return lead_id
                     
             except Exception as e:
                 session.rollback()
-                print(f"❌ [CRM] ensure_lead DB error: {e}")
+                logger.error(f"[CRM] ensure_lead DB error: {e}")
                 import traceback
-                traceback.print_exc()
+                logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
                 return None
             finally:
                 session.close()
                 Session.remove()
                 
     except Exception as e:
-        print(f"❌ [CRM] ensure_lead error: {e}")
+        logger.error(f"[CRM] ensure_lead error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -836,7 +847,7 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
             try:
                 lead = session.query(Lead).get(lead_id)
                 if not lead:
-                    print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                    logger.debug(f"[CRM] Lead #{lead_id} not found")
                     return
                 
                 # Update fields
@@ -854,21 +865,21 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
                 lead.updated_at = datetime.utcnow()
                 session.commit()
                 
-                print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+                logger.debug(f"[CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
                 
             except Exception as e:
                 session.rollback()
-                print(f"❌ [CRM] update_lead_on_call DB error: {e}")
+                logger.error(f"[CRM] update_lead_on_call DB error: {e}")
                 import traceback
-                traceback.print_exc()
+                logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
             finally:
                 session.close()
                 Session.remove()
             
     except Exception as e:
-        print(f"❌ [CRM] update_lead_on_call error: {e}")
+        logger.error(f"[CRM] update_lead_on_call error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
 
 
 def create_appointment_from_realtime(business_id: int, customer_phone: str, 
@@ -893,23 +904,16 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         int (appointment ID) for backwards compatibility OR
         None on error
     """
-    print(f"")
-    print(f"🔧 [CREATE_APPT] ========== create_appointment_from_realtime called ==========")
-    print(f"🔧 [CREATE_APPT] Input parameters:")
-    print(f"🔧 [CREATE_APPT]   - business_id: {business_id}")
-    print(f"🔧 [CREATE_APPT]   - customer_name: {customer_name}")
-    print(f"🔧 [CREATE_APPT]   - customer_phone: {customer_phone}")
-    print(f"🔧 [CREATE_APPT]   - treatment_type: {treatment_type}")
-    print(f"🔧 [CREATE_APPT]   - start_iso: {start_iso}")
-    print(f"🔧 [CREATE_APPT]   - end_iso: {end_iso}")
-    print(f"🔧 [CREATE_APPT]   - notes: {notes}")
+    logger.debug(f"[CREATE_APPT] create_appointment_from_realtime called")
+    logger.debug(f"[CREATE_APPT] business_id={business_id}, customer_name={customer_name}, customer_phone={customer_phone}")
+    logger.debug(f"[CREATE_APPT] treatment_type={treatment_type}, start_iso={start_iso}, end_iso={end_iso}")
     
     try:
         from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
         
         app = _get_flask_app()
         with app.app_context():
-            print(f"🔧 [CREATE_APPT] Creating CreateAppointmentInput...")
+            logger.debug(f"[CREATE_APPT] Creating CreateAppointmentInput...")
             input_data = CreateAppointmentInput(
                 business_id=business_id,
                 customer_name=customer_name,
@@ -920,20 +924,16 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 notes=notes,
                 source="realtime_phone"
             )
-            print(f"🔧 [CREATE_APPT] Input created successfully, calling _calendar_create_appointment_impl...")
+            logger.debug(f"[CREATE_APPT] Calling _calendar_create_appointment_impl...")
             
             result = _calendar_create_appointment_impl(input_data, context=None, session=None)
-            print(f"🔧 [CREATE_APPT] _calendar_create_appointment_impl returned: {type(result)}")
             
             # 🔥 FIX: Handle CreateAppointmentOutput dataclass (not dict!)
             if hasattr(result, 'appointment_id'):
                 # Success - got CreateAppointmentOutput
                 appt_id = result.appointment_id
-                print(f"✅ [CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
-                print(f"✅ [CREATE_APPT]   - status: {result.status}")
-                print(f"✅ [CREATE_APPT]   - whatsapp_status: {result.whatsapp_status}")
-                print(f"✅ [CREATE_APPT]   - lead_id: {result.lead_id}")
-                print(f"✅ [CREATE_APPT]   - message: {result.confirmation_message}")
+                logger.info(f"[CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
+                logger.debug(f"[CREATE_APPT] status={result.status}, whatsapp_status={result.whatsapp_status}, lead_id={result.lead_id}")
                 # Return dict for backwards compatibility
                 return {
                     "ok": True,
@@ -945,24 +945,23 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 }
             elif isinstance(result, dict):
                 # Legacy dict format
-                print(f"🔧 [CREATE_APPT] Got dict result: {result}")
                 if result.get("ok"):
                     appt_id = result.get("appointment_id")
-                    print(f"✅ [CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
+                    logger.info(f"[CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
                 else:
                     error_msg = result.get("message", "Unknown error")
-                    print(f"❌ [CREATE_APPT] FAILED (dict): {error_msg}")
+                    logger.warning(f"[CREATE_APPT] FAILED (dict): {error_msg}")
                 return result
             else:
                 # Unexpected result format
-                print(f"❌ [CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
-                print(f"❌ [CREATE_APPT] Result value: {result}")
+                logger.error(f"[CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
+                logger.debug(f"[CREATE_APPT] Result value: {result}")
                 return None
                 
     except Exception as e:
-        print(f"❌ [CRM] create_appointment_from_realtime error: {e}")
+        logger.error(f"[CRM] create_appointment_from_realtime error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -1051,7 +1050,9 @@ def _register_session(call_sid: str, session, tenant_id=None):
             "tenant": tenant_id,
             "ts": time.time()
         }
-        if DEBUG: print(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
+        # 🔥 PRODUCTION: Only log in development mode
+        if not DEBUG:
+            logger.debug(f"[REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
 
 def _get_session(call_sid: str):
     """Get STT session for a call (thread-safe)"""
@@ -1073,15 +1074,21 @@ def _close_session(call_sid: str):
     if item:
         try:
             item["session"].close()
-            if DEBUG: print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
+            # 🔥 PRODUCTION: Only log in development mode
+            if not DEBUG:
+                logger.debug(f"[REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
-            if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
+            # 🔥 PRODUCTION: Only log in development mode
+            if not DEBUG:
+                logger.debug(f"[REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
 def _register_handler(call_sid: str, handler):
     """Register MediaStreamHandler for webhook-triggered close (thread-safe)"""
     with _handler_registry_lock:
         _handler_registry[call_sid] = handler
-        _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
+        # 🔥 PRODUCTION: Only log in development mode
+        if not DEBUG:
+            logger.debug(f"[HANDLER_REGISTRY] Registered handler for {call_sid}")
 
 def _get_handler(call_sid: str):
     """Get MediaStreamHandler for a call (thread-safe)"""
@@ -1092,8 +1099,9 @@ def _unregister_handler(call_sid: str):
     """Remove handler from registry (thread-safe)"""
     with _handler_registry_lock:
         handler = _handler_registry.pop(call_sid, None)
-        if handler:
-            _orig_print(f"✅ [HANDLER_REGISTRY] Unregistered handler for {call_sid}", flush=True)
+        if handler and not DEBUG:
+            # 🔥 PRODUCTION: Only log in development mode
+            logger.debug(f"[HANDLER_REGISTRY] Unregistered handler for {call_sid}")
         return handler
 
 def close_handler_from_webhook(call_sid: str, reason: str):
@@ -1105,11 +1113,12 @@ def close_handler_from_webhook(call_sid: str, reason: str):
     """
     handler = _get_handler(call_sid)
     if handler and hasattr(handler, 'close_session'):
-        _orig_print(f"🔥 [WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}", flush=True)
+        # 🔥 This is a macro event - log as INFO
+        logger.info(f"[WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}")
         handler.close_session(reason)
         return True
     else:
-        _orig_print(f"⚠️ [WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})", flush=True)
+        logger.warning(f"[WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})")
         return False
 
 def _create_dispatcher_callbacks(call_sid: str):
@@ -1171,7 +1180,9 @@ def _cleanup_stale_sessions():
         ]
     
     for call_sid in stale_call_sids:
-        if DEBUG: print(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
+        # 🔥 PRODUCTION: Only log in development mode
+        if not DEBUG:
+            logger.debug(f"[REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
         _close_session(call_sid)
 
 # Start session reaper thread
@@ -1183,11 +1194,11 @@ def _start_session_reaper():
             try:
                 _cleanup_stale_sessions()
             except Exception as e:
-                print(f"⚠️ [REAPER] Error during cleanup: {e}")
+                logger.error(f"[REAPER] Error during cleanup: {e}")
     
     reaper_thread = threading.Thread(target=reaper_loop, daemon=True, name="SessionReaper")
     reaper_thread.start()
-    print("🧹 [REAPER] Session cleanup thread started")
+    logger.info(f"[BOOT] Session cleanup thread started")
 
 # Start reaper on module load (only if streaming enabled)
 if USE_STREAMING_STT:
@@ -1723,22 +1734,20 @@ class MediaStreamHandler:
                 # ⚠️ Warn if send takes >5ms (indicates blocking/backpressure)
                 if send_duration_ms > 5.0:
                     self._slow_send_count += 1
-                    now = time.time()
-                    # Log warning every 5 seconds (throttled to avoid spam)
-                    if now - self._last_slow_send_warning > 5.0:
-                        _orig_print(f"⚠️ [TX_SLOW] WebSocket send took {send_duration_ms:.1f}ms (>5ms threshold) - potential backpressure (count={self._slow_send_count})", flush=True)
-                        self._last_slow_send_warning = now
+                    # 🔥 Use rate limiter instead of manual throttling
+                    if rl.every(f"tx_slow_{self.call_sid}", 5.0):
+                        logger.warning(f"[TX_SLOW] WebSocket send took {send_duration_ms:.1f}ms (>5ms threshold) - potential backpressure (count={self._slow_send_count})")
                 
                 self.failed_send_count = 0  # Reset on success
                 return True
             except Exception as e:
                 self.failed_send_count += 1
                 if self.failed_send_count <= 3:  # Only log first 3 errors
-                    print(f"❌ WebSocket send error #{self.failed_send_count}: {e}")
+                    logger.error(f"[WEBSOCKET] Send error #{self.failed_send_count}: {e}")
                 
                 if self.failed_send_count >= 10:  # Increased threshold - After 10 failures, mark as dead
                     self.ws_connection_failed = True
-                    print(f"🚨 WebSocket connection marked as FAILED after {self.failed_send_count} attempts")
+                    logger.error(f"[WEBSOCKET] Connection marked as FAILED after {self.failed_send_count} attempts")
                 
                 return False
         
@@ -1824,12 +1833,14 @@ class MediaStreamHandler:
         # ═══════════════════════════════════════════════════════════════════════════
         # 🎯 TASK 0.1: Log AUDIO_CONFIG at startup (Master QA - Single Source of Truth)
         # ═══════════════════════════════════════════════════════════════════════════
-        _orig_print(f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
-                   f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
-                   f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
-                   f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
-                   f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
-                   f"sample_rate=8000, encoding=pcmu", flush=True)
+        # 🔥 PRODUCTION: Only log in development mode (one-time per call)
+        if once.once(f"audio_mode_{self.call_sid}"):
+            logger.debug(f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+                       f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+                       f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+                       f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+                       f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
+                       f"sample_rate=8000, encoding=pcmu")
         
         # 🎯 MINIMAL DSP: Create per-call DSP processor instance (lazy import)
         # Default to None - only create instance when enabled
@@ -1840,18 +1851,23 @@ class MediaStreamHandler:
             try:
                 from server.services.audio_dsp import AudioDSPProcessor
                 self.dsp_processor = AudioDSPProcessor()
-                _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter) - per-call instance", flush=True)
+                # 🔥 PRODUCTION: Only log once per call
+                if once.once(f"dsp_enabled_{self.call_sid}"):
+                    logger.info(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter)")
             except ImportError as e:
-                _orig_print(f"[DSP] WARNING: Could not import AudioDSPProcessor: {e}", flush=True)
-                _orig_print(f"[DSP] DSP disabled - audio will pass through unprocessed", flush=True)
+                logger.warning(f"[DSP] WARNING: Could not import AudioDSPProcessor: {e}")
+                logger.warning(f"[DSP] DSP disabled - audio will pass through unprocessed")
         else:
-            _orig_print(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)", flush=True)
+            # 🔥 PRODUCTION: Only log once per call
+            if once.once(f"dsp_disabled_{self.call_sid}"):
+                logger.debug(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)")
         
         # 🎯 SUCCESS METRICS: Track DSP/VAD effectiveness
         self._false_trigger_suspected_count = 0  # AI responded to noise/music (not real speech)
         self._missed_short_utterance_count = 0   # Short valid utterances missed ("כן", "לא", "הלו")
         
-        print("🎯 AI CONVERSATION STARTED")
+        # 🔥 CALL_START is a macro event - log as INFO
+        logger.info(f"[CALL_START] AI conversation started for {self.call_sid}")
         
         # מאפיינים לזיהוי עסק
         self.business_id = None  # ✅ יזוהה דינמית לפי to_number
@@ -2372,7 +2388,9 @@ class MediaStreamHandler:
                 utt_state["final_received"] = threading.Event()  # ⚡ NEW: wait for final
                 utt_state["last_partial"] = ""  # ⚡ NEW: save last partial as backup
             
-            if DEBUG: print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
+            # 🔥 PRODUCTION: Only log in development mode
+            if not DEBUG:
+                logger.debug(f"[UTTERANCE] {utt_state['id']} BEGIN for {self.call_sid[:8]}")
     
     def _utterance_end(self, timeout=0.850):
         """
@@ -2380,16 +2398,16 @@ class MediaStreamHandler:
         ⚡ BUILD 118: Increased timeout to 850ms - streaming STT needs time for final results
         """
         if not self.call_sid:
-            print("⚠️ _utterance_end: No call_sid")
+            logger.debug(f"[UTTERANCE] _utterance_end: No call_sid")
             return ""
         
         utt_state = _get_utterance_state(self.call_sid)
         if utt_state is None:
-            print(f"⚠️ _utterance_end: No utterance state for call {self.call_sid[:8]}")
+            logger.debug(f"[UTTERANCE] _utterance_end: No utterance state for call {self.call_sid[:8]}")
             return ""
         
         utt_id = utt_state.get("id", "???")
-        print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
+        logger.debug(f"[UTTERANCE] {self.call_sid[:8]} _utterance_end: Collecting results for {utt_id} (timeout={timeout}s)")
         
         # ⚡ BUILD 118: Wait 850ms for streaming results - allows time for final transcription
         # Streaming STT enabled by default → fast partial results
@@ -2400,9 +2418,9 @@ class MediaStreamHandler:
             got_final = final_event.wait(timeout=timeout)  # 850ms wait for streaming
             wait_duration = time.time() - wait_start
             if got_final:
-                print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Got final event in {wait_duration:.3f}s")
             else:
-                print(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_duration:.3f}s - using fallback")  
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Timeout after {wait_duration:.3f}s - using fallback")
         
         # Collect text - prioritize partial over finals
         with _registry_lock:
@@ -2416,13 +2434,13 @@ class MediaStreamHandler:
             # Use partial if available, otherwise finals
             if last_partial:
                 text = last_partial
-                print(f"✅ [{self.call_sid[:8]}] Using partial: '{text[:50]}...' ({len(text)} chars)")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Using partial: '{text[:50]}...' ({len(text)} chars)")
             elif finals_text:
                 text = finals_text
-                print(f"✅ [{self.call_sid[:8]}] Using final: '{text[:50]}...' ({len(text)} chars)")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} Using final: '{text[:50]}...' ({len(text)} chars)")
             else:
                 text = ""
-                print(f"⚠️ [{self.call_sid[:8]}] No text available - returning empty")
+                logger.debug(f"[UTTERANCE] {self.call_sid[:8]} No text available - returning empty")
             
             # Reset dispatcher
             utt_state["id"] = None
@@ -2431,9 +2449,9 @@ class MediaStreamHandler:
             utt_state["final_received"] = None
             utt_state["last_partial"] = ""
         
-        # ⚡ BUILD 114: Detailed latency logging
-        print(f"🏁 [{self.call_sid[:8]}] Utterance {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
-        print(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
+        # ⚡ BUILD 114: Detailed latency logging (DEBUG level to avoid production spam)
+        logger.debug(f"[UTTERANCE] {self.call_sid[:8]} {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
+        logger.debug(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
         
         return text
 
@@ -2496,10 +2514,8 @@ class MediaStreamHandler:
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
-        # 🔥 CRITICAL: Unconditional logs at the very top
-        _orig_print(f"🚀 [REALTIME] _run_realtime_mode_thread ENTERED for call {call_id} (FRESH SESSION)", flush=True)
-        logger.debug(f"[REALTIME] _run_realtime_mode_thread ENTERED for call {call_id}")
-        logger.debug(f"[REALTIME] Thread started for call {call_id}")
+        # 🔥 MACRO EVENT: Thread entry - log as INFO
+        logger.info(f"[REALTIME] Thread entered for call {call_id}")
         logger.debug(f"[REALTIME] About to run asyncio.run(_run_realtime_mode_async)...")
         
         try:
@@ -2511,11 +2527,9 @@ class MediaStreamHandler:
             # ═══════════════════════════════════════════════════════════════════════
             import traceback
             tb_str = traceback.format_exc()
-            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _run_realtime_mode_thread: {e}", flush=True)
-            _orig_print(f"🔥 [REALTIME_FATAL] call_id={call_id}", flush=True)
-            traceback.print_exc()
-            logger.error(f"[REALTIME_FATAL] Unhandled exception in thread for call {call_id}: {e}")
-            logger.error(f"[REALTIME_FATAL] Full traceback:\n{tb_str}")
+            logger.error(f"[REALTIME_FATAL] Unhandled exception in _run_realtime_mode_thread: {e}")
+            logger.error(f"[REALTIME_FATAL] call_id={call_id}")
+            logger.debug(f"[REALTIME_FATAL] Full traceback:\n{tb_str}")
             
             # Mark realtime as failed
             self.realtime_failed = True
@@ -2523,9 +2537,8 @@ class MediaStreamHandler:
             
             # Log metrics for failed call
             logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION")
-            _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
+            logger.warning(f"[REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})")
         finally:
-            print(f"🔚 [REALTIME] Thread ended for call {call_id}")
             logger.debug(f"[REALTIME] Thread ended for call {call_id}")
     
     async def _run_realtime_mode_async(self):
@@ -2578,7 +2591,7 @@ class MediaStreamHandler:
                     )
             except Exception as _sanitize_err:
                 # Never block the call on sanitizer issues; proceed with original prompt.
-                _orig_print(f"⚠️ [PROMPT_SANITIZE] Failed: {_sanitize_err}", flush=True)
+                logger.warning(f"[PROMPT_SANITIZE] Failed: {_sanitize_err}")
 
             # 🔥 SERVER-FIRST: For appointment calls we disable auto response creation so the server
             # can decide when/how to respond (verbatim injection after scheduling).
@@ -2643,18 +2656,17 @@ class MediaStreamHandler:
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
+                logger.info(f"[REALTIME] OpenAI connected in {connect_ms:.0f}ms")
                 
             except asyncio.TimeoutError:
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
-                logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
+                logger.error(f"[REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
-                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
+                logger.warning(f"[REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)")
                 return
                 
             except Exception as connect_err:
@@ -2664,27 +2676,26 @@ class MediaStreamHandler:
                 # 🔥 FIX #3: Enhanced error logging with full traceback for diagnostics
                 import traceback
                 error_details = traceback.format_exc()
-                _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
-                _orig_print(f"❌ [REALTIME] Error type: {type(connect_err).__name__}", flush=True)
-                _orig_print(f"❌ [REALTIME] Full traceback:\n{error_details}", flush=True)
-                logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
-                logger.error(f"[REALTIME] Full error details:\n{error_details}")
+                logger.error(f"[REALTIME] OpenAI connect error: {connect_err}")
+                logger.error(f"[REALTIME] Error type: {type(connect_err).__name__}")
+                logger.debug(f"[REALTIME] Full traceback:\n{error_details}")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
-                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
+                logger.warning(f"[REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})")
                 
                 # 🔥 FIX #3: Log call context for debugging
-                _orig_print(f"📊 [REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
+                logger.debug(f"[REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}")
                 return
             
             t_connected = time.time()
             
             # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
-                print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
-            if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
+                logger.warning(f"[PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
+            if not DEBUG:
+                logger.debug(f"[PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
             
@@ -4176,13 +4187,13 @@ class MediaStreamHandler:
                                     # Trigger new response
                                     try:
                                         await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
+                                        logger.info(f"[SERVER_ERROR] Retry response.create sent")
                                     except Exception as retry_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                        logger.error(f"[SERVER_ERROR] Failed to send retry: {retry_err}")
                                 
                                 else:
                                     # Already retried or call too long - graceful failure
-                                    _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
+                                    logger.warning(f"[SERVER_ERROR] Max retries reached or call too long - graceful hangup")
                                     
                                     # Send technical context (AI decides how to handle based on Business Prompt)
                                     failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
@@ -4191,9 +4202,9 @@ class MediaStreamHandler:
                                     # Trigger final response
                                     try:
                                         await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
+                                        logger.info(f"[SERVER_ERROR] Graceful failure response sent")
                                     except Exception as fail_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
+                                        logger.error(f"[SERVER_ERROR] Failed to send failure message: {fail_err}")
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # 🔥 FIX: Don't clear is_ai_speaking immediately - schedule drain check instead
@@ -8160,10 +8171,9 @@ class MediaStreamHandler:
         with self.close_lock:
             if self.closed:
                 # Already closed - this is idempotent
-                if DEBUG:
+                # 🔥 PRODUCTION: Only log in development mode
+                if not DEBUG:
                     logger.debug(f"[SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})")
-                else:
-                    _orig_print(f"🔒 [SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})", flush=True)
                 return
             
             # Mark as closed FIRST to prevent re-entry
@@ -8370,7 +8380,8 @@ class MediaStreamHandler:
                     session = stream_registry.get(self.call_sid)
                     if session and session.get('ended'):
                         end_reason = session.get('end_reason', 'external_signal')
-                        print(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
+                        # 🔥 CALL_END is a macro event - log as INFO
+                        logger.info(f"[CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
                         self.hangup_triggered = True
                         self.call_state = CallState.ENDED
                         break
