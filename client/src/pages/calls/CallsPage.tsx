@@ -125,11 +125,19 @@ export function CallsPage() {
     setCurrentPage(1);
   }, [debouncedSearchQuery, statusFilter, directionFilter]);
 
-  // Open lead in CRM - navigate to lead detail page
+  // Open lead in CRM - navigate to lead detail page with full context
   const openInCRM = async (call: Call) => {
-    // If call already has a lead_id, navigate directly
+    // If call already has a lead_id, navigate directly with context
     if (call.lead_id) {
-      navigate(`/app/leads/${call.lead_id}?from=inbound`);
+      const params = new URLSearchParams();
+      params.set('from', 'recent_calls');
+      
+      // Add filter context for navigation
+      if (debouncedSearchQuery) params.set('filterSearch', debouncedSearchQuery);
+      if (statusFilter && statusFilter !== 'all') params.set('filterStatus', statusFilter);
+      if (directionFilter && directionFilter !== 'all') params.set('filterDirection', directionFilter);
+      
+      navigate(`/app/leads/${call.lead_id}?${params.toString()}`);
       return;
     }
     
@@ -145,7 +153,14 @@ export function CallsPage() {
         const response = await http.get(`/api/leads?search=${encodeURIComponent(searchTerm)}`);
         if (response && (response as any).leads && (response as any).leads.length > 0) {
           const lead = (response as any).leads[0];
-          navigate(`/app/leads/${lead.id}?from=inbound`);
+          
+          const params = new URLSearchParams();
+          params.set('from', 'recent_calls');
+          if (debouncedSearchQuery) params.set('filterSearch', debouncedSearchQuery);
+          if (statusFilter && statusFilter !== 'all') params.set('filterStatus', statusFilter);
+          if (directionFilter && directionFilter !== 'all') params.set('filterDirection', directionFilter);
+          
+          navigate(`/app/leads/${lead.id}?${params.toString()}`);
           return;
         }
       } catch (error) {

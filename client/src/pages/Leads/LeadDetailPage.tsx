@@ -40,6 +40,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     const fromToPath: Record<string, string> = {
       outbound_calls: '/app/outbound-calls',
       inbound_calls: '/app/calls',
+      recent_calls: '/app/calls',
       whatsapp: '/app/whatsapp',
       leads: '/app/leads',
       // Legacy support
