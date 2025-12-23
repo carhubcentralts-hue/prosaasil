@@ -10,6 +10,7 @@ Endpoints:
 import os
 import re
 import logging
+from datetime import datetime
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from sqlalchemy import func
 from flask import Blueprint, jsonify, request, g
@@ -489,7 +490,6 @@ def import_outbound_leads():
     """
     import csv
     import io
-    from datetime import datetime
     from flask import session
     from server.models_sql import OutboundLeadList
     from typing import Any
@@ -1441,7 +1441,6 @@ def get_recent_calls():
     }
     """
     from flask import session
-    from datetime import datetime
     
     tenant_id = g.get('tenant')
     
@@ -1563,7 +1562,6 @@ def fill_queue_slots_for_job(job_id: int):
     """
     from server.app_factory import get_process_app
     from server.models_sql import OutboundCallRun, OutboundCallJob, Lead, Business, CallLog
-    from datetime import datetime
     
     app = get_process_app()
     
