@@ -18,49 +18,62 @@ SHORT_HEBREW_OPENER_WHITELIST = {
 }
 
 
-def should_accept_realtime_utterance_test(stt_text: str) -> bool:
+def should_accept_realtime_utterance_test(stt_text: str, utterance_ms: float = 500) -> bool:
     """
     Simplified version of should_accept_realtime_utterance for testing
+    Includes the new SAFETY checks: whitelist + duration requirement
     """
     # Only reject completely empty text
     if not stt_text or not stt_text.strip():
         return False
     
-    # Check whitelist FIRST for short Hebrew greetings
+    # Check whitelist for short Hebrew greetings
+    # ⚡ NEW: Whitelist bypasses min_chars only, NOT all validation
+    # Still requires minimum duration (200ms) to avoid noise
     text_clean = stt_text.strip().lower()
-    if text_clean in SHORT_HEBREW_OPENER_WHITELIST:
-        print(f"  [WHITELIST] Accepted short Hebrew opener: '{stt_text}'")
-        return True
+    is_whitelisted = text_clean in SHORT_HEBREW_OPENER_WHITELIST
+    
+    if is_whitelisted:
+        MIN_WHITELIST_DURATION_MS = 200
+        
+        if utterance_ms >= MIN_WHITELIST_DURATION_MS:
+            print(f"  [WHITELIST] Accepted short Hebrew opener: '{stt_text}' (duration={utterance_ms:.0f}ms)")
+            return True
+        else:
+            print(f"  [WHITELIST] REJECTED - duration too short: {utterance_ms:.0f}ms < {MIN_WHITELIST_DURATION_MS}ms (likely noise)")
+            return False
     
     # Everything else is accepted - NO FILTERS
     return True
 
 
 def test_greeting_pending_guard():
-    """Test 1: GREETING_PENDING should be blocked when user has spoken"""
+    """Test 1: GREETING_PENDING should be blocked when user has spoken OR response_count > 0"""
     print("\n" + "="*80)
     print("TEST 1: GREETING_PENDING Guard")
     print("="*80)
     
     # Simulate the guard conditions
     test_cases = [
-        # (greeting_sent, user_has_spoken, ai_response_active, should_allow)
-        (False, False, False, True),   # ✅ Allow: No greeting, no user, no AI
-        (True, False, False, False),   # ❌ Block: Greeting already sent
-        (False, True, False, False),   # ❌ Block: User already spoke
-        (False, False, True, False),   # ❌ Block: AI response active
-        (True, True, True, False),     # ❌ Block: All flags set
+        # (greeting_sent, user_has_spoken, ai_response_active, response_count, should_allow)
+        (False, False, False, 0, True),    # ✅ Allow: No greeting, no user, no AI, no responses
+        (True, False, False, 0, False),    # ❌ Block: Greeting already sent
+        (False, True, False, 0, False),    # ❌ Block: User already spoke
+        (False, False, True, 0, False),    # ❌ Block: AI response active
+        (False, False, False, 1, False),   # ❌ Block: Response count > 0 (SAFETY VALVE)
+        (True, True, True, 1, False),      # ❌ Block: All flags set
     ]
     
     passed = 0
     failed = 0
     
-    for i, (greeting_sent, user_has_spoken, ai_response_active, should_allow) in enumerate(test_cases, 1):
-        # Simulate the guard logic from our fix
+    for i, (greeting_sent, user_has_spoken, ai_response_active, response_count, should_allow) in enumerate(test_cases, 1):
+        # Simulate the guard logic from our fix (WITH response_count)
         can_trigger = (
             not greeting_sent and 
             not user_has_spoken and 
-            not ai_response_active
+            not ai_response_active and
+            response_count == 0
         )
         
         expected = "ALLOW" if should_allow else "BLOCK"
@@ -68,7 +81,7 @@ def test_greeting_pending_guard():
         status = "✅ PASS" if (can_trigger == should_allow) else "❌ FAIL"
         
         print(f"\nCase {i}: greeting_sent={greeting_sent}, user_has_spoken={user_has_spoken}, "
-              f"ai_response_active={ai_response_active}")
+              f"ai_response_active={ai_response_active}, response_count={response_count}")
         print(f"  Expected: {expected}, Actual: {actual} - {status}")
         
         if can_trigger == should_allow:
@@ -81,32 +94,34 @@ def test_greeting_pending_guard():
 
 
 def test_short_hebrew_opener_whitelist():
-    """Test 3: Short Hebrew greetings should pass STT_GUARD"""
+    """Test 3: Short Hebrew greetings should pass STT_GUARD with duration check"""
     print("\n" + "="*80)
-    print("TEST 3: Short Hebrew Opener Whitelist")
+    print("TEST 3: Short Hebrew Opener Whitelist (with duration safety)")
     print("="*80)
     
-    # Test cases: (text, should_pass, description)
+    # Test cases: (text, duration_ms, should_pass, description)
     test_cases = [
-        ("הלו", True, "Most common Hebrew phone greeting"),
-        ("כן", True, "Yes - very common response"),
-        ("מה", True, "What - common question"),
-        ("מי זה", True, "Who is it"),
-        ("רגע", True, "Wait/moment"),
-        ("שומע", True, "Listening"),
-        ("", False, "Empty string should be rejected"),
-        ("beep", True, "Non-Hebrew but has text (no filters applied)"),
-        ("long phrase with multiple words", True, "Long text should always pass"),
+        ("הלו", 500, True, "Most common Hebrew phone greeting - good duration"),
+        ("הלו", 150, False, "Same greeting but TOO SHORT - likely noise (< 200ms)"),
+        ("כן", 300, True, "Yes - valid duration"),
+        ("כן", 180, False, "Yes - but duration too short (< 200ms)"),
+        ("מה", 250, True, "What - valid duration"),
+        ("מי זה", 400, True, "Who is it - good duration"),
+        ("רגע", 350, True, "Wait/moment - valid"),
+        ("שומע", 300, True, "Listening - valid"),
+        ("", 500, False, "Empty string should be rejected even with good duration"),
+        ("beep", 500, True, "Non-Hebrew but has text (no filters applied)"),
+        ("long phrase with multiple words", 1000, True, "Long text should always pass"),
     ]
     
     passed = 0
     failed = 0
     
-    for i, (text, should_pass, description) in enumerate(test_cases, 1):
-        result = should_accept_realtime_utterance_test(text)
+    for i, (text, duration_ms, should_pass, description) in enumerate(test_cases, 1):
+        result = should_accept_realtime_utterance_test(text, duration_ms)
         
         status = "✅ PASS" if (result == should_pass) else "❌ FAIL"
-        print(f"\nCase {i}: '{text}'")
+        print(f"\nCase {i}: '{text}' (duration={duration_ms}ms)")
         print(f"  Description: {description}")
         print(f"  Expected: {'ACCEPT' if should_pass else 'REJECT'}, "
               f"Actual: {'ACCEPT' if result else 'REJECT'} - {status}")

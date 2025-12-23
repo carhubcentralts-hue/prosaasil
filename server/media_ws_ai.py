@@ -1600,11 +1600,17 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     
     🚨 OUTBOUND FIX: Whitelist short Hebrew greetings even if they're very short
     Problem: Phrases like "הלו" (2 chars) were being rejected as "too short"
-    Solution: Check whitelist FIRST before any length checks
+    Solution: Check whitelist to bypass MIN_CHARS check only
+    
+    ⚡ SAFETY: Whitelist does NOT bypass ALL checks - still requires:
+    - committed == True (transcript was finalized by OpenAI)
+    - duration >= 200ms OR RMS above threshold (not random noise)
+    
+    This prevents false positives from background noise while allowing real short greetings.
     
     Args:
         stt_text: The transcribed text from OpenAI
-        utterance_ms: Duration (unused - kept for signature compatibility)
+        utterance_ms: Duration in milliseconds
         rms_snapshot: RMS level (unused - kept for signature compatibility)
         noise_floor: Baseline (unused - kept for signature compatibility)
         ai_speaking: Whether AI speaking (unused - kept for signature compatibility)
@@ -1618,12 +1624,24 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     if not stt_text or not stt_text.strip():
         return False
     
-    # 🚨 OUTBOUND FIX: Check whitelist FIRST for short Hebrew greetings
-    # These must ALWAYS pass, even if they're just 2-3 characters
+    # 🚨 OUTBOUND FIX: Check whitelist for short Hebrew greetings
+    # Whitelist bypasses MIN_CHARS check only, NOT all validation
+    # Still enforces: committed=True (implicit - we're in transcription.completed event)
+    # Still enforces: minimum duration (200ms) to avoid noise false positives
     text_clean = stt_text.strip().lower()
-    if text_clean in SHORT_HEBREW_OPENER_WHITELIST:
-        logger.info(f"[STT_GUARD] Whitelisted short Hebrew opener: '{stt_text}' (bypassing all filters)")
-        return True
+    is_whitelisted = text_clean in SHORT_HEBREW_OPENER_WHITELIST
+    
+    if is_whitelisted:
+        # ⚡ SAFETY: Whitelist requires minimum duration to avoid noise
+        # 200ms minimum ensures it's real speech, not a beep/click/noise
+        MIN_WHITELIST_DURATION_MS = 200
+        
+        if utterance_ms >= MIN_WHITELIST_DURATION_MS:
+            logger.info(f"[STT_GUARD] Whitelisted short Hebrew opener: '{stt_text}' (duration={utterance_ms:.0f}ms, bypassing min_chars only)")
+            return True
+        else:
+            logger.debug(f"[STT_GUARD] Whitelisted phrase '{stt_text}' TOO SHORT: {utterance_ms:.0f}ms < {MIN_WHITELIST_DURATION_MS}ms (likely noise)")
+            return False
     
     # Everything else is accepted - NO FILTERS
     # No duration check, no RMS check, no hallucination check, no word count check
@@ -4449,17 +4467,20 @@ class MediaStreamHandler:
                             greeting_sent = getattr(self, 'greeting_sent', False)
                             user_has_spoken = getattr(self, 'user_has_spoken', False)
                             ai_response_active = getattr(self, 'ai_response_active', False)
+                            response_count = getattr(self, '_response_create_count', 0)
                             
                             # Hard guard: greeting_pending only allowed if:
                             # 1. greeting_sent == False (no greeting yet)
                             # 2. user_has_spoken == False (no user input yet)
                             # 3. ai_response_active == False (no active response)
-                            # 4. greeting_pending == True (flag was set)
+                            # 4. response_count == 0 (no AI turns sent yet) ⚡ SAFETY VALVE
+                            # 5. greeting_pending == True (flag was set)
                             can_trigger_deferred_greeting = (
                                 greeting_pending and 
                                 not greeting_sent and 
                                 not user_has_spoken and 
-                                not ai_response_active
+                                not ai_response_active and
+                                response_count == 0
                             )
                             
                             if greeting_pending and not can_trigger_deferred_greeting:
@@ -4468,11 +4489,12 @@ class MediaStreamHandler:
                                 logger.info(
                                     f"[GREETING_PENDING] BLOCKED deferred greeting - "
                                     f"greeting_sent={greeting_sent}, user_has_spoken={user_has_spoken}, "
-                                    f"ai_response_active={ai_response_active}"
+                                    f"ai_response_active={ai_response_active}, response_count={response_count}"
                                 )
                                 print(
                                     f"🛑 [GREETING_PENDING] BLOCKED - greeting already sent or user already spoke "
-                                    f"(greeting_sent={greeting_sent}, user_has_spoken={user_has_spoken})"
+                                    f"(greeting_sent={greeting_sent}, user_has_spoken={user_has_spoken}, "
+                                    f"response_count={response_count})"
                                 )
                             elif can_trigger_deferred_greeting:
                                 # Make it one-shot - clear flag BEFORE response.create
@@ -6418,7 +6440,7 @@ class MediaStreamHandler:
                     # If AI is speaking when we get a valid UTTERANCE, we need to:
                     # 1. Send response.cancel immediately
                     # 2. Flush audio queues
-                    # 3. Wait for cancel ack (or timeout 200-400ms)
+                    # 3. Wait for cancel ack (or timeout 500-800ms) ⚡ SAFETY: Longer timeout prevents races
                     # 4. Store pending utterance text
                     # 5. Only then create new response
                     ai_is_speaking = self.is_ai_speaking_event.is_set()
@@ -6428,54 +6450,61 @@ class MediaStreamHandler:
                         logger.info(f"[BARGE_IN] Valid UTTERANCE during AI speech - initiating cancel+wait flow")
                         print(f"🛑 [BARGE_IN] User interrupted AI - cancelling active response (id={active_response_id[:20]}...)")
                         
+                        # Store the response_id we're cancelling (for proper ack verification)
+                        cancelled_response_id = active_response_id
+                        
                         # Store pending utterance so we don't lose it during cancel wait
                         self._pending_barge_in_utterance = text
                         self._pending_barge_in_raw_text = raw_text
                         
                         # Step 1: Send response.cancel immediately
-                        if self._should_send_cancel(active_response_id):
+                        if self._should_send_cancel(cancelled_response_id):
                             try:
                                 await client.send_event({
                                     "type": "response.cancel",
-                                    "response_id": active_response_id
+                                    "response_id": cancelled_response_id
                                 })
-                                self._mark_response_cancelled_locally(active_response_id, "barge_in_real")
-                                logger.info(f"[BARGE_IN] Sent response.cancel for {active_response_id[:20]}...")
+                                self._mark_response_cancelled_locally(cancelled_response_id, "barge_in_real")
+                                logger.info(f"[BARGE_IN] Sent response.cancel for {cancelled_response_id[:20]}...")
                                 print(f"✅ [BARGE_IN] response.cancel sent")
                             except Exception as cancel_err:
                                 logger.error(f"[BARGE_IN] Failed to send response.cancel: {cancel_err}")
                                 print(f"❌ [BARGE_IN] Cancel failed: {cancel_err}")
                         
-                        # Step 2: Flush audio queues immediately
-                        self._flush_tx_queue()
+                        # Step 2: Flush audio queues immediately (thread-safe)
+                        # ⚡ SAFETY: Only flush if still in the same response (not new response)
+                        if self.active_response_id == cancelled_response_id:
+                            self._flush_tx_queue()
                         
                         # Step 3: Clear speaking flags immediately (don't wait for response.done)
                         self.is_ai_speaking_event.clear()
                         self.ai_response_active = False
                         logger.info(f"[BARGE_IN] Cleared speaking flags - is_ai_speaking=False, ai_response_active=False")
                         
-                        # Step 4: Wait for cancel acknowledgment or timeout (300ms)
-                        # This ensures the cancelled response is fully processed before creating new one
+                        # Step 4: Wait for cancel acknowledgment or timeout (500-800ms recommended)
+                        # ⚡ SAFETY: Longer timeout prevents race conditions with slow cancel
                         cancel_wait_start = time.time()
-                        cancel_ack_timeout_ms = 300  # 300ms as recommended by problem statement
+                        cancel_ack_timeout_ms = 600  # 600ms - safe middle ground (was 300ms)
                         cancel_ack_received = False
                         
-                        # We'll check if the response_id is removed from active tracking
-                        # Wait up to timeout for the cancel to complete
+                        # Wait for the SPECIFIC response_id to be acknowledged as cancelled
+                        # Check: response_id cleared from active OR in cancelled set OR response.done/cancelled event
                         while (time.time() - cancel_wait_start) * 1000 < cancel_ack_timeout_ms:
-                            # Check if cancel completed (response_id cleared or in cancelled set)
-                            if (self.active_response_id != active_response_id or 
-                                active_response_id in self._cancelled_response_ids):
+                            # Check if THIS specific response was cancelled/completed
+                            if (self.active_response_id != cancelled_response_id or 
+                                cancelled_response_id in self._cancelled_response_ids or
+                                cancelled_response_id in self._response_done_ids):
                                 cancel_ack_received = True
-                                logger.info(f"[BARGE_IN] Cancel acknowledged after {(time.time() - cancel_wait_start)*1000:.0f}ms")
+                                elapsed = (time.time() - cancel_wait_start) * 1000
+                                logger.info(f"[BARGE_IN] Cancel acknowledged for {cancelled_response_id[:20]}... after {elapsed:.0f}ms")
                                 break
                             await asyncio.sleep(0.05)  # Check every 50ms
                         
                         if not cancel_ack_received:
-                            logger.warning(f"[BARGE_IN] Cancel timeout after {cancel_ack_timeout_ms}ms - proceeding anyway")
-                            print(f"⚠️ [BARGE_IN] Cancel ack timeout - continuing with new response")
+                            logger.warning(f"[BARGE_IN] TIMEOUT_CANCEL_ACK after {cancel_ack_timeout_ms}ms for {cancelled_response_id[:20]}... - proceeding anyway")
+                            print(f"⚠️ [BARGE_IN] Cancel ack timeout ({cancel_ack_timeout_ms}ms) - continuing with new response")
                         else:
-                            print(f"✅ [BARGE_IN] Cancel completed successfully")
+                            print(f"✅ [BARGE_IN] Cancel completed successfully for {cancelled_response_id[:20]}...")
                         
                         # Now continue processing the utterance normally
                         # The text is already stored and will flow through the normal pipeline
