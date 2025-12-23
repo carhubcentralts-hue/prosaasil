@@ -2304,6 +2304,45 @@ class MediaStreamHandler:
         self._last_user_turn_timestamp = 0.0  # Timestamp of last user utterance
         self._watchdog_retry_done = False  # Prevents multiple watchdog retries in same turn
 
+    def _drop_frames(self, reason: str, count: int):
+        """
+        🔥 OUTBOUND FIX: Centralized frame drop tracking with proper categorization.
+        
+        All frame drops MUST go through this function to ensure proper accounting.
+        This prevents frames_dropped_unknown from being non-zero in production.
+        
+        Args:
+            reason: Category of drop - one of: greeting_lock, filters, queue_full, 
+                   bargein_flush, tx_overflow, shutdown_drain
+            count: Number of frames dropped
+        """
+        if count <= 0:
+            return
+        
+        # Update total counter
+        self._frames_dropped_total = getattr(self, '_frames_dropped_total', 0) + count
+        
+        # Update category counter
+        if reason == "greeting_lock":
+            self._frames_dropped_by_greeting_lock += count
+        elif reason == "filters":
+            self._frames_dropped_by_filters += count
+        elif reason == "queue_full":
+            self._frames_dropped_by_queue_full += count
+        elif reason == "bargein_flush":
+            self._frames_dropped_bargein_flush += count
+        elif reason == "tx_overflow":
+            self._frames_dropped_tx_queue_overflow += count
+        elif reason == "shutdown_drain":
+            self._frames_dropped_shutdown_drain += count
+        else:
+            # Unknown reason - log error
+            self._frames_dropped_unknown += count
+            logger.error(f"[FRAME_DROP] UNKNOWN reason='{reason}' count={count} - FIX THIS!")
+        
+        # Log at debug level to avoid spam
+        logger.debug(f"[FRAME_DROP] reason={reason} count={count} total={self._frames_dropped_total}")
+
     def _build_realtime_tools_for_call(self) -> list:
         """
         🎯 SMART TOOL SELECTION for Realtime phone calls
@@ -5423,13 +5462,18 @@ class MediaStreamHandler:
                                                 # Queue is stuck - check if tx_running is False
                                                 if not getattr(self, 'tx_running', False):
                                                     print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
-                                                    # Clear the stuck queue
+                                                    # Clear the stuck queue with proper tracking
+                                                    cleared = 0
                                                     while not self.tx_q.empty():
                                                         try:
                                                             self.tx_q.get_nowait()
+                                                            cleared += 1
                                                         except queue.Empty:
                                                             break
-                                                    print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
+                                                    # Track the dropped frames
+                                                    if cleared > 0:
+                                                        self._drop_frames("shutdown_drain", cleared)
+                                                    print(f"🧹 [POLITE HANGUP] Cleared {cleared} stuck frames from TX queue")
                                                     break
                                         else:
                                             stuck_iterations = 0  # Reset on progress
@@ -8557,6 +8601,7 @@ class MediaStreamHandler:
                         except:
                             break
                     if cleared > 0:
+                        self._drop_frames("shutdown_drain", cleared)
                         _orig_print(f"   🧹 Cleared {cleared} frames from TX queue", flush=True)
                 if hasattr(self, 'realtime_audio_out_queue'):
                     cleared = 0
@@ -8567,6 +8612,7 @@ class MediaStreamHandler:
                         except:
                             break
                     if cleared > 0:
+                        self._drop_frames("shutdown_drain", cleared)
                         _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
             
             # STEP 6: Close Twilio WebSocket
@@ -9956,6 +10002,7 @@ class MediaStreamHandler:
                 self.tx_q.get_nowait()
                 cleared_count += 1
             if cleared_count > 0:
+                self._drop_frames("bargein_flush", cleared_count)
                 print(f"✅ TX_QUEUE_CLEARED: Removed {cleared_count} pending audio frames")
         except Exception as e:
             print(f"⚠️ TX_CLEAR_FAILED: {e}")
