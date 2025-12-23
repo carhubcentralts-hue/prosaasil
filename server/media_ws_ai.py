@@ -4013,12 +4013,20 @@ class MediaStreamHandler:
             if not self.human_confirmed and not self._human_confirm_timeout_triggered:
                 self._human_confirm_timeout_triggered = True
                 
-                # Check for real voice activity indicators
+                # Check for real voice activity indicators (strong check - require >=250ms speech)
+                # Calculate speech duration if VAD detected voice
+                speech_duration_ms = 0
+                if getattr(self, '_last_user_voice_started_ts', None) is not None:
+                    speech_duration_ms = (time.time() - self._last_user_voice_started_ts) * 1000
+                
                 has_speech_activity = (
                     getattr(self, '_realtime_speech_active', False) or  # OpenAI detected speech
                     getattr(self, 'user_utterance_count', 0) > 0 or     # Got any utterance
-                    getattr(self, '_last_user_voice_started_ts', None) is not None  # VAD detected voice
+                    (speech_duration_ms >= 250)  # VAD detected voice for >=250ms
                 )
+                
+                logger.info(f"[OUTBOUND_GATE] TIMEOUT voice_check: speech_active={getattr(self, '_realtime_speech_active', False)}, "
+                           f"utterances={getattr(self, 'user_utterance_count', 0)}, speech_duration_ms={speech_duration_ms:.0f}")
                 
                 if has_speech_activity:
                     # Real voice detected - enable normal mode
@@ -5071,22 +5079,19 @@ class MediaStreamHandler:
                     tx_queue_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                     realtime_queue_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                     
-                    # is_actually_playing: Audio was sent in last 250-400ms OR queues have pending audio
-                    is_actually_playing = (
-                        (last_audio_sent_ms < 350) or  # Audio sent recently (350ms window)
-                        (tx_queue_size > 0) or         # TX queue has pending frames
-                        (realtime_queue_size > 0)      # OpenAI queue has pending audio
-                    )
+                    # is_actually_playing: PRIMARY check is recent audio output (< 350ms)
+                    # This is the most reliable indicator that audio is being sent to Twilio
+                    is_actually_playing = (last_audio_sent_ms < 350)
                     
-                    # Log barge-in decision details
+                    # Log barge-in decision details (queues for diagnostics only)
                     if has_active_response:
                         logger.info(
                             f"[BARGE_IN] Decision check: "
                             f"active_resp_id={self.active_response_id[:20] if self.active_response_id else 'None'}... | "
                             f"actually_playing={is_actually_playing} | "
                             f"last_audio_ms={last_audio_sent_ms:.0f} | "
-                            f"tx_q={tx_queue_size} | "
-                            f"realtime_q={realtime_queue_size}"
+                            f"tx_q={tx_queue_size} (diagnostic) | "
+                            f"realtime_q={realtime_queue_size} (diagnostic)"
                         )
                     
                     # 🔥 GOLDEN RULE (REFINED): Cancel only if AI is ACTUALLY sending audio
@@ -5117,42 +5122,22 @@ class MediaStreamHandler:
                             logger.debug("[BARGE-IN] Skip cancel: not active / already done / cooldown")
                     elif has_active_response and not is_actually_playing:
                         # Response exists but no audio playing yet - DON'T cancel, let it play
+                        # The user's utterance will be handled normally after response.done
                         logger.info(
-                            f"[BARGE_IN] Skipped: not_actually_playing "
-                            f"(ai_response_active=True but no audio output recently)"
+                            f"[BARGE_IN] Skipped cancel: not_actually_playing "
+                            f"(response_id={self.active_response_id[:20] if self.active_response_id else 'None'}... exists but no audio output yet)"
                         )
-                        print(f"⏸️ [BARGE_IN] Skipped: response created but no audio sent yet (let it play)")
+                        print(f"⏸️ [BARGE_IN] Response exists but not playing - will handle utterance after response.done")
                         
-                        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
-                        # 🔥 CRITICAL: Clear Twilio queue immediately to prevent AI audio from continuing
-                        if self.stream_sid:
-                            try:
-                                clear_event = {
-                                    "event": "clear",
-                                    "streamSid": self.stream_sid
-                                }
-                                self._ws_send(json.dumps(clear_event))
-                                logger.debug("[BARGE-IN] Sent Twilio clear event")
-                            except Exception as e:
-                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
-                        
-                        # Step 3: Flush TX queue (clear all pending audio frames)
-                        # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
-                        self._flush_tx_queue()
-                        
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
-                        # 🔥 NOTE: For barge-in, clear is_ai_speaking IMMEDIATELY after queue flush
-                        # This is different from natural completion (response.audio.done) which waits for drain
-                        # Barge-in = forced interruption, so immediate clear is correct
-                        self.is_ai_speaking_event.clear()
-                        self.active_response_id = None
-                        if hasattr(self, 'ai_response_active'):
-                            self.ai_response_active = False
-                        
-                        # Step 5: Set barge-in flag with timestamp
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        # Mark that we have a pending user utterance to process after response completes
+                        # This ensures we don't lose the user's speech
+                        if not hasattr(self, '_pending_utterances'):
+                            self._pending_utterances = []
+                        self._pending_utterances.append({
+                            'timestamp': time.time(),
+                            'source': 'speech_started_during_response_creation'
+                        })
+                        logger.info("[BARGE_IN] Marked pending utterance - will process after response.done")
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
@@ -9276,22 +9261,9 @@ class MediaStreamHandler:
                             # 🔥 NEW REQUIREMENT A: Set call_mode for outbound calls
                             if self.call_direction == "outbound":
                                 self.call_mode = "outbound_prompt_only"
-                                self.human_confirmed = False  # Start False, becomes True after first valid STT
+                                self.human_confirmed = False  # Start False, becomes True after first valid STT or real-time AMD event
                                 print(f"🔒 [OUTBOUND] call_mode=outbound_prompt_only, human_confirmed=False")
-                                
-                                # 🔥 NEW: Check AMD status from database
-                                # If AMD already confirmed human, set human_confirmed=True immediately
-                                if self.call_sid:
-                                    try:
-                                        from server.models_sql import CallLog
-                                        from server.routes_twilio import AMD_STATUS_HUMAN
-                                        call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                                        if call_log and call_log.status == AMD_STATUS_HUMAN:
-                                            self.human_confirmed = True
-                                            logger.info("[OUTBOUND_GATE] AMD status=human → CONFIRMED")
-                                            print(f"✅ [OUTBOUND_GATE] AMD confirmed human - setting human_confirmed=True")
-                                    except Exception as amd_check_err:
-                                        logger.debug(f"[OUTBOUND_GATE] AMD check failed (non-critical): {amd_check_err}")
+                                logger.info("[OUTBOUND_GATE] status=WAITING - will rely on STT/timeout (not DB AMD)")
                             else:
                                 self.human_confirmed = True  # Inbound: human is already on the line
                         
