@@ -61,6 +61,8 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
       if (filters.status) params.append('status', filters.status);
       if (filters.source) params.append('source', filters.source);
       if (filters.owner_user_id) params.append('owner_user_id', filters.owner_user_id.toString());
+      if (filters.outbound_list_id) params.append('outbound_list_id', filters.outbound_list_id.toString());
+      if (filters.direction) params.append('direction', filters.direction);
       if (filters.page) params.append('page', filters.page.toString());
       if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());
 

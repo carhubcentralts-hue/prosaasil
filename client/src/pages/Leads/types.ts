@@ -105,6 +105,10 @@ export interface LeadFilters {
   status?: LeadStatus;
   source?: LeadSource;
   owner_user_id?: number;
+  outbound_list_id?: string;
+  direction?: string;
+  dateFrom?: string;
+  dateTo?: string;
   page?: number;
   pageSize?: number;
 }
