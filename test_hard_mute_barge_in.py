@@ -13,6 +13,11 @@ Key improvements tested:
 import sys
 import time
 
+# Test constants
+HARD_MUTE_DURATION_MS = 400  # Default HARD_MUTE duration in milliseconds
+MUTE_CHECK_OFFSET_MS = 100  # Time offset for checking during mute (ms)
+MUTE_EXPIRY_OFFSET_MS = 500  # Time offset for checking after expiry (ms)
+
 
 class TestHardMuteMechanism:
     """Test HARD_MUTE window for barge-in"""
@@ -20,9 +25,8 @@ class TestHardMuteMechanism:
     def test_hard_mute_activates_on_barge_in(self):
         """Verify HARD_MUTE window is set when barge-in occurs"""
         # Simulate barge-in
-        hard_mute_duration_ms = 400
         now = time.time()
-        hard_mute_until_ts = now + (hard_mute_duration_ms / 1000.0)
+        hard_mute_until_ts = now + (HARD_MUTE_DURATION_MS / 1000.0)
         
         # Verify mute window is set
         assert hard_mute_until_ts > now, "HARD_MUTE window should be in the future"
@@ -32,12 +36,11 @@ class TestHardMuteMechanism:
     def test_audio_blocked_during_hard_mute(self):
         """Verify audio is blocked during HARD_MUTE period"""
         # Set HARD_MUTE window
-        hard_mute_duration_ms = 400
         now = time.time()
-        hard_mute_until_ts = now + (hard_mute_duration_ms / 1000.0)
+        hard_mute_until_ts = now + (HARD_MUTE_DURATION_MS / 1000.0)
         
-        # Check if audio should be blocked
-        current_time = now + 0.1  # 100ms after mute start
+        # Check if audio should be blocked (during mute period)
+        current_time = now + (MUTE_CHECK_OFFSET_MS / 1000.0)  # 100ms after mute start
         should_block = current_time < hard_mute_until_ts
         
         assert should_block, "Audio should be blocked during HARD_MUTE period"
@@ -45,12 +48,11 @@ class TestHardMuteMechanism:
     def test_audio_allowed_after_hard_mute_expires(self):
         """Verify audio is allowed after HARD_MUTE window expires"""
         # Set HARD_MUTE window
-        hard_mute_duration_ms = 400
         now = time.time()
-        hard_mute_until_ts = now + (hard_mute_duration_ms / 1000.0)
+        hard_mute_until_ts = now + (HARD_MUTE_DURATION_MS / 1000.0)
         
         # Check after expiry
-        current_time = now + 0.5  # 500ms after mute start (expired)
+        current_time = now + (MUTE_EXPIRY_OFFSET_MS / 1000.0)  # 500ms after mute start (expired)
         should_block = current_time < hard_mute_until_ts
         
         assert not should_block, "Audio should be allowed after HARD_MUTE expires"
@@ -58,12 +60,11 @@ class TestHardMuteMechanism:
     def test_hard_mute_clears_after_expiry(self):
         """Verify HARD_MUTE flag is cleared after expiry"""
         # Set HARD_MUTE window
-        hard_mute_duration_ms = 400
         now = time.time()
-        hard_mute_until_ts = now + (hard_mute_duration_ms / 1000.0)
+        hard_mute_until_ts = now + (HARD_MUTE_DURATION_MS / 1000.0)
         
         # Simulate checking after expiry
-        current_time = now + 0.5
+        current_time = now + (MUTE_EXPIRY_OFFSET_MS / 1000.0)  # 500ms after mute start
         if hard_mute_until_ts and current_time >= hard_mute_until_ts:
             # Clear the flag
             hard_mute_until_ts = None
