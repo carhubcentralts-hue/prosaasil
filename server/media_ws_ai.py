@@ -1307,23 +1307,6 @@ _REAL_HANGUP_NIKUD_RE = re.compile(r"[\u0591-\u05C7]")
 _REAL_HANGUP_PUNCT_RE = re.compile(r"[\"'“”‘’`´~!?.…,;:\(\)\[\]\{\}\-–—_/\\|]+")
 
 
-
-# 🔥 PRODUCTION HANGUP RULES: Only 2 allowed reasons
-# The system can ONLY disconnect in two scenarios:
-# 1. Silence: After 30 seconds of complete inactivity (no user voice AND no AI audio TX)
-# 2. Bot Goodbye: Only when the BOT says goodbye phrases (user saying "bye" does NOT disconnect)
-ALLOWED_HANGUP_REASONS = {
-    "hard_silence_30s",  # 30 seconds of complete silence (no RX + no TX)
-    "bot_goodbye",       # Bot said goodbye/bye/להתראות (ONLY bot, not user)
-}
-
-# Invalid reasons - ALL others are blocked (including user_goodbye, flow_completed, etc.)
-BLOCKED_HANGUP_REASONS = [
-    "queue_empty", "audio_done", "response.done", "response.audio.done",
-    "silence_timeout", "hard_silence_timeout", "user_goodbye", 
-    "flow_completed", "idle_timeout_no_user_speech", "voicemail_detected"
-]
-
 def _normalize_for_real_hangup(text: str) -> str:
     """
     Normalize text for hangup intent matching:
@@ -2009,7 +1992,7 @@ class MediaStreamHandler:
         # ✅ HARD SILENCE WATCHDOG (telephony): hang up on real inactivity (not AI-dependent)
         # Updated on input_audio_buffer.speech_started and response.audio.delta.
         self._last_user_voice_started_ts = None
-        self._hard_silence_hangup_sec = 30.0  # 🔥 PRODUCTION: 30 seconds of continuous silence
+        self._hard_silence_hangup_sec = 20.0  # 🔥 AUTO-HANGUP: 20 seconds of continuous silence
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
@@ -4365,28 +4348,6 @@ class MediaStreamHandler:
                     # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
                     self._last_user_voice_started_ts = time.time()
                     
-                    # 🔥 PRODUCTION: Cancel silence-based pending hangups when user speaks
-                    # If pending hangup is due to silence and user just spoke, cancel it
-                    if getattr(self, "pending_hangup", False):
-                        pending_reason = getattr(self, "pending_hangup_reason", None)
-                        # Cancel ONLY hard_silence_30s (not bot_goodbye)
-                        if pending_reason == "hard_silence_30s":
-                            force_print(
-                                f"[HANGUP_CANCEL] User spoke - cancelling silence hangup (reason={pending_reason})"
-                            )
-                            logger.info(f"[HANGUP_CANCEL] Cancelled {pending_reason} due to user speech")
-                            self.pending_hangup = False
-                            self.pending_hangup_reason = None
-                            self.pending_hangup_source = None
-                            self.pending_hangup_response_id = None
-                            # Cancel fallback timer if any
-                            try:
-                                t = getattr(self, "_pending_hangup_fallback_task", None)
-                                if t and not t.done():
-                                    t.cancel()
-                            except Exception:
-                                pass
-                    
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
                     if DEBUG:
@@ -4989,140 +4950,113 @@ class MediaStreamHandler:
                     self.active_response_id = None  # Clear response ID
                     self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                     
-                    # 🔥 FIX: response.audio.done should ONLY update audio state, NOT cause hangup
-                    # Hangup is executed ONLY if pending_hangup was previously set by request_hangup()
-                    # with a valid reason (e.g., user_goodbye, silence_timeout, etc.)
-                    # 
-                    # Rule: response.audio.done = "AI finished speaking", NOT a hangup trigger
-                    # pending_hangup is set ONLY by request_hangup(reason), NOT by OpenAI events
-                    if event_type == "response.audio.done":
-                        # Log state update (NOT hangup)
-                        print(f"🔇 [AUDIO_STATE] AI finished speaking (response.audio.done) - ai_speaking=False")
-                        
-                        # Check if hangup was PREVIOUSLY requested with a valid reason
-                        if self.pending_hangup and not self.hangup_triggered:
-                            pending_id = getattr(self, "pending_hangup_response_id", None)
-                            done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
-                            
-                            # Log that hangup was PREVIOUSLY requested (not triggered by audio.done)
-                            hangup_reason = getattr(self, "pending_hangup_reason", "unknown")
-                            hangup_source = getattr(self, "pending_hangup_source", "unknown")
+                    # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
+                    # This ensures AI finishes speaking before we disconnect
+                    if event_type == "response.audio.done" and self.pending_hangup and not self.hangup_triggered:
+                        pending_id = getattr(self, "pending_hangup_response_id", None)
+                        done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        # STRICT: Only hang up after audio.done for the SAME response_id we bound.
+                        # If we don't have a bound id (should be rare), allow first audio.done to release.
+                        if pending_id and done_resp_id and pending_id != done_resp_id:
                             print(
-                                f"📞 [HANGUP FLOW] Hangup was PREVIOUSLY requested with valid reason: "
-                                f"reason={hangup_reason}, source={hangup_source}"
+                                f"⏭️ [HANGUP FLOW] response.audio.done ignored "
+                                f"(pending_response_id={pending_id[:20]}..., got={done_resp_id[:20]}...)"
                             )
-                            print(f"📞 [HANGUP FLOW] Now executing hangup because AI audio finished (response.audio.done)")
-                            
-                            # STRICT: Only hang up after audio.done for the SAME response_id we bound.
-                            # If we don't have a bound id (should be rare), allow first audio.done to release.
-                            if pending_id and done_resp_id and pending_id != done_resp_id:
-                                # Safe string slicing to avoid IndexError
-                                pending_preview = pending_id[:20] if len(pending_id) >= 20 else pending_id
-                                done_preview = done_resp_id[:20] if len(done_resp_id) >= 20 else done_resp_id
-                                print(
-                                    f"⏭️ [HANGUP FLOW] response.audio.done ignored "
-                                    f"(pending_response_id={pending_preview}..., got={done_preview}...)"
-                                )
-                            else:
-                                # Cancel fallback timer (if any) now that we got the matched audio.done.
-                                try:
-                                    t = getattr(self, "_pending_hangup_fallback_task", None)
-                                    if t and not t.done():
-                                        t.cancel()
-                                except Exception:
-                                    pass
-
-                                print("[POLITE_HANGUP] audio.done matched -> hanging up")
-                                logger.info("[POLITE_HANGUP] audio.done matched -> hanging up")
-
-                                print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
-                                # Wait for audio to fully play before disconnecting
-                                async def delayed_hangup():
-                                    print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
-                                    
-                                    # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
-                                    for i in range(50):  # 50 * 100ms = 5 seconds max
-                                        q1_size = self.realtime_audio_out_queue.qsize()
-                                        if q1_size == 0:
-                                            print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms")
-                                            break
-                                        await asyncio.sleep(0.1)
-                                    
-                                    # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
-                                    # 🔥 FIX #4: Add drain watchdog to detect stuck queue
-                                    # Each frame is 20ms, so 500 frames = 10 seconds of audio
-                                    last_tx_size = self.tx_q.qsize()
-                                    stuck_iterations = 0
-                                    STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
-                                    
-                                    for i in range(100):  # 100 * 100ms = 10 seconds max
-                                        tx_size = self.tx_q.qsize()
-                                        if tx_size == 0:
-                                            print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
-                                            break
-                                        
-                                        # 🔥 FIX #4: Detect if queue is stuck (not draining)
-                                        if tx_size == last_tx_size:
-                                            stuck_iterations += 1
-                                            if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
-                                                print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
-                                                # Queue is stuck - check if tx_running is False
-                                                if not getattr(self, 'tx_running', False):
-                                                    print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
-                                                    # Clear the stuck queue
-                                                    while not self.tx_q.empty():
-                                                        try:
-                                                            self.tx_q.get_nowait()
-                                                        except queue.Empty:
-                                                            break
-                                                    print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
-                                                    break
-                                        else:
-                                            stuck_iterations = 0  # Reset on progress
-                                        
-                                        last_tx_size = tx_size
-                                        
-                                        if i % 10 == 0:  # Log every second
-                                            print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
-                                        await asyncio.sleep(0.1)
-                                    
-                                    # STEP 3: Extra buffer for network latency
-                                    # Audio still needs to travel from Twilio servers to phone
-                                    print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
-                                    await asyncio.sleep(2.0)
-                                    
-                                    if not self.hangup_triggered:
-                                        # Execute REAL hangup via Twilio REST ONLY (no cancel/clear/flush).
-                                        call_sid = getattr(self, "call_sid", None)
-                                        self.hangup_triggered = True
-                                        self.call_state = CallState.ENDED
-                                        try:
-                                            self.pending_hangup = False
-                                        except Exception:
-                                            pass
-                                        force_print(
-                                            f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
-                                            f"response_id={pending_id or done_resp_id} call_sid={call_sid}"
-                                        )
-                                        if call_sid:
-                                            try:
-                                                from server.services.twilio_call_control import hangup_call
-                                                await asyncio.to_thread(hangup_call, call_sid)
-                                                force_print(f"[HANGUP] success call_sid={call_sid}")
-                                            except Exception as e:
-                                                force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
-                                                logger.exception("[HANGUP] error call_sid=%s", call_sid)
-                                        else:
-                                            force_print("[HANGUP] error missing_call_sid")
-                                    else:
-                                        print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
-
-                                asyncio.create_task(delayed_hangup())
                         else:
-                            # No hangup pending - this is normal (AI just finished speaking)
-                            if not self.pending_hangup:
-                                print(f"✅ [AUDIO_STATE] Normal flow: AI finished speaking, continuing conversation")
-                            # If hangup_triggered is already True, we're in the process of hanging up anyway
+                            # Cancel fallback timer (if any) now that we got the matched audio.done.
+                            try:
+                                t = getattr(self, "_pending_hangup_fallback_task", None)
+                                if t and not t.done():
+                                    t.cancel()
+                            except Exception:
+                                pass
+
+                            print("[POLITE_HANGUP] audio.done matched -> hanging up")
+                            logger.info("[POLITE_HANGUP] audio.done matched -> hanging up")
+
+                            print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
+                            # Wait for audio to fully play before disconnecting
+                            async def delayed_hangup():
+                                print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
+                                
+                                # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
+                                for i in range(50):  # 50 * 100ms = 5 seconds max
+                                    q1_size = self.realtime_audio_out_queue.qsize()
+                                    if q1_size == 0:
+                                        print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms")
+                                        break
+                                    await asyncio.sleep(0.1)
+                                
+                                # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
+                                # 🔥 FIX #4: Add drain watchdog to detect stuck queue
+                                # Each frame is 20ms, so 500 frames = 10 seconds of audio
+                                last_tx_size = self.tx_q.qsize()
+                                stuck_iterations = 0
+                                STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
+                                
+                                for i in range(100):  # 100 * 100ms = 10 seconds max
+                                    tx_size = self.tx_q.qsize()
+                                    if tx_size == 0:
+                                        print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
+                                        break
+                                    
+                                    # 🔥 FIX #4: Detect if queue is stuck (not draining)
+                                    if tx_size == last_tx_size:
+                                        stuck_iterations += 1
+                                        if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
+                                            print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
+                                            # Queue is stuck - check if tx_running is False
+                                            if not getattr(self, 'tx_running', False):
+                                                print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
+                                                # Clear the stuck queue
+                                                while not self.tx_q.empty():
+                                                    try:
+                                                        self.tx_q.get_nowait()
+                                                    except queue.Empty:
+                                                        break
+                                                print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
+                                                break
+                                    else:
+                                        stuck_iterations = 0  # Reset on progress
+                                    
+                                    last_tx_size = tx_size
+                                    
+                                    if i % 10 == 0:  # Log every second
+                                        print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
+                                    await asyncio.sleep(0.1)
+                                
+                                # STEP 3: Extra buffer for network latency
+                                # Audio still needs to travel from Twilio servers to phone
+                                print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
+                                await asyncio.sleep(2.0)
+                                
+                                if not self.hangup_triggered:
+                                    # Execute REAL hangup via Twilio REST ONLY (no cancel/clear/flush).
+                                    call_sid = getattr(self, "call_sid", None)
+                                    self.hangup_triggered = True
+                                    self.call_state = CallState.ENDED
+                                    try:
+                                        self.pending_hangup = False
+                                    except Exception:
+                                        pass
+                                    force_print(
+                                        f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
+                                        f"response_id={pending_id or done_resp_id} call_sid={call_sid}"
+                                    )
+                                    if call_sid:
+                                        try:
+                                            from server.services.twilio_call_control import hangup_call
+                                            await asyncio.to_thread(hangup_call, call_sid)
+                                            force_print(f"[HANGUP] success call_sid={call_sid}")
+                                        except Exception as e:
+                                            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+                                            logger.exception("[HANGUP] error call_sid=%s", call_sid)
+                                    else:
+                                        force_print("[HANGUP] error missing_call_sid")
+                                else:
+                                    print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
+
+                            asyncio.create_task(delayed_hangup())
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
@@ -6644,25 +6578,22 @@ class MediaStreamHandler:
                                 print(f"🔍 [LEGACY DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                                 self._check_appointment_confirmation(transcript)
                         
-                        # 🔥 PRODUCTION: User saying "bye" does NOT trigger hangup
-                        # Only bot_goodbye triggers hangup (disabled below)
-                        if False:  # DISABLED - user goodbye does not trigger hangup
-                            # 🔴 CRITICAL — Real Hangup (USER): transcript-only + closing-sentence only
-                            # Trigger hangup ONLY if the user utterance is purely a closing sentence
-                            # based on the explicit list (no VAD/noise decisions).
-                            if not self.pending_hangup and not getattr(self, "hangup_requested", False):
-                                user_intent = self._classify_real_hangup_intent(transcript, "user")
-                                if user_intent == "hangup":
-                                    await self.request_hangup("user_goodbye", "transcript", transcript, "user")
-                                    continue
-                                elif user_intent == "clarify":
-                                    # ❗Rule against accidental hangup:
-                                    # "ביי... רגע" / "ביי אבל..." → ask once, do not hang up.
-                                    if not getattr(self, "hangup_clarification_asked", False):
-                                        self.hangup_clarification_asked = True
-                                        asyncio.create_task(self._send_server_event_to_ai(
-                                            "לפני שאני מנתק—רצית לסיים את השיחה?"
-                                        ))
+                        # 🔴 CRITICAL — Real Hangup (USER): transcript-only + closing-sentence only
+                        # Trigger hangup ONLY if the user utterance is purely a closing sentence
+                        # based on the explicit list (no VAD/noise decisions).
+                        if not self.pending_hangup and not getattr(self, "hangup_requested", False):
+                            user_intent = self._classify_real_hangup_intent(transcript, "user")
+                            if user_intent == "hangup":
+                                await self.request_hangup("user_goodbye", "transcript", transcript, "user")
+                                continue
+                            elif user_intent == "clarify":
+                                # ❗Rule against accidental hangup:
+                                # "ביי... רגע" / "ביי אבל..." → ask once, do not hang up.
+                                if not getattr(self, "hangup_clarification_asked", False):
+                                    self.hangup_clarification_asked = True
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        "לפני שאני מנתק—רצית לסיים את השיחה?"
+                                    ))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         # 🔥 BUILD 172 FIX: Only close after customer CONFIRMS the details!
@@ -10975,7 +10906,7 @@ class MediaStreamHandler:
                         ):
                             print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity - hanging up (last_activity={now_ts - last_activity:.1f}s ago)")
                             self.call_state = CallState.CLOSING
-                            await self.request_hangup("hard_silence_30s", "silence_watchdog")
+                            await self.request_hangup("hard_silence_timeout", "silence_watchdog")
                             return
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
@@ -10987,113 +10918,104 @@ class MediaStreamHandler:
                         time_since_greeting = time.time() - self.greeting_completed_at
                         if time_since_greeting > 30.0:
                             # 30 seconds with no user speech - idle timeout
-                            # 🔥 PRODUCTION: Handled by hard_silence_30s watchdog above
-                            # This logic is redundant - the watchdog already checks for 30s inactivity
-                            # (including case where user never spoke)
-                            pass
-                            # Commented out - redundant with hard_silence_30s:
-                            # if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                            #     print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
-                            #     self.call_state = CallState.CLOSING
-                            #     await self.request_hangup("idle_timeout_no_user_speech", "silence_monitor")
-                            # return
+                            # Close immediately without AI message
+                            if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
+                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
+                                self.call_state = CallState.CLOSING
+                                await self.request_hangup("idle_timeout_no_user_speech", "silence_monitor")
+                            return
                     # Still waiting for user to speak - don't count silence
                     continue
                 
-                # 🔥 PRODUCTION: Soft silence warnings DISABLED
-                # Only use hard 30-second silence timeout (handled by watchdog above)
-                # Original soft timeout logic completely disabled
+                # Calculate silence duration
+                silence_duration = time.time() - self._last_speech_time
                 
-                if False:  # DISABLED - only hard_silence_30s is used
-                    # Calculate silence duration
-                    silence_duration = time.time() - self._last_speech_time
+                if silence_duration >= self.silence_timeout_sec:
+                    # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
+                    if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                        print(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
+                        return
                     
-                    if silence_duration >= self.silence_timeout_sec:
-                        # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
+                    if self._silence_warning_count < self.silence_max_warnings:
+                        # Send "are you there?" warning
+                        self._silence_warning_count += 1
+                        print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
+                        print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
+                        
+                        # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
+                        # This is end-of-utterance - AI must respond
+                        if self.user_has_spoken:
+                            await self._send_silence_warning()
+                        
+                        # Reset timer
+                        self._last_speech_time = time.time()
+                    else:
+                        # Max warnings exceeded - check if we can hangup
+                        # 🔥 BUILD 339: FINAL state check before taking hangup action
                         if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                            print(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
+                            print(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
                             return
                         
-                        if self._silence_warning_count < self.silence_max_warnings:
-                            # Send "are you there?" warning
-                            self._silence_warning_count += 1
-                            print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
-                            print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
+                        # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
+                        fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
+                        if fields_collected and not self.verification_confirmed:
+                            # Fields captured but not confirmed - give one more chance
+                            # But ONLY if call is still active!
+                            if self.call_state != CallState.ACTIVE or getattr(self, 'pending_hangup', False):
+                                print(f"🔇 [SILENCE] Can't give final chance - call ending")
+                                return
                             
-                            # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
-                            # This is end-of-utterance - AI must respond
-                            if self.user_has_spoken:
-                                await self._send_silence_warning()
-                            
-                            # Reset timer
+                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
+                            self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
+                            await self._send_text_to_ai(
+                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
+                            )
                             self._last_speech_time = time.time()
-                        else:
-                            # Max warnings exceeded - check if we can hangup
-                            # 🔥 BUILD 339: FINAL state check before taking hangup action
-                            if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
-                                return
-                            
-                            # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
-                            fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
-                            if fields_collected and not self.verification_confirmed:
-                                # Fields captured but not confirmed - give one more chance
-                                # But ONLY if call is still active!
-                                if self.call_state != CallState.ACTIVE or getattr(self, 'pending_hangup', False):
-                                    print(f"🔇 [SILENCE] Can't give final chance - call ending")
-                                    return
-                                
-                                print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
-                                self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                                await self._send_text_to_ai(
-                                    "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
-                                )
-                                self._last_speech_time = time.time()
-                                # Mark that we gave extra chance - next time really close
-                                self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
-                                if self._silence_final_chance_given:
-                                    # Already gave extra chance, now close without confirmation
-                                    print(f"🔇 [SILENCE] Final chance already given - closing anyway")
-                                    pass  # Fall through to close
-                                else:
-                                    self._silence_final_chance_given = True
-                                    continue  # Don't close yet
-                            
-                            # OK to close - either no lead, or lead confirmed, or final chance given
-                            # 🔥 BUILD 339: One more state check before initiating hangup
-                            if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [SILENCE] State changed before hangup - exiting")
-                                return
-                            
-                            # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
-                            # Just stay idle and let the call continue or let Twilio disconnect
-                            if SIMPLE_MODE:
-                                print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
-                                print(f"   Keeping line open - user may return or Twilio will disconnect")
-                                # Optionally send a final message
-                                await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
-                                # Reset timer to avoid immediate re-triggering, but don't close
-                                self._last_speech_time = time.time()
-                                continue  # Stay in monitor loop
-                            
-                            print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
-                            self.call_state = CallState.CLOSING
-                            
-                            # Send closing message and hangup
-                            closing_msg = ""
-                            if self.call_config and self.call_config.closing_sentence:
-                                closing_msg = self.call_config.closing_sentence
-                            elif self.call_config and self.call_config.greeting_text:
-                                closing_msg = self.call_config.greeting_text  # Use greeting as fallback
-                            
-                            if closing_msg:
-                                await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
+                            # Mark that we gave extra chance - next time really close
+                            self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
+                            if self._silence_final_chance_given:
+                                # Already gave extra chance, now close without confirmation
+                                print(f"🔇 [SILENCE] Final chance already given - closing anyway")
+                                pass  # Fall through to close
                             else:
-                                await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
-                            
-                            # Polite hangup: hang up only after bot audio ends (response.audio.done).
-                            await self.request_hangup("silence_timeout", "silence_monitor")
-                            return  # Exit cleanly after hangup
+                                self._silence_final_chance_given = True
+                                continue  # Don't close yet
+                        
+                        # OK to close - either no lead, or lead confirmed, or final chance given
+                        # 🔥 BUILD 339: One more state check before initiating hangup
+                        if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                            print(f"🔇 [SILENCE] State changed before hangup - exiting")
+                            return
+                        
+                        # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
+                        # Just stay idle and let the call continue or let Twilio disconnect
+                        if SIMPLE_MODE:
+                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
+                            print(f"   Keeping line open - user may return or Twilio will disconnect")
+                            # Optionally send a final message
+                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                            # Reset timer to avoid immediate re-triggering, but don't close
+                            self._last_speech_time = time.time()
+                            continue  # Stay in monitor loop
+                        
+                        print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
+                        self.call_state = CallState.CLOSING
+                        
+                        # Send closing message and hangup
+                        closing_msg = ""
+                        if self.call_config and self.call_config.closing_sentence:
+                            closing_msg = self.call_config.closing_sentence
+                        elif self.call_config and self.call_config.greeting_text:
+                            closing_msg = self.call_config.greeting_text  # Use greeting as fallback
+                        
+                        if closing_msg:
+                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
+                        else:
+                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
+                        
+                        # Polite hangup: hang up only after bot audio ends (response.audio.done).
+                        await self.request_hangup("silence_timeout", "silence_monitor")
+                        return  # Exit cleanly after hangup
                         
         except asyncio.CancelledError:
             print(f"🔇 [SILENCE] Monitor cancelled")
@@ -11556,67 +11478,14 @@ class MediaStreamHandler:
         - Mark pending_hangup=True and hang up ONLY after the bot audio ends
           (response.audio.done, ideally matching response_id).
         """
-        # 🔥 REQUIREMENT 1 & 5: Use module-level constants for validation
-        # Block invalid/empty reasons
-        if not reason or reason in BLOCKED_HANGUP_REASONS:
-            force_print(
-                f"[HANGUP_DECISION] allowed=False reason={reason or 'EMPTY'} source={source} "
-                f"- BLOCKED (invalid reason)"
-            )
-            logger.warning(
-                f"[HANGUP_DECISION] allowed=False reason={reason or 'EMPTY'} source={source} "
-                f"- BLOCKED (invalid reason)"
-            )
-            return
-        
-        # Check if reason is in allow-list
-        if reason not in ALLOWED_HANGUP_REASONS:
-            force_print(
-                f"[HANGUP_DECISION] allowed=False reason={reason} source={source} "
-                f"- BLOCKED (not in allow-list)"
-            )
-            logger.warning(
-                f"[HANGUP_DECISION] allowed=False reason={reason} source={source} "
-                f"- BLOCKED (not in allow-list)"
-            )
-            return
-        
-        # Log ALLOWED decision
-        force_print(
-            f"[HANGUP_DECISION] allowed=True reason={reason} source={source} "
-            f"- Request accepted"
-        )
-        logger.info(
-            f"[HANGUP_DECISION] allowed=True reason={reason} source={source}"
-        )
-        
-        # 🔥 REQUIREMENT 2: Idempotent - don't overwrite existing pending hangup
-        # Check if hangup already pending BEFORE acquiring lock
+        # One-shot (pending): do not block other fallback hangup paths by setting hangup_requested here.
         lock = getattr(self, "_hangup_request_lock", None)
         if lock:
             with lock:
-                if getattr(self, "hangup_triggered", False):
-                    force_print(f"[HANGUP_REQUEST] Already triggered - ignoring request (reason={reason})")
-                    return
-                if getattr(self, "pending_hangup", False):
-                    existing_reason = getattr(self, "pending_hangup_reason", "unknown")
-                    force_print(
-                        f"[HANGUP_REQUEST] Already pending with reason={existing_reason} - "
-                        f"ignoring new request (reason={reason})"
-                    )
-                    logger.info(f"[HANGUP_REQUEST] Idempotent check: already pending={existing_reason}")
+                if getattr(self, "hangup_triggered", False) or getattr(self, "pending_hangup", False):
                     return
         else:
-            if getattr(self, "hangup_triggered", False):
-                force_print(f"[HANGUP_REQUEST] Already triggered - ignoring request (reason={reason})")
-                return
-            if getattr(self, "pending_hangup", False):
-                existing_reason = getattr(self, "pending_hangup_reason", "unknown")
-                force_print(
-                    f"[HANGUP_REQUEST] Already pending with reason={existing_reason} - "
-                    f"ignoring new request (reason={reason})"
-                )
-                logger.info(f"[HANGUP_REQUEST] Idempotent check: already pending={existing_reason}")
+            if getattr(self, "hangup_triggered", False) or getattr(self, "pending_hangup", False):
                 return
 
         call_sid = getattr(self, "call_sid", None)
@@ -14014,9 +13883,6 @@ class MediaStreamHandler:
                     if success:
                         self.tx += 1
                         frames_sent_total += 1
-                        # 🔥 FIX: Update last_ai_audio_ts to prevent false silence detection
-                        # This ensures the silence watchdog knows AI audio was sent recently
-                        self.last_ai_audio_ts = time.time()
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
