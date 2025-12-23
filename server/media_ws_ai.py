@@ -3889,7 +3889,7 @@ class MediaStreamHandler:
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
     # ═══════════════════════════════════════════════════════════════════════════════
-    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False, force: bool = False, source: str = "unknown") -> bool:
+    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False, force: bool = False, source: str = None) -> bool:
         """
         🎯 BUILD 200: Central function for triggering response.create
         
@@ -3912,7 +3912,8 @@ class MediaStreamHandler:
             client: The realtime client (uses self.realtime_client if not provided)
             is_greeting: If True, this is the initial greeting - skip loop guard (first response)
             force: If True, bypass lifecycle locks for the initial greeting trigger only
-            source: Source of the trigger (utterance, watchdog, state_reset, prompt_upgrade, greeting)
+            source: Source of the trigger (utterance, watchdog, state_reset, silence_handler, server_first, greeting)
+                   REQUIRED - None default enforces explicit specification
             
         Returns:
             True if response was triggered, False if blocked by lifecycle guards only
@@ -3921,6 +3922,11 @@ class MediaStreamHandler:
         _client = client or self.realtime_client
         if not _client:
             logger.debug(f"[RESPONSE_BLOCKED] No client available - source={source}, reason={reason}")
+            return False
+        
+        # 🔥 DOUBLE RESPONSE FIX: Enforce explicit source specification
+        if source is None:
+            logger.error(f"[RESPONSE_BLOCKED] source parameter is REQUIRED but was None - reason={reason}")
             return False
         
         # 🔥 DOUBLE RESPONSE FIX: Block response.create unless triggered by user utterance
@@ -6584,7 +6590,9 @@ class MediaStreamHandler:
                                 if realtime_client:
                                     try:
                                         # 🔥 DOUBLE RESPONSE FIX: Use trigger_response with source="watchdog"
-                                        # This will be blocked by the source check unless it's from an utterance
+                                        # NOTE: This will be BLOCKED by trigger_response because source != "utterance"
+                                        # This is intentional - watchdog should NOT trigger responses without user input
+                                        # Keeping this code for potential future use if watchdog logic changes
                                         triggered = await self.trigger_response("WATCHDOG_RETRY", realtime_client, source="watchdog")
                                         if triggered:
                                             print(f"✅ [WATCHDOG] Retry response.create sent")
