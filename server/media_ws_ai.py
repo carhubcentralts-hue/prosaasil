@@ -11,6 +11,9 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
+# 🎯 MINIMAL DSP: Import audio processing for background noise/music reduction
+from server.services.audio_dsp import dsp_mulaw_8k, reset_filter_state
+
 # 🔥 HOTFIX: Import websockets exceptions for graceful connection closure handling
 try:
     from websockets.exceptions import ConnectionClosedOK, ConnectionClosed
@@ -35,6 +38,11 @@ ENABLE_LOOP_DETECT = False
 
 # 🚫 LEGACY CITY/SERVICE LOGIC: Disabled - no mid-call city/service inference
 ENABLE_LEGACY_CITY_LOGIC = False
+
+# 🎯 MINIMAL DSP: Toggle for audio processing (High-pass + Soft limiter)
+# Default: "1" (enabled) - improves background noise/music handling
+# Set ENABLE_MIN_DSP=0 to disable if issues occur
+ENABLE_MIN_DSP = os.getenv("ENABLE_MIN_DSP", "1") == "1"
 
 # ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
@@ -1823,6 +1831,13 @@ class MediaStreamHandler:
                    f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
                    f"sample_rate=8000, encoding=pcmu", flush=True)
         
+        # 🎯 MINIMAL DSP: Reset filter state for new call
+        if ENABLE_MIN_DSP:
+            reset_filter_state()
+            _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter)", flush=True)
+        else:
+            _orig_print(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)", flush=True)
+        
         print("🎯 AI CONVERSATION STARTED")
         
         # מאפיינים לזיהוי עסק
@@ -3508,6 +3523,12 @@ class MediaStreamHandler:
                 # 🔥 Log first frame sent after gate opens
                 if _frames_sent == 0:
                     _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
+                
+                # 🎯 MINIMAL DSP: Apply high-pass filter + soft limiter before sending to OpenAI
+                # This reduces background noise/music without affecting speech quality
+                # Toggle: Set ENABLE_MIN_DSP=0 to disable
+                if ENABLE_MIN_DSP:
+                    audio_chunk = dsp_mulaw_8k(audio_chunk)
                 
                 # 🔥 HOTFIX: Handle ConnectionClosed gracefully (normal WebSocket close)
                 try:
