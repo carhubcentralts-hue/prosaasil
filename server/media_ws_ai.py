@@ -13,10 +13,11 @@ from server.services.hebrew_stt_validator import validate_stt_output, is_gibberi
 
 # 🔥 HOTFIX: Import websockets exceptions for graceful connection closure handling
 try:
-    from websockets.exceptions import ConnectionClosedOK
+    from websockets.exceptions import ConnectionClosedOK, ConnectionClosed
 except ImportError:
     # Fallback if websockets not available (should not happen in production)
     ConnectionClosedOK = None
+    ConnectionClosed = None
 
 
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
@@ -3507,14 +3508,17 @@ class MediaStreamHandler:
                 if _frames_sent == 0:
                     _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
                 
-                # 🔥 HOTFIX: Handle ConnectionClosedOK gracefully (normal WebSocket close)
+                # 🔥 HOTFIX: Handle ConnectionClosed gracefully (normal WebSocket close)
                 try:
                     await client.send_audio_chunk(audio_chunk)
                 except Exception as send_err:
-                    # Check if it's a normal connection close
-                    if ConnectionClosedOK and isinstance(send_err, ConnectionClosedOK):
-                        logger.info("[REALTIME] Audio sender exiting - WebSocket closed OK")
-                        _orig_print("[REALTIME] Audio sender exiting - ws closed OK", flush=True)
+                    # Check if it's a normal connection close (OK or general ConnectionClosed)
+                    is_connection_closed = (
+                        (ConnectionClosedOK and isinstance(send_err, ConnectionClosedOK)) or
+                        (ConnectionClosed and isinstance(send_err, ConnectionClosed))
+                    )
+                    if is_connection_closed:
+                        logger.info("[REALTIME] Audio sender exiting - WebSocket closed cleanly")
                         break
                     # For other exceptions, re-raise to be handled by outer try-except
                     raise
@@ -11238,9 +11242,14 @@ class MediaStreamHandler:
                     
                     # 🔥 NEW REQUIREMENT: 20-second true silence → auto-hangup
                     # After 7s nudges, if still 20s of true silence → hang up cleanly
+                    # 🔥 CRITICAL: For outbound, don't hangup before human_confirmed (still waiting for pickup)
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    can_hangup_on_silence = not (is_outbound and not self.human_confirmed)
+                    
                     if (silence_since_user >= SILENCE_HANGUP_TIMEOUT_SEC and 
                         silence_since_ai >= SILENCE_HANGUP_TIMEOUT_SEC and
                         ai_truly_idle and
+                        can_hangup_on_silence and
                         self.call_state == CallState.ACTIVE and
                         not self.hangup_triggered and
                         not getattr(self, 'pending_hangup', False)):

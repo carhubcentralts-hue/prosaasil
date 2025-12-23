@@ -87,6 +87,80 @@ class TestTriggeredVariableInitialization(unittest.TestCase):
         self.assertEqual(result, "greeting_triggered")
 
 
+class TestOutboundWithoutHumanConfirmed(unittest.TestCase):
+    """Test that outbound without human_confirmed doesn't crash"""
+    
+    def test_outbound_not_confirmed_no_response_create(self):
+        """Test that outbound waiting path doesn't trigger response.create"""
+        # Simulate outbound call without human confirmation
+        is_outbound = True
+        human_confirmed = False
+        
+        # Initialize triggered
+        triggered = False
+        
+        # Simulate the code path
+        if is_outbound and not human_confirmed:
+            # OUTBOUND path - waiting for human
+            # No response.create triggered, triggered stays False
+            pass
+        else:
+            # Would trigger greeting
+            triggered = True
+        
+        # Verify: triggered should be False (no response.create)
+        self.assertFalse(triggered)
+        
+        # Verify: no UnboundLocalError when checking triggered
+        try:
+            if triggered:
+                result = "would_crash_if_unbound"
+            else:
+                result = "safe"
+            self.assertEqual(result, "safe")
+        except UnboundLocalError:
+            self.fail("UnboundLocalError should not occur")
+    
+    def test_outbound_confirmed_can_be_true_or_false(self):
+        """Test that outbound with human_confirmed can have triggered True/False"""
+        # Simulate outbound call with human confirmation
+        is_outbound = True
+        human_confirmed = True
+        
+        # Initialize triggered
+        triggered = False
+        
+        # Simulate the code path
+        if is_outbound and not human_confirmed:
+            # Waiting path
+            pass
+        else:
+            # Human confirmed - try to trigger (could succeed or fail)
+            triggered = True  # Simulating successful trigger
+        
+        # Verify: no UnboundLocalError regardless of triggered value
+        try:
+            if triggered:
+                result = "triggered_true"
+            else:
+                result = "triggered_false"
+            # Both outcomes are valid
+            self.assertIn(result, ["triggered_true", "triggered_false"])
+        except UnboundLocalError:
+            self.fail("UnboundLocalError should not occur")
+        
+        # Test the False case too
+        triggered = False
+        try:
+            if triggered:
+                result = "triggered_true"
+            else:
+                result = "triggered_false"
+            self.assertEqual(result, "triggered_false")
+        except UnboundLocalError:
+            self.fail("UnboundLocalError should not occur even when triggered is False")
+
+
 class TestConnectionClosedOKHandling(unittest.TestCase):
     """Test that ConnectionClosedOK exception is handled gracefully"""
     

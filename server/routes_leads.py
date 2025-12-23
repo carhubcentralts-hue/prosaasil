@@ -2392,5 +2392,3 @@ def export_leads():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"שגיאה בייצוא: {str(e)}"}), 500
-
-        return jsonify({"error": "Failed to fetch lead IDs", "details": str(e)}), 500
