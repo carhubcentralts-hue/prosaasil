@@ -95,7 +95,7 @@ export function OutboundKanbanColumn({
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({ error: 'שגיאה בייצוא' }));
         throw new Error(errorData.error || 'שגיאה בייצוא');
       }
       
@@ -121,12 +121,13 @@ export function OutboundKanbanColumn({
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
       
-      // Show success notification (you can use a toast library here)
+      // Show success notification
       console.log(`✅ Successfully exported ${leads.length} leads from status "${status.label}"`);
       
     } catch (error) {
       console.error('Export error:', error);
-      alert(`שגיאה בייצוא: ${error instanceof Error ? error.message : 'שגיאה לא ידועה'}`);
+      const errorMessage = error instanceof Error ? error.message : 'שגיאה לא ידועה';
+      alert(`שגיאה בייצוא: ${errorMessage}`);
     } finally {
       setIsExporting(false);
     }
