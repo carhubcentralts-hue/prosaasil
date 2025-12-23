@@ -71,7 +71,14 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
-      console.log('[useLeads] Fetching:', url, 'search:', filters.search);
+      console.log('[useLeads] Fetching:', url);
+      console.log('[useLeads] Filters:', {
+        search: filters.search,
+        status: filters.status,
+        source: filters.source,
+        outbound_list_id: filters.outbound_list_id,
+        direction: filters.direction
+      });
       
       const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url, {
         signal: controller.signal
