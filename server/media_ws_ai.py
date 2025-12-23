@@ -2506,6 +2506,11 @@ class MediaStreamHandler:
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
         logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
+        # 🔥 FIX: Initialize task variables to prevent UnboundLocalError
+        audio_in_task = None
+        audio_out_task = None
+        text_in_task = None
+        
         # Helper function for session configuration (used for initial config and retry)
         async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
             """Send session.update event with specified configuration
@@ -3024,6 +3029,13 @@ class MediaStreamHandler:
                     flush=True,
                 )
                 print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                
+                # 🔥 FIX: Start audio/text bridges after greeting trigger (MISSING CODE PATH)
+                # This was the critical bug - tasks weren't created when greeting succeeded!
+                logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger success)...")
+                audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+                text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+                logger.debug("[REALTIME] Audio/text tasks created successfully")
             else:
                 print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
                 # Reset flags since greeting failed
@@ -3220,7 +3232,17 @@ class MediaStreamHandler:
                 self.crm_context = None
             
             logger.debug(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
-            await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
+            
+            # 🔥 FIX: Only gather tasks that exist (not None)
+            tasks = []
+            if audio_in_task is not None:
+                tasks.append(audio_in_task)
+            if audio_out_task is not None:
+                tasks.append(audio_out_task)
+            if text_in_task is not None:
+                tasks.append(text_in_task)
+            
+            await asyncio.gather(*tasks)
             logger.debug(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
