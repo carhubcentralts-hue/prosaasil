@@ -14,6 +14,8 @@ import sys
 import time
 
 # Test constants
+# NOTE: These match the implementation constants in server/media_ws_ai.py
+# HARD_MUTE_DURATION_MS should match _hard_mute_duration_ms (default 400ms)
 HARD_MUTE_DURATION_MS = 400  # Default HARD_MUTE duration in milliseconds
 MUTE_CHECK_OFFSET_MS = 100  # Time offset for checking during mute (ms)
 MUTE_EXPIRY_OFFSET_MS = 500  # Time offset for checking after expiry (ms)
@@ -184,7 +186,8 @@ class TestBothQueuesFlush:
         
         assert realtime_flushed > 0, "Should flush realtime queue"
         assert tx_flushed > 0, "Should flush TX queue"
-        assert total_flushed == 75, f"Should flush both queues (total={total_flushed})"
+        expected_total = realtime_queue_size + tx_queue_size
+        assert total_flushed == expected_total, f"Should flush both queues (total={total_flushed}, expected={expected_total})"
     
     def test_flush_handles_empty_queues(self):
         """Verify flush handles already-empty queues gracefully"""
