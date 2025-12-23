@@ -2183,6 +2183,7 @@ class MediaStreamHandler:
         
         # B) Human confirmation - wait for real human speech before greeting
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
+        self.greeting_pending = False  # 🔥 FIX: Flag to defer greeting if active response exists
         
         # C) 7-second silence detection
         self.last_user_activity_ts = time.time()  # Track last user audio/speech activity
@@ -6027,40 +6028,51 @@ class MediaStreamHandler:
                         # Continue with greeting trigger if conditions met
                         if self.human_confirmed and is_outbound and not self.greeting_sent:
                             
-                            # Set greeting flags
-                            greeting_start_ts = time.time()
-                            self.greeting_sent = True
-                            self.is_playing_greeting = True
-                            self.greeting_mode_active = True
-                            self.greeting_lock_active = True
-                            self._greeting_lock_response_id = None
-                            self._greeting_start_ts = greeting_start_ts
-                            logger.info("[GREETING_LOCK] activated (post human_confirmed)")
+                            # 🔥 FIX: Check if there's already an active response before triggering greeting
+                            # If yes, mark greeting_pending=True and trigger after response.done
+                            has_active_response = bool(getattr(self, 'active_response_id', None) or getattr(self, 'ai_response_active', False))
                             
-                            # Trigger the greeting response
-                            # Note: We're in the OpenAI event loop, so we can await
-                            # Get the realtime client from the handler
-                            realtime_client = getattr(self, 'realtime_client', None)
-                            if realtime_client:
-                                # Create task to trigger greeting (don't block STT processing)
-                                async def _trigger_delayed_greeting():
-                                    try:
-                                        await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
-                                        triggered = await self.trigger_response("GREETING_DELAYED", realtime_client, is_greeting=True, force=True)
-                                        if triggered:
-                                            print(f"✅ [OUTBOUND] Greeting triggered after human confirmation")
-                                        else:
-                                            print(f"❌ [OUTBOUND] Failed to trigger greeting after human confirmation")
-                                            self.greeting_sent = False
-                                            self.is_playing_greeting = False
-                                    except Exception as e:
-                                        print(f"❌ [OUTBOUND] Error triggering greeting: {e}")
-                                        import traceback
-                                        traceback.print_exc()
-                                
-                                asyncio.create_task(_trigger_delayed_greeting())
+                            if has_active_response:
+                                # Active response exists (probably VAD auto-response) - defer greeting
+                                self.greeting_pending = True
+                                print(f"⏸️ [OUTBOUND] Active response detected - deferring greeting (greeting_pending=True)")
+                                logger.info("[GREETING_DEFER] Active response exists - greeting deferred until response.done")
                             else:
-                                print(f"⚠️ [OUTBOUND] No realtime_client available for greeting trigger")
+                                # No active response - safe to trigger greeting now
+                                # Set greeting flags
+                                greeting_start_ts = time.time()
+                                self.greeting_sent = True
+                                self.is_playing_greeting = True
+                                self.greeting_mode_active = True
+                                self.greeting_lock_active = True
+                                self._greeting_lock_response_id = None
+                                self._greeting_start_ts = greeting_start_ts
+                                logger.info("[GREETING_LOCK] activated (post human_confirmed)")
+                                
+                                # Trigger the greeting response
+                                # Note: We're in the OpenAI event loop, so we can await
+                                # Get the realtime client from the handler
+                                realtime_client = getattr(self, 'realtime_client', None)
+                                if realtime_client:
+                                    # Create task to trigger greeting (don't block STT processing)
+                                    async def _trigger_delayed_greeting():
+                                        try:
+                                            await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
+                                            triggered = await self.trigger_response("GREETING_DELAYED", realtime_client, is_greeting=True, force=True)
+                                            if triggered:
+                                                print(f"✅ [OUTBOUND] Greeting triggered after human confirmation")
+                                            else:
+                                                print(f"❌ [OUTBOUND] Failed to trigger greeting after human confirmation")
+                                                self.greeting_sent = False
+                                                self.is_playing_greeting = False
+                                        except Exception as e:
+                                            print(f"❌ [OUTBOUND] Error triggering greeting: {e}")
+                                            import traceback
+                                            traceback.print_exc()
+                                    
+                                    asyncio.create_task(_trigger_delayed_greeting())
+                                else:
+                                    print(f"⚠️ [OUTBOUND] No realtime_client available for greeting trigger")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call
