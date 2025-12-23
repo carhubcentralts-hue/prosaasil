@@ -112,6 +112,25 @@ export function OutboundCallsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('kanban'); // Default to Kanban
   const [hasWebhook, setHasWebhook] = useState(false);
   
+  // ✅ Sync tab with URL on mount
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const tabParam = sp.get('tab') as TabType | null;
+    if (tabParam && ['system', 'active', 'imported', 'recent'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [location.search]);
+  
+  // ✅ Update URL when tab changes
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const currentTab = sp.get('tab');
+    if (currentTab !== activeTab) {
+      sp.set('tab', activeTab);
+      navigate(`${location.pathname}?${sp.toString()}`, { replace: true });
+    }
+  }, [activeTab, navigate, location.pathname]);
+  
   // Existing leads state
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -787,7 +806,18 @@ export function OutboundCallsPage() {
   };
 
   const handleLeadClick = (leadId: number) => {
-    navigate(`/app/leads/${leadId}?from=outbound`);
+    // Build URL with navigation context including current tab
+    const params = new URLSearchParams();
+    params.set('from', 'outbound_calls');
+    params.set('tab', activeTab);  // Preserve which tab user is on (system/active/imported/recent)
+    
+    // Add filter context if applicable
+    if (searchQuery) params.set('filterSearch', searchQuery);
+    if (selectedStatuses.length > 0) {
+      params.set('filterStatuses', selectedStatuses.join(','));
+    }
+    
+    navigate(`/app/leads/${leadId}?${params.toString()}`);
   };
 
   const filteredLeads = (Array.isArray(leads) ? leads : []).filter((lead: Lead) => {

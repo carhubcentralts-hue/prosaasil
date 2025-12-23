@@ -33,18 +33,49 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const fromParam = new URLSearchParams(location.search).get('from');
+  const searchParams = new URLSearchParams(location.search);
+  const fromParam = searchParams.get('from');
 
   const handleBack = useCallback(() => {
     const fromToPath: Record<string, string> = {
-      outbound: '/app/outbound-calls',
-      inbound: '/app/calls',
+      outbound_calls: '/app/outbound-calls',
+      inbound_calls: '/app/calls',
       whatsapp: '/app/whatsapp',
       leads: '/app/leads',
+      // Legacy support
+      outbound: '/app/outbound-calls',
+      inbound: '/app/calls',
     };
     const target = fromParam ? fromToPath[fromParam] : undefined;
     if (target) {
-      navigate(target);
+      // Preserve tab and filters when going back
+      const backParams = new URLSearchParams();
+      
+      // Preserve tab
+      const tab = searchParams.get('tab');
+      if (tab) backParams.set('tab', tab);
+      
+      // Preserve filters
+      const filterStatus = searchParams.get('filterStatus');
+      const filterSource = searchParams.get('filterSource');
+      const filterDirection = searchParams.get('filterDirection');
+      const filterOutboundList = searchParams.get('filterOutboundList');
+      const filterSearch = searchParams.get('filterSearch');
+      const filterDateFrom = searchParams.get('filterDateFrom');
+      const filterDateTo = searchParams.get('filterDateTo');
+      const filterStatuses = searchParams.get('filterStatuses');
+      
+      if (filterStatus) backParams.set('filterStatus', filterStatus);
+      if (filterSource) backParams.set('filterSource', filterSource);
+      if (filterDirection) backParams.set('filterDirection', filterDirection);
+      if (filterOutboundList) backParams.set('filterOutboundList', filterOutboundList);
+      if (filterSearch) backParams.set('filterSearch', filterSearch);
+      if (filterDateFrom) backParams.set('filterDateFrom', filterDateFrom);
+      if (filterDateTo) backParams.set('filterDateTo', filterDateTo);
+      if (filterStatuses) backParams.set('filterStatuses', filterStatuses);
+      
+      const targetUrl = backParams.toString() ? `${target}?${backParams.toString()}` : target;
+      navigate(targetUrl);
       return;
     }
     // Prefer browser back if we have history, otherwise fallback to leads list
@@ -53,7 +84,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       return;
     }
     navigate('/app/leads');
-  }, [fromParam, navigate]);
+  }, [fromParam, navigate, location.search]);
   
   const [lead, setLead] = useState<Lead | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
