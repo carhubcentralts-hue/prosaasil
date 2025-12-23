@@ -25,6 +25,17 @@ from typing import Optional
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
+# Import rate limiter from logging_setup
+try:
+    from server.logging_setup import RateLimiter
+    rl = RateLimiter()
+except ImportError:
+    # Fallback if import fails
+    class RateLimiter:
+        def every(self, key, sec):
+            return False
+    rl = RateLimiter()
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DSP Parameters - Tuned for telephony (8kHz, 20ms frames)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -33,8 +44,8 @@ HIGHPASS_CUTOFF_HZ = 120.0  # Remove low-frequency noise/rumble
 LIMITER_THRESHOLD = 28000  # Soft limiter threshold (leaves headroom)
 LIMITER_RATIO = 4.0  # Gentle compression ratio (not a brick wall)
 
-# RMS logging - log every N frames to avoid overhead
-RMS_LOG_INTERVAL = 100  # Log RMS stats every 100 frames (~2 seconds)
+# 🔥 RMS logging - rate-limited to avoid spam (once every 10 seconds)
+RMS_LOG_INTERVAL_SEC = 10.0
 
 # Filter coefficient (computed once)
 _FILTER_ALPHA = math.exp(-2.0 * math.pi * HIGHPASS_CUTOFF_HZ / SAMPLE_RATE)
@@ -59,8 +70,9 @@ class AudioDSPProcessor:
         self._filter_prev_input = 0.0
         self._filter_prev_output = 0.0
         
-        # RMS logging counter
-        self._rms_frame_counter = 0
+        # Error tracking for spam suppression
+        self._error_count = 0
+        self._first_error_logged = False
     
     def _highpass_filter_sample(self, sample: float) -> float:
         """
@@ -136,12 +148,6 @@ class AudioDSPProcessor:
             # ═══════════════════════════════════════════════════════════════════════
             pcm16_data = audioop.ulaw2lin(mulaw_bytes, 2)  # 2 = 16-bit samples
             
-            # Calculate RMS before processing (for logging)
-            rms_before = None
-            self._rms_frame_counter += 1
-            if self._rms_frame_counter >= RMS_LOG_INTERVAL:
-                rms_before = self._calculate_rms(pcm16_data)
-            
             # ═══════════════════════════════════════════════════════════════════════
             # STEP 2: High-pass filter + Soft limiter
             # ═══════════════════════════════════════════════════════════════════════
@@ -183,18 +189,29 @@ class AudioDSPProcessor:
             mulaw_processed = audioop.lin2ulaw(pcm16_processed, 2)
             
             # ═══════════════════════════════════════════════════════════════════════
-            # LOGGING: RMS before/after (DEBUG level to avoid production spam)
+            # LOGGING: RMS before/after (rate-limited to once per 10 seconds)
+            # 🔥 PRODUCTION: This will NOT log at all (DEBUG level)
             # ═══════════════════════════════════════════════════════════════════════
-            if rms_before is not None:
+            if logger.isEnabledFor(logging.DEBUG) and rl.every("dsp_rms", RMS_LOG_INTERVAL_SEC):
+                rms_before = self._calculate_rms(pcm16_data)
                 rms_after = self._calculate_rms(pcm16_processed)
                 logger.debug(f"[DSP] RMS: before={rms_before:.1f}, after={rms_after:.1f}, delta={rms_after-rms_before:.1f}")
-                self._rms_frame_counter = 0  # Reset counter
             
             return mulaw_processed
             
         except Exception as e:
+            # 🔥 ERROR SUPPRESSION: Log first error, then suppress repeats
+            self._error_count += 1
+            
+            if not self._first_error_logged:
+                # First occurrence - log as ERROR
+                logger.error(f"[DSP] ERROR: {e} - returning original audio (first occurrence)")
+                self._first_error_logged = True
+            elif rl.every("dsp_error", 30.0):
+                # Repeating error - log as WARNING every 30 seconds
+                logger.warning(f"[DSP] ERROR repeating (count={self._error_count}): {e}")
+            
             # Failsafe: return original audio if DSP fails
-            logger.error(f"[DSP] ERROR: {e} - returning original audio")
             return mulaw_bytes
 
 
