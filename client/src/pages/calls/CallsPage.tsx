@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle, Edit, Save, X } from 'lucide-react';
 import { http } from '../../services/http';
 import { formatDate as formatDateUtil, formatDuration } from '../../shared/utils/format';
+import { CallCard } from '../../shared/components/CallCard';
 
 // Debounce hook for search optimization
 function useDebounce<T>(value: T, delay: number): T {
