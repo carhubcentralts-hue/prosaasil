@@ -90,7 +90,8 @@ interface RecentCall {
   to_number: string;
   lead_id: number | null;
   lead_name: string | null;
-  status: string;
+  lead_status: string | null;  // ✅ FIX: Add lead_status field
+  status: string;  // call status (completed, failed, etc.)
   started_at: string | null;
   ended_at: string | null;
   duration: number;
@@ -110,6 +111,25 @@ export function OutboundCallsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('system');
   const [viewMode, setViewMode] = useState<ViewMode>('kanban'); // Default to Kanban
   const [hasWebhook, setHasWebhook] = useState(false);
+  
+  // ✅ Sync tab with URL on mount
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const tabParam = sp.get('tab') as TabType | null;
+    if (tabParam && ['system', 'active', 'imported', 'recent'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [location.search]);
+  
+  // ✅ Update URL when tab changes
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const currentTab = sp.get('tab');
+    if (currentTab !== activeTab) {
+      sp.set('tab', activeTab);
+      navigate(`${location.pathname}?${sp.toString()}`, { replace: true });
+    }
+  }, [activeTab, navigate, location.pathname]);
   
   // Existing leads state
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
@@ -786,7 +806,18 @@ export function OutboundCallsPage() {
   };
 
   const handleLeadClick = (leadId: number) => {
-    navigate(`/app/leads/${leadId}?from=outbound`);
+    // Build URL with navigation context including current tab
+    const params = new URLSearchParams();
+    params.set('from', 'outbound_calls');
+    params.set('tab', activeTab);  // Preserve which tab user is on (system/active/imported/recent)
+    
+    // Add filter context if applicable
+    if (searchQuery) params.set('filterSearch', searchQuery);
+    if (selectedStatuses.length > 0) {
+      params.set('filterStatuses', selectedStatuses.join(','));
+    }
+    
+    navigate(`/app/leads/${leadId}?${params.toString()}`);
   };
 
   const filteredLeads = (Array.isArray(leads) ? leads : []).filter((lead: Lead) => {
@@ -1801,7 +1832,8 @@ export function OutboundCallsPage() {
                         <th className="text-right py-3 px-2 font-medium">זמן</th>
                         <th className="text-right py-3 px-2 font-medium">טלפון</th>
                         <th className="text-right py-3 px-2 font-medium">ליד</th>
-                        <th className="text-right py-3 px-2 font-medium">סטטוס</th>
+                        <th className="text-right py-3 px-2 font-medium">סטטוס ליד</th>
+                        <th className="text-right py-3 px-2 font-medium">סטטוס שיחה</th>
                         <th className="text-right py-3 px-2 font-medium">משך</th>
                         <th className="text-right py-3 px-2 font-medium">הקלטה</th>
                         <th className="text-right py-3 px-2 font-medium">סיכום</th>
@@ -1843,6 +1875,21 @@ export function OutboundCallsPage() {
                                 </span>
                               ) : (
                                 '-'
+                              )}
+                            </td>
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
+                              {call.lead_id && call.lead_status ? (
+                                <StatusDropdownWithWebhook
+                                  leadId={call.lead_id}
+                                  currentStatus={call.lead_status}
+                                  statuses={statuses}
+                                  onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id, newStatus)}
+                                  source="recent_calls_tab"
+                                  hasWebhook={hasWebhook}
+                                  size="sm"
+                                />
+                              ) : (
+                                <span className="text-gray-400 text-xs">אין ליד</span>
                               )}
                             </td>
                             <td className="py-3 px-2">

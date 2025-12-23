@@ -1591,16 +1591,19 @@ def get_recent_calls():
         for call in calls:
             # Get lead info if available
             lead_name = None
+            lead_status = None
             if call.lead_id:
                 lead = Lead.query.get(call.lead_id)
                 if lead:
                     lead_name = lead.full_name
+                    lead_status = lead.status
             
             items.append({
                 "call_sid": call.call_sid,
                 "to_number": call.to_number,
                 "lead_id": call.lead_id,
                 "lead_name": lead_name,
+                "lead_status": lead_status,
                 "status": call.call_status,
                 "started_at": call.created_at.isoformat() if call.created_at else None,
                 "ended_at": call.updated_at.isoformat() if call.updated_at and call.updated_at != call.created_at else None,

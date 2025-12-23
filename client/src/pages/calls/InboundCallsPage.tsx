@@ -147,7 +147,17 @@ export function InboundCallsPage() {
   const statuses = statusesData || [];
 
   const handleLeadClick = (leadId: number) => {
-    navigate(`/app/leads/${leadId}?from=inbound`);
+    // Build URL with navigation context
+    const params = new URLSearchParams();
+    params.set('from', 'inbound_calls');
+    
+    // Add filter context if applicable
+    if (searchQuery) params.set('filterSearch', searchQuery);
+    if (selectedStatuses.length > 0) {
+      params.set('filterStatuses', selectedStatuses.join(','));
+    }
+    
+    navigate(`/app/leads/${leadId}?${params.toString()}`);
   };
 
   const handleLeadSelect = (leadId: number) => {

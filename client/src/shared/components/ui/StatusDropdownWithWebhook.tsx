@@ -104,6 +104,7 @@ export function StatusDropdownWithWebhook({
       // Check webhook preference
       if (hasWebhook) {
         const preference = getWebhookPreference();
+        console.log(`[StatusDropdownWithWebhook] hasWebhook=${hasWebhook}, preference=${preference}`);
         
         if (preference === 'always') {
           // Dispatch webhook automatically
@@ -114,6 +115,8 @@ export function StatusDropdownWithWebhook({
           setShowWebhookPopup(true);
         }
         // If preference is 'never', don't dispatch webhook
+      } else {
+        console.log('[StatusDropdownWithWebhook] No webhook URL configured, skipping webhook dispatch');
       }
     } catch (error) {
       console.error('Failed to update status:', error);
@@ -125,7 +128,12 @@ export function StatusDropdownWithWebhook({
   const handleWebhookConfirm = async () => {
     setShowWebhookPopup(false);
     if (pendingStatus) {
-      await dispatchWebhook(leadId, pendingStatus.old, pendingStatus.new, source);
+      const success = await dispatchWebhook(leadId, pendingStatus.old, pendingStatus.new, source);
+      if (success) {
+        // Show success message briefly (non-blocking)
+        console.info('✅ Webhook נשלח בהצלחה');
+        // TODO: Replace with toast notification system for better UX
+      }
     }
     setPendingStatus(null);
   };
@@ -140,7 +148,7 @@ export function StatusDropdownWithWebhook({
     oldStatus: string,
     newStatus: string,
     source: string
-  ) => {
+  ): Promise<boolean> => {
     try {
       await http.post('/api/webhooks/status/dispatch', {
         lead_id: leadId,
@@ -149,9 +157,15 @@ export function StatusDropdownWithWebhook({
         source,
       });
       console.log('✅ Webhook dispatched successfully');
+      return true;
     } catch (error) {
       console.error('❌ Failed to dispatch webhook:', error);
-      // Don't show error to user - webhook dispatch is optional
+      // Show error to user (blocking alert for errors is acceptable)
+      // TODO: Replace with toast notification system for better UX
+      setTimeout(() => {
+        alert('❌ שגיאה בשליחת Webhook. אנא נסה שוב.');
+      }, 100);
+      return false;
     }
   };
 
