@@ -68,8 +68,30 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 
-SERVER_VAD_THRESHOLD = float(os.getenv("SERVER_VAD_THRESHOLD", "0.88"))  # Configurable via ENV
-SERVER_VAD_SILENCE_MS = int(os.getenv("SERVER_VAD_SILENCE_MS", "650"))   # Configurable via ENV
+# Read from environment with validation
+_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.88")
+_vad_silence_str = os.getenv("SERVER_VAD_SILENCE_MS", "650")
+
+try:
+    SERVER_VAD_THRESHOLD = float(_vad_threshold_str)
+    # Validate bounds: 0.0 to 1.0
+    if not 0.0 <= SERVER_VAD_THRESHOLD <= 1.0:
+        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.88")
+        SERVER_VAD_THRESHOLD = 0.88
+except ValueError:
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.88")
+    SERVER_VAD_THRESHOLD = 0.88
+
+try:
+    SERVER_VAD_SILENCE_MS = int(_vad_silence_str)
+    # Validate positive integer
+    if SERVER_VAD_SILENCE_MS <= 0:
+        print(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 650")
+        SERVER_VAD_SILENCE_MS = 650
+except ValueError:
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 650")
+    SERVER_VAD_SILENCE_MS = 650
+
 SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew (unchanged)
 
 # ═══════════════════════════════════════════════════════════════════════════════
