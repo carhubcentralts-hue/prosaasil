@@ -73,13 +73,16 @@ def test_output_length():
     
     all_passed = True
     for size in test_sizes:
-        test_audio = generate_test_audio(duration_ms=size // 8, frequency=440)
+        # Convert bytes to milliseconds: bytes * 1000 / sample_rate
+        # At 8kHz, 160 bytes = 160 samples = 20ms
+        duration_ms = (size * 1000) // 8000
+        test_audio = generate_test_audio(duration_ms=duration_ms, frequency=440)
         processed_audio = dsp_mulaw_8k(test_audio)
         
         if len(processed_audio) == len(test_audio):
-            print(f"✅ Size {size} bytes: input={len(test_audio)}, output={len(processed_audio)}")
+            print(f"✅ Size {size} bytes ({duration_ms}ms): input={len(test_audio)}, output={len(processed_audio)}")
         else:
-            print(f"❌ Size {size} bytes: input={len(test_audio)}, output={len(processed_audio)} (MISMATCH!)")
+            print(f"❌ Size {size} bytes ({duration_ms}ms): input={len(test_audio)}, output={len(processed_audio)} (MISMATCH!)")
             all_passed = False
     
     return all_passed

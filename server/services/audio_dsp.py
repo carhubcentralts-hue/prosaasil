@@ -169,10 +169,26 @@ def dsp_mulaw_8k(mulaw_bytes: bytes) -> bytes:
         samples = np.frombuffer(pcm16_data, dtype=np.int16).astype(np.float64)
         
         # Apply high-pass filter (sample-by-sample for state continuity)
-        filtered_samples = np.array([_highpass_filter_sample(s) for s in samples])
+        # Note: Must use loop to maintain filter state across samples
+        filtered_samples = np.empty_like(samples)
+        for i, sample in enumerate(samples):
+            filtered_samples[i] = _highpass_filter_sample(sample)
         
-        # Apply soft limiter
-        limited_samples = np.array([_soft_limiter(s) for s in filtered_samples])
+        # Apply soft limiter (vectorized for performance)
+        abs_samples = np.abs(filtered_samples)
+        
+        # Vectorized soft limiter logic
+        # No limiting needed if below threshold
+        limited_samples = filtered_samples.copy()
+        
+        # Apply limiting only to samples above threshold
+        needs_limiting = abs_samples > LIMITER_THRESHOLD
+        if np.any(needs_limiting):
+            excess = abs_samples[needs_limiting] - LIMITER_THRESHOLD
+            compressed_excess = excess / LIMITER_RATIO
+            limited_abs = LIMITER_THRESHOLD + compressed_excess
+            # Preserve sign
+            limited_samples[needs_limiting] = np.sign(filtered_samples[needs_limiting]) * limited_abs
         
         # Convert back to int16
         processed_samples = np.clip(limited_samples, -32768, 32767).astype(np.int16)
