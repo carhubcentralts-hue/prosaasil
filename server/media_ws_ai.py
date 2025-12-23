@@ -3043,44 +3043,44 @@ class MediaStreamHandler:
                 # ═══════════════════════════════════════════════════════════════════════
                 if triggered:
                     async def _greeting_audio_timeout_watchdog():
-                    """Monitor for greeting audio timeout - cancel if no audio within timeout window."""
-                    watchdog_start = time.time()
-                    timeout_sec = self._greeting_audio_timeout_sec
+                        """Monitor for greeting audio timeout - cancel if no audio within timeout window."""
+                        watchdog_start = time.time()
+                        timeout_sec = self._greeting_audio_timeout_sec
 
-                    # Wait for greeting audio or timeout
-                    while (time.time() - watchdog_start) < timeout_sec:
-                        # Check if we received greeting audio
-                        if self._greeting_audio_received:
-                            # Greeting audio arrived - success!
-                            return
+                        # Wait for greeting audio or timeout
+                        while (time.time() - watchdog_start) < timeout_sec:
+                            # Check if we received greeting audio
+                            if self._greeting_audio_received:
+                                # Greeting audio arrived - success!
+                                return
 
-                        # Check if greeting is no longer playing (user barged in, etc.)
-                        if not self.is_playing_greeting:
-                            return
+                            # Check if greeting is no longer playing (user barged in, etc.)
+                            if not self.is_playing_greeting:
+                                return
 
-                        # Check if realtime already failed
-                        if self.realtime_failed:
-                            return
+                            # Check if realtime already failed
+                            if self.realtime_failed:
+                                return
 
-                        await asyncio.sleep(0.1)  # Check every 100ms
+                            await asyncio.sleep(0.1)  # Check every 100ms
 
-                    # Timeout reached - check if audio ever arrived
-                    if not self._greeting_audio_received and self.is_playing_greeting:
-                        elapsed_ms = int((time.time() - watchdog_start) * 1000)
-                        _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_OPENAI ({elapsed_ms}ms) - canceling greeting", flush=True)
-                        logger.warning(f"[GREETING] No audio from OpenAI after {elapsed_ms}ms - canceling greeting")
+                        # Timeout reached - check if audio ever arrived
+                        if not self._greeting_audio_received and self.is_playing_greeting:
+                            elapsed_ms = int((time.time() - watchdog_start) * 1000)
+                            _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_OPENAI ({elapsed_ms}ms) - canceling greeting", flush=True)
+                            logger.warning(f"[GREETING] No audio from OpenAI after {elapsed_ms}ms - canceling greeting")
 
-                        # Cancel the greeting - let call continue without it
-                        self.is_playing_greeting = False
-                        self.greeting_sent = True  # Mark as done so we don't retry
-                        self.barge_in_enabled_after_greeting = True  # Allow barge-in
+                            # Cancel the greeting - let call continue without it
+                            self.is_playing_greeting = False
+                            self.greeting_sent = True  # Mark as done so we don't retry
+                            self.barge_in_enabled_after_greeting = True  # Allow barge-in
 
-                        # Don't set realtime_failed - the call can still proceed.
-                        # Just skip the greeting and let user audio through.
-                        _orig_print("⚠️ [GREETING] GREETING_SKIPPED - continuing call without greeting", flush=True)
+                            # Don't set realtime_failed - the call can still proceed.
+                            # Just skip the greeting and let user audio through.
+                            _orig_print("⚠️ [GREETING] GREETING_SKIPPED - continuing call without greeting", flush=True)
 
-                # Start the watchdog
-                asyncio.create_task(_greeting_audio_timeout_watchdog())
+                    # Start the watchdog
+                    asyncio.create_task(_greeting_audio_timeout_watchdog())
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
