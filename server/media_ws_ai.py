@@ -4568,7 +4568,7 @@ class MediaStreamHandler:
                         # Bot always speaks first - NO barge-in during first sentence only
                         if self.first_response_id is None:
                             self.first_response_id = response_id
-                            self.first_utterance_protected = True  # Ensure protection is ON
+                            # Note: first_utterance_protected already initialized to True in __init__
                             _orig_print(f"🔒 [FIRST_UTTERANCE] Marked first response: id={response_id[:20]}... (protection=ON)", flush=True)
                             print(f"🔒 [FIRST_UTTERANCE] NO barge-in allowed until this response completes")
                         
