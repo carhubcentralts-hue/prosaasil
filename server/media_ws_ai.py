@@ -11,8 +11,8 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
-# 🎯 MINIMAL DSP: Import audio processing for background noise/music reduction
-from server.services.audio_dsp import AudioDSPProcessor
+# 🎯 MINIMAL DSP: Lazy import - only load when enabled
+# Import moved to __init__ to avoid overhead when DSP is disabled
 
 # 🔥 HOTFIX: Import websockets exceptions for graceful connection closure handling
 try:
@@ -1831,15 +1831,25 @@ class MediaStreamHandler:
                    f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
                    f"sample_rate=8000, encoding=pcmu", flush=True)
         
-        # 🎯 MINIMAL DSP: Reset filter state for new call
-        # 🎯 MINIMAL DSP: Create per-call DSP processor instance
+        # 🎯 MINIMAL DSP: Create per-call DSP processor instance (lazy import)
+        # Default to None - only create instance when enabled
         # This ensures filter state doesn't leak between calls
+        self.dsp_processor = None  # Default: disabled
+        
         if ENABLE_MIN_DSP:
-            self.dsp_processor = AudioDSPProcessor()
-            _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter) - per-call instance", flush=True)
+            try:
+                from server.services.audio_dsp import AudioDSPProcessor
+                self.dsp_processor = AudioDSPProcessor()
+                _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter) - per-call instance", flush=True)
+            except ImportError as e:
+                _orig_print(f"[DSP] WARNING: Could not import AudioDSPProcessor: {e}", flush=True)
+                _orig_print(f"[DSP] DSP disabled - audio will pass through unprocessed", flush=True)
         else:
-            self.dsp_processor = None
             _orig_print(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)", flush=True)
+        
+        # 🎯 SUCCESS METRICS: Track DSP/VAD effectiveness
+        self._false_trigger_suspected_count = 0  # AI responded to noise/music (not real speech)
+        self._missed_short_utterance_count = 0   # Short valid utterances missed ("כן", "לא", "הלו")
         
         print("🎯 AI CONVERSATION STARTED")
         
@@ -4713,6 +4723,12 @@ class MediaStreamHandler:
                             if self._candidate_user_speaking and not self.user_has_spoken:
                                 # Timeout expired - force turn finalization
                                 print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
+                                
+                                # 🎯 SUCCESS METRICS: Potential missed short utterance
+                                # Speech detected but no transcription received (could be "כן", "לא", "הלו")
+                                self._missed_short_utterance_count += 1
+                                logger.debug(f"[METRICS] missed_short_utterance_count={self._missed_short_utterance_count} (timeout without transcription)")
+                                
                                 self._finalize_user_turn_on_timeout()
                         except asyncio.CancelledError:
                             # Task was cancelled (connection closed or transcription received)
@@ -6033,6 +6049,12 @@ class MediaStreamHandler:
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - save as hallucination and ignore
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
+                        
+                        # 🎯 SUCCESS METRICS: Potential false trigger detected
+                        # (AI might have responded to background noise/music)
+                        if text and len(text.strip()) >= 1:  # Has some text but failed validation
+                            self._false_trigger_suspected_count += 1
+                            logger.debug(f"[METRICS] false_trigger_suspected_count={self._false_trigger_suspected_count} (text='{text}')")
                         
                         # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                         logger.info(
@@ -8160,6 +8182,10 @@ class MediaStreamHandler:
                 # Clear barge-in state
                 self.barge_in_active = False
                 self._barge_in_started_ts = None
+                
+                # 🎯 DSP: Clear processor reference for garbage collection
+                if hasattr(self, 'dsp_processor'):
+                    self.dsp_processor = None
                 
                 # Clear user speaking state
                 self.user_speaking = False
@@ -15077,7 +15103,9 @@ class MediaStreamHandler:
                 "frames_dropped_total=%(frames_dropped_total)d, "
                 "frames_dropped_greeting=%(frames_dropped_greeting)d, "
                 "frames_dropped_filters=%(frames_dropped_filters)d, "
-                "frames_dropped_queue=%(frames_dropped_queue)d",
+                "frames_dropped_queue=%(frames_dropped_queue)d, "
+                "false_trigger_suspected=%(false_trigger_suspected)d, "
+                "missed_short_utterance=%(missed_short_utterance)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -15095,7 +15123,9 @@ class MediaStreamHandler:
                     'frames_dropped_total': frames_dropped_total,
                     'frames_dropped_greeting': frames_dropped_by_greeting_lock,
                     'frames_dropped_filters': frames_dropped_by_filters,
-                    'frames_dropped_queue': frames_dropped_by_queue_full
+                    'frames_dropped_queue': frames_dropped_by_queue_full,
+                    'false_trigger_suspected': getattr(self, '_false_trigger_suspected_count', 0),
+                    'missed_short_utterance': getattr(self, '_missed_short_utterance_count', 0)
                 }
             )
             
@@ -15111,6 +15141,12 @@ class MediaStreamHandler:
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
             print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            
+            # 🎯 SUCCESS METRICS: Log DSP/VAD effectiveness
+            false_trigger_count = getattr(self, '_false_trigger_suspected_count', 0)
+            missed_utterance_count = getattr(self, '_missed_short_utterance_count', 0)
+            print(f"   🎯 Success Metrics: false_triggers={false_trigger_count}, missed_short_utterances={missed_utterance_count}")
+            
             if SIMPLE_MODE and frames_dropped_total > 0:
                 print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
             

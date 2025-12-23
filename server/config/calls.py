@@ -51,6 +51,10 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # - prefix_padding_ms 300: Standard padding for Hebrew syllables (unchanged)
 # - create_response: true (automatic response generation on turn end)
 #
+# 🎯 ENV OVERRIDE: Can be tuned in production without code changes
+# export SERVER_VAD_THRESHOLD=0.90  # Increase if too many false triggers
+# export SERVER_VAD_THRESHOLD=0.86  # Decrease if missing quiet speech
+#
 # ⚠️ MONITORING REQUIRED:
 # - If still too many false triggers → increase to 0.90-0.92
 # - If missing quiet speech ("כן", "לא") → decrease to 0.85-0.86
@@ -62,8 +66,10 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ✅ Longer silence wait - allows natural pauses
 # ✅ Natural conversation flow with proper turn-taking
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.88         # Balanced: reduces noise while catching speech (was 0.82 → 0.90 → 0.88)
-SERVER_VAD_SILENCE_MS = 650         # Longer wait before cutting (unchanged)
+import os
+
+SERVER_VAD_THRESHOLD = float(os.getenv("SERVER_VAD_THRESHOLD", "0.88"))  # Configurable via ENV
+SERVER_VAD_SILENCE_MS = int(os.getenv("SERVER_VAD_SILENCE_MS", "650"))   # Configurable via ENV
 SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew (unchanged)
 
 # ═══════════════════════════════════════════════════════════════════════════════
