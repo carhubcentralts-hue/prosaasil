@@ -2068,6 +2068,10 @@ class MediaStreamHandler:
         self._utterance_start_rms = 0  # RMS level when speech started
         self._utterance_start_noise_floor = 50.0  # Noise floor when speech started
         
+        # 🔥 DOUBLE RESPONSE FIX: Track user turn state
+        # Only allow response.create when triggered by actual user utterance
+        self.user_turn_open = False  # True when UTTERANCE received, False when response.create sent
+        
         # 🔥 BUILD 303: GREETING FLOW MANAGEMENT - Wait for user answer to greeting question
         # Ensures we don't skip to next question before processing user's response to greeting
         self.awaiting_greeting_answer = False  # True after greeting ends, until first utterance is processed
@@ -3164,7 +3168,7 @@ class MediaStreamHandler:
                     await asyncio.sleep(0.01)
 
                 # 🔥 BUILD 200: Use trigger_response for greeting (forced, no user_speaking/user_has_spoken dependency)
-                triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True)
+                triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True, source="greeting")
             if triggered:
                 t_speak = time.time()
                 total_openai_ms = (t_speak - t_start) * 1000
@@ -3885,7 +3889,7 @@ class MediaStreamHandler:
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
     # ═══════════════════════════════════════════════════════════════════════════════
-    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False, force: bool = False) -> bool:
+    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False, force: bool = False, source: str = "unknown") -> bool:
         """
         🎯 BUILD 200: Central function for triggering response.create
         
@@ -3896,6 +3900,7 @@ class MediaStreamHandler:
         3. Consistent logging
         4. 🔥 FIX: NO blocking guards - cancel happens in barge-in handler only
         5. 🔥 SESSION GATE: Blocks until session.updated is confirmed
+        6. 🔥 DOUBLE RESPONSE FIX: Only allow response.create from user utterances
         
         Cancel/replace pattern:
         - response.cancel is called ONLY in speech_started handler when real barge-in detected
@@ -3907,6 +3912,7 @@ class MediaStreamHandler:
             client: The realtime client (uses self.realtime_client if not provided)
             is_greeting: If True, this is the initial greeting - skip loop guard (first response)
             force: If True, bypass lifecycle locks for the initial greeting trigger only
+            source: Source of the trigger (utterance, watchdog, state_reset, prompt_upgrade, greeting)
             
         Returns:
             True if response was triggered, False if blocked by lifecycle guards only
@@ -3914,7 +3920,18 @@ class MediaStreamHandler:
         # Use stored client if not provided
         _client = client or self.realtime_client
         if not _client:
-            print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
+            logger.debug(f"[RESPONSE_BLOCKED] No client available - source={source}, reason={reason}")
+            return False
+        
+        # 🔥 DOUBLE RESPONSE FIX: Block response.create unless triggered by user utterance
+        # Exception: greeting is allowed (first response before any user input)
+        if not is_greeting and source != "utterance":
+            logger.debug(f"[RESPONSE_BLOCKED] source={source} (not utterance), reason={reason} - waiting for user input")
+            return False
+        
+        # 🔥 DOUBLE RESPONSE FIX: Block if no open user turn (except for greeting)
+        if not is_greeting and not self.user_turn_open:
+            logger.debug(f"[RESPONSE_BLOCKED] no open user turn, source={source}, reason={reason}")
             return False
         
         # 🔥 CRITICAL SESSION GATE: Block response.create until session is confirmed
@@ -4023,17 +4040,22 @@ class MediaStreamHandler:
             self._response_create_in_flight = True
             self._response_create_started_ts = time.time()
             
+            # 🔥 DOUBLE RESPONSE FIX: Close user turn when sending response.create
+            if not is_greeting:
+                self.user_turn_open = False
+                logger.debug(f"[USER_TURN] Closed after response.create (source={source})")
+            
             await _client.send_event({"type": "response.create"})
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
-            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
+            print(f"🎯 [BUILD 200] response.create triggered (source={source}, reason={reason}) [TOTAL: {self._response_create_count}]")
             return True
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
             self.response_pending_event.clear()
             self._response_create_in_flight = False  # 🔥 Clear in-flight flag on error
-            print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
+            print(f"❌ [RESPONSE GUARD] Failed to trigger (source={source}, reason={reason}): {e}")
             return False
     
     async def _realtime_text_sender(self, client):
@@ -4399,7 +4421,7 @@ class MediaStreamHandler:
                                             self._greeting_start_ts = greeting_start_ts
                                             logger.info("[GREETING_LOCK] activated (deferred after response.done)")
                                             
-                                            triggered = await self.trigger_response("GREETING_DEFERRED", client, is_greeting=True, force=True)
+                                            triggered = await self.trigger_response("GREETING_DEFERRED", client, is_greeting=True, force=True, source="greeting")
                                             if triggered:
                                                 print(f"✅ [GREETING_PENDING] Deferred greeting triggered successfully")
                                             else:
@@ -4991,7 +5013,7 @@ class MediaStreamHandler:
                             # All guards passed - trigger recovery via central function
                             # 🔥 BUILD 200: Use trigger_response for consistent response management
                             self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
-                            triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client)
+                            triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client, source="state_reset")
                             if not triggered:
                                 print(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
                             else:
@@ -6421,7 +6443,7 @@ class MediaStreamHandler:
                                     async def _trigger_outbound_greeting():
                                         try:
                                             # No sleep - trigger immediately after human confirmation
-                                            triggered = await self.trigger_response("OUTBOUND_HUMAN_CONFIRMED", realtime_client, is_greeting=True, force=True)
+                                            triggered = await self.trigger_response("OUTBOUND_HUMAN_CONFIRMED", realtime_client, is_greeting=True, force=True, source="greeting")
                                             if triggered:
                                                 print(f"✅ [OUTBOUND] Greeting triggered immediately after human confirmation")
                                                 logger.info(f"[OUTBOUND] response.create triggered text='{text[:50]}'")
@@ -6481,6 +6503,13 @@ class MediaStreamHandler:
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
                     self.user_speaking = False
+                    
+                    # 🔥 DOUBLE RESPONSE FIX: Open user turn on valid utterance
+                    # This allows response.create to be triggered from utterance source
+                    if not is_filler_only:
+                        self.user_turn_open = True
+                        logger.debug(f"[USER_TURN] Opened after valid utterance: '{text[:50]}'")
+                    
                     if DEBUG:
                         logger.debug(f"[TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     else:
@@ -6554,14 +6583,14 @@ class MediaStreamHandler:
                                 realtime_client = getattr(self, 'realtime_client', None)
                                 if realtime_client:
                                     try:
-                                        # Simple retry - just send response.create
-                                        await realtime_client.send_event({"type": "response.create"})
-                                        # Set in-flight flag for the retry
-                                        self._response_create_in_flight = True
-                                        self._response_create_started_ts = time.time()
-                                        print(f"✅ [WATCHDOG] Retry response.create sent")
+                                        # 🔥 DOUBLE RESPONSE FIX: Use trigger_response with source="watchdog"
+                                        # This will be blocked by the source check unless it's from an utterance
+                                        triggered = await self.trigger_response("WATCHDOG_RETRY", realtime_client, source="watchdog")
+                                        if triggered:
+                                            print(f"✅ [WATCHDOG] Retry response.create sent")
+                                        else:
+                                            print(f"⚠️ [WATCHDOG] Retry blocked by trigger_response guards")
                                     except Exception as e:
-                                        self._response_create_in_flight = False  # Clear on error
                                         print(f"❌ [WATCHDOG] Error retrying response: {e}")
                         except asyncio.CancelledError:
                             pass
@@ -7257,10 +7286,10 @@ class MediaStreamHandler:
                             try:
                                 handled = await self._maybe_server_first_schedule_from_transcript(client, transcript)
                                 if not handled:
-                                    await self.trigger_response("APPOINTMENT_MANUAL_TURN", client)
+                                    await self.trigger_response("APPOINTMENT_MANUAL_TURN", client, source="utterance")
                             except Exception as _sf_err:
                                 print(f"⚠️ [SERVER_FIRST] Error (continuing with normal AI turn): {_sf_err}")
-                                await self.trigger_response("APPOINTMENT_MANUAL_TURN", client)
+                                await self.trigger_response("APPOINTMENT_MANUAL_TURN", client, source="utterance")
 
                         # 🔥 DEFAULT (Realtime-native): DO NOT manually trigger response.create here.
                         # OpenAI's server_vad already automatically creates responses when speech ends.
@@ -12223,7 +12252,8 @@ class MediaStreamHandler:
             self._is_silence_handler_response = True
             
             # 🔥 BUILD 200: Use central trigger_response
-            await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
+            # 🔥 DOUBLE RESPONSE FIX: Silence handler should not trigger response (not a real user utterance)
+            await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}", source="silence_handler")
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
 
@@ -12253,7 +12283,7 @@ class MediaStreamHandler:
                 },
             }
         )
-        await self.trigger_response(reason, client)
+        await self.trigger_response(reason, client, source="server_first")
         return True
 
     async def _maybe_server_first_schedule_from_transcript(self, client, transcript: str) -> bool:
