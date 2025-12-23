@@ -11,6 +11,14 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
+# 🔥 HOTFIX: Import websockets exceptions for graceful connection closure handling
+try:
+    from websockets.exceptions import ConnectionClosedOK
+except ImportError:
+    # Fallback if websockets not available (should not happen in production)
+    ConnectionClosedOK = None
+
+
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
 # - Server parses date/time deterministically after STT_FINAL
 # - Server checks availability + schedules (DB) and injects an exact sentence to speak
@@ -2974,6 +2982,9 @@ class MediaStreamHandler:
             # For inbound calls, trigger greeting immediately as before
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
             
+            # 🔥 HOTFIX: Initialize triggered to prevent UnboundLocalError in outbound path
+            triggered = False
+            
             if is_outbound and not self.human_confirmed:
                 # 🔥 OUTBOUND: Don't trigger greeting yet - wait for first valid STT_FINAL
                 print(f"🎤 [OUTBOUND] Waiting for human_confirmed before greeting (human on line)")
@@ -3495,7 +3506,17 @@ class MediaStreamHandler:
                 if _frames_sent == 0:
                     _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
                 
-                await client.send_audio_chunk(audio_chunk)
+                # 🔥 HOTFIX: Handle ConnectionClosedOK gracefully (normal WebSocket close)
+                try:
+                    await client.send_audio_chunk(audio_chunk)
+                except Exception as send_err:
+                    # Check if it's a normal connection close
+                    if ConnectionClosedOK and isinstance(send_err, ConnectionClosedOK):
+                        logger.info("[REALTIME] Audio sender exiting - WebSocket closed OK")
+                        _orig_print("[REALTIME] Audio sender exiting - ws closed OK", flush=True)
+                        break
+                    # For other exceptions, re-raise to be handled by outer try-except
+                    raise
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
                 now = time.time()
