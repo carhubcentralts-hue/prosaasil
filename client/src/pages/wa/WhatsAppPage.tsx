@@ -960,7 +960,8 @@ export function WhatsAppPage() {
                   </div>
                   <span className="text-xs text-green-600">
                     {summary.summary_at ? new Date(summary.summary_at).toLocaleDateString('he-IL', { 
-                      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' 
+                      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                      timeZone: 'Asia/Jerusalem'
                     }) : ''}
                   </span>
                 </div>

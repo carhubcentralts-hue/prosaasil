@@ -1287,7 +1287,8 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
       day: 'numeric',
       month: 'short',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: 'Asia/Jerusalem'
     });
   };
 

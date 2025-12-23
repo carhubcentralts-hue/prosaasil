@@ -627,7 +627,9 @@ export function BusinessAISettings() {
       {/* Version Info */}
       {prompts.last_updated && (
         <div className="text-center text-sm text-slate-500">
-          עדכון אחרון: {new Date(prompts.last_updated).toLocaleString('he-IL')}
+          עדכון אחרון: {new Date(prompts.last_updated).toLocaleString('he-IL', {
+            timeZone: 'Asia/Jerusalem'
+          })}
           {prompts.version > 1 && ` • גרסה ${prompts.version}`}
         </div>
       )}
