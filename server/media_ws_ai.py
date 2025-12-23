@@ -1308,24 +1308,21 @@ _REAL_HANGUP_PUNCT_RE = re.compile(r"[\"'“”‘’`´~!?.…,;:\(\)\[\]\{\}\-
 
 
 
-# 🔥 HANGUP REASON VALIDATION: Allow-list and block-list for request_hangup()
-# Prevents technical events (audio.done, queue_empty) from causing premature disconnects
-# 
-# REQUIREMENT 1: Both silence reasons are valid (serve different purposes):
-# - hard_silence_timeout: 20s absolute silence watchdog (no RX + no TX)
-# - silence_timeout: Soft silence with configurable warnings + AI prompts
+# 🔥 PRODUCTION HANGUP RULES: Only 2 allowed reasons
+# The system can ONLY disconnect in two scenarios:
+# 1. Silence: After 30 seconds of complete inactivity (no user voice AND no AI audio TX)
+# 2. Bot Goodbye: Only when the BOT says goodbye phrases (user saying "bye" does NOT disconnect)
 ALLOWED_HANGUP_REASONS = {
-    "hard_silence_timeout",        # True 20-second silence (no RX + no TX) - absolute watchdog
-    "silence_timeout",             # Soft silence with warnings (configurable, with AI prompts)
-    "user_goodbye",                # User said goodbye/bye/etc (closing phrases)
-    "bot_goodbye",                 # Bot said goodbye/bye/etc (closing phrases)
-    "idle_timeout_no_user_speech", # User never spoke after 30s
-    "voicemail_detected",          # AMD detection
-    "flow_completed",              # Bot completed script and user confirmed
+    "hard_silence_30s",  # 30 seconds of complete silence (no RX + no TX)
+    "bot_goodbye",       # Bot said goodbye/bye/להתראות (ONLY bot, not user)
 }
 
-# Invalid reasons that should be blocked (technical events, not real hangup reasons)
-BLOCKED_HANGUP_REASONS = ["queue_empty", "audio_done", "response.done", "response.audio.done"]
+# Invalid reasons - ALL others are blocked (including user_goodbye, flow_completed, etc.)
+BLOCKED_HANGUP_REASONS = [
+    "queue_empty", "audio_done", "response.done", "response.audio.done",
+    "silence_timeout", "hard_silence_timeout", "user_goodbye", 
+    "flow_completed", "idle_timeout_no_user_speech", "voicemail_detected"
+]
 
 def _normalize_for_real_hangup(text: str) -> str:
     """
@@ -2001,7 +1998,7 @@ class MediaStreamHandler:
         # ✅ HARD SILENCE WATCHDOG (telephony): hang up on real inactivity (not AI-dependent)
         # Updated on input_audio_buffer.speech_started and response.audio.delta.
         self._last_user_voice_started_ts = None
-        self._hard_silence_hangup_sec = 20.0  # 🔥 AUTO-HANGUP: 20 seconds of continuous silence
+        self._hard_silence_hangup_sec = 30.0  # 🔥 PRODUCTION: 30 seconds of continuous silence
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
@@ -4322,15 +4319,14 @@ class MediaStreamHandler:
                     # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
                     self._last_user_voice_started_ts = time.time()
                     
-                    # 🔥 REQUIREMENT 4: Cancel silence-based pending hangups when user speaks
+                    # 🔥 PRODUCTION: Cancel silence-based pending hangups when user speaks
                     # If pending hangup is due to silence and user just spoke, cancel it
                     if getattr(self, "pending_hangup", False):
                         pending_reason = getattr(self, "pending_hangup_reason", None)
-                        # Cancel only silence-based reasons
-                        if pending_reason in ["silence_timeout", "hard_silence_timeout", "idle_timeout_no_user_speech"]:
+                        # Cancel ONLY hard_silence_30s (not bot_goodbye)
+                        if pending_reason == "hard_silence_30s":
                             force_print(
-                                f"[HANGUP_CANCEL] User spoke - cancelling silence-based pending hangup "
-                                f"(reason={pending_reason})"
+                                f"[HANGUP_CANCEL] User spoke - cancelling silence hangup (reason={pending_reason})"
                             )
                             logger.info(f"[HANGUP_CANCEL] Cancelled {pending_reason} due to user speech")
                             self.pending_hangup = False
@@ -6570,22 +6566,25 @@ class MediaStreamHandler:
                                 print(f"🔍 [LEGACY DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                                 self._check_appointment_confirmation(transcript)
                         
-                        # 🔴 CRITICAL — Real Hangup (USER): transcript-only + closing-sentence only
-                        # Trigger hangup ONLY if the user utterance is purely a closing sentence
-                        # based on the explicit list (no VAD/noise decisions).
-                        if not self.pending_hangup and not getattr(self, "hangup_requested", False):
-                            user_intent = self._classify_real_hangup_intent(transcript, "user")
-                            if user_intent == "hangup":
-                                await self.request_hangup("user_goodbye", "transcript", transcript, "user")
-                                continue
-                            elif user_intent == "clarify":
-                                # ❗Rule against accidental hangup:
-                                # "ביי... רגע" / "ביי אבל..." → ask once, do not hang up.
-                                if not getattr(self, "hangup_clarification_asked", False):
-                                    self.hangup_clarification_asked = True
-                                    asyncio.create_task(self._send_server_event_to_ai(
-                                        "לפני שאני מנתק—רצית לסיים את השיחה?"
-                                    ))
+                        # 🔥 PRODUCTION: User saying "bye" does NOT trigger hangup
+                        # Only bot_goodbye triggers hangup (disabled below)
+                        if False:  # DISABLED - user goodbye does not trigger hangup
+                            # 🔴 CRITICAL — Real Hangup (USER): transcript-only + closing-sentence only
+                            # Trigger hangup ONLY if the user utterance is purely a closing sentence
+                            # based on the explicit list (no VAD/noise decisions).
+                            if not self.pending_hangup and not getattr(self, "hangup_requested", False):
+                                user_intent = self._classify_real_hangup_intent(transcript, "user")
+                                if user_intent == "hangup":
+                                    await self.request_hangup("user_goodbye", "transcript", transcript, "user")
+                                    continue
+                                elif user_intent == "clarify":
+                                    # ❗Rule against accidental hangup:
+                                    # "ביי... רגע" / "ביי אבל..." → ask once, do not hang up.
+                                    if not getattr(self, "hangup_clarification_asked", False):
+                                        self.hangup_clarification_asked = True
+                                        asyncio.create_task(self._send_server_event_to_ai(
+                                            "לפני שאני מנתק—רצית לסיים את השיחה?"
+                                        ))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         # 🔥 BUILD 172 FIX: Only close after customer CONFIRMS the details!
@@ -10885,7 +10884,7 @@ class MediaStreamHandler:
                         ):
                             print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity - hanging up (last_activity={now_ts - last_activity:.1f}s ago)")
                             self.call_state = CallState.CLOSING
-                            await self.request_hangup("hard_silence_timeout", "silence_watchdog")
+                            await self.request_hangup("hard_silence_30s", "silence_watchdog")
                             return
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
@@ -10897,104 +10896,113 @@ class MediaStreamHandler:
                         time_since_greeting = time.time() - self.greeting_completed_at
                         if time_since_greeting > 30.0:
                             # 30 seconds with no user speech - idle timeout
-                            # Close immediately without AI message
-                            if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
-                                self.call_state = CallState.CLOSING
-                                await self.request_hangup("idle_timeout_no_user_speech", "silence_monitor")
-                            return
+                            # 🔥 PRODUCTION: Handled by hard_silence_30s watchdog above
+                            # This logic is redundant - the watchdog already checks for 30s inactivity
+                            # (including case where user never spoke)
+                            pass
+                            # Commented out - redundant with hard_silence_30s:
+                            # if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
+                            #     print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
+                            #     self.call_state = CallState.CLOSING
+                            #     await self.request_hangup("idle_timeout_no_user_speech", "silence_monitor")
+                            # return
                     # Still waiting for user to speak - don't count silence
                     continue
                 
-                # Calculate silence duration
-                silence_duration = time.time() - self._last_speech_time
+                # 🔥 PRODUCTION: Soft silence warnings DISABLED
+                # Only use hard 30-second silence timeout (handled by watchdog above)
+                # Original soft timeout logic completely disabled
                 
-                if silence_duration >= self.silence_timeout_sec:
-                    # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
-                    if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                        print(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
-                        return
+                if False:  # DISABLED - only hard_silence_30s is used
+                    # Calculate silence duration
+                    silence_duration = time.time() - self._last_speech_time
                     
-                    if self._silence_warning_count < self.silence_max_warnings:
-                        # Send "are you there?" warning
-                        self._silence_warning_count += 1
-                        print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
-                        print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
-                        
-                        # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
-                        # This is end-of-utterance - AI must respond
-                        if self.user_has_spoken:
-                            await self._send_silence_warning()
-                        
-                        # Reset timer
-                        self._last_speech_time = time.time()
-                    else:
-                        # Max warnings exceeded - check if we can hangup
-                        # 🔥 BUILD 339: FINAL state check before taking hangup action
+                    if silence_duration >= self.silence_timeout_sec:
+                        # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
                         if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                            print(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
+                            print(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
                             return
                         
-                        # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
-                        fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
-                        if fields_collected and not self.verification_confirmed:
-                            # Fields captured but not confirmed - give one more chance
-                            # But ONLY if call is still active!
-                            if self.call_state != CallState.ACTIVE or getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [SILENCE] Can't give final chance - call ending")
+                        if self._silence_warning_count < self.silence_max_warnings:
+                            # Send "are you there?" warning
+                            self._silence_warning_count += 1
+                            print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
+                            print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
+                            
+                            # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
+                            # This is end-of-utterance - AI must respond
+                            if self.user_has_spoken:
+                                await self._send_silence_warning()
+                            
+                            # Reset timer
+                            self._last_speech_time = time.time()
+                        else:
+                            # Max warnings exceeded - check if we can hangup
+                            # 🔥 BUILD 339: FINAL state check before taking hangup action
+                            if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                                print(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
                                 return
                             
-                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
-                            self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                            await self._send_text_to_ai(
-                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
-                            )
-                            self._last_speech_time = time.time()
-                            # Mark that we gave extra chance - next time really close
-                            self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
-                            if self._silence_final_chance_given:
-                                # Already gave extra chance, now close without confirmation
-                                print(f"🔇 [SILENCE] Final chance already given - closing anyway")
-                                pass  # Fall through to close
+                            # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
+                            fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
+                            if fields_collected and not self.verification_confirmed:
+                                # Fields captured but not confirmed - give one more chance
+                                # But ONLY if call is still active!
+                                if self.call_state != CallState.ACTIVE or getattr(self, 'pending_hangup', False):
+                                    print(f"🔇 [SILENCE] Can't give final chance - call ending")
+                                    return
+                                
+                                print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
+                                self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
+                                await self._send_text_to_ai(
+                                    "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
+                                )
+                                self._last_speech_time = time.time()
+                                # Mark that we gave extra chance - next time really close
+                                self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
+                                if self._silence_final_chance_given:
+                                    # Already gave extra chance, now close without confirmation
+                                    print(f"🔇 [SILENCE] Final chance already given - closing anyway")
+                                    pass  # Fall through to close
+                                else:
+                                    self._silence_final_chance_given = True
+                                    continue  # Don't close yet
+                            
+                            # OK to close - either no lead, or lead confirmed, or final chance given
+                            # 🔥 BUILD 339: One more state check before initiating hangup
+                            if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                                print(f"🔇 [SILENCE] State changed before hangup - exiting")
+                                return
+                            
+                            # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
+                            # Just stay idle and let the call continue or let Twilio disconnect
+                            if SIMPLE_MODE:
+                                print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
+                                print(f"   Keeping line open - user may return or Twilio will disconnect")
+                                # Optionally send a final message
+                                await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                                # Reset timer to avoid immediate re-triggering, but don't close
+                                self._last_speech_time = time.time()
+                                continue  # Stay in monitor loop
+                            
+                            print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
+                            self.call_state = CallState.CLOSING
+                            
+                            # Send closing message and hangup
+                            closing_msg = ""
+                            if self.call_config and self.call_config.closing_sentence:
+                                closing_msg = self.call_config.closing_sentence
+                            elif self.call_config and self.call_config.greeting_text:
+                                closing_msg = self.call_config.greeting_text  # Use greeting as fallback
+                            
+                            if closing_msg:
+                                await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
                             else:
-                                self._silence_final_chance_given = True
-                                continue  # Don't close yet
-                        
-                        # OK to close - either no lead, or lead confirmed, or final chance given
-                        # 🔥 BUILD 339: One more state check before initiating hangup
-                        if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                            print(f"🔇 [SILENCE] State changed before hangup - exiting")
-                            return
-                        
-                        # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
-                        # Just stay idle and let the call continue or let Twilio disconnect
-                        if SIMPLE_MODE:
-                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
-                            print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # Optionally send a final message
-                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
-                            # Reset timer to avoid immediate re-triggering, but don't close
-                            self._last_speech_time = time.time()
-                            continue  # Stay in monitor loop
-                        
-                        print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
-                        self.call_state = CallState.CLOSING
-                        
-                        # Send closing message and hangup
-                        closing_msg = ""
-                        if self.call_config and self.call_config.closing_sentence:
-                            closing_msg = self.call_config.closing_sentence
-                        elif self.call_config and self.call_config.greeting_text:
-                            closing_msg = self.call_config.greeting_text  # Use greeting as fallback
-                        
-                        if closing_msg:
-                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
-                        else:
-                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
-                        
-                        # Polite hangup: hang up only after bot audio ends (response.audio.done).
-                        await self.request_hangup("silence_timeout", "silence_monitor")
-                        return  # Exit cleanly after hangup
+                                await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
+                            
+                            # Polite hangup: hang up only after bot audio ends (response.audio.done).
+                            await self.request_hangup("silence_timeout", "silence_monitor")
+                            return  # Exit cleanly after hangup
                         
         except asyncio.CancelledError:
             print(f"🔇 [SILENCE] Monitor cancelled")
