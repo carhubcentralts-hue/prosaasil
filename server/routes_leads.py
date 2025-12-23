@@ -14,6 +14,9 @@ import os
 import uuid
 from werkzeug.utils import secure_filename
 
+# Import status webhook service
+from server.services.status_webhook_service import dispatch_lead_status_webhook
+
 # Import psycopg2 for database error handling
 try:
     import psycopg2.errors
@@ -796,6 +799,25 @@ def update_lead_status(lead_id):
         )
         
         db.session.commit()
+        
+        # Check if webhook should be dispatched
+        # Client will handle user preference (always/never/ask) and call webhook dispatch endpoint
+        should_dispatch = data.get('dispatch_webhook', False)
+        
+        if should_dispatch:
+            # Dispatch webhook in background (non-blocking)
+            try:
+                dispatch_lead_status_webhook(
+                    business_id=lead.tenant_id,
+                    lead_id=lead_id,
+                    old_status=old_status,
+                    new_status=new_status,
+                    source=data.get('source', 'lead_page'),
+                    user_id=user.get('id') if user else None
+                )
+            except Exception as e:
+                # Don't fail the status update if webhook fails
+                log.error(f"Failed to dispatch status webhook for lead {lead_id}: {e}")
         
         return jsonify({"message": "Status updated successfully", "old_status": old_status, "new_status": new_status})
     
@@ -2442,3 +2464,65 @@ def export_leads():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"שגיאה בייצוא: {str(e)}"}), 500
+
+@leads_bp.route("/api/webhooks/status/dispatch", methods=["POST"])
+@require_api_auth()
+def dispatch_status_webhook():
+    """
+    Manually dispatch status webhook for a lead
+    
+    Used by frontend when user confirms they want to send webhook
+    after status change.
+    
+    Request body:
+    {
+        "lead_id": 123,
+        "old_status": "new",
+        "new_status": "contacted",
+        "source": "lead_page"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+        
+        lead_id = data.get('lead_id')
+        old_status = data.get('old_status', '')
+        new_status = data.get('new_status')
+        source = data.get('source', 'manual')
+        
+        if not lead_id or not new_status:
+            return jsonify({"error": "lead_id and new_status are required"}), 400
+        
+        # Get lead to verify access and get tenant_id
+        lead = Lead.query.filter_by(id=lead_id).first()
+        if not lead:
+            return jsonify({"error": "Lead not found"}), 404
+        
+        # Check access
+        user = get_current_user()
+        tenant_id = get_current_tenant()
+        
+        # Verify user has access to this lead
+        if not user.get('role') == 'system_admin' and lead.tenant_id != tenant_id:
+            return jsonify({"error": "Access denied"}), 403
+        
+        # Dispatch webhook
+        success = dispatch_lead_status_webhook(
+            business_id=lead.tenant_id,
+            lead_id=lead_id,
+            old_status=old_status,
+            new_status=new_status,
+            source=source,
+            user_id=user.get('id') if user else None
+        )
+        
+        if success:
+            return jsonify({"message": "Webhook dispatched successfully", "success": True})
+        else:
+            return jsonify({"message": "Webhook dispatch failed (check logs)", "success": False}), 500
+            
+    except Exception as e:
+        log.error(f"Error dispatching status webhook: {e}")
+        return jsonify({"error": str(e)}), 500

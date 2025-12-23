@@ -8,6 +8,7 @@ import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
 import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
+import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -1062,22 +1063,17 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                             הורד
                           </button>
                         </div>
-                        {/* 🔥 FIX: Use blob URL with authentication for audio playback */}
-                        {loadingRecording === getCallId(call) ? (
+                        {/* Audio Player with playback speed controls */}
+                        {recordingUrls[getCallId(call)] ? (
+                          <AudioPlayer
+                            src={recordingUrls[getCallId(call)]}
+                            loading={loadingRecording === getCallId(call)}
+                          />
+                        ) : loadingRecording === getCallId(call) ? (
                           <div className="flex items-center justify-center py-4">
                             <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
                             <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
                           </div>
-                        ) : recordingUrls[getCallId(call)] ? (
-                          <audio 
-                            controls 
-                            playsInline
-                            preload="none"
-                            className="w-full" 
-                            src={recordingUrls[getCallId(call)]}
-                          >
-                            הדפדפן שלך לא תומך בנגן אודיו
-                          </audio>
                         ) : (
                           <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                             <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
