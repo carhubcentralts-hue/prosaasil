@@ -1307,6 +1307,26 @@ _REAL_HANGUP_NIKUD_RE = re.compile(r"[\u0591-\u05C7]")
 _REAL_HANGUP_PUNCT_RE = re.compile(r"[\"'“”‘’`´~!?.…,;:\(\)\[\]\{\}\-–—_/\\|]+")
 
 
+
+# 🔥 HANGUP REASON VALIDATION: Allow-list and block-list for request_hangup()
+# Prevents technical events (audio.done, queue_empty) from causing premature disconnects
+# 
+# REQUIREMENT 1: Both silence reasons are valid (serve different purposes):
+# - hard_silence_timeout: 20s absolute silence watchdog (no RX + no TX)
+# - silence_timeout: Soft silence with configurable warnings + AI prompts
+ALLOWED_HANGUP_REASONS = {
+    "hard_silence_timeout",        # True 20-second silence (no RX + no TX) - absolute watchdog
+    "silence_timeout",             # Soft silence with warnings (configurable, with AI prompts)
+    "user_goodbye",                # User said goodbye/bye/etc (closing phrases)
+    "bot_goodbye",                 # Bot said goodbye/bye/etc (closing phrases)
+    "idle_timeout_no_user_speech", # User never spoke after 30s
+    "voicemail_detected",          # AMD detection
+    "flow_completed",              # Bot completed script and user confirmed
+}
+
+# Invalid reasons that should be blocked (technical events, not real hangup reasons)
+BLOCKED_HANGUP_REASONS = ["queue_empty", "audio_done", "response.done", "response.audio.done"]
+
 def _normalize_for_real_hangup(text: str) -> str:
     """
     Normalize text for hangup intent matching:
@@ -4302,6 +4322,29 @@ class MediaStreamHandler:
                     # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
                     self._last_user_voice_started_ts = time.time()
                     
+                    # 🔥 REQUIREMENT 4: Cancel silence-based pending hangups when user speaks
+                    # If pending hangup is due to silence and user just spoke, cancel it
+                    if getattr(self, "pending_hangup", False):
+                        pending_reason = getattr(self, "pending_hangup_reason", None)
+                        # Cancel only silence-based reasons
+                        if pending_reason in ["silence_timeout", "hard_silence_timeout", "idle_timeout_no_user_speech"]:
+                            force_print(
+                                f"[HANGUP_CANCEL] User spoke - cancelling silence-based pending hangup "
+                                f"(reason={pending_reason})"
+                            )
+                            logger.info(f"[HANGUP_CANCEL] Cancelled {pending_reason} due to user speech")
+                            self.pending_hangup = False
+                            self.pending_hangup_reason = None
+                            self.pending_hangup_source = None
+                            self.pending_hangup_response_id = None
+                            # Cancel fallback timer if any
+                            try:
+                                t = getattr(self, "_pending_hangup_fallback_task", None)
+                                if t and not t.done():
+                                    t.cancel()
+                            except Exception:
+                                pass
+                    
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
                     if DEBUG:
@@ -4899,9 +4942,12 @@ class MediaStreamHandler:
                             # STRICT: Only hang up after audio.done for the SAME response_id we bound.
                             # If we don't have a bound id (should be rare), allow first audio.done to release.
                             if pending_id and done_resp_id and pending_id != done_resp_id:
+                                # Safe string slicing to avoid IndexError
+                                pending_preview = pending_id[:20] if len(pending_id) >= 20 else pending_id
+                                done_preview = done_resp_id[:20] if len(done_resp_id) >= 20 else done_resp_id
                                 print(
                                     f"⏭️ [HANGUP FLOW] response.audio.done ignored "
-                                    f"(pending_response_id={pending_id[:20]}..., got={done_resp_id[:20]}...)"
+                                    f"(pending_response_id={pending_preview}..., got={done_preview}...)"
                                 )
                             else:
                                 # Cancel fallback timer (if any) now that we got the matched audio.done.
@@ -11411,21 +11457,7 @@ class MediaStreamHandler:
         - Mark pending_hangup=True and hang up ONLY after the bot audio ends
           (response.audio.done, ideally matching response_id).
         """
-        # 🔥 FIX: REASON GATE - Only allow valid hangup reasons
-        # This prevents technical events (audio.done, queue_empty) from causing premature disconnects
-        ALLOWED_HANGUP_REASONS = {
-            "hard_silence_timeout",       # True 20-second silence (no RX + no TX)
-            "user_goodbye",               # User said goodbye/bye/etc (closing phrases)
-            "bot_goodbye",                # Bot said goodbye/bye/etc (closing phrases)
-            "silence_timeout",            # Regular silence warnings exceeded
-            "idle_timeout_no_user_speech", # User never spoke after 30s
-            "voicemail_detected",         # AMD detection
-            "flow_completed",             # Bot completed script and user confirmed
-        }
-        
-        # Invalid reasons that should be blocked (technical events, not real hangup reasons)
-        BLOCKED_HANGUP_REASONS = ["queue_empty", "audio_done", "response.done", "response.audio.done"]
-        
+        # 🔥 REQUIREMENT 1 & 5: Use module-level constants for validation
         # Block invalid/empty reasons
         if not reason or reason in BLOCKED_HANGUP_REASONS:
             force_print(
@@ -11459,14 +11491,33 @@ class MediaStreamHandler:
             f"[HANGUP_DECISION] allowed=True reason={reason} source={source}"
         )
         
-        # One-shot (pending): do not block other fallback hangup paths by setting hangup_requested here.
+        # 🔥 REQUIREMENT 2: Idempotent - don't overwrite existing pending hangup
+        # Check if hangup already pending BEFORE acquiring lock
         lock = getattr(self, "_hangup_request_lock", None)
         if lock:
             with lock:
-                if getattr(self, "hangup_triggered", False) or getattr(self, "pending_hangup", False):
+                if getattr(self, "hangup_triggered", False):
+                    force_print(f"[HANGUP_REQUEST] Already triggered - ignoring request (reason={reason})")
+                    return
+                if getattr(self, "pending_hangup", False):
+                    existing_reason = getattr(self, "pending_hangup_reason", "unknown")
+                    force_print(
+                        f"[HANGUP_REQUEST] Already pending with reason={existing_reason} - "
+                        f"ignoring new request (reason={reason})"
+                    )
+                    logger.info(f"[HANGUP_REQUEST] Idempotent check: already pending={existing_reason}")
                     return
         else:
-            if getattr(self, "hangup_triggered", False) or getattr(self, "pending_hangup", False):
+            if getattr(self, "hangup_triggered", False):
+                force_print(f"[HANGUP_REQUEST] Already triggered - ignoring request (reason={reason})")
+                return
+            if getattr(self, "pending_hangup", False):
+                existing_reason = getattr(self, "pending_hangup_reason", "unknown")
+                force_print(
+                    f"[HANGUP_REQUEST] Already pending with reason={existing_reason} - "
+                    f"ignoring new request (reason={reason})"
+                )
+                logger.info(f"[HANGUP_REQUEST] Idempotent check: already pending={existing_reason}")
                 return
 
         call_sid = getattr(self, "call_sid", None)
