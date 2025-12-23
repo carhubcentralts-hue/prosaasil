@@ -47,30 +47,40 @@ ENABLE_MIN_DSP = os.getenv("ENABLE_MIN_DSP", "1") == "1"
 # ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
 
-# ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
-# 🔥 DEBUG=1 → PRODUCTION (minimal logs, quiet mode)
-# 🔥 DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
+# 🔥 NEW PRODUCTION LOGGING POLICY
+# DEBUG=1 → PRODUCTION (minimal logs, NO prints except errors)
+# DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
 DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
-_orig_print = builtins.print
-
-def _dprint(*args, **kwargs):
-    """Print only when DEBUG=1 (gating for hot path)"""
-    if DEBUG:
-        _orig_print(*args, **kwargs)
-
-def force_print(*args, **kwargs):
-    """Always print (for critical errors only)"""
-    _orig_print(*args, **kwargs)
-
-# חונקים כל print במודול הזה כש-DEBUG=0
-builtins.print = _dprint
 
 # ⚡ PHASE 1 Task 4: טלמטריה - 4 מדדים בכל TURN
 import logging
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
+
+# Import rate limiting and once-per-call helpers
+from server.logging_setup import RateLimiter, OncePerCall
+
+# Create per-module rate limiter and once-per-call tracker
+rl = RateLimiter()
+once = OncePerCall()
+
+# 🔥 DEPRECATED: All print() statements should be converted to logger calls
+# Legacy print override kept only for backward compatibility during transition
+_orig_print = builtins.print
+
+def _dprint(*args, **kwargs):
+    """DEPRECATED: Print only in development mode (DEBUG=0)"""
+    if not DEBUG:  # 🔥 INVERTED: print only in development (DEBUG=0)
+        _orig_print(*args, **kwargs)
+
+def force_print(*args, **kwargs):
+    """DEPRECATED: Use logger.error() instead"""
+    _orig_print(*args, **kwargs)
+
+# Override print - but all code should migrate to logger calls
+builtins.print = _dprint
 
 _now_ms = lambda: int(time.time() * 1000)
 
@@ -190,8 +200,9 @@ SILENCE_HANGUP_TIMEOUT_SEC = 20.0  # 🔥 NEW: Auto-hangup after 20s true silenc
 WATCHDOG_TIMEOUT_SEC = 3.0  # Time to wait before retry
 WATCHDOG_UTTERANCE_ID_LENGTH = 20  # Length of text slice for utterance ID
 
-print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
-print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
+# 🔥 Boot-time INFO logs - these are macro events, allowed in production
+logger.info(f"[BOOT] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
+logger.info(f"[BOOT] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -599,10 +610,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                 requested_dt_aware = requested_dt
             
             if requested_dt_aware < min_allowed_time:
-                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                logger.debug(f"[VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
                 return False
             else:
-                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
+                logger.debug(f"[VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
         
         # Check booking window (max days ahead)
         if policy.booking_window_days > 0:
@@ -613,10 +624,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                 requested_dt_aware = requested_dt
             
             if requested_dt_aware > max_booking_date:
-                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                logger.debug(f"[VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
                 return False
             else:
-                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+                logger.debug(f"[VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
         
         # 🔥 STEP 1: Check business hours (skip for 24/7)
         if not policy.allow_24_7:
@@ -634,13 +645,13 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             
             weekday_key = weekday_map.get(requested_dt.weekday())
             if not weekday_key:
-                print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+                logger.debug(f"[VALIDATION] Invalid weekday: {requested_dt.weekday()}")
                 return False
             
             # Get opening hours for this day
             day_hours = policy.opening_hours.get(weekday_key, [])
             if not day_hours:
-                print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+                logger.debug(f"[VALIDATION] Business closed on {weekday_key}")
                 return False
             
             # Check if time falls within any window
@@ -667,12 +678,12 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                         break
             
             if not time_valid:
-                print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+                logger.debug(f"[VALIDATION] Slot {requested_time} outside business hours {day_hours}")
                 return False
             else:
-                print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
+                logger.debug(f"[VALIDATION] Slot {requested_time} within business hours")
         else:
-            print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
+            logger.debug(f"[VALIDATION] 24/7 business - hours check skipped")
         
         # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
         # Calculate end time using slot_size_min from policy
@@ -707,16 +718,16 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             ).count()
             
             if overlapping > 0:
-                print(f"❌ [VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
+                logger.debug(f"[VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
                 return False
             else:
-                print(f"✅ [VALIDATION] Calendar available - no conflicts")
+                logger.debug(f"[VALIDATION] Calendar available - no conflicts")
                 return True
         
     except Exception as e:
-        print(f"❌ [VALIDATION] Error validating slot: {e}")
+        logger.error(f"[VALIDATION] Error validating slot: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[VALIDATION] Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -771,7 +782,7 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                     lead.last_contact_at = datetime.utcnow()
                     session.commit()
                     lead_id = lead.id
-                    print(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
+                    logger.debug(f"[CRM] Found existing lead #{lead_id} for {phone}")
                     return lead_id
                 else:
                     # Create new lead
@@ -787,23 +798,23 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                     session.add(lead)
                     session.commit()
                     lead_id = lead.id
-                    print(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
+                    logger.debug(f"[CRM] Created new lead #{lead_id} for {phone}")
                     return lead_id
                     
             except Exception as e:
                 session.rollback()
-                print(f"❌ [CRM] ensure_lead DB error: {e}")
+                logger.error(f"[CRM] ensure_lead DB error: {e}")
                 import traceback
-                traceback.print_exc()
+                logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
                 return None
             finally:
                 session.close()
                 Session.remove()
                 
     except Exception as e:
-        print(f"❌ [CRM] ensure_lead error: {e}")
+        logger.error(f"[CRM] ensure_lead error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -836,7 +847,7 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
             try:
                 lead = session.query(Lead).get(lead_id)
                 if not lead:
-                    print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                    logger.debug(f"[CRM] Lead #{lead_id} not found")
                     return
                 
                 # Update fields
@@ -854,21 +865,21 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
                 lead.updated_at = datetime.utcnow()
                 session.commit()
                 
-                print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+                logger.debug(f"[CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
                 
             except Exception as e:
                 session.rollback()
-                print(f"❌ [CRM] update_lead_on_call DB error: {e}")
+                logger.error(f"[CRM] update_lead_on_call DB error: {e}")
                 import traceback
-                traceback.print_exc()
+                logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
             finally:
                 session.close()
                 Session.remove()
             
     except Exception as e:
-        print(f"❌ [CRM] update_lead_on_call error: {e}")
+        logger.error(f"[CRM] update_lead_on_call error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.debug(f"[CRM] Traceback: {traceback.format_exc()}")
 
 
 def create_appointment_from_realtime(business_id: int, customer_phone: str, 
