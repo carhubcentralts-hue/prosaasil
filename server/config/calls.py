@@ -43,26 +43,26 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # 🔥 STABLE VAD CONFIGURATION - Production-ready values for Hebrew calls
 # ═══════════════════════════════════════════════════════════════════════════════
 # TUNING RATIONALE (gradual approach per expert feedback):
-# - threshold 0.90: HIGHER - reduces false triggers from background noise/music
-#   (was 0.82 - still picking up too much background noise)
-#   Expert recommendation: Increase gradually, monitor for missed quiet speech
+# - threshold 0.88: BALANCED - reduces false triggers while catching normal speech
+#   (was 0.82 - too sensitive, tried 0.90 - slightly too aggressive)
+#   Expert recommendation: Tune gradually, monitor for both false triggers and missed speech
 # - silence_duration_ms 650: LONGER WAIT - doesn't cut off speech too early
 #   Good for Hebrew with natural pauses, monitor for responsiveness
 # - prefix_padding_ms 300: Standard padding for Hebrew syllables (unchanged)
 # - create_response: true (automatic response generation on turn end)
 #
 # ⚠️ MONITORING REQUIRED:
-# - If still too many false triggers → increase to 0.92
-# - If missing quiet speech ("כן", "לא") → decrease back to 0.85-0.88
+# - If still too many false triggers → increase to 0.90-0.92
+# - If missing quiet speech ("כן", "לא") → decrease to 0.85-0.86
 # - If feel unresponsive → decrease silence_ms to 550-600
 #
-# Current balanced settings (0.90/650ms/300ms) provide:
-# ✅ Better filtering of background noise and music
-# ✅ Still catches normal speech volume
+# Current balanced settings (0.88/650ms/300ms) provide:
+# ✅ Good filtering of background noise and music
+# ✅ Still catches normal speech volume (including quiet speakers)
 # ✅ Longer silence wait - allows natural pauses
 # ✅ Natural conversation flow with proper turn-taking
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.90         # Higher: reduces noise/music triggers (was 0.82)
+SERVER_VAD_THRESHOLD = 0.88         # Balanced: reduces noise while catching speech (was 0.82 → 0.90 → 0.88)
 SERVER_VAD_SILENCE_MS = 650         # Longer wait before cutting (unchanged)
 SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew (unchanged)
 

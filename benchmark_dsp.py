@@ -14,7 +14,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server.services.audio_dsp import dsp_mulaw_8k, reset_filter_state
+from server.services.audio_dsp import AudioDSPProcessor
 
 def generate_test_audio(duration_ms=20, frequency=440):
     """Generate test audio (pure tone)"""
@@ -35,7 +35,7 @@ def benchmark_dsp():
     print("DSP Performance Benchmark")
     print("=" * 60)
     
-    reset_filter_state()
+    processor = AudioDSPProcessor()
     
     # Generate test audio (20ms frame)
     test_audio = generate_test_audio(duration_ms=20, frequency=440)
@@ -43,7 +43,7 @@ def benchmark_dsp():
     
     # Warmup (first call may be slower due to JIT compilation)
     for _ in range(10):
-        dsp_mulaw_8k(test_audio)
+        processor.process(test_audio)
     
     # Benchmark
     num_iterations = 1000
@@ -51,7 +51,7 @@ def benchmark_dsp():
     
     start_time = time.perf_counter()
     for _ in range(num_iterations):
-        dsp_mulaw_8k(test_audio)
+        processor.process(test_audio)
     end_time = time.perf_counter()
     
     # Calculate statistics

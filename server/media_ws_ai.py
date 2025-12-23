@@ -12,7 +12,7 @@ from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
 # 🎯 MINIMAL DSP: Import audio processing for background noise/music reduction
-from server.services.audio_dsp import dsp_mulaw_8k, reset_filter_state
+from server.services.audio_dsp import AudioDSPProcessor
 
 # 🔥 HOTFIX: Import websockets exceptions for graceful connection closure handling
 try:
@@ -1832,10 +1832,13 @@ class MediaStreamHandler:
                    f"sample_rate=8000, encoding=pcmu", flush=True)
         
         # 🎯 MINIMAL DSP: Reset filter state for new call
+        # 🎯 MINIMAL DSP: Create per-call DSP processor instance
+        # This ensures filter state doesn't leak between calls
         if ENABLE_MIN_DSP:
-            reset_filter_state()
-            _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter)", flush=True)
+            self.dsp_processor = AudioDSPProcessor()
+            _orig_print(f"[DSP] Minimal DSP enabled (High-pass 120Hz + Soft limiter) - per-call instance", flush=True)
         else:
+            self.dsp_processor = None
             _orig_print(f"[DSP] Minimal DSP disabled (ENABLE_MIN_DSP=0)", flush=True)
         
         print("🎯 AI CONVERSATION STARTED")
@@ -3526,9 +3529,10 @@ class MediaStreamHandler:
                 
                 # 🎯 MINIMAL DSP: Apply high-pass filter + soft limiter before sending to OpenAI
                 # This reduces background noise/music without affecting speech quality
+                # Uses per-call processor instance to avoid state leaking between calls
                 # Toggle: Set ENABLE_MIN_DSP=0 to disable
-                if ENABLE_MIN_DSP:
-                    audio_chunk = dsp_mulaw_8k(audio_chunk)
+                if self.dsp_processor is not None:
+                    audio_chunk = self.dsp_processor.process(audio_chunk)
                 
                 # 🔥 HOTFIX: Handle ConnectionClosed gracefully (normal WebSocket close)
                 try:

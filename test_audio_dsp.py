@@ -16,7 +16,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from server.services.audio_dsp import dsp_mulaw_8k, reset_filter_state
+from server.services.audio_dsp import AudioDSPProcessor
 
 def generate_test_audio(duration_ms=20, frequency=440):
     """Generate test audio (pure tone) for testing"""
@@ -46,8 +46,8 @@ def test_basic_functionality():
     """Test 1: Basic DSP doesn't crash"""
     print("\n=== Test 1: Basic Functionality ===")
     
-    # Reset filter state
-    reset_filter_state()
+    # Create DSP processor instance
+    processor = AudioDSPProcessor()
     
     # Generate test audio (20ms frame, 440Hz tone)
     test_audio = generate_test_audio(duration_ms=20, frequency=440)
@@ -55,7 +55,7 @@ def test_basic_functionality():
     
     # Process audio
     try:
-        processed_audio = dsp_mulaw_8k(test_audio)
+        processed_audio = processor.process(test_audio)
         print(f"✅ DSP processing succeeded: {len(processed_audio)} bytes")
         return True
     except Exception as e:
@@ -66,7 +66,7 @@ def test_output_length():
     """Test 2: Output length matches input length"""
     print("\n=== Test 2: Output Length ===")
     
-    reset_filter_state()
+    processor = AudioDSPProcessor()
     
     # Test different frame sizes
     test_sizes = [160, 320, 480]  # 20ms, 40ms, 60ms at 8kHz
@@ -77,7 +77,7 @@ def test_output_length():
         # At 8kHz, 160 bytes = 160 samples = 20ms
         duration_ms = (size * 1000) // 8000
         test_audio = generate_test_audio(duration_ms=duration_ms, frequency=440)
-        processed_audio = dsp_mulaw_8k(test_audio)
+        processed_audio = processor.process(test_audio)
         
         if len(processed_audio) == len(test_audio):
             print(f"✅ Size {size} bytes ({duration_ms}ms): input={len(test_audio)}, output={len(processed_audio)}")
@@ -91,7 +91,7 @@ def test_rms_changes():
     """Test 3: RMS changes are reasonable"""
     print("\n=== Test 3: RMS Changes ===")
     
-    reset_filter_state()
+    processor = AudioDSPProcessor()
     
     # Test with different frequencies
     test_freqs = [100, 440, 1000, 3000]  # Low to high
@@ -99,7 +99,7 @@ def test_rms_changes():
     all_passed = True
     for freq in test_freqs:
         test_audio = generate_test_audio(duration_ms=20, frequency=freq)
-        processed_audio = dsp_mulaw_8k(test_audio)
+        processed_audio = processor.process(test_audio)
         
         rms_before = calculate_rms(test_audio)
         rms_after = calculate_rms(processed_audio)
@@ -119,13 +119,13 @@ def test_filter_continuity():
     """Test 4: Filter state persists across frames"""
     print("\n=== Test 4: Filter Continuity ===")
     
-    reset_filter_state()
+    processor = AudioDSPProcessor()
     
     # Process multiple frames in sequence
     num_frames = 10
     for i in range(num_frames):
         test_audio = generate_test_audio(duration_ms=20, frequency=440)
-        processed_audio = dsp_mulaw_8k(test_audio)
+        processed_audio = processor.process(test_audio)
         
         if i == 0:
             print(f"  Frame {i+1}: {len(processed_audio)} bytes (first frame)")
@@ -139,13 +139,13 @@ def test_edge_cases():
     """Test 5: Edge cases (empty, very short)"""
     print("\n=== Test 5: Edge Cases ===")
     
-    reset_filter_state()
+    processor = AudioDSPProcessor()
     
     all_passed = True
     
     # Empty audio
     empty_audio = b""
-    processed = dsp_mulaw_8k(empty_audio)
+    processed = processor.process(empty_audio)
     if len(processed) == 0:
         print(f"✅ Empty audio: input={len(empty_audio)}, output={len(processed)}")
     else:
@@ -154,7 +154,7 @@ def test_edge_cases():
     
     # Very short audio (1 byte)
     short_audio = b"\x80"
-    processed = dsp_mulaw_8k(short_audio)
+    processed = processor.process(short_audio)
     if len(processed) == 1:
         print(f"✅ Short audio (1 byte): input={len(short_audio)}, output={len(processed)}")
     else:
