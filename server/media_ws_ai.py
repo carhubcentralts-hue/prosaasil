@@ -2514,10 +2514,8 @@ class MediaStreamHandler:
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
-        # 🔥 CRITICAL: Unconditional logs at the very top
-        _orig_print(f"🚀 [REALTIME] _run_realtime_mode_thread ENTERED for call {call_id} (FRESH SESSION)", flush=True)
-        logger.debug(f"[REALTIME] _run_realtime_mode_thread ENTERED for call {call_id}")
-        logger.debug(f"[REALTIME] Thread started for call {call_id}")
+        # 🔥 MACRO EVENT: Thread entry - log as INFO
+        logger.info(f"[REALTIME] Thread entered for call {call_id}")
         logger.debug(f"[REALTIME] About to run asyncio.run(_run_realtime_mode_async)...")
         
         try:
@@ -2529,11 +2527,9 @@ class MediaStreamHandler:
             # ═══════════════════════════════════════════════════════════════════════
             import traceback
             tb_str = traceback.format_exc()
-            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _run_realtime_mode_thread: {e}", flush=True)
-            _orig_print(f"🔥 [REALTIME_FATAL] call_id={call_id}", flush=True)
-            traceback.print_exc()
-            logger.error(f"[REALTIME_FATAL] Unhandled exception in thread for call {call_id}: {e}")
-            logger.error(f"[REALTIME_FATAL] Full traceback:\n{tb_str}")
+            logger.error(f"[REALTIME_FATAL] Unhandled exception in _run_realtime_mode_thread: {e}")
+            logger.error(f"[REALTIME_FATAL] call_id={call_id}")
+            logger.debug(f"[REALTIME_FATAL] Full traceback:\n{tb_str}")
             
             # Mark realtime as failed
             self.realtime_failed = True
@@ -2541,9 +2537,8 @@ class MediaStreamHandler:
             
             # Log metrics for failed call
             logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION")
-            _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
+            logger.warning(f"[REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})")
         finally:
-            print(f"🔚 [REALTIME] Thread ended for call {call_id}")
             logger.debug(f"[REALTIME] Thread ended for call {call_id}")
     
     async def _run_realtime_mode_async(self):
@@ -2661,18 +2656,17 @@ class MediaStreamHandler:
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
+                logger.info(f"[REALTIME] OpenAI connected in {connect_ms:.0f}ms")
                 
             except asyncio.TimeoutError:
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
-                logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
+                logger.error(f"[REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
-                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
+                logger.warning(f"[REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)")
                 return
                 
             except Exception as connect_err:
@@ -2682,27 +2676,26 @@ class MediaStreamHandler:
                 # 🔥 FIX #3: Enhanced error logging with full traceback for diagnostics
                 import traceback
                 error_details = traceback.format_exc()
-                _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
-                _orig_print(f"❌ [REALTIME] Error type: {type(connect_err).__name__}", flush=True)
-                _orig_print(f"❌ [REALTIME] Full traceback:\n{error_details}", flush=True)
-                logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
-                logger.error(f"[REALTIME] Full error details:\n{error_details}")
+                logger.error(f"[REALTIME] OpenAI connect error: {connect_err}")
+                logger.error(f"[REALTIME] Error type: {type(connect_err).__name__}")
+                logger.debug(f"[REALTIME] Full traceback:\n{error_details}")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
-                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
+                logger.warning(f"[REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})")
                 
                 # 🔥 FIX #3: Log call context for debugging
-                _orig_print(f"📊 [REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
+                logger.debug(f"[REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}")
                 return
             
             t_connected = time.time()
             
             # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
-                print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
-            if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
+                logger.warning(f"[PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
+            if not DEBUG:
+                logger.debug(f"[PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
             
