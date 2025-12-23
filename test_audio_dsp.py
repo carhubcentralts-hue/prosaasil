@@ -53,13 +53,49 @@ def test_basic_functionality():
     test_audio = generate_test_audio(duration_ms=20, frequency=440)
     print(f"✅ Generated test audio: {len(test_audio)} bytes")
     
-    # Process audio
+    # Process audio (bytes input)
     try:
         processed_audio = processor.process(test_audio)
-        print(f"✅ DSP processing succeeded: {len(processed_audio)} bytes")
+        print(f"✅ DSP processing succeeded (bytes): {len(processed_audio)} bytes")
         return True
     except Exception as e:
         print(f"❌ DSP processing failed: {e}")
+        return False
+
+def test_base64_input():
+    """Test 1b: DSP accepts Base64 string input"""
+    print("\n=== Test 1b: Base64 String Input ===")
+    
+    # Create DSP processor instance
+    processor = AudioDSPProcessor()
+    
+    # Generate test audio and encode to Base64
+    test_audio = generate_test_audio(duration_ms=20, frequency=440)
+    import base64
+    test_audio_b64 = base64.b64encode(test_audio).decode("ascii")
+    print(f"✅ Generated test audio (Base64): {len(test_audio_b64)} chars")
+    
+    # Process audio (Base64 string input)
+    try:
+        processed_audio = processor.process(test_audio_b64)
+        # Output should also be Base64 string
+        if isinstance(processed_audio, str):
+            print(f"✅ DSP processing succeeded (Base64): {len(processed_audio)} chars")
+            # Verify we can decode it
+            decoded = base64.b64decode(processed_audio)
+            if len(decoded) == len(test_audio):
+                print(f"✅ Output length matches input length")
+                return True
+            else:
+                print(f"❌ Output length mismatch: {len(decoded)} != {len(test_audio)}")
+                return False
+        else:
+            print(f"❌ Output is not Base64 string: {type(processed_audio)}")
+            return False
+    except Exception as e:
+        print(f"❌ DSP processing failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def test_output_length():
@@ -171,6 +207,7 @@ def main():
     
     tests = [
         ("Basic Functionality", test_basic_functionality),
+        ("Base64 String Input", test_base64_input),
         ("Output Length", test_output_length),
         ("RMS Changes", test_rms_changes),
         ("Filter Continuity", test_filter_continuity),

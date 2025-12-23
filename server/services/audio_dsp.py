@@ -108,7 +108,7 @@ class AudioDSPProcessor:
         
         return float(rms)
     
-    def process(self, mulaw_bytes: bytes) -> bytes:
+    def process(self, mulaw_input):
         """
         Apply minimal DSP to μ-law audio (8kHz telephony)
         
@@ -121,14 +121,36 @@ class AudioDSPProcessor:
         This function is designed for real-time telephony frames (20ms = 160 bytes).
         Processing time must be < 20ms to avoid audio gaps.
         
+        🔧 SURGICAL FIX: Tolerant to both str (Base64) and bytes input
+        - If input is str (Base64 payload), decode to bytes first
+        - Always returns same format as input (str → str, bytes → bytes)
+        - This prevents breaking the pipeline when Twilio sends Base64 strings
+        
         Args:
-            mulaw_bytes: Input audio in μ-law format (160 bytes for 20ms frame)
+            mulaw_input: Input audio in μ-law format
+                        - bytes: raw μ-law data (160 bytes for 20ms frame)
+                        - str: Base64-encoded μ-law data (Twilio payload style)
         
         Returns:
-            Processed audio in μ-law format (same length as input)
+            Processed audio in μ-law format (same format and length as input)
         """
-        if not mulaw_bytes:
-            return mulaw_bytes
+        if not mulaw_input:
+            return mulaw_input
+        
+        # 🔧 SURGICAL FIX: Detect input format and normalize to bytes
+        input_was_str = isinstance(mulaw_input, str)
+        
+        if input_was_str:
+            # Input is Base64 string (Twilio payload style) → decode to bytes
+            try:
+                import base64
+                mulaw_bytes = base64.b64decode(mulaw_input)
+            except Exception as e:
+                logger.exception("[DSP] Failed to base64 decode input, returning original")
+                return mulaw_input
+        else:
+            # Input is already bytes
+            mulaw_bytes = mulaw_input
         
         try:
             # ═══════════════════════════════════════════════════════════════════════
@@ -190,12 +212,18 @@ class AudioDSPProcessor:
                 logger.debug(f"[DSP] RMS: before={rms_before:.1f}, after={rms_after:.1f}, delta={rms_after-rms_before:.1f}")
                 self._rms_frame_counter = 0  # Reset counter
             
+            # 🔧 SURGICAL FIX: Return in same format as input (to not break pipeline)
+            if input_was_str:
+                # Input was Base64 string → encode back to Base64
+                import base64
+                return base64.b64encode(mulaw_processed).decode("ascii")
+            
             return mulaw_processed
             
         except Exception as e:
             # Failsafe: return original audio if DSP fails
             logger.error(f"[DSP] ERROR: {e} - returning original audio")
-            return mulaw_bytes
+            return mulaw_input  # Return original input (same format as received)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
