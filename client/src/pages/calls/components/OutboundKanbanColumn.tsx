@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
-import { CheckSquare, Square } from 'lucide-react';
+import { CheckSquare, Square, Download, Loader2 } from 'lucide-react';
 
 interface Lead {
   id: number;
@@ -43,6 +43,8 @@ export function OutboundKanbanColumn({
   const { isOver, setNodeRef } = useDroppable({
     id: status.name,
   });
+  
+  const [isExporting, setIsExporting] = useState(false);
 
   const bgColorClass = status.color.includes('bg-') 
     ? status.color.split(' ')[0] 
@@ -71,6 +73,64 @@ export function OutboundKanbanColumn({
       onSelectAll(leadIds);
     }
   };
+  
+  const handleExport = async () => {
+    if (isExporting) return;
+    
+    setIsExporting(true);
+    
+    try {
+      // Construct export URL
+      const params = new URLSearchParams({
+        status_id: status.name,
+        format: 'csv'
+      });
+      
+      const url = `/api/outbound/leads/export?${params.toString()}`;
+      
+      // Fetch the CSV file
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'שגיאה בייצוא');
+      }
+      
+      // Get the filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = `leads_${status.name}_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      // Download the file
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      // Show success notification (you can use a toast library here)
+      console.log(`✅ Successfully exported ${leads.length} leads from status "${status.label}"`);
+      
+    } catch (error) {
+      console.error('Export error:', error);
+      alert(`שגיאה בייצוא: ${error instanceof Error ? error.message : 'שגיאה לא ידועה'}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div className="flex-shrink-0 w-80 min-w-[320px] flex flex-col">
@@ -91,6 +151,20 @@ export function OutboundKanbanColumn({
                 {selectedCount} נבחר
               </span>
             )}
+            {/* Export button */}
+            <button
+              onClick={handleExport}
+              disabled={isExporting || leads.length === 0}
+              className={`p-1 rounded hover:bg-black/10 transition-colors ${textColorClass} disabled:opacity-30 disabled:cursor-not-allowed`}
+              title={`ייצוא לידים בסטטוס "${status.label}"`}
+              data-testid={`button-export-status-${status.name}`}
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+            </button>
             {/* Select All button */}
             {leads.length > 0 && onSelectAll && (
               <button
