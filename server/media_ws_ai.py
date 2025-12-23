@@ -4286,17 +4286,18 @@ class MediaStreamHandler:
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 GREETING PROTECTION FIX + SIMPLE BARGE-IN
+                    # 🔥 SIMPLE BARGE-IN - Works from call start
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Issue: Greeting sometimes interrupted by false speech_started from echo/noise
-                    # Solution: During greeting, require REAL speech before allowing barge-in
+                    # When customer speaks (speech_started), AI stops talking immediately.
                     # 
-                    # Rules:
-                    # 1. During greeting (first 500ms): Block barge-in on speech_started alone
-                    #    - Wait for transcription.completed OR 250ms+ of continuous speech
-                    #    - This prevents false triggers from echo/background noise
-                    # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
-                    # 3. Set barge_in=True flag and wait for transcription.completed
+                    # Protection:
+                    # - greeting_lock_active: Blocks barge-in during critical greeting phase
+                    #   (prevents echo/noise from interrupting greeting)
+                    # 
+                    # Behavior:
+                    # - Barge-in works from the moment greeting_lock ends
+                    # - AI cancels response immediately when customer speaks
+                    # - No complex conditions or delays
                     # ═══════════════════════════════════════════════════════════════════════
                     
                     if DEBUG:
@@ -4362,25 +4363,24 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - SIMPLE & IMMEDIATE (Golden Rule)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
+                    # When customer speaks => AI stops immediately
                     # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
+                    # Golden Rule: If active_response_id exists, CANCEL IT when user speaks
+                    # - Works from call start (no waiting for greeting to complete)
+                    # - Only protection: greeting_lock (prevents echo during greeting audio)
+                    # - Cancel immediately and flush all audio queues
+                    # - All logic in ONE PLACE (no duplications)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ NEW: Cancel on speech_started if ANY active_response_id exists
+                    # ✅ Simple conditions: Has response? Not in greeting lock? => Cancel!
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
+                    # 🔥 SIMPLIFIED: Barge-in works immediately, only blocked by greeting_lock
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
                         and getattr(self, "barge_in_enabled", True)
-                        and getattr(self, "barge_in_enabled_after_greeting", False)
                         and not is_greeting_now
                     )
                     
