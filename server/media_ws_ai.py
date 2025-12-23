@@ -1786,6 +1786,7 @@ class MediaStreamHandler:
         self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 325: Uses MIN_SPEECH_RMS=60 - allow quiet speech
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
+        self._logged_bargein_not_calibrated = False  # 🔥 FIX: Once-per-call log flag
         
         # 🔥 BUILD 171: CONSECUTIVE FRAME TRACKING - Prevent noise spikes from triggering transcription
         self._consecutive_voice_frames = 0  # Count of consecutive frames above RMS threshold
@@ -2238,6 +2239,16 @@ class MediaStreamHandler:
         # D) Watchdog for silent mode (bot gets stuck)
         self._watchdog_timer_active = False  # Track if watchdog is active
         self._watchdog_utterance_id = None  # Track which utterance watchdog is for (idempotent)
+        
+        # 🔥 FIX #2: Track all async tasks for proper cleanup (prevent timer leakage)
+        self._polite_hangup_task = None  # Track polite hangup fallback timer
+        self._turn_end_task = None  # Track turn end timer if any
+        self._watchdog_task = None  # Track watchdog timer task
+        self.closing = False  # Flag to signal all timers to stop
+        
+        # 🔥 FIX #3: Track cancel state to prevent double cancel
+        self._last_cancel_ts = 0  # Timestamp of last cancel operation
+        self._response_done_ids = set()  # Track response IDs that are done (prevent cancel after done)
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3845,6 +3856,25 @@ class MediaStreamHandler:
             print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
+        # 🔥 FIX #4: Additional guards to prevent response.create in invalid states
+        if getattr(self, 'closing', False):
+            logger.debug(f"[RESPONSE GUARD] Closing - blocking response.create ({reason})")
+            return False
+        
+        if getattr(self, 'greeting_lock_active', False) and not is_greeting:
+            logger.debug(f"[RESPONSE GUARD] Greeting lock active - blocking non-greeting response.create ({reason})")
+            return False
+        
+        if getattr(self, "ai_response_active", False) and not (force and is_greeting):
+            logger.debug(f"[RESPONSE GUARD] AI response already active - blocking ({reason})")
+            return False
+        
+        # Optional but recommended: require VAD calibration (except for greeting)
+        # Uncomment to enable this guard:
+        # if not is_greeting and not getattr(self, "is_calibrated", False):
+        #     logger.debug(f"[RESPONSE GUARD] VAD not calibrated - blocking ({reason})")
+        #     return False
+        
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
         # Don't let AI start new conversation loops after call should end
         if getattr(self, 'pending_hangup', False):
@@ -4028,6 +4058,16 @@ class MediaStreamHandler:
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
+                        
+                        # 🔥 FIX #3: Track completed response IDs to prevent cancel after done
+                        if resp_id and resp_id != "?":
+                            self._response_done_ids.add(resp_id)
+                            # Simple cleanup: cap set size to prevent memory leak
+                            if len(self._response_done_ids) > 50:
+                                # Remove oldest half to keep recent responses
+                                to_remove = len(self._response_done_ids) - 25
+                                for _ in range(to_remove):
+                                    self._response_done_ids.pop()
 
                         # NOTE: greeting_lock must be released only after response.audio.done (playback-end),
                         # not on response.done (generation-end).
@@ -4568,18 +4608,30 @@ class MediaStreamHandler:
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    if DEBUG:
-                        logger.debug(f"[SPEECH_STARTED] User started speaking")
-                    else:
-                        print(f"🎤 [SPEECH_STARTED] User started speaking")
+                    logger.debug(f"[SPEECH_STARTED] User started speaking")
 
                     # 🔴 GREETING_LOCK (HARD):
                     # While greeting_lock_active, ignore ALL user speech during greeting.
                     # Do NOT cancel, do NOT clear/flush, and do NOT mark utterance metadata.
                     if getattr(self, "greeting_lock_active", False):
                         logger.info("[GREETING_LOCK] ignoring user speech during greeting")
-                        print("🔒 [GREETING_LOCK] ignoring user speech during greeting")
                         continue
+                    
+                    # 🔥 FIX #1: Require VAD calibration before treating as real user speech
+                    # This prevents false speech_started from RMS/echo before VAD is stable
+                    if not getattr(self, "is_calibrated", False):
+                        # 🔥 FIX: Once-per-call logging to prevent spam
+                        if not getattr(self, "_logged_bargein_not_calibrated", False):
+                            logger.info("[BARGE-IN] Ignored speech_started: VAD not calibrated yet (will log once per call)")
+                            self._logged_bargein_not_calibrated = True
+                        continue
+                    
+                    # 🔥 FIX #1 (OPTIONAL): Extra safety - barge-in only after first real user speech
+                    # This prevents "AI echo" from triggering in calls where user is silent
+                    # Uncomment if you want maximum safety (recommended for production)
+                    # if not getattr(self, "user_has_spoken", False):
+                    #     logger.debug("[BARGE-IN] Ignored speech_started: user_has_spoken=False (anti-echo)")
+                    #     continue
                     
                     # Track utterance start for validation
                     self._candidate_user_speaking = True
@@ -4655,13 +4707,16 @@ class MediaStreamHandler:
                     
                     # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
                     # Don't check ai_response_active or is_ai_speaking - just cancel!
+                    # 🔥 FIX #3: Use enhanced can_cancel check with cooldown
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
-                        # Step 1: Cancel active response (with duplicate guard)
-                        if self._should_send_cancel(self.active_response_id):
+                        # Step 1: Cancel active response (with enhanced duplicate guard and cooldown)
+                        if self._can_cancel_response() and self._should_send_cancel(self.active_response_id):
                             try:
                                 await self.realtime_client.cancel_response(self.active_response_id)
+                                # Update last cancel timestamp for cooldown
+                                self._last_cancel_ts = time.time()
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
                                 logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
@@ -4674,7 +4729,7 @@ class MediaStreamHandler:
                                 else:
                                     logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
                         else:
-                            logger.debug("[BARGE-IN] Skipped duplicate cancel")
+                            logger.debug("[BARGE-IN] Skip cancel: not active / already done / cooldown")
                         
                         # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
                         # 🔥 CRITICAL: Clear Twilio queue immediately to prevent AI audio from continuing
@@ -6237,9 +6292,29 @@ class MediaStreamHandler:
                     async def _watchdog_retry_response(watchdog_utterance_id):
                         """
                         Minimal watchdog: if AI doesn't respond after 3s, retry response.create ONCE.
+                        
+                        🔥 FIX #4: Guards to prevent response.create in invalid states
                         """
                         try:
                             await asyncio.sleep(WATCHDOG_TIMEOUT_SEC)  # Wait 3 seconds
+                            
+                            # 🔥 FIX #4: Early exit checks before response.create
+                            if getattr(self, "closing", False) or getattr(self, "hangup_pending", False):
+                                logger.debug("[WATCHDOG] Skip retry: closing or hangup pending")
+                                return
+                            
+                            if getattr(self, "greeting_lock_active", False):
+                                logger.debug("[WATCHDOG] Skip retry: greeting lock active")
+                                return
+                            
+                            if getattr(self, "ai_response_active", False) or self.is_ai_speaking_event.is_set():
+                                logger.debug("[WATCHDOG] Skip retry: AI already responding/speaking")
+                                return
+                            
+                            # Optional but recommended: require VAD calibration
+                            if not getattr(self, "is_calibrated", False):
+                                logger.debug("[WATCHDOG] Skip retry: VAD not calibrated yet")
+                                return
                             
                             # Check if this watchdog is still relevant
                             if self._watchdog_utterance_id != watchdog_utterance_id:
@@ -6271,7 +6346,8 @@ class MediaStreamHandler:
                     # Only start watchdog if not a filler
                     if not is_filler_only:
                         self._watchdog_utterance_id = utterance_id
-                        asyncio.create_task(_watchdog_retry_response(utterance_id))
+                        # 🔥 FIX #2: Store task reference for cleanup
+                        self._watchdog_task = asyncio.create_task(_watchdog_retry_response(utterance_id))
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -8176,6 +8252,9 @@ class MediaStreamHandler:
                     logger.debug(f"[SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})")
                 return
             
+            # 🔥 FIX #2: Set closing flag FIRST to signal all timers/tasks to stop
+            self.closing = True
+            
             # Mark as closed FIRST to prevent re-entry
             self.closed = True
             self.close_reason = reason
@@ -8243,7 +8322,16 @@ class MediaStreamHandler:
             # STEP 3: Stop timers/watchdogs
             if not DEBUG:
                 _orig_print(f"   [3/8] Stopping timers and watchdogs...", flush=True)
-            # (Add any timer cleanup here if needed)
+            # 🔥 FIX #2: Cancel all async timers to prevent cross-call leakage
+            try:
+                for task_attr in ['_polite_hangup_task', '_turn_end_task', '_watchdog_task', '_pending_hangup_fallback_task']:
+                    task = getattr(self, task_attr, None)
+                    if task and not task.done():
+                        task.cancel()
+                        if not DEBUG:
+                            _orig_print(f"   ✅ Cancelled {task_attr}", flush=True)
+            except Exception as e:
+                _orig_print(f"   ⚠️ Error cancelling timers: {e}", flush=True)
             
             # STEP 4: Close OpenAI connection
             if not DEBUG:
@@ -8917,15 +9005,13 @@ class MediaStreamHandler:
                         # Complete calibration after 40 quiet frames OR 4 seconds timeout
                         if self.calibration_frames >= 40 or total_frames >= 200:
                             if self.calibration_frames < 10:
-                                # 🔥 BUILD 325: Use config constants for VAD thresholds
-                                self.vad_threshold = VAD_BASELINE_TIMEOUT  # 80.0 from config
-                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
+                                # 🔥 FIX: Use max of baseline and measured noise floor + offset
+                                self.vad_threshold = max(VAD_BASELINE_TIMEOUT, self.noise_floor + VAD_ADAPTIVE_OFFSET)
+                                logger.warning(f"[VAD] TIMEOUT - using threshold={self.vad_threshold:.1f} (baseline or measured)")
                             else:
                                 # 🔥 BUILD 325: Adaptive: noise + offset, capped for quiet speakers
                                 self.vad_threshold = min(VAD_ADAPTIVE_CAP, self.noise_floor + VAD_ADAPTIVE_OFFSET)
-                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
+                                logger.info(f"[VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, frames={total_frames}")
                             self.is_calibrated = True
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
@@ -11813,6 +11899,45 @@ class MediaStreamHandler:
         
         return True
     
+    def _can_cancel_response(self) -> bool:
+        """
+        🔥 FIX #3: Check if we can safely cancel the current active response
+        
+        Returns True only if ALL conditions are met:
+        1. active_response_id is not None
+        2. ai_response_active == True  
+        3. response not already done (not in _response_done_ids)
+        4. cooldown period passed (200ms since last cancel)
+        
+        This prevents:
+        - Cancel on already cancelled/completed responses
+        - Double cancel on same speech_started burst
+        - response_cancel_not_active errors
+        """
+        # Condition 1: Must have active response
+        if not self.active_response_id:
+            return False
+        
+        # Condition 2: Response must be active (not already done)
+        if not getattr(self, "ai_response_active", False):
+            logger.debug("[CANCEL_GUARD] Skip cancel: ai_response_active=False")
+            return False
+        
+        # Condition 3: Response must not be in done set
+        if self.active_response_id in self._response_done_ids:
+            logger.debug(f"[CANCEL_GUARD] Skip cancel: response {self.active_response_id[:20]}... already done")
+            return False
+        
+        # Condition 4: Cooldown period check (prevent burst cancels)
+        now = time.time()
+        if (now - self._last_cancel_ts) < 0.2:  # 200ms cooldown
+            elapsed_ms = int((now - self._last_cancel_ts) * 1000)
+            logger.debug(f"[CANCEL_GUARD] Skip cancel: cooldown active ({elapsed_ms}ms < 200ms)")
+            return False
+        
+        # All conditions met - safe to cancel
+        return True
+    
     async def _send_text_to_ai(self, text: str):
         """
         🔥 DISABLED: Sending text as user input violates "transcription is truth"
@@ -12212,8 +12337,27 @@ class MediaStreamHandler:
                 self._pending_hangup_set_mono = None
 
             async def _polite_hangup_fallback_timer(expected_response_id: Optional[str], expected_call_sid: Optional[str]):
+                """
+                🔥 FIX #2: Timer with call_sid guard to prevent cross-call leakage
+                
+                This timer only fires if:
+                1. Still same call (call_sid matches)
+                2. Handler not closing
+                3. Hangup still pending for same response_id
+                """
                 try:
                     await asyncio.sleep(6.0)
+                    
+                    # 🔥 FIX #2: Check closing flag first
+                    if getattr(self, "closing", False):
+                        logger.debug("[POLITE_HANGUP] Timer cancelled: handler closing")
+                        return
+                    
+                    # 🔥 FIX #2: HARD GUARD - never act if call_sid changed (stale timer from previous call)
+                    if self.call_sid != expected_call_sid:
+                        logger.debug(f"[POLITE_HANGUP] Ignored: call_sid mismatch (stale timer from previous call)")
+                        return
+                    
                     # Only fire if still pending and still for the same response_id (one-shot)
                     if getattr(self, "hangup_triggered", False):
                         return
