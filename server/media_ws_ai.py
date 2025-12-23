@@ -159,6 +159,19 @@ if _env_model:
     )
     OPENAI_REALTIME_MODEL = _env_model
 
+# 🔥 NEW REQUIREMENTS: Outbound call improvements constants
+# B) Human confirmation - minimum text length to confirm human is on line
+HUMAN_CONFIRMED_MIN_LENGTH = 2  # "הלו" or similar short greeting
+
+# C) 7-second silence detection
+SILENCE_NUDGE_TIMEOUT_SEC = 7.0  # Silence duration before nudge
+SILENCE_NUDGE_MAX_COUNT = 2  # Maximum number of nudges
+SILENCE_NUDGE_COOLDOWN_SEC = 25  # Cooldown between nudges
+
+# D) Watchdog for silent mode
+WATCHDOG_TIMEOUT_SEC = 3.0  # Time to wait before retry
+WATCHDOG_UTTERANCE_ID_LENGTH = 20  # Length of text slice for utterance ID
+
 print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
 print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
@@ -5867,7 +5880,7 @@ class MediaStreamHandler:
                     
                     # 🔥 NEW REQUIREMENT B: Set human_confirmed for outbound calls after first valid STT
                     # This triggers the greeting for outbound calls
-                    if not self.human_confirmed and text and len(text.strip()) >= 2:
+                    if not self.human_confirmed and text and len(text.strip()) >= HUMAN_CONFIRMED_MIN_LENGTH:
                         self.human_confirmed = True
                         print(f"✅ [HUMAN_CONFIRMED] Set to True after valid STT (text='{text[:30]}...', len={len(text.strip())})")
                         
@@ -5959,14 +5972,14 @@ class MediaStreamHandler:
                     
                     # 🔥 NEW REQUIREMENT D: Watchdog for silent mode (MINIMAL - one retry only)
                     # Start a 3-second timer. If no response.created by then, retry response.create ONCE
-                    utterance_id = f"{time.time()}_{text[:20]}"  # Unique ID for this utterance
+                    utterance_id = f"{time.time()}_{text[:WATCHDOG_UTTERANCE_ID_LENGTH]}"  # Unique ID for this utterance
                     
                     async def _watchdog_retry_response(watchdog_utterance_id):
                         """
                         Minimal watchdog: if AI doesn't respond after 3s, retry response.create ONCE.
                         """
                         try:
-                            await asyncio.sleep(3.0)  # Wait 3 seconds
+                            await asyncio.sleep(WATCHDOG_TIMEOUT_SEC)  # Wait 3 seconds
                             
                             # Check if this watchdog is still relevant
                             if self._watchdog_utterance_id != watchdog_utterance_id:
@@ -11059,18 +11072,18 @@ class MediaStreamHandler:
                     silence_since_ai = now - self.last_ai_activity_ts
                     
                     # Check all conditions for 7-second silence nudge
-                    if (silence_since_user >= 7.0 and 
-                        silence_since_ai >= 7.0 and
+                    if (silence_since_user >= SILENCE_NUDGE_TIMEOUT_SEC and 
+                        silence_since_ai >= SILENCE_NUDGE_TIMEOUT_SEC and
                         not self.is_ai_speaking_event.is_set() and
                         not self.response_pending_event.is_set() and
-                        self.silence_nudge_count < 2):
+                        self.silence_nudge_count < SILENCE_NUDGE_MAX_COUNT):
                         
                         # Check if enough time passed since last nudge (25 seconds)
-                        if self.last_silence_nudge_ts == 0 or (now - self.last_silence_nudge_ts) >= 25:
+                        if self.last_silence_nudge_ts == 0 or (now - self.last_silence_nudge_ts) >= SILENCE_NUDGE_COOLDOWN_SEC:
                             # Send nudge
                             self.silence_nudge_count += 1
                             self.last_silence_nudge_ts = now
-                            print(f"🔇 [7SEC_SILENCE] Nudge {self.silence_nudge_count}/2 - sending 'are you with me?'")
+                            print(f"🔇 [7SEC_SILENCE] Nudge {self.silence_nudge_count}/{SILENCE_NUDGE_MAX_COUNT} - sending 'are you with me?'")
                             
                             # Trigger AI to ask if user is still there
                             try:
