@@ -2591,7 +2591,7 @@ class MediaStreamHandler:
                     )
             except Exception as _sanitize_err:
                 # Never block the call on sanitizer issues; proceed with original prompt.
-                _orig_print(f"⚠️ [PROMPT_SANITIZE] Failed: {_sanitize_err}", flush=True)
+                logger.warning(f"[PROMPT_SANITIZE] Failed: {_sanitize_err}")
 
             # 🔥 SERVER-FIRST: For appointment calls we disable auto response creation so the server
             # can decide when/how to respond (verbatim injection after scheduling).
@@ -4187,13 +4187,13 @@ class MediaStreamHandler:
                                     # Trigger new response
                                     try:
                                         await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
+                                        logger.info(f"[SERVER_ERROR] Retry response.create sent")
                                     except Exception as retry_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                        logger.error(f"[SERVER_ERROR] Failed to send retry: {retry_err}")
                                 
                                 else:
                                     # Already retried or call too long - graceful failure
-                                    _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
+                                    logger.warning(f"[SERVER_ERROR] Max retries reached or call too long - graceful hangup")
                                     
                                     # Send technical context (AI decides how to handle based on Business Prompt)
                                     failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
@@ -4202,9 +4202,9 @@ class MediaStreamHandler:
                                     # Trigger final response
                                     try:
                                         await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
+                                        logger.info(f"[SERVER_ERROR] Graceful failure response sent")
                                     except Exception as fail_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
+                                        logger.error(f"[SERVER_ERROR] Failed to send failure message: {fail_err}")
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # 🔥 FIX: Don't clear is_ai_speaking immediately - schedule drain check instead
@@ -8171,10 +8171,9 @@ class MediaStreamHandler:
         with self.close_lock:
             if self.closed:
                 # Already closed - this is idempotent
-                if DEBUG:
+                # 🔥 PRODUCTION: Only log in development mode
+                if not DEBUG:
                     logger.debug(f"[SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})")
-                else:
-                    _orig_print(f"🔒 [SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})", flush=True)
                 return
             
             # Mark as closed FIRST to prevent re-entry
@@ -8381,7 +8380,8 @@ class MediaStreamHandler:
                     session = stream_registry.get(self.call_sid)
                     if session and session.get('ended'):
                         end_reason = session.get('end_reason', 'external_signal')
-                        print(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
+                        # 🔥 CALL_END is a macro event - log as INFO
+                        logger.info(f"[CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
                         self.hangup_triggered = True
                         self.call_state = CallState.ENDED
                         break
