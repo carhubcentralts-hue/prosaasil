@@ -1831,6 +1831,8 @@ class MediaStreamHandler:
         # Bot always speaks first - NO barge-in during first sentence only
         self.first_utterance_protected = True  # Protection ON until first response completes
         self.first_response_id = None  # Track first response ID to turn off protection
+        self._first_utterance_start_ts = None  # Track when first response starts
+        self._first_utterance_timeout_sec = 5.0  # Safety timeout: clear protection after 5s
         
         # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
         # This is THE key to making barge-in actually listen (not just stop talking)
@@ -4303,6 +4305,18 @@ class MediaStreamHandler:
                     is_protected = getattr(self, "first_utterance_protected", False)
                     greeting_lock = getattr(self, "greeting_lock_active", False)
                     
+                    # 🔥 SAFETY: Check first utterance protection timeout
+                    # If protection is still on but timeout expired, clear it
+                    if is_protected and self._first_utterance_start_ts:
+                        elapsed = time.time() - self._first_utterance_start_ts
+                        if elapsed > self._first_utterance_timeout_sec:
+                            self.first_utterance_protected = False
+                            is_protected = False
+                            _orig_print(
+                                f"⏱️ [FIRST_UTTERANCE] Protection timeout ({elapsed:.1f}s > {self._first_utterance_timeout_sec}s) - clearing protection",
+                                flush=True
+                            )
+                    
                     # 🔥 MANDATORY LOG: Always print, even in DEBUG mode
                     _orig_print(
                         f"[VAD] speech_started received: "
@@ -4455,9 +4469,9 @@ class MediaStreamHandler:
                                     "streamSid": self.stream_sid
                                 }
                                 self._ws_send(json.dumps(clear_event))
-                                logger.debug("[BARGE-IN] Sent Twilio clear event")
+                                _orig_print("[BARGE-IN] twilio_clear sent", flush=True)
                             except Exception as e:
-                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
+                                _orig_print(f"[BARGE-IN] Error sending clear event: {e}", flush=True)
                         
                         # Step 3: Flush TX queue (clear all pending audio frames)
                         # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
@@ -4609,6 +4623,8 @@ class MediaStreamHandler:
                         # Bot always speaks first - NO barge-in during first sentence only
                         if self.first_response_id is None:
                             self.first_response_id = response_id
+                            self._first_utterance_start_ts = time.time()
+                            _orig_print(f"🔒 [FIRST_UTTERANCE] Protection active for response {response_id[:20]}... (timeout={self._first_utterance_timeout_sec}s)", flush=True)
                             # Note: first_utterance_protected already initialized to True in __init__
                             _orig_print(f"🔒 [FIRST_UTTERANCE] Marked first response: id={response_id[:20]}... (protection=ON)", flush=True)
                             print(f"🔒 [FIRST_UTTERANCE] NO barge-in allowed until this response completes")
