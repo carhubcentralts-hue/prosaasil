@@ -3941,16 +3941,41 @@ class MediaStreamHandler:
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 CRITICAL: Helper to ensure ALL response.create calls increment counter
     # ═══════════════════════════════════════════════════════════════════════════════
-    async def _send_response_create(self, client):
+    async def _send_response_create(self, client, payload=None):
         """
         🚨 SAFETY: Wrapper for response.create that ALWAYS increments counter
         
         This ensures response_count is accurate for GREETING_PENDING guard.
         ALL direct response.create calls should use this wrapper.
+        
+        Args:
+            client: Realtime API client
+            payload: Optional dict with response.create parameters (modalities, instructions, etc.)
+                    If None, sends basic {"type": "response.create"}
+                    If provided, ensures "type" key is set to "response.create"
+        
+        Safety: Counter increments BEFORE send, rolls back on failure to maintain accuracy.
         """
-        await self._send_response_create(client)
+        # Build payload - ensure type is set
+        if payload is None:
+            payload = {"type": "response.create"}
+        else:
+            # Make a copy to avoid mutating caller's dict
+            payload = dict(payload)
+            payload.setdefault("type", "response.create")
+        
+        # 🚨 CRITICAL: Increment counter BEFORE send
+        # If send fails, we rollback to maintain accuracy
         self._response_create_count += 1
-        print(f"📊 [RESPONSE_CREATE] Count incremented: {self._response_create_count}")
+        
+        try:
+            await client.send_event(payload)
+            print(f"📊 [RESPONSE_CREATE] Count: {self._response_create_count}")
+        except Exception:
+            # Rollback counter on failure
+            self._response_create_count -= 1
+            print(f"❌ [RESPONSE_CREATE] Failed - rolled back counter to: {self._response_create_count}")
+            raise
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
