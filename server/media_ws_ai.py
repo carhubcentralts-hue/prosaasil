@@ -4582,6 +4582,13 @@ class MediaStreamHandler:
                             
                             # 🔥 BARGE-IN FIX: Clear barge-in flag (but keep is_ai_speaking for queue drain)
                             self.barge_in_active = False
+                            
+                            # 🔥 BARGE-IN FIX: Double cleanup - ensure ai_response_active is cleared
+                            # Even if drain check is still running, mark response as no longer active
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                                logger.debug(f"[BARGE_IN_FIX] ai_response_active=False on response.done (response_id={resp_id[:20]}...)")
+                            
                             _orig_print(f"✅ [STATE_RESET] Response complete - drain check scheduled (response_id={resp_id[:20]}... status={status})", flush=True)
                             
                             # 🔥 FIX: Check if greeting was pending and trigger it now
