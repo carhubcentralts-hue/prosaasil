@@ -1096,14 +1096,24 @@ def close_handler_from_webhook(call_sid: str, reason: str):
     
     This is called by Twilio webhooks when call ends externally.
     Returns True if handler was found and closed, False otherwise.
+    
+    🔥 CRITICAL: Never throws exceptions - always returns gracefully to prevent webhook 500 errors
     """
-    handler = _get_handler(call_sid)
-    if handler and hasattr(handler, 'close_session'):
-        _orig_print(f"🔥 [WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}", flush=True)
-        handler.close_session(reason)
-        return True
-    else:
-        _orig_print(f"⚠️ [WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})", flush=True)
+    try:
+        handler = _get_handler(call_sid)
+        if handler and hasattr(handler, 'close_session'):
+            _orig_print(f"🔥 [WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}", flush=True)
+            handler.close_session(reason)
+            return True
+        else:
+            # 🔥 This is normal during race conditions - webhook arrives after cleanup or before registration
+            _orig_print(f"⚠️ [WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})", flush=True)
+            return False
+    except Exception as e:
+        # 🔥 CRITICAL: Log but don't propagate - webhooks must always return 200 OK
+        _orig_print(f"❌ [WEBHOOK_CLOSE] Exception closing handler for {call_sid}: {e}", flush=True)
+        import traceback
+        _orig_print(f"[WEBHOOK_CLOSE] Traceback: {traceback.format_exc()}", flush=True)
         return False
 
 def _create_dispatcher_callbacks(call_sid: str):
@@ -5161,9 +5171,9 @@ class MediaStreamHandler:
                             # 🔥 FIX 3: Regex must match END of response only
                             # Pattern: (bye_word)(?:\s*[.!?…"]\s*)?$ ensures it's at the end
                             bye_patterns = [
-                                r"\bביי\b(?:\s*[.!?\"׳״""']*\s*)?$",
-                                r"\bלהתראות\b(?:\s*[.!?\"׳״""']*\s*)?$", 
-                                r"\bשלום[\s,]*ולהתראות\b(?:\s*[.!?\"׳״""']*\s*)?$"  # 🔥 Point 3: Handles "שלום ולהתראות" or "שלום, ולהתראות"
+                                r"\bביי\b(?:\s*[.!?\"'׳״…]*\s*)?$",
+                                r"\bלהתראות\b(?:\s*[.!?\"'׳״…]*\s*)?$", 
+                                r"\bשלום[\s,]*ולהתראות\b(?:\s*[.!?\"'׳״…]*\s*)?$"  # 🔥 Point 3: Handles "שלום ולהתראות" or "שלום, ולהתראות"
                             ]
                             
                             has_goodbye = any(re.search(pattern, last_sentence_norm) for pattern in bye_patterns)
