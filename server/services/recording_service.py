@@ -102,15 +102,17 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         download_lock = _download_locks[call_sid]
     
     # Try to acquire lock with timeout - if another thread is downloading, wait briefly
-    lock_acquired = download_lock.acquire(blocking=True, timeout=30)
+    lock_acquired = download_lock.acquire(blocking=True, timeout=60)  # Increased to 60s
     
     if not lock_acquired:
         log.warning(f"[RECORDING_SERVICE] Could not acquire lock for {call_sid} - another download in progress")
-        # Wait a bit and check if file now exists (other thread may have finished)
-        time.sleep(2)
-        if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
-            log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
-            return local_path
+        # Wait longer and retry checking if file exists (other thread may have finished)
+        for retry in range(5):  # Retry up to 5 times
+            time.sleep(3)  # Wait 3 seconds between retries
+            if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
+                log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
+                return local_path
+        log.error(f"[RECORDING_SERVICE] Timeout waiting for {call_sid} to be downloaded")
         return None
     
     try:
@@ -171,10 +173,9 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     finally:
         # Always release lock
         download_lock.release()
-        # Clean up lock from dictionary if no longer needed
-        with _locks_lock:
-            if call_sid in _download_locks:
-                del _download_locks[call_sid]
+        # Note: We don't remove lock from dictionary immediately to allow other threads
+        # to see it's locked. Lock objects are lightweight and will be garbage collected
+        # when no longer referenced. For explicit cleanup, use a background cleanup task.
 
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:

@@ -231,7 +231,7 @@ def test_canonical_path_usage():
         with patch('server.services.recording_service._get_recordings_dir', return_value=temp_dir):
             exists = check_local_recording_exists(call_sid)
             assert exists, "check_local_recording_exists should find canonical path"
-            print("✅ Canonical path {call_sid}.mp3 is used consistently")
+            print(f"✅ Canonical path {{call_sid}}.mp3 is used consistently")
     
     finally:
         import shutil
