@@ -2175,13 +2175,17 @@ class MediaStreamHandler:
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
 
         # ═══════════════════════════════════════════════════════════════════════════
-        # 🔥 NEW REQUIREMENTS: Outbound call improvements
+        # 🔥 OUTBOUND VOICE GATE: Wait for real human voice before AI speaks
         # ═══════════════════════════════════════════════════════════════════════════
         
-        # A) Outbound prompt-only mode tracking
-        self.call_mode = None  # Will be set to "outbound_prompt_only" for outbound calls
+        # Voice-only gate state (replaces AMD)
+        self.outbound_gate = "WAIT_FOR_VOICE"  # WAIT_FOR_VOICE | OPEN
+        self.call_start_ts = None  # Timestamp when call started (Twilio START event)
+        self.outbound_first_response_sent = False  # Ensure greeting triggers only ONCE
+        self.outbound_gate_timeout_sec = 12.0  # Hard timeout: end call if no voice in 12s
         
-        # B) Human confirmation - wait for real human speech before greeting
+        # Legacy fields (keeping for compatibility but using new gate logic)
+        self.call_mode = None  # Will be set to "outbound_prompt_only" for outbound calls
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
         self.greeting_pending = False  # 🔥 FIX: Flag to defer greeting if active response exists
         
@@ -6042,81 +6046,103 @@ class MediaStreamHandler:
                         # Log when we get text but it's too short to count
                         print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
                     
-                    # 🔥 NEW REQUIREMENT B: Set human_confirmed for outbound calls
-                    # TWO conditions must BOTH be met:
-                    # 1. STT_FINAL contains human greeting phrase ("שלום/הלו/כן" etc.)
-                    # 2. Audio duration >= 600ms (ensures it's human speech, not tone/beep)
-                    if not self.human_confirmed and text:
-                        # Check condition 1: Contains human greeting
-                        has_human_greeting = contains_human_greeting(text)
+                    # ═══════════════════════════════════════════════════════════════════════════
+                    # 🔥 OUTBOUND VOICE GATE: Voice-only human detection (replaces AMD)
+                    # ═══════════════════════════════════════════════════════════════════════════
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    
+                    if is_outbound and self.outbound_gate == "WAIT_FOR_VOICE" and text:
+                        # Outbound call waiting for voice - apply strict filters
                         
-                        # Check condition 2: Minimum speech duration (600ms)
-                        has_min_duration = utterance_duration_ms >= HUMAN_CONFIRMED_MIN_DURATION_MS
-                        
-                        # Both conditions must be true
-                        if has_human_greeting and has_min_duration:
-                            self.human_confirmed = True
-                            print(f"✅ [HUMAN_CONFIRMED] Set to True: text='{text[:30]}...', duration={utterance_duration_ms:.0f}ms")
-                            print(f"   Human greeting detected: {has_human_greeting}, Duration check: {utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
-                            logger.info(f"[HUMAN_CONFIRMED] Confirmed human: greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms >= {HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
+                        # Filter 1: Timing filter - ignore early utterances (ringback protection)
+                        call_age_sec = time.time() - self.call_start_ts if self.call_start_ts else 0
+                        if call_age_sec < 1.2:
+                            print(f"[OUTBOUND_VOICE_GATE] ignore early_utterance age_ms={int(call_age_sec*1000)} text='{text[:30]}...'")
+                            logger.info(f"[OUTBOUND_VOICE_GATE] Early utterance ignored: {int(call_age_sec*1000)}ms < 1200ms")
+                            # Don't process this utterance - continue waiting
+                        else:
+                            # Filter 2: Content + Duration filter
+                            # Accept ONLY if ALL conditions met:
+                            # 1. Duration >= 450ms
+                            # 2. Text is in Hebrew greeting whitelist OR len >= 4 chars
+                            # 3. NOT filler-only (already validated above)
                             
-                            # 🔥 OUTBOUND: If this is an outbound call and greeting hasn't been sent, trigger it now
-                            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                            if is_outbound and not self.greeting_sent:
-                                # Trigger the greeting now that we know a human is on the line
-                                print(f"🎤 [OUTBOUND] Human confirmed - triggering GREETING now")
-                        elif not self.human_confirmed:
-                            # Log why it was rejected (for debugging)
-                            print(f"⏳ [HUMAN_CONFIRMED] Not yet: text='{text[:30]}...', greeting={has_human_greeting}, duration={utterance_duration_ms:.0f}ms/{HUMAN_CONFIRMED_MIN_DURATION_MS}ms")
-                        
-                        # Continue with greeting trigger if conditions met
-                        if self.human_confirmed and is_outbound and not self.greeting_sent:
+                            # Whitelist of Hebrew greetings
+                            hebrew_greetings = {"הלו", "הלו.", "כן", "כן.", "מי זה", "מי זה?", "שלום", "שלום."}
+                            is_greeting = text in hebrew_greetings
+                            has_min_length = len(text.strip()) >= 4
+                            has_min_duration = utterance_duration_ms >= 450
                             
-                            # 🔥 FIX: Check if there's already an active response before triggering greeting
-                            # If yes, mark greeting_pending=True and trigger after response.done
-                            has_active_response = bool(getattr(self, 'active_response_id', None) or getattr(self, 'ai_response_active', False))
-                            
-                            if has_active_response:
-                                # Active response exists (probably VAD auto-response) - defer greeting
-                                self.greeting_pending = True
-                                print(f"⏸️ [OUTBOUND] Active response detected - deferring greeting (greeting_pending=True)")
-                                logger.info("[GREETING_DEFER] Active response exists - greeting deferred until response.done")
-                            else:
-                                # No active response - safe to trigger greeting now
-                                # Set greeting flags
-                                greeting_start_ts = time.time()
-                                self.greeting_sent = True
-                                self.is_playing_greeting = True
-                                self.greeting_mode_active = True
-                                self.greeting_lock_active = True
-                                self._greeting_lock_response_id = None
-                                self._greeting_start_ts = greeting_start_ts
-                                logger.info("[GREETING_LOCK] activated (post human_confirmed)")
+                            # Check all conditions
+                            if has_min_duration and (is_greeting or has_min_length) and not is_filler_only:
+                                # ✅ GATE OPENS - Human detected!
+                                self.outbound_gate = "OPEN"
+                                self.user_has_spoken = True
+                                self.human_confirmed = True  # Legacy flag for compatibility
                                 
-                                # Trigger the greeting response
-                                # Note: We're in the OpenAI event loop, so we can await
-                                # Get the realtime client from the handler
-                                realtime_client = getattr(self, 'realtime_client', None)
-                                if realtime_client:
-                                    # Create task to trigger greeting (don't block STT processing)
-                                    async def _trigger_delayed_greeting():
-                                        try:
-                                            await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
-                                            triggered = await self.trigger_response("GREETING_DELAYED", realtime_client, is_greeting=True, force=True)
-                                            if triggered:
-                                                print(f"✅ [OUTBOUND] Greeting triggered after human confirmation")
-                                            else:
-                                                print(f"❌ [OUTBOUND] Failed to trigger greeting after human confirmation")
-                                                self.greeting_sent = False
-                                                self.is_playing_greeting = False
-                                        except Exception as e:
-                                            print(f"❌ [OUTBOUND] Error triggering greeting: {e}")
-                                            import traceback
-                                            traceback.print_exc()
+                                print(f"[OUTBOUND_VOICE_GATE] OPEN ✅ first_valid_utterance duration_ms={int(utterance_duration_ms)} text='{text}' → response.create")
+                                logger.info(f"[OUTBOUND_VOICE_GATE] Gate opened: duration={int(utterance_duration_ms)}ms, text='{text}'")
+                                _orig_print(f"[OUTBOUND_VOICE_GATE] OPEN call_sid={self.call_sid[:8]}... text='{text[:20]}' duration_ms={int(utterance_duration_ms)}", flush=True)
+                                
+                                # Trigger AI response ONCE
+                                if not self.outbound_first_response_sent and not self.greeting_sent:
+                                    # Check if there's already an active response before triggering greeting
+                                    has_active_response = bool(getattr(self, 'active_response_id', None) or getattr(self, 'ai_response_active', False))
                                     
-                                    asyncio.create_task(_trigger_delayed_greeting())
-                                else:
-                                    print(f"⚠️ [OUTBOUND] No realtime_client available for greeting trigger")
+                                    if has_active_response:
+                                        # Active response exists (probably VAD auto-response) - defer greeting
+                                        self.greeting_pending = True
+                                        print(f"⏸️ [OUTBOUND_VOICE_GATE] Active response detected - deferring greeting (greeting_pending=True)")
+                                        logger.info("[GREETING_DEFER] Active response exists - greeting deferred until response.done")
+                                    else:
+                                        # No active response - safe to trigger greeting now
+                                        # Set greeting flags
+                                        greeting_start_ts = time.time()
+                                        self.greeting_sent = True
+                                        self.is_playing_greeting = True
+                                        self.greeting_mode_active = True
+                                        self.greeting_lock_active = True
+                                        self._greeting_lock_response_id = None
+                                        self._greeting_start_ts = greeting_start_ts
+                                        self.outbound_first_response_sent = True  # Ensure only once
+                                        logger.info("[GREETING_LOCK] activated (post voice gate open)")
+                                        
+                                        # Trigger the greeting response
+                                        realtime_client = getattr(self, 'realtime_client', None)
+                                        if realtime_client:
+                                            # Create task to trigger greeting (don't block STT processing)
+                                            async def _trigger_delayed_greeting():
+                                                try:
+                                                    await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
+                                                    triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
+                                                    if triggered:
+                                                        print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
+                                                    else:
+                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
+                                                        self.greeting_sent = False
+                                                        self.is_playing_greeting = False
+                                                        self.outbound_first_response_sent = False
+                                                except Exception as e:
+                                                    print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
+                                                    import traceback
+                                                    traceback.print_exc()
+                                            
+                                            asyncio.create_task(_trigger_delayed_greeting())
+                                        else:
+                                            print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
+                            else:
+                                # Gate still closed - log rejection reason
+                                reject_reasons = []
+                                if not has_min_duration:
+                                    reject_reasons.append(f"duration_ms={int(utterance_duration_ms)}<450ms")
+                                if not is_greeting and not has_min_length:
+                                    reject_reasons.append(f"len={len(text.strip())}<4 and not_greeting")
+                                if is_filler_only:
+                                    reject_reasons.append("filler_only")
+                                
+                                reason = ", ".join(reject_reasons)
+                                print(f"[OUTBOUND_VOICE_GATE] reject first_utterance duration_ms={int(utterance_duration_ms)} text='{text}' reason={reason}")
+                                logger.info(f"[OUTBOUND_VOICE_GATE] Utterance rejected: {reason}")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call
@@ -8466,11 +8492,14 @@ class MediaStreamHandler:
                             print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
                             _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
                             
-                            # 🔥 NEW REQUIREMENT A: Set call_mode for outbound calls
+                            # 🔥 OUTBOUND VOICE GATE: Initialize gate state for outbound calls
                             if self.call_direction == "outbound":
                                 self.call_mode = "outbound_prompt_only"
-                                self.human_confirmed = False  # Start False, becomes True after first valid STT
-                                print(f"🔒 [OUTBOUND] call_mode=outbound_prompt_only, human_confirmed=False")
+                                self.call_start_ts = time.time()  # Track call start for timing filter
+                                self.outbound_gate = "WAIT_FOR_VOICE"
+                                self.human_confirmed = False  # Start False, becomes True after gate opens
+                                print(f"🔒 [OUTBOUND_VOICE_GATE] waiting start_ts={self.call_start_ts}")
+                                _orig_print(f"[OUTBOUND_VOICE_GATE] call_sid={self.call_sid[:8]}... gate=WAIT_FOR_VOICE", flush=True)
                             else:
                                 self.human_confirmed = True  # Inbound: human is already on the line
                         
@@ -8540,11 +8569,14 @@ class MediaStreamHandler:
                             print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
                             _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
                             
-                            # 🔥 NEW REQUIREMENT A: Set call_mode for outbound calls
+                            # 🔥 OUTBOUND VOICE GATE: Initialize gate state for outbound calls
                             if self.call_direction == "outbound":
                                 self.call_mode = "outbound_prompt_only"
-                                self.human_confirmed = False  # Start False, becomes True after first valid STT
-                                print(f"🔒 [OUTBOUND] call_mode=outbound_prompt_only, human_confirmed=False")
+                                self.call_start_ts = time.time()  # Track call start for timing filter
+                                self.outbound_gate = "WAIT_FOR_VOICE"
+                                self.human_confirmed = False  # Start False, becomes True after gate opens
+                                print(f"🔒 [OUTBOUND_VOICE_GATE] waiting start_ts={self.call_start_ts}")
+                                _orig_print(f"[OUTBOUND_VOICE_GATE] call_sid={self.call_sid[:8]}... gate=WAIT_FOR_VOICE", flush=True)
                             else:
                                 self.human_confirmed = True  # Inbound: human is already on the line
                         
@@ -11432,6 +11464,22 @@ class MediaStreamHandler:
                                     print(f"✅ [7SEC_SILENCE] Nudge triggered")
                             except Exception as e:
                                 print(f"❌ [7SEC_SILENCE] Failed to send nudge: {e}")
+                    
+                    # 🔥 OUTBOUND VOICE GATE TIMEOUT: End call if no voice in 12s
+                    # Check if we're in outbound mode waiting for voice
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    if is_outbound and self.outbound_gate == "WAIT_FOR_VOICE" and self.call_start_ts:
+                        gate_wait_time = time.time() - self.call_start_ts
+                        if gate_wait_time > self.outbound_gate_timeout_sec:
+                            # Timeout exceeded - no human voice detected
+                            print(f"[OUTBOUND_VOICE_GATE] TIMEOUT no_voice → end_call (waited {gate_wait_time:.1f}s)")
+                            logger.info(f"[OUTBOUND_VOICE_GATE] Timeout: no voice detected in {gate_wait_time:.1f}s")
+                            _orig_print(f"[OUTBOUND_VOICE_GATE] TIMEOUT call_sid={self.call_sid[:8]}... waited={gate_wait_time:.1f}s", flush=True)
+                            
+                            # End call WITHOUT speaking (voicemail protection)
+                            self.call_state = CallState.CLOSING
+                            await self.request_hangup("outbound_gate_timeout", "silence_monitor")
+                            return
                     
                     # 🔥 NEW REQUIREMENT: 20-second true silence → auto-hangup
                     # After 7s nudges, if still 20s of true silence → hang up cleanly
