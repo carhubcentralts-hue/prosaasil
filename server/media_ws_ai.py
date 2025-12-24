@@ -2201,7 +2201,7 @@ class MediaStreamHandler:
         # Legacy fields (keeping for compatibility but using new gate logic)
         self.call_mode = None  # Will be set to "outbound_prompt_only" for outbound calls
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
-        self.greeting_pending = False  # 🔥 FIX: Flag to defer greeting if active response exists
+        self.greeting_pending = False  # Flag to defer greeting if active response exists (not used when gate exists)
         
         # C) 7-second silence detection
         self.last_user_activity_ts = time.time()  # Track last user audio/speech activity
@@ -3397,6 +3397,11 @@ class MediaStreamHandler:
                     _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
                     _session_wait_logged = False  # Reset for next check
                 
+                # 🔥 OUTBOUND_GATE: Continue sending audio during WAITING (for VAD detection)
+                # Audio must flow to OpenAI so server_vad can detect speech and generate transcripts
+                # We block the RESPONSE creation, not the audio itself
+                # Blocking happens in trigger_response() and in response.created handler
+                
                 try:
                     audio_chunk = self.realtime_audio_in_queue.get_nowait()
                 except queue.Empty:
@@ -3775,6 +3780,14 @@ class MediaStreamHandler:
         _client = client or self.realtime_client
         if not _client:
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
+            return False
+        
+        # 🔥 OUTBOUND_GATE: Block response.create while gate is WAITING
+        # Ensures no AI responses occur before human voice is confirmed
+        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+        if is_outbound and getattr(self, 'outbound_gate', None) == "WAIT_FOR_VOICE":
+            _orig_print(f"[OUTBOUND_GATE] BLOCK response.create (state=WAITING) reason={reason}", flush=True)
+            print(f"🛑 [OUTBOUND_GATE] BLOCK response.create (state=WAITING)")
             return False
         
         # 🔥 CRITICAL SESSION GATE: Block response.create until session is confirmed
@@ -4189,38 +4202,40 @@ class MediaStreamHandler:
                             self.barge_in_active = False
                             _orig_print(f"✅ [STATE_RESET] Response complete - drain check scheduled (response_id={resp_id[:20]}... status={status})", flush=True)
                             
-                            # 🔥 FIX: Check if greeting was pending and trigger it now
-                            if getattr(self, 'greeting_pending', False) and not getattr(self, 'greeting_sent', False):
+                            # 🔥 GREETING_PENDING: Only used when there's NO gate (inbound or non-gate outbound)
+                            # When gate exists, greeting is triggered only after gate opens (no deferral needed)
+                            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                            has_gate = is_outbound and hasattr(self, 'outbound_gate')
+                            
+                            if not has_gate and getattr(self, 'greeting_pending', False) and not getattr(self, 'greeting_sent', False):
                                 self.greeting_pending = False
-                                is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                                if is_outbound:
-                                    print(f"✅ [GREETING_PENDING] Active response done - triggering deferred greeting now")
-                                    logger.info("[GREETING_PENDING] Triggering deferred greeting after response.done")
-                                    # Trigger greeting asynchronously
-                                    async def _trigger_deferred_greeting():
-                                        try:
-                                            greeting_start_ts = time.time()
-                                            self.greeting_sent = True
-                                            self.is_playing_greeting = True
-                                            self.greeting_mode_active = True
-                                            self.greeting_lock_active = True
-                                            self._greeting_lock_response_id = None
-                                            self._greeting_start_ts = greeting_start_ts
-                                            logger.info("[GREETING_LOCK] activated (deferred after response.done)")
-                                            
-                                            triggered = await self.trigger_response("GREETING_DEFERRED", client, is_greeting=True, force=True)
-                                            if triggered:
-                                                print(f"✅ [GREETING_PENDING] Deferred greeting triggered successfully")
-                                            else:
-                                                print(f"❌ [GREETING_PENDING] Failed to trigger deferred greeting")
-                                                self.greeting_sent = False
-                                                self.is_playing_greeting = False
-                                        except Exception as e:
-                                            print(f"❌ [GREETING_PENDING] Error triggering deferred greeting: {e}")
-                                            import traceback
-                                            traceback.print_exc()
-                                    
-                                    asyncio.create_task(_trigger_deferred_greeting())
+                                print(f"✅ [GREETING_PENDING] Active response done - triggering deferred greeting now")
+                                logger.info("[GREETING_PENDING] Triggering deferred greeting after response.done")
+                                # Trigger greeting asynchronously
+                                async def _trigger_deferred_greeting():
+                                    try:
+                                        greeting_start_ts = time.time()
+                                        self.greeting_sent = True
+                                        self.is_playing_greeting = True
+                                        self.greeting_mode_active = True
+                                        self.greeting_lock_active = True
+                                        self._greeting_lock_response_id = None
+                                        self._greeting_start_ts = greeting_start_ts
+                                        logger.info("[GREETING_LOCK] activated (deferred after response.done)")
+                                        
+                                        triggered = await self.trigger_response("GREETING_DEFERRED", client, is_greeting=True, force=True)
+                                        if triggered:
+                                            print(f"✅ [GREETING_PENDING] Deferred greeting triggered successfully")
+                                        else:
+                                            print(f"❌ [GREETING_PENDING] Failed to trigger deferred greeting")
+                                            self.greeting_sent = False
+                                            self.is_playing_greeting = False
+                                    except Exception as e:
+                                        print(f"❌ [GREETING_PENDING] Error triggering deferred greeting: {e}")
+                                        import traceback
+                                        traceback.print_exc()
+                                
+                                asyncio.create_task(_trigger_deferred_greeting())
                         elif self.active_response_id:
                             # Mismatch - log but still schedule drain check to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
@@ -4230,6 +4245,12 @@ class MediaStreamHandler:
                             
                             # 🔥 BARGE-IN FIX: Clear barge-in flag
                             self.barge_in_active = False
+                        
+                        # 🔥 OUTBOUND_GATE: Cleanup cancelled response from tracking set
+                        # Remove from blocked set after response is done to prevent memory leak
+                        if resp_id and hasattr(self, '_gate_cancelled_responses') and resp_id in self._gate_cancelled_responses:
+                            self._gate_cancelled_responses.discard(resp_id)
+                            print(f"🗑️ [OUTBOUND_GATE] Cleaned up cancelled response: {resp_id[:20]}...")
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -4669,7 +4690,9 @@ class MediaStreamHandler:
                         # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        # 🔥 INCREMENT: Track barge-in events for metrics
+                        self._barge_in_event_count = getattr(self, '_barge_in_event_count', 0) + 1
+                        logger.info(f"[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete (event #{self._barge_in_event_count})")
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
@@ -4799,6 +4822,48 @@ class MediaStreamHandler:
                         if hasattr(self, '_watchdog_utterance_id'):
                             self._watchdog_utterance_id = None
 
+                        # 🔥 OUTBOUND_GATE: Cancel auto-created responses during WAITING (with safety checks)
+                        # If gate is still WAITING, this response shouldn't exist - cancel it immediately
+                        # Safety: Never cancel greeting or manually-triggered responses
+                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        if is_outbound and getattr(self, 'outbound_gate', None) == "WAIT_FOR_VOICE":
+                            # Safety check #1: Don't cancel if this is the greeting response
+                            is_greeting_response = (
+                                getattr(self, "greeting_lock_active", False) or
+                                response_id == getattr(self, "_greeting_lock_response_id", None)
+                            )
+                            
+                            # Safety check #2: Don't cancel manually-triggered responses
+                            # (they would have been blocked by trigger_response guard already)
+                            is_manual_response = getattr(self, '_manual_response_pending', False)
+                            
+                            if not is_greeting_response and not is_manual_response:
+                                # Gate is still waiting - this is an unwanted auto-response from server_vad
+                                _orig_print(f"[OUTBOUND_GATE] BLOCKED_RESPONSE_DURING_GATE response_id={response_id[:20]}... - cancelling", flush=True)
+                                print(f"🛑 [OUTBOUND_GATE] Auto-response created during WAITING - cancelling immediately")
+                                
+                                # Cancel the response
+                                try:
+                                    await client.send_event({
+                                        "type": "response.cancel",
+                                        "response_id": response_id
+                                    })
+                                    print(f"✅ [OUTBOUND_GATE] Response cancelled: {response_id[:20]}...")
+                                    
+                                    # Mark as cancelled locally to ignore its audio
+                                    if not hasattr(self, '_gate_cancelled_responses'):
+                                        self._gate_cancelled_responses = set()
+                                    self._gate_cancelled_responses.add(response_id)
+                                    
+                                except Exception as cancel_err:
+                                    print(f"❌ [OUTBOUND_GATE] Failed to cancel response: {cancel_err}")
+                                
+                                # Skip the rest of response.created processing
+                                continue
+                            else:
+                                # This is a safe response (greeting or manual) - allow it even during WAITING
+                                print(f"[OUTBOUND_GATE] Allowing safe response during WAITING (greeting={is_greeting_response}, manual={is_manual_response})")
+
                         # 🔴 FINAL CRITICAL FIX #1:
                         # Bind greeting_response_id the moment the greeting response is created.
                         if getattr(self, "greeting_lock_active", False) and not getattr(self, "_greeting_lock_response_id", None):
@@ -4845,6 +4910,14 @@ class MediaStreamHandler:
                     audio_b64 = event.get("delta", "")
                     response_id = event.get("response_id", "")
                     if audio_b64:
+                        # 🔥 OUTBOUND_GATE: Drop audio from cancelled responses during WAITING
+                        if response_id and hasattr(self, '_gate_cancelled_responses') and response_id in self._gate_cancelled_responses:
+                            # This audio is from a response we cancelled during gate WAITING - drop it
+                            if not hasattr(self, '_gate_cancelled_audio_logged'):
+                                print(f"🗑️ [OUTBOUND_GATE] Dropping audio from cancelled response (gate was WAITING)")
+                                self._gate_cancelled_audio_logged = True
+                            continue
+                        
                         # ═══════════════════════════════════════════════════════════════
                         # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (DEBUG only)
                         # ═══════════════════════════════════════════════════════════════
@@ -6131,51 +6204,42 @@ class MediaStreamHandler:
                                     _orig_print(f"[OUTBOUND_VOICE_GATE] OPEN call_sid={self.call_sid[:8]}... text='{text[:20]}' duration_ms={int(utterance_duration_ms)}", flush=True)
                                     
                                     # 🔥 CRITICAL: Trigger AI response ONCE (and ONLY after gate opens)
+                                    # No need to check for active responses - gate lock prevents any responses during WAITING
                                     if not self.outbound_first_response_sent and not self.greeting_sent:
-                                        # Check if there's already an active response before triggering greeting
-                                        has_active_response = bool(getattr(self, 'active_response_id', None) or getattr(self, 'ai_response_active', False))
+                                        # Set greeting flags
+                                        greeting_start_ts = time.time()
+                                        self.greeting_sent = True
+                                        self.is_playing_greeting = True
+                                        self.greeting_mode_active = True
+                                        self.greeting_lock_active = True
+                                        self._greeting_lock_response_id = None
+                                        self._greeting_start_ts = greeting_start_ts
+                                        self.outbound_first_response_sent = True  # Ensure only once
+                                        logger.info("[GREETING_LOCK] activated (post voice gate open)")
                                         
-                                        if has_active_response:
-                                            # Active response exists (probably VAD auto-response) - defer greeting
-                                            self.greeting_pending = True
-                                            print(f"⏸️ [OUTBOUND_VOICE_GATE] Active response detected - deferring greeting (greeting_pending=True)")
-                                            logger.info("[GREETING_DEFER] Active response exists - greeting deferred until response.done")
-                                        else:
-                                            # No active response - safe to trigger greeting now
-                                            # Set greeting flags
-                                            greeting_start_ts = time.time()
-                                            self.greeting_sent = True
-                                            self.is_playing_greeting = True
-                                            self.greeting_mode_active = True
-                                            self.greeting_lock_active = True
-                                            self._greeting_lock_response_id = None
-                                            self._greeting_start_ts = greeting_start_ts
-                                            self.outbound_first_response_sent = True  # Ensure only once
-                                            logger.info("[GREETING_LOCK] activated (post voice gate open)")
+                                        # Trigger the greeting response
+                                        realtime_client = getattr(self, 'realtime_client', None)
+                                        if realtime_client:
+                                            # Create task to trigger greeting (don't block STT processing)
+                                            async def _trigger_delayed_greeting():
+                                                try:
+                                                    await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
+                                                    triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
+                                                    if triggered:
+                                                        print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
+                                                    else:
+                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
+                                                        self.greeting_sent = False
+                                                        self.is_playing_greeting = False
+                                                        self.outbound_first_response_sent = False
+                                                except Exception as e:
+                                                    print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
+                                                    import traceback
+                                                    traceback.print_exc()
                                             
-                                            # Trigger the greeting response
-                                            realtime_client = getattr(self, 'realtime_client', None)
-                                            if realtime_client:
-                                                # Create task to trigger greeting (don't block STT processing)
-                                                async def _trigger_delayed_greeting():
-                                                    try:
-                                                        await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
-                                                        triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
-                                                        if triggered:
-                                                            print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
-                                                        else:
-                                                            print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
-                                                            self.greeting_sent = False
-                                                            self.is_playing_greeting = False
-                                                            self.outbound_first_response_sent = False
-                                                    except Exception as e:
-                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
-                                                        import traceback
-                                                        traceback.print_exc()
-                                                
-                                                asyncio.create_task(_trigger_delayed_greeting())
-                                            else:
-                                                print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
+                                            asyncio.create_task(_trigger_delayed_greeting())
+                                        else:
+                                            print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
                                 else:
                                     # Need second confirmation - keep waiting
                                     print(f"[OUTBOUND_VOICE_GATE] waiting_second_confirmation (need 2 voice indications)")
@@ -8264,6 +8328,18 @@ class MediaStreamHandler:
                 # Clear response tracking
                 self.has_pending_ai_response = False
                 self.response_pending_event.clear()
+                
+                # 🔥 OUTBOUND_GATE: Clear gate-specific state to prevent leakage
+                if hasattr(self, '_gate_cancelled_responses'):
+                    self._gate_cancelled_responses.clear()
+                if hasattr(self, '_manual_response_pending'):
+                    self._manual_response_pending = False
+                if hasattr(self, 'greeting_lock_active'):
+                    self.greeting_lock_active = False
+                if hasattr(self, '_greeting_lock_response_id'):
+                    self._greeting_lock_response_id = None
+                if hasattr(self, 'outbound_gate'):
+                    self.outbound_gate = "WAIT_FOR_VOICE"  # Reset to initial state
                 
                 _orig_print(f"   ✅ State flags cleared", flush=True)
             except Exception as e:

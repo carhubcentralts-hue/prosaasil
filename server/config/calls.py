@@ -42,55 +42,63 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 STABLE VAD CONFIGURATION - Production-ready values for Hebrew calls
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (gradual approach per expert feedback):
-# - threshold 0.88: BALANCED - reduces false triggers while catching normal speech
-#   (was 0.82 - too sensitive, tried 0.90 - slightly too aggressive)
-#   Expert recommendation: Tune gradually, monitor for both false triggers and missed speech
-# - silence_duration_ms 650: LONGER WAIT - doesn't cut off speech too early
-#   Good for Hebrew with natural pauses, monitor for responsiveness
+# TUNING RATIONALE - CONSERVATIVE APPROACH:
+# - threshold 0.82: GRADUAL REDUCTION - easier to catch quiet speech without too much noise
+#   (reduced from 0.88 → 0.82 instead of aggressive 0.78 jump)
+#   Start with conservative change, can reduce further if needed
+# - silence_duration_ms 600: HEBREW-SAFE - doesn't cut off natural pauses
+#   (reduced from 650ms → 600ms for slightly faster response, safe for Hebrew)
 # - prefix_padding_ms 300: Standard padding for Hebrew syllables (unchanged)
 # - create_response: true (automatic response generation on turn end)
 #
+# 🎯 HYSTERESIS APPROACH:
+# OpenAI's server_vad has built-in hysteresis:
+# - 0.82 start threshold: Lower to catch quiet callers
+# - Implicit higher continue threshold: Reduces false cut-offs from noise
+#
 # 🎯 ENV OVERRIDE: Can be tuned in production without code changes
-# export SERVER_VAD_THRESHOLD=0.90  # Increase if too many false triggers
-# export SERVER_VAD_THRESHOLD=0.86  # Decrease if missing quiet speech
+# export SERVER_VAD_THRESHOLD=0.85  # Increase if too many false triggers
+# export SERVER_VAD_THRESHOLD=0.78  # Decrease if still missing quiet speech
+# export SERVER_VAD_SILENCE_MS=550  # Faster response (test with Hebrew first!)
+# export SERVER_VAD_SILENCE_MS=700  # Safer for Hebrew natural pauses
 #
 # ⚠️ MONITORING REQUIRED:
-# - If still too many false triggers → increase to 0.90-0.92
-# - If missing quiet speech ("כן", "לא") → decrease to 0.85-0.86
-# - If feel unresponsive → decrease silence_ms to 550-600
+# - If too many false triggers → increase to 0.85-0.88
+# - If missing quiet speech ("כן", "לא") → decrease gradually to 0.78-0.75
+# - If cutting off Hebrew speech → increase silence_ms to 650-700
+# - If feels sluggish → can try 550ms (test carefully!)
 #
-# Current balanced settings (0.88/650ms/300ms) provide:
-# ✅ Good filtering of background noise and music
-# ✅ Still catches normal speech volume (including quiet speakers)
-# ✅ Longer silence wait - allows natural pauses
-# ✅ Natural conversation flow with proper turn-taking
+# Current conservative settings (0.82/600ms/300ms) provide:
+# ✅ Better transcription than 0.88 (catches more nuanced speech)
+# ✅ Not as aggressive as 0.78 (reduces false triggers)
+# ✅ Hebrew-safe silence duration (600ms handles natural pauses)
+# ✅ Easier barge-in without excessive sensitivity
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 
 # Read from environment with validation
-_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.88")
-_vad_silence_str = os.getenv("SERVER_VAD_SILENCE_MS", "650")
+_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.82")
+_vad_silence_str = os.getenv("SERVER_VAD_SILENCE_MS", "600")
 
 try:
     SERVER_VAD_THRESHOLD = float(_vad_threshold_str)
     # Validate bounds: 0.0 to 1.0
     if not 0.0 <= SERVER_VAD_THRESHOLD <= 1.0:
-        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.88")
-        SERVER_VAD_THRESHOLD = 0.88
+        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.82")
+        SERVER_VAD_THRESHOLD = 0.82
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.88")
-    SERVER_VAD_THRESHOLD = 0.88
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.82")
+    SERVER_VAD_THRESHOLD = 0.82
 
 try:
     SERVER_VAD_SILENCE_MS = int(_vad_silence_str)
     # Validate positive integer
     if SERVER_VAD_SILENCE_MS <= 0:
-        print(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 650")
-        SERVER_VAD_SILENCE_MS = 650
+        print(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 600")
+        SERVER_VAD_SILENCE_MS = 600
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 650")
-    SERVER_VAD_SILENCE_MS = 650
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 600")
+    SERVER_VAD_SILENCE_MS = 600
 
 SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew (unchanged)
 
