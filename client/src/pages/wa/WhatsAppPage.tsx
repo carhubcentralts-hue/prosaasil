@@ -65,6 +65,15 @@ interface WhatsAppStatus {
   ready: boolean;
   connected: boolean;
   configured: boolean;
+  hasQR?: boolean;
+  qr_required?: boolean;
+  session_age?: number;
+  session_age_human?: string;
+  last_message_ts?: string;
+  last_message_age?: number;
+  last_message_age_human?: string;
+  active_phone?: string;
+  error?: string;
 }
 
 interface WhatsAppThread {
@@ -796,6 +805,24 @@ export function WhatsAppPage() {
                   {providerInfo.description}
                 </p>
               )}
+              
+              {/* ✅ FIX: Enhanced connection health info */}
+              {whatsappStatus.connected && whatsappStatus.session_age_human && (
+                <p className="text-xs text-slate-500 mt-2">
+                  <strong>זמן חיבור:</strong> {whatsappStatus.session_age_human}
+                </p>
+              )}
+              {whatsappStatus.connected && whatsappStatus.last_message_age_human && (
+                <p className="text-xs text-slate-500 mt-1">
+                  <strong>הודעה אחרונה:</strong> {whatsappStatus.last_message_age_human}
+                </p>
+              )}
+              {whatsappStatus.qr_required && !whatsappStatus.connected && (
+                <p className="text-xs text-amber-600 mt-2">
+                  ⚠️ נדרש סריקת QR code להתחברות
+                </p>
+              )}
+              
               {/* BUILD 162: Active chats counter */}
               <p className="text-sm text-slate-600 mt-2 flex items-center">
                 <strong>שיחות פעילות:</strong>
