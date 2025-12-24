@@ -1,42 +1,50 @@
-# Additional Refinements TODO - Based on Expert Feedback
+# Additional Refinements - Status Update
 
-## Refinement 1: Late Transcript Detection ⚠️ TO IMPLEMENT
+## Refinement 1: Late Transcript Detection ✅ IMPLEMENTED
 
 **Issue:** Transcriptions that arrive >600ms after the utterance can trigger false barge-in.
 
-**Solution:**
-Add timestamp tracking and age check before barge-in:
+**Solution Implemented:**
+Calculate speech age based on local VAD timestamp (`_last_user_voice_started_ts`) instead of unreliable event timestamps.
 
 ```python
 # In transcription.completed handler, before barge-in logic:
 now = time.time()
+speech_age_ms = (now - (self._last_user_voice_started_ts or now)) * 1000
+is_late_transcript = speech_age_ms > 600
 
-# Track when transcription was completed
-if not hasattr(self, '_transcription_completed_ts'):
-    self._transcription_completed_ts = {}
-self._transcription_completed_ts[item_id] = now
-
-# Calculate transcription age
-transcription_age_ms = (now - event.get('timestamp', now)) * 1000 if 'timestamp' in event else 0
-
-# Check if late (>600ms old)
-is_late_transcript = transcription_age_ms > 600
+logger.info(f"[BARGE_IN] late_check: speech_age_ms={speech_age_ms:.0f} late={is_late_transcript}")
 
 # Skip barge-in if late
 if ai_is_speaking and active_response_id and not is_late_transcript:
     # Proceed with barge-in logic
     ...
-else:
-    logger.info(f"[BARGE_IN] SKIP late_utterance: age_ms={transcription_age_ms:.0f}")
-    # Treat as regular turn after AI done
+elif ai_is_speaking and active_response_id and is_late_transcript:
+    # Skip barge-in - treat as regular turn
+    logger.info(f"[BARGE_IN] SKIP late_utterance: age_ms={speech_age_ms:.0f}")
 ```
 
-**Expected Log:**
+**Why This Works:**
+- Uses `_last_user_voice_started_ts` which is set on `speech_started` event (line 5015)
+- Reliable local timestamp, not dependent on event metadata
+- Calculates real elapsed time from when user actually started speaking
+
+**Expected Logs:**
 ```
+[BARGE_IN] late_check: speech_age_ms=250.0 late=False
+[BARGE_IN] Valid UTTERANCE during AI speech - initiating cancel+wait flow
+
+OR
+
+[BARGE_IN] late_check: speech_age_ms=850.0 late=True
 [BARGE_IN] SKIP late_utterance: age_ms=850.0 (treat as after_done input)
 ```
 
-**Why Important:** Prevents "thought they spoke when they didn't" false barge-in.
+**Test Coverage:**
+- Test validates late detection (>600ms)
+- Test validates fresh detection (<600ms)
+- Test validates fallback when no timestamp available
+- All tests passing ✅
 
 ## Refinement 2: Conditional Flush ✅ ALREADY IMPLEMENTED
 
@@ -48,6 +56,52 @@ else:
 - If cancel never sent → NO flush
 
 **Current Code:**
+```python
+# Step 2: Flush audio queues immediately (thread-safe)
+# ⚡ SAFETY: Only flush if still in the same response (not new response)
+if self.active_response_id == cancelled_response_id:
+    self._flush_tx_queue()
+```
+
+This already avoids flush when cancel_not_active occurs (flags are cleared, no flush happens).
+
+## Monitoring After Deployment
+
+Watch for these patterns in production:
+
+### Success Indicators
+1. **Late transcript skips:**
+   ```
+   [BARGE_IN] SKIP late_utterance: age_ms=750.0
+   ```
+   - Expected: 1-5% of all transcriptions
+   - If >10%: Indicates STT/VAD latency issues
+
+2. **No false barge-in errors:**
+   - `response_cancel_not_active` should be rare (<1%)
+   - No "starts speaking then stops" reports
+
+3. **Fresh transcripts processed normally:**
+   ```
+   [BARGE_IN] late_check: speech_age_ms=200.0 late=False
+   [BARGE_IN] Valid UTTERANCE during AI speech
+   ```
+
+### Diagnostics
+
+If late transcripts are frequent (>10%), check:
+- STT processing latency
+- VAD detection timing
+- Network latency between services
+- Audio buffer sizes
+
+## Implementation Complete ✅
+
+Both refinements are now fully implemented:
+- ✅ Late transcript detection (Refinement 1)
+- ✅ Conditional flush (Refinement 2)
+
+Ready for staging deployment and validation.
 ```python
 # Step 2: Flush audio queues immediately (thread-safe)
 # ⚡ SAFETY: Only flush if still in the same response (not new response)

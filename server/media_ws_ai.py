@@ -6596,17 +6596,29 @@ class MediaStreamHandler:
                         logger.info("[GREETING_PENDING] Cleared on first valid UTTERANCE - user has spoken")
                         print(f"🔓 [GREETING_PENDING] Cleared - user spoke first (text='{text[:30]}...')")
                     
+                    # 🔥 BARGE-IN FIX: Late transcript detection
+                    # Calculate speech age based on when user actually started speaking (VAD timestamp)
+                    # Don't trigger barge-in if transcription arrives >600ms after speech started
+                    now = time.time()
+                    speech_age_ms = (now - (self._last_user_voice_started_ts or now)) * 1000
+                    is_late_transcript = speech_age_ms > 600
+                    
+                    logger.info(f"[BARGE_IN] late_check: speech_age_ms={speech_age_ms:.0f} late={is_late_transcript}")
+                    
                     # 🚨 REAL BARGE-IN FIX: Handle utterance during AI speech with cancel acknowledgment
                     # If AI is speaking when we get a valid UTTERANCE, we need to:
-                    # 1. Send response.cancel immediately
-                    # 2. Flush audio queues
-                    # 3. Wait for cancel ack (or timeout 500-800ms) ⚡ SAFETY: Longer timeout prevents races
-                    # 4. Store pending utterance text
-                    # 5. Only then create new response
+                    # 1. Check if transcription is fresh (<600ms from speech start) - skip barge-in if late
+                    # 2. Send response.cancel immediately
+                    # 3. Flush audio queues
+                    # 4. Wait for cancel ack (or timeout 500-800ms) ⚡ SAFETY: Longer timeout prevents races
+                    # 5. Store pending utterance text
+                    # 6. Only then create new response
                     ai_is_speaking = self.is_ai_speaking_event.is_set()
                     active_response_id = getattr(self, 'active_response_id', None)
                     
-                    if ai_is_speaking and active_response_id:
+                    # 🔥 CRITICAL: Only proceed with barge-in if transcription is fresh (<600ms)
+                    # Late transcripts should be treated as regular turns after AI finishes
+                    if ai_is_speaking and active_response_id and not is_late_transcript:
                         logger.info(f"[BARGE_IN] Valid UTTERANCE during AI speech - initiating cancel+wait flow")
                         print(f"🛑 [BARGE_IN] User interrupted AI - cancelling active response (id={active_response_id[:20]}...)")
                         
@@ -6770,6 +6782,11 @@ class MediaStreamHandler:
                         
                         # Continue to avoid duplicate processing
                         continue
+                    elif ai_is_speaking and active_response_id and is_late_transcript:
+                        # Late transcript - skip barge-in and treat as regular turn
+                        logger.info(f"[BARGE_IN] SKIP late_utterance: age_ms={speech_age_ms:.0f} (treat as after_done input)")
+                        print(f"⏭️ [BARGE_IN] Late transcription ({speech_age_ms:.0f}ms) - treating as regular turn after AI done")
+                        # Fall through to normal processing (no cancel, no flush)
                     
                     # 🔥 DOUBLE RESPONSE FIX B: Deduplication - Check for duplicate utterance
                     # Create fingerprint from normalized text + time bucket (2-second buckets)

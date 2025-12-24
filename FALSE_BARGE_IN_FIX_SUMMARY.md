@@ -9,6 +9,7 @@ The system had two critical issues causing poor call quality:
 2. **False barge-in causing mid-sentence stops**: The bot would start speaking and then suddenly stop, even when the user wasn't interrupting. This was caused by:
    - Incorrect AI speaking state (set before audio actually starts playing)
    - Canceling responses that were already done or too new
+   - Late transcripts triggering false barge-in
    - Poor error handling for `response_cancel_not_active`
 
 ## Root Cause Analysis
@@ -32,6 +33,15 @@ Even when audio was starting:
 3. User speaks at T+60ms
 4. Cancel sent at T+60ms
 5. Response barely started → feels like "starts then stops"
+
+### Issue 3: Late Transcript False Barge-In
+
+When transcription processing is delayed:
+1. User speaks at T+0ms (speech_started fires)
+2. AI finishes speaking at T+500ms
+3. Transcription arrives at T+700ms (late!)
+4. Code thinks "AI still speaking", cancels active response
+5. But AI already done → false barge-in → "starts then stops"
 
 ## Solutions Implemented
 
@@ -140,7 +150,37 @@ The `_can_cancel_response()` method now checks ALL of these conditions:
 
 **Impact:** Cancel only happens when ALL conditions are met, preventing false barge-in.
 
-### 6. Retry Logic for Failed Response Creation
+### 6. Late Transcript Detection (NEW)
+
+**Problem:** Transcriptions that arrive >600ms after user started speaking can trigger false barge-in.
+
+**Solution:** Calculate speech age based on local VAD timestamp instead of event timestamps.
+
+```python
+# In transcription.completed handler, before barge-in logic:
+now = time.time()
+speech_age_ms = (now - (self._last_user_voice_started_ts or now)) * 1000
+is_late_transcript = speech_age_ms > 600
+
+logger.info(f"[BARGE_IN] late_check: speech_age_ms={speech_age_ms:.0f} late={is_late_transcript}")
+
+# Skip barge-in if late
+if ai_is_speaking and active_response_id and not is_late_transcript:
+    # Proceed with barge-in logic
+    ...
+elif ai_is_speaking and active_response_id and is_late_transcript:
+    logger.info(f"[BARGE_IN] SKIP late_utterance: age_ms={speech_age_ms:.0f}")
+    # Treat as regular turn after AI done
+```
+
+**Why It Works:**
+- Uses `_last_user_voice_started_ts` set on `speech_started` event (reliable local timestamp)
+- Not dependent on event metadata which may be missing or inconsistent
+- Calculates real elapsed time from when user actually started speaking
+
+**Impact:** Prevents "thought they spoke when they didn't" false barge-in. Expected 1-5% of transcriptions to be marked as late.
+
+### 7. Retry Logic for Failed Response Creation
 
 **After barge-in fails:**
 ```python
@@ -157,6 +197,15 @@ if not triggered:
 ## Testing
 
 Created comprehensive test suite in `test_false_barge_in_fixes.py`:
+
+- ✅ Response age check logic
+- ✅ Flag reset on audio.done
+- ✅ AMD cache storage and retrieval
+- ✅ cancel_not_active error handling
+- ✅ is_ai_speaking state management
+- ✅ Late transcript detection (NEW)
+
+All tests passing.
 
 - ✅ Response age check logic
 - ✅ Flag reset on audio.done

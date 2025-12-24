@@ -175,6 +175,57 @@ def test_is_ai_speaking_set_in_tx_loop():
     print("✅ test_is_ai_speaking_set_in_tx_loop PASSED")
 
 
+def test_late_transcript_skip():
+    """
+    Test that late transcripts (>600ms) skip barge-in
+    Uses _last_user_voice_started_ts to calculate speech age
+    """
+    # Create a mock handler
+    handler = MagicMock()
+    handler.is_ai_speaking_event = threading.Event()
+    handler.is_ai_speaking_event.set()  # AI is speaking
+    handler.active_response_id = "resp_123"
+    
+    # Test 1: Late transcript (700ms old) - should skip barge-in
+    now = time.time()
+    handler._last_user_voice_started_ts = now - 0.7  # 700ms ago
+    
+    speech_age_ms = (now - handler._last_user_voice_started_ts) * 1000
+    is_late_transcript = speech_age_ms > 600
+    
+    assert is_late_transcript, "Should mark as late transcript (700ms > 600ms)"
+    
+    # When late, should NOT trigger barge-in
+    should_trigger_barge_in = (handler.is_ai_speaking_event.is_set() and 
+                               handler.active_response_id and 
+                               not is_late_transcript)
+    assert not should_trigger_barge_in, "Should NOT trigger barge-in for late transcript"
+    
+    # Test 2: Fresh transcript (200ms old) - should allow barge-in
+    handler._last_user_voice_started_ts = now - 0.2  # 200ms ago
+    
+    speech_age_ms = (now - handler._last_user_voice_started_ts) * 1000
+    is_late_transcript = speech_age_ms > 600
+    
+    assert not is_late_transcript, "Should NOT mark as late transcript (200ms < 600ms)"
+    
+    # When fresh, should trigger barge-in
+    should_trigger_barge_in = (handler.is_ai_speaking_event.is_set() and 
+                               handler.active_response_id and 
+                               not is_late_transcript)
+    assert should_trigger_barge_in, "Should trigger barge-in for fresh transcript"
+    
+    # Test 3: No speech_started timestamp - should use current time (age = 0)
+    handler._last_user_voice_started_ts = None
+    
+    speech_age_ms = (now - (handler._last_user_voice_started_ts or now)) * 1000
+    is_late_transcript = speech_age_ms > 600
+    
+    assert not is_late_transcript, "Should NOT be late when no timestamp (defaults to 0ms)"
+    
+    print("✅ test_late_transcript_skip PASSED")
+
+
 if __name__ == "__main__":
     print("Running false barge-in fixes tests...\n")
     
@@ -183,5 +234,6 @@ if __name__ == "__main__":
     test_amd_cache_logic()
     test_cancel_not_active_handling()
     test_is_ai_speaking_set_in_tx_loop()
+    test_late_transcript_skip()
     
     print("\n✅ All tests PASSED!")
