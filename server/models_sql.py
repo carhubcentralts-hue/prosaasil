@@ -862,11 +862,16 @@ class OutboundCallJob(db.Model):
     call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True)
     
     # Status
-    status = db.Column(db.String(32), default="queued", index=True)  # queued|calling|completed|failed
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|dialing|calling|completed|failed
     error_message = db.Column(db.Text)
     
     # Call details
     call_sid = db.Column(db.String(64))
+    
+    # 🔒 BUILD: Deduplication fields for preventing duplicate calls
+    twilio_call_sid = db.Column(db.String(64), nullable=True, index=True)  # Twilio call SID for idempotency
+    dial_started_at = db.Column(db.DateTime, nullable=True)  # When dial attempt started
+    dial_lock_token = db.Column(db.String(64), nullable=True, index=True)  # UUID for atomic locking
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

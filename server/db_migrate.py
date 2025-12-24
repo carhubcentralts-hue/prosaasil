@@ -1385,6 +1385,59 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 46: Bulk Call Deduplication - Add idempotency fields to outbound_call_jobs
+        # Prevents duplicate calls from retry/concurrency/timeout scenarios
+        checkpoint("Migration 46: Bulk Call Deduplication - Adding idempotency fields")
+        
+        # Add twilio_call_sid column for tracking initiated calls
+        if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'twilio_call_sid'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    ALTER TABLE outbound_call_jobs 
+                    ADD COLUMN twilio_call_sid VARCHAR(64) NULL
+                """))
+                # Create index for lookup performance
+                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_twilio_sid ON outbound_call_jobs(twilio_call_sid)"))
+                migrations_applied.append('add_twilio_call_sid_to_outbound_jobs')
+                log.info("✅ Added twilio_call_sid column to outbound_call_jobs for deduplication")
+            except Exception as e:
+                log.error(f"❌ Migration 46a failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Add dial_started_at column for tracking when dial attempt started
+        if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'dial_started_at'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    ALTER TABLE outbound_call_jobs 
+                    ADD COLUMN dial_started_at TIMESTAMP NULL
+                """))
+                migrations_applied.append('add_dial_started_at_to_outbound_jobs')
+                log.info("✅ Added dial_started_at column to outbound_call_jobs for tracking dial attempts")
+            except Exception as e:
+                log.error(f"❌ Migration 46b failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Add dial_lock_token column for atomic locking
+        if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'dial_lock_token'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    ALTER TABLE outbound_call_jobs 
+                    ADD COLUMN dial_lock_token VARCHAR(64) NULL
+                """))
+                # Create index for lock validation performance
+                db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_lock_token ON outbound_call_jobs(dial_lock_token)"))
+                migrations_applied.append('add_dial_lock_token_to_outbound_jobs')
+                log.info("✅ Added dial_lock_token column to outbound_call_jobs for atomic locking")
+            except Exception as e:
+                log.error(f"❌ Migration 46c failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
