@@ -68,8 +68,10 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       setBlobUrl(src);
       setIsLoading(false);
     }
+  }, [src]);
 
-    // Cleanup blob URL on unmount
+  // Cleanup blob URL on unmount or when src changes
+  useEffect(() => {
     return () => {
       if (blobUrl && blobUrl.startsWith('blob:')) {
         window.URL.revokeObjectURL(blobUrl);
@@ -78,7 +80,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         clearTimeout(retryTimeoutRef.current);
       }
     };
-  }, [src]);
+  }, [blobUrl]);
 
   const loadRecordingWithRetry = async (url: string, currentRetry = 0) => {
     setPreparingRecording(true);

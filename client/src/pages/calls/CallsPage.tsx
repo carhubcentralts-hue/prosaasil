@@ -341,11 +341,7 @@ export function CallsPage() {
       console.error('Error loading recording:', error);
       alert('שגיאה בטעינת ההקלטה: ' + (error as Error).message);
       // Don't set URL in ref on error - allow retry
-    } finally {
-      // Only clear loading if not retrying
-      if (retryCount >= MAX_RETRIES || !loadingRecording) {
-        setLoadingRecording(null);
-      }
+      setLoadingRecording(null);
     }
   };
 

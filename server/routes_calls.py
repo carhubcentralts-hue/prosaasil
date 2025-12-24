@@ -384,7 +384,7 @@ def stream_recording(call_sid):
             return jsonify({"success": False, "error": "Recording not found"}), 404
         
         # Check if recording is expired (7 days)
-        if call.created_at and (datetime.utcnow() - call.created_at).days > 7:
+        if call.created_at and (datetime.now(datetime.timezone.utc).replace(tzinfo=None) - call.created_at).days > 7:
             log.info(f"Stream recording: Recording expired for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording expired"}), 410
         
@@ -417,6 +417,8 @@ def stream_recording(call_sid):
                     start = max(0, file_size - suffix_length)
                     end = file_size - 1
                 else:
+                    # Normal range or open-ended range
+                    # Handle empty strings by defaulting to 0 for start, file_size-1 for end
                     start = int(byte_range[0]) if byte_range[0] else 0
                     end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
                 
