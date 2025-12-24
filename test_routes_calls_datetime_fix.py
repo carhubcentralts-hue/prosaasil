@@ -18,7 +18,9 @@ def test_datetime_timezone_import():
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_calls.py'
+        # Use relative path from test file location
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(test_dir, 'server', 'routes_calls.py')
         
         with open(file_path, 'r') as f:
             content = f.read()
@@ -60,7 +62,9 @@ def test_no_datetime_timezone_usage():
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_calls.py'
+        # Use relative path from test file location
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(test_dir, 'server', 'routes_calls.py')
         
         with open(file_path, 'r') as f:
             lines = f.readlines()
@@ -97,7 +101,9 @@ def test_correct_timezone_usage():
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_calls.py'
+        # Use relative path from test file location
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(test_dir, 'server', 'routes_calls.py')
         
         with open(file_path, 'r') as f:
             lines = f.readlines()
@@ -134,7 +140,9 @@ def test_syntax_validity():
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_calls.py'
+        # Use relative path from test file location
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(test_dir, 'server', 'routes_calls.py')
         
         with open(file_path, 'r') as f:
             code = f.read()
@@ -161,8 +169,9 @@ def test_can_import_module():
     print("=" * 80)
     
     try:
-        # Add parent directory to path
-        sys.path.insert(0, '/home/runner/work/prosaasil/prosaasil')
+        # Add parent directory to path using relative path
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, test_dir)
         
         # Try to import the module (this will catch the datetime.timezone error if it exists)
         import server.routes_calls
