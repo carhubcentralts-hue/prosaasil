@@ -1031,6 +1031,183 @@ def send_manual_message():
 
 
 # ============================================================================
+# 🔗 WEBHOOK: Send endpoint for external services (n8n, Zapier, etc.)
+# ============================================================================
+
+@whatsapp_bp.route('/webhook/send', methods=['POST'])
+@csrf.exempt
+def send_via_webhook():
+    """
+    ✅ FIX for 405 Error: Webhook endpoint for external services (n8n)
+    
+    This endpoint allows external services to send WhatsApp messages without
+    session authentication, using a webhook secret instead.
+    
+    Usage:
+        POST /api/whatsapp/webhook/send
+        Headers:
+            Content-Type: application/json
+            X-Webhook-Secret: <your-secret-from-env>
+        Body:
+            {
+                "to": "+972501234567",
+                "message": "Hello World",
+                "business_id": 1  (optional, defaults to 1)
+            }
+    
+    Setup:
+        1. Set WHATSAPP_WEBHOOK_SECRET in .env file
+        2. Configure n8n to use this endpoint with the secret
+    """
+    from server.models_sql import WhatsAppMessage
+    
+    # ✅ Verify webhook secret
+    webhook_secret = request.headers.get('X-Webhook-Secret')
+    expected_secret = os.getenv('WHATSAPP_WEBHOOK_SECRET')
+    
+    if not expected_secret:
+        log.error("[WA-WEBHOOK] WHATSAPP_WEBHOOK_SECRET not configured in environment")
+        return jsonify({
+            "ok": False, 
+            "error": "webhook_not_configured",
+            "message": "Administrator must set WHATSAPP_WEBHOOK_SECRET in environment"
+        }), 500
+    
+    if not webhook_secret or webhook_secret != expected_secret:
+        log.error(f"[WA-WEBHOOK] Unauthorized access attempt from {request.remote_addr}")
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    
+    # Get data
+    try:
+        data = request.get_json(force=True)
+    except Exception as e:
+        log.error(f"[WA-WEBHOOK] Invalid JSON: {e}")
+        return jsonify({
+            "ok": False, 
+            "error": "invalid_json",
+            "message": "Request body must be valid JSON"
+        }), 400
+    
+    to_number = data.get('to')
+    message = data.get('message')
+    business_id = data.get('business_id', 1)  # Default to business 1
+    
+    # ✅ Validate required fields
+    if not to_number:
+        return jsonify({
+            "ok": False, 
+            "error": "missing_to",
+            "message": "Field 'to' is required (phone number)"
+        }), 400
+    
+    if not message:
+        return jsonify({
+            "ok": False, 
+            "error": "missing_message",
+            "message": "Field 'message' is required"
+        }), 400
+    
+    log.info(f"[WA-WEBHOOK] Received request: to={to_number}, business_id={business_id}")
+    
+    try:
+        # Send message using WhatsApp provider
+        from server.whatsapp_provider import get_whatsapp_service
+        
+        tenant_id = f"business_{business_id}"
+        
+        try:
+            wa_service = get_whatsapp_service(tenant_id=tenant_id)
+        except Exception as e:
+            log.error(f"[WA-WEBHOOK] Failed to get WhatsApp service: {e}")
+            return jsonify({
+                "ok": False, 
+                "error": "whatsapp_service_unavailable",
+                "message": f"WhatsApp service unavailable: {str(e)}"
+            }), 503
+        
+        # Format phone number
+        formatted_number = to_number
+        if '@' not in formatted_number:
+            formatted_number = f"{to_number}@s.whatsapp.net"
+        
+        # Send message
+        try:
+            send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
+        except Exception as e:
+            log.error(f"[WA-WEBHOOK] Send failed: {e}")
+            return jsonify({
+                "ok": False, 
+                "error": "send_failed",
+                "message": f"Failed to send message: {str(e)}"
+            }), 500
+        
+        if not send_result:
+            return jsonify({
+                "ok": False, 
+                "error": "empty_response",
+                "message": "No response from provider"
+            }), 500
+        
+        # Check success
+        provider_status = send_result.get('status', '')
+        success_statuses = {'sent', 'queued', 'accepted', 'delivered'}
+        has_message_id = send_result.get('sid') or send_result.get('message_id')
+        is_success = provider_status in success_statuses or has_message_id
+        
+        if is_success:
+            # Save to database
+            clean_number = to_number.replace('@s.whatsapp.net', '')
+            db_status = provider_status if provider_status in success_statuses else 'sent'
+            
+            try:
+                wa_msg = WhatsAppMessage()
+                wa_msg.business_id = business_id
+                wa_msg.to_number = clean_number
+                wa_msg.body = message
+                wa_msg.message_type = 'text'
+                wa_msg.direction = 'out'
+                wa_msg.provider = send_result.get('provider', 'baileys')
+                wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
+                wa_msg.status = db_status
+                
+                db.session.add(wa_msg)
+                db.session.commit()
+                
+                log.info(f"[WA-WEBHOOK] ✅ Message sent successfully: id={wa_msg.id}")
+                
+            except Exception as db_error:
+                log.error(f"[WA-WEBHOOK] DB save failed: {db_error}")
+                db.session.rollback()
+                # Message was sent even if DB failed
+            
+            return jsonify({
+                "ok": True,
+                "message_id": wa_msg.id if 'wa_msg' in locals() else None,
+                "provider": send_result.get('provider'),
+                "status": db_status
+            }), 200
+        else:
+            error_msg = send_result.get('error', 'send_failed')
+            log.error(f"[WA-WEBHOOK] Provider error: {error_msg}")
+            return jsonify({
+                "ok": False,
+                "error": error_msg,
+                "message": f"Provider failed to send: {error_msg}"
+            }), 500
+    
+    except Exception as e:
+        log.error(f"[WA-WEBHOOK] Unexpected error: {e}")
+        import traceback
+        log.error(f"[WA-WEBHOOK] Traceback: {traceback.format_exc()}")
+        db.session.rollback()
+        return jsonify({
+            "ok": False, 
+            "error": "internal_error",
+            "message": str(e)
+        }), 500
+
+
+# ============================================================================
 # 🤖 BUILD 152: Toggle AI per WhatsApp conversation
 # ============================================================================
 
