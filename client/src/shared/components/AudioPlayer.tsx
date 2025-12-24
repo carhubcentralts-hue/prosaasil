@@ -33,8 +33,9 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const MAX_RETRIES = 10; // Max 10 retries (up to 20 seconds)
-  const RETRY_DELAY = 2000; // 2 seconds between retries
+  // 🔥 FIX: Increase retry patience for slow downloads
+  const MAX_RETRIES = 20; // Max 20 retries (up to 60 seconds for large recordings)
+  const RETRY_DELAY = 3000; // 3 seconds between retries (more patient)
 
   // Load saved playback speed preference from localStorage
   useEffect(() => {

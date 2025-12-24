@@ -476,7 +476,19 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - enqueue download job and return 202
+            # File doesn't exist locally - check if download is in progress or enqueue
+            from server.services.recording_service import is_download_in_progress
+            
+            if is_download_in_progress(call_sid):
+                # Download already in progress - tell client to retry
+                log.info(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
+                return jsonify({
+                    "success": True,
+                    "status": "processing",
+                    "message": "Recording is being prepared, please retry in a few seconds"
+                }), 202
+            
+            # Not in progress and not cached - enqueue download job
             log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing download job")
             
             # Enqueue job to download recording in background
