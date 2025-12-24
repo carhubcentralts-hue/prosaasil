@@ -141,8 +141,14 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
     """
     try:
         # 🔥 FIX 502: Validate inputs before attempting download
-        if not recording_url or not account_sid or not auth_token:
-            log.error(f"[RECORDING_SERVICE] Missing required parameters for download: call_sid={call_sid}")
+        if not recording_url:
+            log.error(f"[RECORDING_SERVICE] Missing recording_url for call_sid={call_sid}")
+            return None
+        if not account_sid:
+            log.error(f"[RECORDING_SERVICE] Missing TWILIO_ACCOUNT_SID for call_sid={call_sid}")
+            return None
+        if not auth_token:
+            log.error(f"[RECORDING_SERVICE] Missing TWILIO_AUTH_TOKEN for call_sid={call_sid}")
             return None
         
         # Handle .json URLs from Twilio properly (same as UI)
