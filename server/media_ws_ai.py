@@ -3274,6 +3274,8 @@ class MediaStreamHandler:
                         _greeting_block_logged = True
                     self._stats_audio_blocked += 1
                     _frames_dropped += 1  # counted as "withheld" during lock
+                    # 🔥 FIX: Track in BOTH counters to prevent inconsistency
+                    self._frames_dropped_by_greeting_lock += 1  # Aggregate counter
                     self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
                     continue
 
@@ -8566,7 +8568,9 @@ class MediaStreamHandler:
                                 print("🔒 [GREETING_LOCK] dropping inbound audio frame")
                             try:
                                 self._stats_audio_blocked += 1
-                                self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                                # 🔥 FIX: Track in BOTH counters to prevent inconsistency
+                                self._frames_dropped_by_greeting_lock += 1  # Aggregate counter
+                                self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
                             except Exception:
                                 pass
                             continue
@@ -14583,6 +14587,18 @@ class MediaStreamHandler:
                         print(f"      {reason.value}: {count}")
             else:
                 print(f"   ✅ Drop reason accounting OK: sum({reason_sum}) = total({frames_dropped_total})")
+            
+            # 🔥 VERIFICATION: Validate greeting_lock counters are consistent
+            greeting_lock_from_enum = getattr(self, '_frames_dropped_by_reason', {}).get(FrameDropReason.GREETING_LOCK, 0)
+            if greeting_lock_from_enum != frames_dropped_by_greeting_lock:
+                logger.error(
+                    f"[GREETING_LOCK_ERROR] Greeting lock counter mismatch! "
+                    f"enum_counter={greeting_lock_from_enum}, aggregate_counter={frames_dropped_by_greeting_lock}, "
+                    f"difference={greeting_lock_from_enum - frames_dropped_by_greeting_lock}"
+                )
+                print(f"   🚨 GREETING LOCK ERROR: enum({greeting_lock_from_enum}) != aggregate({frames_dropped_by_greeting_lock})")
+            else:
+                print(f"   ✅ Greeting lock accounting OK: {greeting_lock_from_enum} frames")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
