@@ -64,6 +64,8 @@ storage/recordings/
 storage/audio/
 storage/media/
 server/recordings/
+# Lock files for recording downloads (prevent concurrent downloads across workers/pods)
+server/recordings/.*.lock
 
 # Logs
 *.log

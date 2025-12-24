@@ -49,12 +49,12 @@ for try_sid in sids_to_try:
 **Fix:** Added per-call_sid locking mechanism
 ```python
 _download_locks = {}
-_locks_lock = threading.Lock()
+_locks_lock = fcntl file locks()
 
 # Acquire lock before downloading
 with _locks_lock:
     if call_sid not in _download_locks:
-        _download_locks[call_sid] = threading.Lock()
+        _download_locks[call_sid] = fcntl file locks()
     download_lock = _download_locks[call_sid]
 
 lock_acquired = download_lock.acquire(timeout=45)

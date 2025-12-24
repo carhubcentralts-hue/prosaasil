@@ -69,7 +69,7 @@ if os.path.exists(local_path) and file_size > 1000:
 import threading
 
 _download_locks = {}
-_locks_lock = threading.Lock()
+_locks_lock = fcntl file locks()
 
 def get_recording_file_for_call(call_log):
     # ... check cache first ...
@@ -77,7 +77,7 @@ def get_recording_file_for_call(call_log):
     # Acquire lock for this call_sid
     with _locks_lock:
         if call_sid not in _download_locks:
-            _download_locks[call_sid] = threading.Lock()
+            _download_locks[call_sid] = fcntl file locks()
         download_lock = _download_locks[call_sid]
     
     lock_acquired = download_lock.acquire(blocking=True, timeout=30)

@@ -6,16 +6,12 @@ import os
 import logging
 import requests
 import time
-import threading
+import fcntl
 from typing import Optional
 from server.models_sql import CallLog
 from flask import current_app, has_app_context
 
 log = logging.getLogger(__name__)
-
-# 🔥 FIX: Global lock dictionary to prevent concurrent downloads of same recording
-_download_locks = {}
-_locks_lock = threading.Lock()  # Lock for accessing the locks dictionary
 
 def _get_recordings_dir() -> str:
     """
@@ -94,33 +90,48 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         log.error(f"[RECORDING_SERVICE] No recording_url for call {call_sid}")
         return None
     
-    # 🔥 FIX: Acquire lock to prevent concurrent downloads of same recording
-    # Get or create lock for this call_sid
-    with _locks_lock:
-        if call_sid not in _download_locks:
-            _download_locks[call_sid] = threading.Lock()
-        download_lock = _download_locks[call_sid]
-    
-    # Try to acquire lock with timeout - if another thread is downloading, wait
-    # 45 seconds should be enough for most downloads (typical recording: 1-10MB over reasonable connection)
-    lock_acquired = download_lock.acquire(blocking=True, timeout=45)
-    
-    if not lock_acquired:
-        log.warning(f"[RECORDING_SERVICE] Could not acquire lock for {call_sid} - another download in progress")
-        # Wait and retry checking if file exists (other thread may have finished)
-        # Total additional wait: 9 seconds (3 retries × 3s), so max 54s total
-        for retry in range(3):  # Reduced to 3 retries
-            time.sleep(3)
-            if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
-                log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
-                return local_path
-        log.error(f"[RECORDING_SERVICE] Timeout waiting for {call_sid} to be downloaded")
-        return None
+    # 🔥 FIX: Use file-based lock to prevent concurrent downloads across multiple workers/pods
+    # File locks work across processes and containers sharing the same volume
+    lock_file_path = os.path.join(recordings_dir, f".{call_sid}.lock")
+    lock_file = None
     
     try:
-        # Double-check file doesn't exist (another thread may have created it before we got lock)
+        # Open/create lock file
+        lock_file = open(lock_file_path, 'w')
+        
+        # Try to acquire exclusive lock with timeout
+        # LOCK_EX = exclusive lock, LOCK_NB = non-blocking
+        max_wait = 45  # Maximum seconds to wait for lock
+        wait_interval = 0.5  # Check every 0.5 seconds
+        attempts = int(max_wait / wait_interval)
+        
+        lock_acquired = False
+        for attempt in range(attempts):
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_acquired = True
+                break
+            except IOError:
+                # Lock is held by another process, wait and retry
+                if attempt == 0:
+                    log.info(f"[RECORDING_SERVICE] Waiting for lock on {call_sid} (another worker downloading)...")
+                time.sleep(wait_interval)
+        
+        if not lock_acquired:
+            log.warning(f"[RECORDING_SERVICE] Could not acquire file lock for {call_sid} after {max_wait}s")
+            # Check if file was created by other process while we waited
+            for retry in range(3):
+                time.sleep(3)
+                if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
+                    log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
+                    return local_path
+            log.error(f"[RECORDING_SERVICE] Timeout waiting for {call_sid} to be downloaded")
+            return None
+    
+    try:
+        # Double-check file doesn't exist (another process may have created it before we got lock)
         if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
-            log.info(f"[RECORDING_SERVICE] ✅ File already exists (created by another thread): {local_path}")
+            log.info(f"[RECORDING_SERVICE] ✅ File already exists (created by another process): {local_path}")
             return local_path
         
         log.warning(f"[RECORDING_SERVICE] ⚠️  Cache miss - downloading from Twilio for {call_sid} (this may take time and cause 502 if slow)")
@@ -173,14 +184,20 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
             return None
     
     finally:
-        # Always release lock
-        download_lock.release()
-        # Note: Locks remain in _download_locks dictionary to prevent race conditions.
-        # Memory impact is minimal (Lock objects are ~80 bytes each).
-        # For production systems with millions of recordings, consider:
-        # 1. Periodic cleanup: Remove locks older than 5 minutes
-        # 2. Use WeakValueDictionary (requires Python 3.9+)
-        # 3. LRU cache with maxsize to limit dictionary growth
+        # Always release file lock and cleanup
+        if lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception as e:
+                log.debug(f"[RECORDING_SERVICE] Error releasing lock: {e}")
+            
+            # Clean up lock file if it exists
+            try:
+                if os.path.exists(lock_file_path):
+                    os.remove(lock_file_path)
+            except Exception as e:
+                log.debug(f"[RECORDING_SERVICE] Error removing lock file: {e}")
 
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:

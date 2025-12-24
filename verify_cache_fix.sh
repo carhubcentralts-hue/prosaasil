@@ -36,11 +36,11 @@ fi
 
 echo ""
 echo "3. Checking recording_service.py for download locking..."
-if grep -q "_download_locks" server/services/recording_service.py && \
-   grep -q "threading.Lock" server/services/recording_service.py; then
-    echo -e "${GREEN}✅ Download locking implemented${NC}"
+if grep -q "fcntl" server/services/recording_service.py && \
+   grep -q "LOCK_EX" server/services/recording_service.py; then
+    echo -e "${GREEN}✅ File-based download locking implemented (works across workers/pods)${NC}"
 else
-    echo -e "${RED}❌ Download locking NOT implemented${NC}"
+    echo -e "${RED}❌ File-based download locking NOT implemented${NC}"
     exit 1
 fi
 
