@@ -92,7 +92,7 @@ def test_recording_expiry_check():
         
         # Simulate a call that's 10 days old (expired)
         call_created_at = datetime.now() - timedelta(days=10)
-        is_expired = call_created_at and (datetime.now(timezone.utc).replace(tzinfo=None) - call.created_at).days > 7
+        is_expired = call_created_at and (datetime.now(timezone.utc).replace(tzinfo=None) - call_created_at).days > 7
         
         if is_expired:
             print("✅ 10-day-old recording correctly marked as expired")
