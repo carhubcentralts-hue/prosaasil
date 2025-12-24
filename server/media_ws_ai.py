@@ -2635,19 +2635,26 @@ class MediaStreamHandler:
             
             # Create connect task (will run in background)
             async def _connect_task():
+                t_conn_start = time.time()
+                print(f"📊 [FIX #4 DEBUG] connect_task started at t={t_conn_start:.3f}")
                 try:
                     await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
-                    return ('success', time.time() - t_connect_start)
+                    t_conn_end = time.time()
+                    print(f"📊 [FIX #4 DEBUG] connect_task completed at t={t_conn_end:.3f}, duration={(t_conn_end - t_conn_start)*1000:.0f}ms")
+                    return ('success', t_conn_end - t_conn_start, t_conn_start, t_conn_end)
                 except asyncio.TimeoutError:
-                    return ('timeout', time.time() - t_connect_start)
+                    t_conn_end = time.time()
+                    return ('timeout', t_conn_end - t_conn_start, t_conn_start, t_conn_end)
                 except Exception as e:
-                    return ('error', time.time() - t_connect_start, e)
+                    t_conn_end = time.time()
+                    return ('error', t_conn_end - t_conn_start, t_conn_start, t_conn_end, e)
             
             connect_task = asyncio.create_task(_connect_task())
             
             # 🔥 FIX #4: Start business/prompt loading in parallel
             async def _business_prompt_task():
                 t_biz_start = time.time()
+                print(f"📊 [FIX #4 DEBUG] business_task started at t={t_biz_start:.3f}")
                 
                 # Wait for business info from background thread
                 print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
@@ -2718,28 +2725,49 @@ class MediaStreamHandler:
                     print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
                 
                 biz_elapsed_ms = (time.time() - t_biz_start) * 1000
-                return (compact_prompt, full_prompt, biz_elapsed_ms)
+                print(f"📊 [FIX #4 DEBUG] business_task completed at t={time.time():.3f}, duration={biz_elapsed_ms:.0f}ms")
+                return (compact_prompt, full_prompt, biz_elapsed_ms, t_biz_start)
             
             business_task = asyncio.create_task(_business_prompt_task())
             
             # 🔥 FIX #4: Wait for BOTH tasks to complete (parallel execution)
             print(f"⏳ [FIX #4] Waiting for both OpenAI connect AND business/prompt loading...")
             t_parallel_start = time.time()
+            print(f"📊 [FIX #4 DEBUG] parallel wait started at t={t_parallel_start:.3f}")
             
             connect_result, business_result = await asyncio.gather(connect_task, business_task)
             
-            parallel_elapsed_ms = (time.time() - t_parallel_start) * 1000
+            t_parallel_end = time.time()
+            parallel_elapsed_ms = (t_parallel_end - t_parallel_start) * 1000
+            print(f"📊 [FIX #4 DEBUG] parallel wait ended at t={t_parallel_end:.3f}")
             print(f"✅ [FIX #4] Parallel loading complete in {parallel_elapsed_ms:.0f}ms")
             
-            # 🔥 FIX #4: Process connect result
+            # 🔥 FIX #4: Process connect result with corrected metrics
             if connect_result[0] == 'success':
-                connect_ms = connect_result[1] * 1000
+                connect_duration_sec = connect_result[1]
+                t_connect_start = connect_result[2]
+                t_connect_end = connect_result[3]
+                connect_ms = connect_duration_sec * 1000
+                
+                # Extract business task results
+                compact_prompt, full_prompt, business_duration_ms, t_business_start = business_result
+                
+                # Calculate true parallel overlap
+                # Both tasks started at approximately the same time (t_parallel_start)
+                # actual_start = max(t_connect_start, t_business_start) to account for task startup
+                # actual_end = max(t_connect_end, business end time)
+                actual_parallel_duration_ms = (t_parallel_end - t_parallel_start) * 1000
+                sequential_duration_ms = connect_ms + business_duration_ms
+                overlap_savings_ms = sequential_duration_ms - actual_parallel_duration_ms
+                
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
                 _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (parallel)", flush=True)
-                print(f"📊 [FIX #4 METRICS] connect_ms={connect_ms:.0f}, parallel_total_ms={parallel_elapsed_ms:.0f}, overlap_savings_ms={max(0, connect_ms - parallel_elapsed_ms):.0f}")
+                print(f"📊 [FIX #4 METRICS] connect_ms={connect_ms:.0f}, business_load_ms={business_duration_ms:.0f}, parallel_total_ms={actual_parallel_duration_ms:.0f}, overlap_savings_ms={overlap_savings_ms:.0f}")
+                print(f"📊 [FIX #4 TIMESTAMPS] connect_start={t_connect_start:.3f}, connect_end={t_connect_end:.3f}, business_start={t_business_start:.3f}, parallel_end={t_parallel_end:.3f}")
             elif connect_result[0] == 'timeout':
-                connect_ms = connect_result[1] * 1000
+                connect_duration_sec = connect_result[1]
+                connect_ms = connect_duration_sec * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
                 _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
                 logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
@@ -2750,8 +2778,9 @@ class MediaStreamHandler:
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
                 return
             else:  # connect_result[0] == 'error'
-                connect_ms = connect_result[1] * 1000
-                connect_err = connect_result[2] if len(connect_result) > 2 else None
+                connect_duration_sec = connect_result[1]
+                connect_err = connect_result[4] if len(connect_result) > 4 else None
+                connect_ms = connect_duration_sec * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
                 
                 # Enhanced error logging
@@ -2767,8 +2796,8 @@ class MediaStreamHandler:
                 return
             
             # 🔥 FIX #4: Process business/prompt result
-            compact_prompt, full_prompt, biz_elapsed_ms = business_result
-            print(f"📊 [FIX #4 METRICS] business_load_ms={biz_elapsed_ms:.0f}")
+            compact_prompt, full_prompt, business_duration_ms, t_business_start = business_result
+            print(f"📊 [FIX #4 METRICS] business_load_ms={business_duration_ms:.0f}")
             
             t_connected = time.time()
             
@@ -4659,11 +4688,13 @@ class MediaStreamHandler:
                         
                         if self._should_send_cancel(self.active_response_id):
                             try:
+                                t_cancel_sent = time.time()
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
                                 logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
-                                print(f"✅ [BARGE-IN] response.cancel sent for {self.active_response_id[:20]}...")
+                                print(f"✅ [BARGE-IN] response.cancel sent for {self.active_response_id[:20]}... at t={t_cancel_sent:.3f}")
+                                print(f"📊 [BARGE-IN TIMING] cancel_sent_ts={t_cancel_sent:.3f}, time_since_last_audio_ms={time_since_last_audio*1000 if time_since_last_audio else None}")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors
@@ -6174,7 +6205,7 @@ class MediaStreamHandler:
                             # Don't process this utterance - continue waiting
                         else:
                             # Whitelist of Hebrew greetings
-                            hebrew_greetings = {"הלו", "הלו.", "כן", "כן.", "מי זה", "מי זה?", "שלום", "שלום."}
+                            hebrew_greetings = {"הלו", "הלו.", "כן", "כן.", "מי זה", "מי זה?", "שלום", "שלום.", "אהלו", "אהלו."}
                             is_greeting = text in hebrew_greetings
                             has_min_length = len(text.strip()) >= 4
                             
@@ -6196,16 +6227,26 @@ class MediaStreamHandler:
                             passes_basic_check = has_min_duration and (is_greeting or has_min_length) and not is_filler_only
                             
                             if passes_basic_check and not self.suspected_voicemail:
-                                # 🔥 FIX 1: Need 2 voice confirmations (not just 1)
-                                # Increment confirmation counter
-                                self.outbound_voice_confirmations += 1
-                                self.outbound_last_utterance_ts = time.time()
-                                
-                                print(f"[OUTBOUND_VOICE_GATE] voice_confirmation #{self.outbound_voice_confirmations} text='{text}' duration={int(utterance_duration_ms)}ms")
-                                
-                                # Open gate only after 2 confirmations OR 1 confirmation if text >= 8 chars (full sentence)
-                                needs_second_confirmation = len(text.strip()) < 8
-                                can_open_gate = (self.outbound_voice_confirmations >= 2) or not needs_second_confirmation
+                                # 🔥 OUTBOUND GATE FIX: In SIMPLE_MODE, single confirmation is enough
+                                # In SIMPLE_MODE, trust STT and open gate on first valid utterance
+                                # (Reduces 2-confirmation requirement that blocks legitimate human responses)
+                                if SIMPLE_MODE:
+                                    # SIMPLE_MODE: Open gate immediately on first valid utterance
+                                    # This includes short greetings like "הלו", "כן", "שלום"
+                                    can_open_gate = True
+                                    self.outbound_voice_confirmations = 1
+                                    print(f"[OUTBOUND_VOICE_GATE] SIMPLE_MODE: opening gate on first valid utterance text='{text}' duration={int(utterance_duration_ms)}ms")
+                                else:
+                                    # Non-SIMPLE_MODE: Original 2-confirmation logic
+                                    # Increment confirmation counter
+                                    self.outbound_voice_confirmations += 1
+                                    self.outbound_last_utterance_ts = time.time()
+                                    
+                                    print(f"[OUTBOUND_VOICE_GATE] voice_confirmation #{self.outbound_voice_confirmations} text='{text}' duration={int(utterance_duration_ms)}ms")
+                                    
+                                    # Open gate only after 2 confirmations OR 1 confirmation if text >= 8 chars (full sentence)
+                                    needs_second_confirmation = len(text.strip()) < 8
+                                    can_open_gate = (self.outbound_voice_confirmations >= 2) or not needs_second_confirmation
                                 
                                 if can_open_gate:
                                     # ✅ GATE OPENS - Human detected with confirmation!
