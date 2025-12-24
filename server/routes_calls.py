@@ -488,18 +488,18 @@ def stream_recording(call_sid):
                     "message": "Recording is being prepared, please retry in a few seconds"
                 }), 202
             
-            # Not in progress and not cached - enqueue download job
-            log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing download job")
+            # Not in progress and not cached - enqueue PRIORITY download job
+            log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
             
-            # Enqueue job to download recording in background
-            from server.tasks_recording import enqueue_recording_job
-            enqueue_recording_job(
+            # 🔥 FIX: Use download_only job for UI requests (fast!)
+            # This skips transcription and only downloads the file
+            from server.tasks_recording import enqueue_recording_download_only
+            enqueue_recording_download_only(
                 call_sid=call_sid,
                 recording_url=call.recording_url,
                 business_id=business_id,
                 from_number=call.from_number or "",
-                to_number=call.to_number or "",
-                retry_count=0
+                to_number=call.to_number or ""
             )
             
             # Return 202 Accepted to indicate processing

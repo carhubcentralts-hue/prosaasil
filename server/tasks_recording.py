@@ -78,7 +78,8 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         "business_id": business_id,
         "from_number": from_number,
         "to_number": to_number,
-        "retry_count": retry_count  # Track retry attempts
+        "retry_count": retry_count,  # Track retry attempts
+        "type": "full"  # Default: full processing (download + transcribe)
     })
     if retry_count == 0:
         print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
@@ -86,6 +87,27 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     else:
         print(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
         log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
+
+
+def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number=""):
+    """
+    🔥 FIX: Enqueue PRIORITY job to download recording (without transcription)
+    Used by UI when user clicks "play" to get recording ASAP
+    
+    This creates a high-priority job that only downloads the file, skipping transcription.
+    Transcription will happen later via the normal webhook flow.
+    """
+    RECORDING_QUEUE.put({
+        "call_sid": call_sid,
+        "recording_url": recording_url,
+        "business_id": business_id,
+        "from_number": from_number,
+        "to_number": to_number,
+        "retry_count": 0,
+        "type": "download_only"  # 🔥 NEW: Just download, skip transcription
+    })
+    print(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid}")
+    log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: {call_sid}")
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""
@@ -142,7 +164,28 @@ def start_recording_worker(app):
                 from_number = job.get("from_number", "")
                 to_number = job.get("to_number", "")
                 retry_count = job.get("retry_count", 0)
+                job_type = job.get("type", "full")  # 🔥 NEW: "full" or "download_only"
                 
+                # 🔥 FIX: Handle download_only jobs (priority for UI)
+                if job_type == "download_only":
+                    print(f"⚡ [DOWNLOAD_ONLY] Processing priority download for {call_sid}")
+                    log.info(f"[DOWNLOAD_ONLY] Processing priority download: {call_sid}")
+                    
+                    # Just download the file, don't transcribe
+                    success = download_recording_only(call_sid, recording_url)
+                    
+                    if success:
+                        print(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
+                        log.info(f"[DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
+                    else:
+                        print(f"❌ [DOWNLOAD_ONLY] Failed to download recording for {call_sid}")
+                        log.error(f"[DOWNLOAD_ONLY] Failed to download recording: {call_sid}")
+                    
+                    # Always mark as done (no retry for download_only)
+                    RECORDING_QUEUE.task_done()
+                    continue
+                
+                # Normal full processing (download + transcribe)
                 print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
                 log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
                 
@@ -216,6 +259,54 @@ def start_recording_worker(app):
                 
             finally:
                 RECORDING_QUEUE.task_done()
+
+
+def download_recording_only(call_sid, recording_url):
+    """
+    🔥 FIX: Download recording file only (no transcription)
+    Used for priority download when UI requests playback
+    
+    Returns:
+        bool: True if download succeeded, False otherwise
+    """
+    try:
+        print(f"⚡ [DOWNLOAD_ONLY] Starting download for {call_sid}")
+        log.info(f"[DOWNLOAD_ONLY] Starting download for {call_sid}")
+        
+        # Get CallLog to access recording details
+        from server.app_factory import get_process_app
+        from server.models_sql import CallLog
+        from server.services.recording_service import get_recording_file_for_call
+        
+        app = get_process_app()
+        with app.app_context():
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            
+            if not call_log:
+                print(f"⚠️ [DOWNLOAD_ONLY] CallLog not found for {call_sid}")
+                log.warning(f"[DOWNLOAD_ONLY] CallLog not found for {call_sid}")
+                return False
+            
+            # Use unified recording service to download
+            audio_file = get_recording_file_for_call(call_log)
+            
+            if audio_file and os.path.exists(audio_file):
+                file_size = os.path.getsize(audio_file)
+                print(f"✅ [DOWNLOAD_ONLY] Downloaded {file_size} bytes for {call_sid}")
+                log.info(f"[DOWNLOAD_ONLY] Downloaded {file_size} bytes for {call_sid}")
+                return True
+            else:
+                print(f"❌ [DOWNLOAD_ONLY] Failed to download for {call_sid}")
+                log.error(f"[DOWNLOAD_ONLY] Failed to download for {call_sid}")
+                return False
+                
+    except Exception as e:
+        print(f"❌ [DOWNLOAD_ONLY] Error downloading {call_sid}: {e}")
+        log.error(f"[DOWNLOAD_ONLY] Error downloading {call_sid}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 
 def process_recording_async(form_data):
     """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
