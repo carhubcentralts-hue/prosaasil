@@ -5209,7 +5209,7 @@ class MediaStreamHandler:
                                 # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
                                 last_tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                 stuck_iterations = 0
-                                STUCK_THRESHOLD = 30  # 3 seconds without progress
+                                STUCK_THRESHOLD = 5  # 500ms without progress (5 * 100ms)
                                 
                                 for i in range(100):  # 100 * 100ms = 10 seconds max
                                     tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
@@ -5218,17 +5218,15 @@ class MediaStreamHandler:
                                             _orig_print(f"✅ [POLITE HANGUP] TX queue empty after {i*100}ms", flush=True)
                                         break
                                     
-                                    # Detect stuck queue
+                                    # Detect stuck queue (500ms without progress)
                                     if tx_size == last_tx_size:
                                         stuck_iterations += 1
                                         if stuck_iterations >= STUCK_THRESHOLD:
-                                            if not getattr(self, 'tx_running', False):
-                                                # Clear stuck queue
-                                                while not self.tx_q.empty():
-                                                    try:
-                                                        self.tx_q.get_nowait()
-                                                    except queue.Empty:
-                                                        break
+                                            # Check if TX thread is dead or stop flag set
+                                            tx_running = getattr(self, 'tx_running', False)
+                                            if not tx_running:
+                                                # TX thread stopped but queue has frames - proceed with hangup
+                                                _orig_print(f"⚠️ [POLITE HANGUP] TX thread stopped with {tx_size} frames stuck - proceeding anyway", flush=True)
                                                 break
                                     else:
                                         stuck_iterations = 0
@@ -11834,11 +11832,16 @@ class MediaStreamHandler:
         5. tx_q is empty
         6. realtime_audio_out_queue is empty
         7. hangup_executed is False (idempotent guard)
+        8. session not closed (prevent race with close_session)
         
         Args:
             via: Source of the call ("audio.done" or "transcript.done_racefix")
             response_id: Response ID to check
         """
+        # Check if session is closed (prevent race with close_session)
+        if getattr(self, 'closed', False):
+            return
+        
         # Idempotent check - prevent duplicate execution
         if self.hangup_executed:
             return
