@@ -5079,7 +5079,6 @@ class MediaStreamHandler:
                         if done_resp_id:
                             # Track this response as done
                             self.audio_done_by_response_id[done_resp_id] = True
-                            _orig_print(f"✅ [RACE_FIX] audio.done tracked for response_id={done_resp_id[:20]}...", flush=True)
                             
                             # Cleanup: Keep only last 2 response_ids to prevent memory leak
                             if len(self.audio_done_by_response_id) > 2:
@@ -5087,8 +5086,6 @@ class MediaStreamHandler:
                                 keys = list(self.audio_done_by_response_id.keys())
                                 for old_key in keys[:-2]:
                                     del self.audio_done_by_response_id[old_key]
-                                    if DEBUG:
-                                        _orig_print(f"🧹 [RACE_FIX] Cleaned old response_id={old_key[:20]}...", flush=True)
                     
                     # 🔴 GREETING_LOCK: Release ONLY after greeting audio is done (not on response.done).
                     # Prefer strict response_id match. If we failed to bind earlier, bind from this event and release.
@@ -8057,6 +8054,12 @@ class MediaStreamHandler:
                 # Clear race condition tracking
                 if hasattr(self, 'audio_done_by_response_id'):
                     self.audio_done_by_response_id.clear()
+                
+                # Clear hangup state
+                self.pending_hangup = False
+                self.pending_hangup_response_id = None
+                self.pending_hangup_reason = None
+                self.hangup_executed = False
                 
                 # Clear barge-in state
                 self.barge_in_active = False
@@ -11838,8 +11841,6 @@ class MediaStreamHandler:
         """
         # Idempotent check - prevent duplicate execution
         if self.hangup_executed:
-            if DEBUG:
-                _orig_print(f"[MAYBE_HANGUP] Already executed - skipping (via={via})", flush=True)
             return
         
         # Check all conditions
@@ -11857,8 +11858,8 @@ class MediaStreamHandler:
         all_met = all(conditions.values())
         
         if not all_met:
-            # Log which condition(s) failed (DEBUG only)
-            if DEBUG:
+            # Log which condition(s) failed (DEBUG=0 only - verbose mode)
+            if not DEBUG:
                 failed = [k for k, v in conditions.items() if not v]
                 _orig_print(f"[MAYBE_HANGUP] Conditions not met (via={via}): {failed}", flush=True)
             return
