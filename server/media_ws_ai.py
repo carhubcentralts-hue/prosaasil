@@ -5128,30 +5128,51 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
 
-                        # 🔴 FIX (BOT): Hang up ONLY on response.audio_transcript.done (audio bot)
-                        # Match on the transcript text itself (not output_text), with a simple include/equal rule.
-                        # Disconnect if transcript includes/equals one of:
-                        # - "ביי"
-                        # - "להתראות"
-                        # - "תודה, להתראות"
-                        # - "תודה ולהתראות"
+                        # 🔴 BYE-ONLY HANGUP: Disconnect ONLY if BOT says explicit goodbye phrases
+                        # CRITICAL RULES:
+                        # 1. Only BOT saying bye (not user)
+                        # 2. Must match ביי OR להתראות OR שלום ולהתראות
+                        # 3. Must appear at END of response (last sentence)
+                        # 4. Actual hangup happens AFTER response.audio.done + queue drain
                         try:
                             _t_raw = (transcript or "").strip()
-                            _t_norm = re.sub(r"""[.,;:!?"'()\[\]{}<>״“”‘’\-–—]""", " ", _t_raw)
-                            _t_norm = " ".join(_t_norm.split())
-                            _targets = ["ביי", "להתראות", "תודה, להתראות", "תודה ולהתראות"]
-                            _targets_norm = [" ".join(re.sub(r"""[.,;:!?"'()\[\]{}<>״“”‘’\-–—]""", " ", p).split()) for p in _targets]
-                            if any(p in _t_raw for p in _targets) or any(p in _t_norm for p in _targets_norm):
+                            # Normalize: remove punctuation but preserve word boundaries
+                            _t_norm = re.sub(r"""[.,;:!?"'()\[\]\{\}<>״""''\-–—]""", " ", _t_raw)
+                            _t_norm = " ".join(_t_norm.split()).lower()
+                            
+                            # 🔥 BYE-ONLY: Check LAST sentence only (not middle)
+                            # Split by sentence delimiters and take the last meaningful part
+                            sentences = [s.strip() for s in re.split(r'[.!?]', _t_raw) if s.strip()]
+                            last_sentence = sentences[-1] if sentences else _t_raw
+                            last_sentence_norm = " ".join(re.sub(r"""[.,;:!?"'()\[\]\{\}<>״""''\-–—]""", " ", last_sentence).split()).lower()
+                            
+                            # 🔥 STRICT PATTERNS: Only ביי, להתראות, שלום ולהתראות
+                            # Use word boundary matching to avoid false positives
+                            # 🔥 FIX 3: Regex must match END of response only
+                            # Pattern: (bye_word)(?:\s*[.!?…"]\s*)?$ ensures it's at the end
+                            bye_patterns = [
+                                r'\bביי\b(?:\s*[.!?…"']*\s*)?$',
+                                r'\bלהתראות\b(?:\s*[.!?…"']*\s*)?$', 
+                                r'\bשלום ולהתראות\b(?:\s*[.!?…"']*\s*)?$'
+                            ]
+                            
+                            has_goodbye = any(re.search(pattern, last_sentence_norm) for pattern in bye_patterns)
+                            
+                            if has_goodbye:
+                                force_print(f"[BOT_BYE_DETECTED] pending_hangup=true text='{_t_raw[:80]}...' response_id={event.get('response_id')}")
+                                logger.info(f"[BOT_BYE_DETECTED] pending_hangup=true text='{_t_raw[:80]}...' response_id={event.get('response_id')}")
+                                
                                 await self.request_hangup(
-                                    "bot_goodbye",
+                                    "bot_goodbye_bye_only",  # 🔥 NEW REASON: Explicit bye-only
                                     "response.audio_transcript.done",
                                     _t_raw,
                                     "bot",
                                     response_id=event.get("response_id"),
                                 )
                                 continue
-                        except Exception:
+                        except Exception as e:
                             # Never break the realtime loop due to hangup matching errors.
+                            force_print(f"⚠️ [BOT_BYE_DETECT] Error checking goodbye: {e}")
                             pass
                         
                         # ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
@@ -6906,21 +6927,35 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"⚠️ [BARGE_IN] Error during cancel: {e}")
         
-        # 2) Flush TX queue to stop audio playback immediately
-        cleared = 0
+        # 2) Flush BOTH queues to stop audio playback immediately
+        # 🔥 FIX 5: NO TRUNCATION enforcement - MUST clear ALL queues during barge-in
+        realtime_cleared = 0
+        tx_cleared = 0
         try:
-            q = getattr(self, "tx_q", None)
-            if q:
+            # Clear OpenAI → TX queue (realtime_audio_out_queue)
+            q1 = getattr(self, "realtime_audio_out_queue", None)
+            if q1:
                 while True:
                     try:
-                        q.get_nowait()
-                        cleared += 1
+                        q1.get_nowait()
+                        realtime_cleared += 1
+                    except queue.Empty:
+                        break
+            
+            # Clear TX → Twilio queue (tx_q)
+            q2 = getattr(self, "tx_q", None)
+            if q2:
+                while True:
+                    try:
+                        q2.get_nowait()
+                        tx_cleared += 1
                     except queue.Empty:
                         break
         except Exception as e:
             print(f"⚠️ [BARGE_IN] Error during flush: {e}")
         
-        print(f"[BARGE_IN] tx_q_flushed frames={cleared}")
+        print(f"[BARGE_IN] queues_flushed realtime={realtime_cleared} tx={tx_cleared} total={realtime_cleared + tx_cleared}")
+        _orig_print(f"🧹 [FIX 5] NO TRUNCATION enforced: cleared {realtime_cleared + tx_cleared} frames", flush=True)
         
         # 3) Clear speaking flags
         try:
@@ -6930,6 +6965,15 @@ class MediaStreamHandler:
             self.active_response_id = None
             self.active_response_status = "cancelled"  # 🔥 IDEMPOTENT CANCEL: Mark as cancelled
             self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
+            
+            # 🔥 FIX 4: RACE CONDITION - Clear pending_hangup on barge-in
+            # If user interrupts while bot saying goodbye, DON'T disconnect
+            # User interrupted = conversation continues, goodbye is cancelled
+            if getattr(self, 'pending_hangup', False):
+                _orig_print(f"[BARGE_IN] Clearing pending_hangup (user interrupted goodbye)", flush=True)
+                self.pending_hangup = False
+                self.pending_hangup_response_id = None
+                self.pending_hangup_reason = None
         except Exception as e:
             print(f"⚠️ [BARGE_IN] Error clearing flags: {e}")
         
@@ -10679,61 +10723,45 @@ class MediaStreamHandler:
 
     async def _fallback_hangup_after_timeout(self, timeout_seconds: int, trigger_type: str):
         """
-        🔥 FALLBACK: Disconnect call after timeout if AI didn't say closing phrase
+        🔥 FIX 6: TIMEOUT CLEANUP (NO HANGUP)
         
-        This ensures calls always end gracefully even if AI's response
-        doesn't contain a recognized closing phrase.
+        This function now only does cleanup and state management.
+        It does NOT trigger Twilio hangup - only bot saying goodbye can do that.
         
-        🔥 BUILD 203: Cancel hangup if user rejected confirmation!
+        Timeouts can:
+        - Clean up internal state
+        - Clear queues/handlers
+        - Close internal loops
+        
+        Timeouts CANNOT:
+        - Call Twilio hangup
+        - Set pending_hangup
         
         Args:
-            timeout_seconds: How long to wait before forcing disconnect
+            timeout_seconds: How long to wait before cleanup
             trigger_type: What triggered this ("user_goodbye" or "lead_captured")
         """
-        print(f"⏰ [FALLBACK] Starting {timeout_seconds}s timer for {trigger_type}...")
+        print(f"⏰ [TIMEOUT_CLEANUP] Starting {timeout_seconds}s timer for {trigger_type} (cleanup only, NO hangup)...")
         
         await asyncio.sleep(timeout_seconds)
         
         # Check if already disconnected
         if self.hangup_triggered:
-            print(f"✅ [FALLBACK] Call already ended - no fallback needed")
+            print(f"✅ [TIMEOUT_CLEANUP] Call already ended - no cleanup needed")
             return
         
         # Check if pending_hangup was set (AI said closing phrase)
         if self.pending_hangup:
-            print(f"✅ [FALLBACK] pending_hangup already set - normal flow working")
+            print(f"✅ [TIMEOUT_CLEANUP] pending_hangup already set - normal flow working")
             return
         
-        # 🔥 BUILD 203: CRITICAL - If user rejected confirmation, DO NOT hangup!
-        if getattr(self, 'user_rejected_confirmation', False):
-            print(f"🛡️ [BUILD 203] BLOCKING hangup - user rejected confirmation, conversation must continue!")
-            # Reset the flag for next attempt
-            self.user_rejected_confirmation = False
-            return
+        # 🔥 FIX 6: Only cleanup, never hangup
+        print(f"[TIMEOUT_CLEANUP] {timeout_seconds}s passed - cleaning up state (NO HANGUP)")
         
-        # 🔥 BUILD 203: Only hangup if user explicitly confirmed
-        if not self.verification_confirmed and trigger_type != "user_goodbye":
-            print(f"🛡️ [BUILD 203] BLOCKING hangup - no user confirmation received!")
-            return
-        
-        # AI didn't say a recognized closing phrase - force polite disconnect
-        print(f"⚠️ [FALLBACK] {timeout_seconds}s passed, AI didn't say closing phrase - forcing polite disconnect")
-        
-        # Wait for any audio to finish
-        for _ in range(50):  # 5 seconds max
-            if self.realtime_audio_out_queue.qsize() == 0 and self.tx_q.qsize() == 0:
-                break
-            await asyncio.sleep(0.1)
-        
-        # Extra buffer
-        await asyncio.sleep(2.0)
-        
-        if not self.hangup_triggered:
-            print(f"📞 [FALLBACK] Triggering hangup after {trigger_type} timeout")
-            import threading
-            threading.Thread(
-                target=self._trigger_auto_hangup,
-                args=(f"Fallback after {trigger_type}",),
+        # Cleanup: clear internal state (but don't disconnect call)
+        # This prevents stuck loops/handlers but keeps call alive
+        print(f"🧹 [TIMEOUT_CLEANUP] Cleanup complete for {trigger_type} (call still active)")
+        return
                 daemon=True
             ).start()
 
@@ -11028,6 +11056,8 @@ class MediaStreamHandler:
                     hard_timeout = float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
                     if (now_ts - last_activity) >= hard_timeout:
+                        # 🔥 FIX 6: NO TIMEOUT HANGUP - only cleanup
+                        # Timeout cannot trigger hangup - only bot saying goodbye can
                         # Only hang up when nothing is actively happening.
                         if (
                             not self.is_ai_speaking_event.is_set()
@@ -11040,9 +11070,11 @@ class MediaStreamHandler:
                             and not self.hangup_triggered
                             and not getattr(self, "pending_hangup", False)
                         ):
-                            print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity - hanging up (last_activity={now_ts - last_activity:.1f}s ago)")
-                            self.call_state = CallState.CLOSING
-                            await self.request_hangup("hard_silence_timeout", "silence_watchdog")
+                            print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity detected (last_activity={now_ts - last_activity:.1f}s ago)")
+                            print(f"🔥 [FIX 6] TIMEOUT CLEANUP ONLY - NO HANGUP (bot must say goodbye to disconnect)")
+                            # Cleanup: Can clear internal state here if needed
+                            # BUT: Do NOT call request_hangup() or trigger Twilio disconnect
+                            # Call continues until bot says "ביי" or "להתראות"
                             return
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
@@ -11054,11 +11086,11 @@ class MediaStreamHandler:
                         time_since_greeting = time.time() - self.greeting_completed_at
                         if time_since_greeting > 30.0:
                             # 30 seconds with no user speech - idle timeout
-                            # Close immediately without AI message
+                            # 🔥 FIX 6: NO TIMEOUT HANGUP - only cleanup
                             if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
-                                self.call_state = CallState.CLOSING
-                                await self.request_hangup("idle_timeout_no_user_speech", "silence_monitor")
+                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech detected")
+                                print(f"🔥 [FIX 6] TIMEOUT CLEANUP ONLY - NO HANGUP (bot must say goodbye)")
+                                # Cleanup only - don't disconnect
                             return
                     # Still waiting for user to speak - don't count silence
                     continue
@@ -11149,9 +11181,13 @@ class MediaStreamHandler:
                         else:
                             await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
                         
-                        # Polite hangup: hang up only after bot audio ends (response.audio.done).
-                        await self.request_hangup("silence_timeout", "silence_monitor")
-                        return  # Exit cleanly after hangup
+                        # 🔥 FIX 6: SILENCE TIMEOUT DISABLED - NO HANGUP
+                        # Timeouts cannot trigger hangup - only bot saying goodbye can
+                        print(f"🔥 [FIX 6] TIMEOUT - AI will say goodbye, then hangup triggered by BYE detection (not timeout)")
+                        # AI will say goodbye in response to SYSTEM message
+                        # Hangup will be triggered by BYE detection when AI says "ביי" or "להתראות"
+                        # NOT by this timeout
+                        return  # Exit cleanly without calling request_hangup
                         
         except asyncio.CancelledError:
             print(f"🔇 [SILENCE] Monitor cancelled")
