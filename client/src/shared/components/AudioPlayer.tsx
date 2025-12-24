@@ -118,18 +118,17 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
       // If src points to /api/recordings/<call_sid>/stream, fetch with retry logic
       if (src.includes('/api/recordings/') && src.includes('/stream')) {
-        loadRecordingWithRetry(src).catch((err) => {
-          console.error('Error loading recording:', err);
-          setErrorMessage('לא הצלחתי לנגן את ההקלטה');
-        });
+        // loadRecordingWithRetry handles all async errors internally
+        loadRecordingWithRetry(src);
       } else {
         // For other URLs (like old /api/calls/<call_sid>/download), use directly
         setBlobUrl(src);
         setIsLoading(false);
       }
     } catch (err) {
-      console.error('Error loading recording:', err);
-      setErrorMessage('לא הצלחתי לנגן את ההקלטה');
+      // Handle only synchronous errors (e.g., from string methods)
+      console.error('Error in AudioPlayer useEffect:', err);
+      setErrorMessage('שגיאה בטעינת ההקלטה');
     }
   }, [src]);
 
