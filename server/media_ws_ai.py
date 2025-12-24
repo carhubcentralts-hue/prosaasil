@@ -5161,9 +5161,9 @@ class MediaStreamHandler:
                             # 🔥 FIX 3: Regex must match END of response only
                             # Pattern: (bye_word)(?:\s*[.!?…"]\s*)?$ ensures it's at the end
                             bye_patterns = [
-                                r'\bביי\b(?:\s*[.!?…"']*\s*)?$',
-                                r'\bלהתראות\b(?:\s*[.!?…"']*\s*)?$', 
-                                r'\bשלום[\s,]*ולהתראות\b(?:\s*[.!?…"']*\s*)?$'  # 🔥 Point 3: Handles "שלום ולהתראות" or "שלום, ולהתראות"
+                                r"\bביי\b(?:\s*[.!?\"׳״""']*\s*)?$",
+                                r"\bלהתראות\b(?:\s*[.!?\"׳״""']*\s*)?$", 
+                                r"\bשלום[\s,]*ולהתראות\b(?:\s*[.!?\"׳״""']*\s*)?$"  # 🔥 Point 3: Handles "שלום ולהתראות" or "שלום, ולהתראות"
                             ]
                             
                             has_goodbye = any(re.search(pattern, last_sentence_norm) for pattern in bye_patterns)
@@ -10775,8 +10775,6 @@ class MediaStreamHandler:
         # This prevents stuck loops/handlers but keeps call alive
         print(f"🧹 [TIMEOUT_CLEANUP] Cleanup complete for {trigger_type} (call still active)")
         return
-                daemon=True
-            ).start()
 
     def _trigger_auto_hangup(self, reason: str):
         """
