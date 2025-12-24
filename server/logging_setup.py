@@ -1,15 +1,17 @@
 """
 Centralized JSON logging with rotating files
 
-🎯 NEW PRODUCTION LOGGING POLICY:
-DEBUG=1 (Production/Deployment):
-  - Only INFO "macro" events: start/end call, session.updated, response.created/done, barge-in once, metrics summary
+🎯 PRODUCTION LOGGING POLICY (DEBUG=1 - DEFAULT):
+  - Only INFO level "macro" events: call start/end, session.updated, response.created/done, barge-in (once), metrics summary
   - ERROR/WARNING always enabled (but no repeated spam)
   - ZERO per-frame logs (RMS, audio.delta, queues, transcript.delta → FORBIDDEN)
+  - Realtime events: only response.created, first audio.delta, response.done
+  - Rate-limited repeating logs (AUDIO_DRAIN, etc.)
 
-DEBUG=0 (Development/Not deployment):
-  - Normal INFO + focused DEBUG (but still with rate-limit)
+🎯 DEVELOPMENT LOGGING POLICY (DEBUG=0):
+  - Normal INFO + focused DEBUG (but still with rate-limit on loops)
   - Deep debug allowed when needed, but not every 20ms
+  - Full Realtime event logging (except delta spam)
 """
 import logging
 import logging.handlers
@@ -21,9 +23,10 @@ from datetime import datetime
 from flask import g, request
 
 # 🔥 Global DEBUG flag - Single source of truth
-# DEBUG=1 → Production (minimal logs)
+# DEBUG=1 → Production (minimal logs) - DEFAULT
 # DEBUG=0 → Development (full logs)
-DEBUG = os.getenv("DEBUG", "1") == "1"
+IS_PROD = os.getenv("DEBUG", "1") == "1"
+DEBUG = IS_PROD  # For backward compatibility
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🚀 RATE-LIMITING HELPER - Prevents log spam in loops/frequent events
@@ -139,7 +142,7 @@ def setup_logging():
     """Setup centralized logging with JSON format and file rotation
     
     🔥 PRODUCTION vs DEBUG MODE:
-    - DEBUG=1 (default) → PRODUCTION: Minimal logs (INFO for macro events, WARNING for noisy modules)
+    - IS_PROD (DEBUG=1 - default) → PRODUCTION: Minimal logs (INFO for macro events, WARNING for noisy modules)
     - DEBUG=0 → DEVELOPMENT: Full logs (DEBUG level for code, INFO for noisy modules)
     """
     
@@ -149,7 +152,7 @@ def setup_logging():
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🎯 SET LOG LEVELS BASED ON DEBUG FLAG
     # ═══════════════════════════════════════════════════════════════════════════════
-    if DEBUG:
+    if IS_PROD:
         # PRODUCTION MODE (DEBUG=1) - quiet, only macro events
         BASE_LEVEL = logging.INFO       # Macro events only (CALL_START, CALL_END, etc.)
         NOISY_LEVEL = logging.WARNING   # Noisy modules → WARNING only
@@ -184,6 +187,7 @@ def setup_logging():
     noisy = [
         "server.media_ws_ai",
         "server.services.audio_dsp",
+        "server.services.openai_realtime_client",  # 🔥 Added
         "websockets",
         "urllib3",
         "httpx",
@@ -196,7 +200,7 @@ def setup_logging():
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 SPECIAL HANDLING FOR EXTERNAL LIBRARIES
     # ═══════════════════════════════════════════════════════════════════════════════
-    if DEBUG:
+    if IS_PROD:
         # PRODUCTION MODE - maximum silence for external libs
         # Twilio: ERROR only + propagate=False to block completely
         for lib_name in ("twilio", "twilio.http_client", "twilio.rest"):
@@ -223,7 +227,7 @@ def setup_logging():
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔒 RE-ENFORCE BLOCKING AFTER HANDLER SETUP
     # ═══════════════════════════════════════════════════════════════════════════════
-    if DEBUG:
+    if IS_PROD:
         # Production: Block twilio logs completely with ERROR level + propagate=False
         for lib_name in ("twilio", "twilio.http_client", "twilio.rest"):
             lib_logger = logging.getLogger(lib_name)
@@ -235,8 +239,9 @@ def setup_logging():
         logging.getLogger("uvicorn.access").propagate = False
     
     # 🔥 Verify settings in DEVELOPMENT mode only
-    if not DEBUG:
-        print(f"[LOGGING_SETUP] Development mode - BASE_LEVEL={logging.getLevelName(BASE_LEVEL)}, NOISY_LEVEL={logging.getLevelName(NOISY_LEVEL)}")
+    if not IS_PROD:
+        _orig_print = __builtins__.get('print', print)
+        _orig_print(f"[LOGGING_SETUP] Development mode - BASE_LEVEL={logging.getLevelName(BASE_LEVEL)}, NOISY_LEVEL={logging.getLevelName(NOISY_LEVEL)}")
     
     return root_logger
 

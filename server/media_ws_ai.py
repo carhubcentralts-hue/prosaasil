@@ -39,23 +39,26 @@ ENABLE_LEGACY_CITY_LOGIC = False
 # ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
 
-# ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
-# 🔥 DEBUG=1 → PRODUCTION (minimal logs, quiet mode)
+# ⚡ PRODUCTION vs DEBUG MODE
+# 🔥 DEBUG=1 → PRODUCTION (minimal logs, quiet mode) - DEFAULT
 # 🔥 DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
 DEBUG = os.getenv("DEBUG", "1") == "1"
+IS_PROD = DEBUG  # Inverted: DEBUG=1 means production
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
+REALTIME_VERBOSE = os.getenv("REALTIME_VERBOSE", "0") == "1"  # 🔥 Explicit flag for Realtime event spam
+
 _orig_print = builtins.print
 
 def _dprint(*args, **kwargs):
-    """Print only when DEBUG=1 (gating for hot path)"""
-    if DEBUG:
+    """Print only in DEVELOPMENT (DEBUG=0) - suppressed in PRODUCTION (DEBUG=1)"""
+    if not IS_PROD:
         _orig_print(*args, **kwargs)
 
 def force_print(*args, **kwargs):
-    """Always print (for critical errors only)"""
+    """Always print (for critical errors/startup only)"""
     _orig_print(*args, **kwargs)
 
-# חונקים כל print במודול הזה כש-DEBUG=0
+# Gate all print statements in this module based on IS_PROD
 builtins.print = _dprint
 
 # ⚡ PHASE 1 Task 4: טלמטריה - 4 מדדים בכל TURN
@@ -64,7 +67,13 @@ import logging
 # Create logger for this module
 logger = logging.getLogger(__name__)
 
+# Import rate limiter for production logging
+from server.logging_setup import RateLimiter
+
 _now_ms = lambda: int(time.time() * 1000)
+
+# Global rate limiter instance
+_rate_limiter = RateLimiter()
 
 def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False, eou_reason="unknown"):
     """
@@ -11353,8 +11362,10 @@ class MediaStreamHandler:
                     return
                 
                 # Queues not empty yet - wait and check again
-                if checks % 5 == 0:  # Log every 250ms
-                    print(f"⏳ [AUDIO_DRAIN] Waiting for queues to drain: tx={tx_size}, audio_out={audio_out_size} (check {checks+1}/{max_checks})")
+                # 🔥 PRODUCTION: Rate-limit this log to once every 2 seconds
+                if _rate_limiter.every(f"audio_drain_{response_id}", 2.0):
+                    if not IS_PROD:  # Only in DEV
+                        print(f"⏳ [AUDIO_DRAIN] Waiting for queues to drain: tx={tx_size}, audio_out={audio_out_size} (check {checks+1}/{max_checks})")
                 
                 await asyncio.sleep(POLL_INTERVAL_MS / 1000.0)
                 checks += 1
