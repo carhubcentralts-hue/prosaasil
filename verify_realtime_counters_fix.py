@@ -40,53 +40,50 @@ def check_counter_init_in_init():
         return False
 
 def check_defensive_increment():
-    """Verify increment operations use getattr for safety"""
+    """Verify increment operations use DIRECT += (no getattr masking)
+    
+    Since counters are guaranteed to exist in __init__, we use direct increments.
+    getattr() would mask bugs - we want fast failure if counter is missing.
+    """
     print("\n" + "=" * 80)
-    print("TEST 2: Defensive Increment with getattr()")
+    print("TEST 2: Direct Increment (No getattr Masking)")
     print("=" * 80)
     
     with open('server/media_ws_ai.py', 'r') as f:
         lines = f.readlines()
     
     issues = []
-    protected_count = 0
+    direct_count = 0
     
-    # Check for increment operations
+    # Check for increment operations - should be DIRECT, not getattr
     for i, line in enumerate(lines, 1):
-        # Look for counter increments - both += and = getattr(...) + 1 patterns
-        if 'realtime_audio_in_chunks' in line:
-            # Check for += pattern
-            if '+= 1' in line:
-                if 'getattr' not in line:
-                    issues.append(f"Line {i}: Unprotected += increment of realtime_audio_in_chunks")
-                else:
-                    protected_count += 1
-                    print(f"✅ Line {i}: Protected += increment of realtime_audio_in_chunks")
-            # Check for = getattr(...) + 1 pattern
-            elif '= getattr(self, "realtime_audio_in_chunks"' in line and '+ 1' in line:
-                protected_count += 1
-                print(f"✅ Line {i}: Protected = getattr() + 1 increment of realtime_audio_in_chunks")
+        # Look for counter increments
+        if 'realtime_audio_in_chunks' in line and '+=' in line:
+            if 'getattr' in line:
+                issues.append(f"Line {i}: Using getattr() masks bugs - should be direct += since counter guaranteed in __init__")
+            else:
+                direct_count += 1
+                print(f"✅ Line {i}: Direct increment of realtime_audio_in_chunks (no masking)")
         
-        if 'realtime_audio_out_chunks' in line:
-            if '+= 1' in line:
-                if 'getattr' not in line:
-                    issues.append(f"Line {i}: Unprotected += increment of realtime_audio_out_chunks")
-                else:
-                    protected_count += 1
-                    print(f"✅ Line {i}: Protected += increment of realtime_audio_out_chunks")
-            elif '= getattr(self, "realtime_audio_out_chunks"' in line and '+ 1' in line:
-                protected_count += 1
-                print(f"✅ Line {i}: Protected = getattr() + 1 increment of realtime_audio_out_chunks")
+        if 'realtime_audio_out_chunks' in line and '+=' in line:
+            if 'getattr' in line:
+                issues.append(f"Line {i}: Using getattr() masks bugs - should be direct += since counter guaranteed in __init__")
+            else:
+                direct_count += 1
+                print(f"✅ Line {i}: Direct increment of realtime_audio_out_chunks (no masking)")
     
     if issues:
-        print("\n⚠️  Found unprotected increments:")
+        print("\n⚠️  Found getattr() at increment sites (should be direct):")
         for issue in issues:
             print(f"  {issue}")
         return False
     
-    if protected_count == 0:
+    if direct_count == 0:
         print("⚠️  No increment operations found (expected at least 2)")
         return False
+    
+    print(f"\n✅ All {direct_count} increment operations use direct += (no getattr masking)")
+    return True
     
     print(f"\n✅ All {protected_count} increment operations are protected")
     return True
