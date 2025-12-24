@@ -694,9 +694,8 @@ def process_recording_async(form_data):
                         # Determine call direction
                         direction = call_log.direction or "inbound"
                         
-                        if not DEBUG:
-                        
-                            log.debug(f"[WEBHOOK] Preparing call_completed webhook: call={call_sid}, business={business.id}, direction={direction}")
+                        # 🔥 CRITICAL: Always print webhook attempt - helps diagnose "no webhook sent" issues
+                        print(f"📤 [WEBHOOK] Attempting to send webhook for call {call_sid}: direction={direction}, business_id={business.id}")
                         log.info(f"[WEBHOOK] Preparing webhook for call {call_sid}: direction={direction}, business={business.id}")
                         
                         # 🔥 FIX: Fetch canonical service_type from lead (after canonicalization)
@@ -737,16 +736,13 @@ def process_recording_async(form_data):
                             service_category_canonical=canonical_service_type  # 🔥 NEW: Canonical value from lead.service_type
                         )
                         
-                        # 🔥 Production (DEBUG=1): Only errors/warnings. Development (DEBUG=0): Full logs
-                        if not DEBUG:
-                            if webhook_sent:
-                                log.debug(f"[WEBHOOK] ✅ Webhook queued for call {call_sid} (direction={direction})")
-                            else:
-                                log.debug(f"[WEBHOOK] ⚠️ Webhook not sent for call {call_sid} (no URL configured for direction={direction})")
-                        
-                        # Warnings remain even in production
-                        if not webhook_sent:
-                            log.warning(f"[WEBHOOK] No URL configured for direction={direction}")
+                        # 🔥 CRITICAL: Always print webhook result
+                        if webhook_sent:
+                            print(f"✅ [WEBHOOK] Webhook successfully queued for call {call_sid} (direction={direction})")
+                            log.info(f"[WEBHOOK] Webhook queued for call {call_sid} (direction={direction})")
+                        else:
+                            print(f"❌ [WEBHOOK] Webhook NOT sent for call {call_sid} (direction={direction}) - check URL configuration")
+                            log.warning(f"[WEBHOOK] Webhook not sent for call {call_sid} - no URL configured for direction={direction}")
                             
         except Exception as webhook_err:
             # Don't fail the entire pipeline if webhook fails - just log it
