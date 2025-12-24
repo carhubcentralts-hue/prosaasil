@@ -21,6 +21,8 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [1, 3, 10]
 
 # Track invalid URLs we've already warned about (to avoid spam)
+# Note: This is per-worker/process. Each worker will log once per unique URL.
+# This is acceptable and avoids the complexity of cross-process coordination.
 _warned_invalid_urls = set()
 
 

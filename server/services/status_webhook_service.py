@@ -17,6 +17,8 @@ from server.models_sql import BusinessSettings, Lead
 log = logging.getLogger(__name__)
 
 # Track invalid URLs we've already warned about (to avoid spam)
+# Note: This is per-worker/process. Each worker will log once per unique URL.
+# This is acceptable and avoids the complexity of cross-process coordination.
 _warned_invalid_urls = set()
 
 def _is_valid_webhook_url(url: str) -> bool:

@@ -2078,6 +2078,8 @@ def cleanup_stuck_dialing_jobs():
             # Find jobs stuck in 'dialing' for more than 5 minutes without call_sid
             cutoff_time = datetime.utcnow() - timedelta(minutes=5)
             
+            # Complete lock reset: status, lock_token, and started_at
+            # This prevents "half-locked" state and allows the job to be retried
             result = db.session.execute(text("""
                 UPDATE outbound_call_jobs 
                 SET status='queued',
@@ -2112,6 +2114,8 @@ def cleanup_stuck_jobs_endpoint():
     Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'.
     
     Rate limited to 1 request per minute per business to prevent abuse.
+    Note: Rate limit is per-worker/process. In multi-worker setups, each worker
+    enforces its own limit. This is acceptable for this use case.
     """
     from flask import session
     from datetime import datetime, timedelta
@@ -2127,6 +2131,7 @@ def cleanup_stuck_jobs_endpoint():
             return jsonify({"error": "אין גישה לעסק"}), 403
     
     # Rate limiting: Check if cleanup was called in the last minute
+    # This is per-worker, which is acceptable for this admin endpoint
     cache_key = f"cleanup_last_call_{tenant_id or 'all'}"
     from server.stream_state import stream_registry
     last_call = stream_registry.get_metadata('global', cache_key)
