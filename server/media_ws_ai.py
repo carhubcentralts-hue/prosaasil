@@ -183,6 +183,24 @@ class CallState(Enum):
     ENDED = "ended"         # Call finished, cleanup done
 
 
+class FrameDropReason(Enum):
+    """
+    🔥 DIAGNOSTIC: Precise reasons for frame drops in SIMPLE_MODE
+    
+    Used to track WHY frames are being dropped even when all filters should be off.
+    Each drop path must increment the appropriate counter to enable debugging.
+    """
+    GREETING_LOCK = "greeting_lock"          # Dropped during greeting protection window
+    ECHO_GATE = "echo_gate"                  # Dropped by echo suppression (AI speaking)
+    ECHO_DECAY = "echo_decay"                # Dropped during post-AI echo decay window
+    AUDIO_GUARD = "audio_guard"              # Dropped by audio quality filter
+    MUSIC_MODE = "music_mode"                # Dropped during music detection
+    QUEUE_FULL = "queue_full"                # Dropped due to queue capacity
+    NOISE_GATE = "noise_gate"                # Dropped by noise threshold
+    SESSION_NOT_READY = "session_not_ready"  # Dropped before session.updated
+    OTHER = "other"                          # Unknown/uncategorized drop
+
+
 # 🔥 BUILD 172: CALL CONFIG - Loaded from BusinessSettings
 @dataclass
 class CallConfig:
@@ -2076,8 +2094,30 @@ class MediaStreamHandler:
         
         # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
-        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
+        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters (echo gate, decay, etc.)
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
+        
+        # 🔥 DIAGNOSTIC: Detailed frame drop tracking by reason
+        # Dictionary mapping FrameDropReason -> count for precise debugging
+        self._frames_dropped_by_reason = {
+            FrameDropReason.GREETING_LOCK: 0,
+            FrameDropReason.ECHO_GATE: 0,
+            FrameDropReason.ECHO_DECAY: 0,
+            FrameDropReason.AUDIO_GUARD: 0,
+            FrameDropReason.MUSIC_MODE: 0,
+            FrameDropReason.QUEUE_FULL: 0,
+            FrameDropReason.NOISE_GATE: 0,
+            FrameDropReason.SESSION_NOT_READY: 0,
+            FrameDropReason.OTHER: 0,
+        }
+        
+        # 🔥 VERIFICATION: VAD calibration tracking (first 3 seconds)
+        self._vad_calibration_start_ts = None  # When first audio frame received
+        self._vad_calibration_complete = False  # Set after 3 seconds
+        self._vad_frames_in_first_3s = 0  # Count frames received in first 3 seconds
+        self._vad_speech_started_count_first_3s = 0  # Count speech_started events in first 3 seconds
+        self._vad_calibrated_noise_floor = None  # Calibrated noise floor value
+        self._vad_calibrated_threshold = None  # Calibrated VAD threshold
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3046,6 +3086,7 @@ class MediaStreamHandler:
                             if lead_id and hasattr(self, 'call_sid') and self.call_sid:
                                 try:
                                     from server.models_sql import CallLog
+                                    from server.db import db
                                     from sqlalchemy.orm import scoped_session, sessionmaker
                                     
                                     # ✅ P0-1: Create new session for this background thread
@@ -3226,6 +3267,7 @@ class MediaStreamHandler:
                         _greeting_block_logged = True
                     self._stats_audio_blocked += 1
                     _frames_dropped += 1  # counted as "withheld" during lock
+                    self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
                     continue
 
                 # If greeting just ended, discard any buffered audio (should be empty) and resume live audio.
@@ -4192,6 +4234,27 @@ class MediaStreamHandler:
                     _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
                     _orig_print(f"✅ [SESSION] Modalities: {modalities}, transcription: model={transcription.get('model')}, lang={transcription.get('language')}", flush=True)
                     
+                    # 🔊 AUDIO_PIPELINE_CONFIG: Log DSP/audio processing parameters
+                    # Check for noise reduction, echo cancellation, AGC, or other audio processing
+                    input_audio_noise_reduction = session_data.get("input_audio_noise_reduction")
+                    # Check for any other DSP-related fields that might exist
+                    dsp_fields = []
+                    if input_audio_noise_reduction is not None:
+                        dsp_fields.append(f"noise_reduction={input_audio_noise_reduction}")
+                    
+                    # Check for other potential audio processing fields
+                    for key in session_data.keys():
+                        if any(term in key.lower() for term in ["echo", "aec", "agc", "noise", "gain"]):
+                            if key != "input_audio_noise_reduction":  # Already logged above
+                                dsp_fields.append(f"{key}={session_data[key]}")
+                    
+                    if dsp_fields:
+                        _orig_print(f"🔊 [AUDIO_PIPELINE_CONFIG] DSP parameters: {', '.join(dsp_fields)}", flush=True)
+                        logger.info(f"[AUDIO_PIPELINE_CONFIG] DSP active: {', '.join(dsp_fields)}")
+                    else:
+                        _orig_print(f"🔊 [AUDIO_PIPELINE_CONFIG] DSP_NOT_CONFIGURED (VAD only, no client-side audio processing)", flush=True)
+                        logger.info("[AUDIO_PIPELINE_CONFIG] DSP_NOT_CONFIGURED (VAD only)")
+                    
                     # 🚨 CRITICAL VALIDATION: Verify all critical settings
                     validation_failed = False
                     
@@ -4281,6 +4344,12 @@ class MediaStreamHandler:
                     # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
+                    
+                    # 🔥 VERIFICATION: Track speech_started during calibration period
+                    if not self._vad_calibration_complete and self._vad_calibration_start_ts:
+                        calibration_elapsed = time.time() - self._vad_calibration_start_ts
+                        if calibration_elapsed <= 3.0:
+                            self._vad_speech_started_count_first_3s += 1
                     
                     if DEBUG:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
@@ -8348,6 +8417,7 @@ class MediaStreamHandler:
                         try:
                             self._stats_audio_blocked += 1
                             self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                            self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
                         except Exception:
                             pass
                         continue
@@ -8362,6 +8432,33 @@ class MediaStreamHandler:
                     # 🔥 BUILD 165: NOISE GATE BEFORE SENDING TO AI!
                     # Calculate RMS first to decide if we should send audio at all
                     rms = audioop.rms(pcm16, 2)
+                    
+                    # 🔥 VERIFICATION: Track VAD calibration in first 3 seconds
+                    if self._vad_calibration_start_ts is None:
+                        self._vad_calibration_start_ts = time.time()
+                        print(f"🎯 [VAD_CALIBRATION] Started tracking first 3 seconds")
+                    
+                    if not self._vad_calibration_complete:
+                        calibration_elapsed = time.time() - self._vad_calibration_start_ts
+                        if calibration_elapsed <= 3.0:
+                            self._vad_frames_in_first_3s += 1
+                        elif calibration_elapsed > 3.0 and not self._vad_calibration_complete:
+                            # Calibration period ended - log results
+                            self._vad_calibration_complete = True
+                            self._vad_calibrated_noise_floor = getattr(self, '_recent_audio_rms', 0)
+                            self._vad_calibrated_threshold = getattr(self, 'vad_threshold', 0)
+                            print(f"✅ [VAD_CALIBRATION] Complete after 3s:")
+                            print(f"   noise_floor={self._vad_calibrated_noise_floor:.1f}")
+                            print(f"   threshold={self._vad_calibrated_threshold:.1f}")
+                            print(f"   vad_calibrated=True")
+                            print(f"   frames_in_first_3s={self._vad_frames_in_first_3s}")
+                            print(f"   speech_started_count_first_3s={self._vad_speech_started_count_first_3s}")
+                            if self._vad_speech_started_count_first_3s > 0 and self._vad_frames_in_first_3s < 50:
+                                # Warning: speech_started triggered very early (possible false trigger)
+                                logger.warning(
+                                    f"[VAD_WARNING] speech_started triggered {self._vad_speech_started_count_first_3s} times "
+                                    f"in first {self._vad_frames_in_first_3s} frames - possible false trigger!"
+                                )
                     
                     # 🔥 BUILD 170: Track recent RMS for silence gate in transcription handler
                     # Use exponential moving average for smooth tracking
@@ -8527,6 +8624,10 @@ class MediaStreamHandler:
                                         if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
                                             print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
                                             self._echo_gate_logged = True
+                                        # 🔥 FIX: Track frame drop reason
+                                        self._stats_audio_blocked += 1
+                                        self._frames_dropped_by_filters += 1  # Dropped by echo gate filter
+                                        self._frames_dropped_by_reason[FrameDropReason.ECHO_GATE] += 1  # Detailed tracking
                                         continue
                                     elif window_is_open:
                                         # Forwarding window is open - let audio through
@@ -8546,6 +8647,10 @@ class MediaStreamHandler:
                                             if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
                                                 print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
                                                 self._echo_decay_logged = True
+                                            # 🔥 FIX: Track frame drop reason
+                                            self._stats_audio_blocked += 1
+                                            self._frames_dropped_by_filters += 1  # Dropped by echo decay filter
+                                            self._frames_dropped_by_reason[FrameDropReason.ECHO_DECAY] += 1  # Detailed tracking
                                             continue
                                     else:
                                         # Echo decay complete - reset log flags for next AI response
@@ -8611,6 +8716,16 @@ class MediaStreamHandler:
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
+                                # 🔥 FIX: Track queue full drops
+                                self._stats_audio_blocked += 1
+                                self._frames_dropped_by_queue_full += 1
+                                self._frames_dropped_by_reason[FrameDropReason.QUEUE_FULL] += 1  # Detailed tracking
+                                # Rate-limit logging
+                                if not hasattr(self, '_queue_full_log_count'):
+                                    self._queue_full_log_count = 0
+                                self._queue_full_log_count += 1
+                                if self._queue_full_log_count % 50 == 1:
+                                    print(f"⚠️ [QUEUE_FULL] Dropped {self._queue_full_log_count} frames - realtime_audio_in_queue full")
                                 pass
                         else:
                             # 🔥 BUILD 171: Enhanced logging for debugging
@@ -14324,16 +14439,25 @@ class MediaStreamHandler:
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
             
-            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
-            # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
-            # Filters should also respect SIMPLE_MODE (passthrough)
+            # 🎯 TASK 6.1: SIMPLE MODE MONITORING - Log frame drops with detailed breakdown
+            # Note: Some drops (echo-gate, echo-decay) may be intentional for call quality
+            # The goal is transparency, not zero drops
             if SIMPLE_MODE and frames_dropped_total > 0:
+                # Get detailed breakdown from enum-tracked reasons
+                reason_breakdown = []
+                for reason, count in getattr(self, '_frames_dropped_by_reason', {}).items():
+                    if count > 0:
+                        reason_breakdown.append(f"{reason.value}={count}")
+                
+                reason_details = ", ".join(reason_breakdown) if reason_breakdown else "unknown"
+                
                 logger.warning(
-                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE DROPS DETECTED: {frames_dropped_total} frames dropped. "
                     f"greeting_lock={frames_dropped_by_greeting_lock}, "
                     f"filters={frames_dropped_by_filters}, "
                     f"queue_full={frames_dropped_by_queue_full}. "
-                    f"In SIMPLE_MODE, no frames should be dropped."
+                    f"Detailed breakdown: {reason_details}. "
+                    f"Note: echo-gate/decay drops are often intentional for call quality."
                 )
             
             # Log comprehensive metrics
@@ -14389,7 +14513,41 @@ class MediaStreamHandler:
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
             print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
             if SIMPLE_MODE and frames_dropped_total > 0:
-                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
+                print(f"   ⚠️ NOTE: SIMPLE_MODE drops detected - {frames_dropped_total} frames (see breakdown above)")
+            
+            # 🔥 VERIFICATION: Mathematical frame accounting validation
+            # Ensure frames_in == frames_forwarded + frames_dropped_total
+            expected_total = frames_forwarded_to_realtime + frames_dropped_total
+            if frames_in_from_twilio != expected_total:
+                accounting_error = frames_in_from_twilio - expected_total
+                logger.error(
+                    f"[FRAME_ACCOUNTING_ERROR] Mathematical inconsistency detected! "
+                    f"frames_in={frames_in_from_twilio}, "
+                    f"frames_forwarded={frames_forwarded_to_realtime}, "
+                    f"frames_dropped_total={frames_dropped_total}, "
+                    f"expected_total={expected_total}, "
+                    f"accounting_error={accounting_error}"
+                )
+                print(f"   🚨 FRAME ACCOUNTING ERROR: Missing/extra {accounting_error} frames!")
+                print(f"      frames_in={frames_in_from_twilio} != forwarded({frames_forwarded_to_realtime}) + dropped({frames_dropped_total})")
+            else:
+                print(f"   ✅ Frame accounting OK: {frames_in_from_twilio} = {frames_forwarded_to_realtime} + {frames_dropped_total}")
+            
+            # 🔥 VERIFICATION: Validate drop reason sum matches total
+            reason_sum = sum(getattr(self, '_frames_dropped_by_reason', {}).values())
+            if reason_sum != frames_dropped_total:
+                logger.error(
+                    f"[DROP_REASON_ERROR] Drop reason sum mismatch! "
+                    f"reason_sum={reason_sum}, frames_dropped_total={frames_dropped_total}, "
+                    f"difference={frames_dropped_total - reason_sum}"
+                )
+                print(f"   🚨 DROP REASON ERROR: sum of reasons ({reason_sum}) != total dropped ({frames_dropped_total})")
+                # Print all reason counts for debugging
+                for reason, count in getattr(self, '_frames_dropped_by_reason', {}).items():
+                    if count > 0:
+                        print(f"      {reason.value}: {count}")
+            else:
+                print(f"   ✅ Drop reason accounting OK: sum({reason_sum}) = total({frames_dropped_total})")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
