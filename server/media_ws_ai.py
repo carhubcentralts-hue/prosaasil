@@ -2083,11 +2083,14 @@ class MediaStreamHandler:
         self.pending_hangup_reason = None
         self.pending_hangup_source = None
         self.pending_hangup_response_id = None
+        self.pending_hangup_set_at = None
         # 🎯 Polite hangup fallback (prevents stuck pending state)
         self._pending_hangup_set_mono = None
         self._pending_hangup_fallback_task = None
         # 🎯 FIX: Race condition tracking - audio.done arriving before transcript.done
-        self.audio_done_by_response_id = {}  # Tracks which response_ids have completed audio
+        self.audio_done_by_response_id = {}  # Tracks which response_ids have completed audio (max 2 recent)
+        self.hangup_executed = False  # Idempotent flag - prevents duplicate hangup execution
+        self.hangup_executed_at = None  # Timestamp when hangup was executed
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
@@ -5074,8 +5077,18 @@ class MediaStreamHandler:
                     if event_type == "response.audio.done":
                         done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
                         if done_resp_id:
+                            # Track this response as done
                             self.audio_done_by_response_id[done_resp_id] = True
                             _orig_print(f"✅ [RACE_FIX] audio.done tracked for response_id={done_resp_id[:20]}...", flush=True)
+                            
+                            # Cleanup: Keep only last 2 response_ids to prevent memory leak
+                            if len(self.audio_done_by_response_id) > 2:
+                                # Remove oldest entries (keep 2 most recent)
+                                keys = list(self.audio_done_by_response_id.keys())
+                                for old_key in keys[:-2]:
+                                    del self.audio_done_by_response_id[old_key]
+                                    if DEBUG:
+                                        _orig_print(f"🧹 [RACE_FIX] Cleaned old response_id={old_key[:20]}...", flush=True)
                     
                     # 🔴 GREETING_LOCK: Release ONLY after greeting audio is done (not on response.done).
                     # Prefer strict response_id match. If we failed to bind earlier, bind from this event and release.
@@ -5173,122 +5186,65 @@ class MediaStreamHandler:
                     self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                     self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                     
-                    # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
-                    # This ensures AI finishes speaking before we disconnect
-                    if event_type == "response.audio.done" and self.pending_hangup and not self.hangup_triggered:
-                        pending_id = getattr(self, "pending_hangup_response_id", None)
+                    # 🎯 SINGLE SOURCE OF TRUTH: Check for hangup via maybe_execute_hangup()
+                    if event_type == "response.audio.done":
                         done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
-                        
-                        # 🔥 Point 2 Fix: Don't hangup if response was cancelled/aborted
-                        response_status = getattr(self, "active_response_status", None)
-                        if response_status == "cancelled":
-                            print(f"⏭️ [HANGUP FLOW] response.audio.done ignored (response was cancelled, status={response_status})")
-                            # Clear pending_hangup since this response was cancelled
-                            self.pending_hangup = False
-                            self.pending_hangup_response_id = None
-                            continue
-                        
-                        # STRICT: Only hang up after audio.done for the SAME response_id we bound.
-                        # If we don't have a bound id (should be rare), allow first audio.done to release.
-                        if pending_id and done_resp_id and pending_id != done_resp_id:
-                            print(
-                                f"⏭️ [HANGUP FLOW] response.audio.done ignored "
-                                f"(pending_response_id={pending_id[:20]}..., got={done_resp_id[:20]}...)"
-                            )
-                        else:
-                            # Cancel fallback timer (if any) now that we got the matched audio.done.
+                        if done_resp_id:
+                            # Cancel fallback timer (if any) now that we got audio.done
                             try:
                                 t = getattr(self, "_pending_hangup_fallback_task", None)
                                 if t and not t.done():
                                     t.cancel()
                             except Exception:
                                 pass
-
-                            print("[POLITE_HANGUP] audio.done matched -> hanging up")
-                            logger.info("[POLITE_HANGUP] audio.done matched -> hanging up")
-
-                            print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
-                            # Wait for audio to fully play before disconnecting
+                            
+                            # Wait for audio to drain, then try to execute hangup
                             async def delayed_hangup():
-                                print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
-                                
                                 # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
                                 for i in range(50):  # 50 * 100ms = 5 seconds max
-                                    q1_size = self.realtime_audio_out_queue.qsize()
+                                    q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                                     if q1_size == 0:
-                                        print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms")
+                                        if DEBUG:
+                                            _orig_print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms", flush=True)
                                         break
                                     await asyncio.sleep(0.1)
                                 
                                 # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
-                                # 🔥 FIX #4: Add drain watchdog to detect stuck queue
-                                # Each frame is 20ms, so 500 frames = 10 seconds of audio
-                                last_tx_size = self.tx_q.qsize()
+                                last_tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                 stuck_iterations = 0
-                                STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
+                                STUCK_THRESHOLD = 30  # 3 seconds without progress
                                 
                                 for i in range(100):  # 100 * 100ms = 10 seconds max
-                                    tx_size = self.tx_q.qsize()
+                                    tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                     if tx_size == 0:
-                                        print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
+                                        if DEBUG:
+                                            _orig_print(f"✅ [POLITE HANGUP] TX queue empty after {i*100}ms", flush=True)
                                         break
                                     
-                                    # 🔥 FIX #4: Detect if queue is stuck (not draining)
+                                    # Detect stuck queue
                                     if tx_size == last_tx_size:
                                         stuck_iterations += 1
-                                        if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
-                                            print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
-                                            # Queue is stuck - check if tx_running is False
+                                        if stuck_iterations >= STUCK_THRESHOLD:
                                             if not getattr(self, 'tx_running', False):
-                                                print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
-                                                # Clear the stuck queue
+                                                # Clear stuck queue
                                                 while not self.tx_q.empty():
                                                     try:
                                                         self.tx_q.get_nowait()
                                                     except queue.Empty:
                                                         break
-                                                print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
                                                 break
                                     else:
-                                        stuck_iterations = 0  # Reset on progress
+                                        stuck_iterations = 0
                                     
                                     last_tx_size = tx_size
-                                    
-                                    if i % 10 == 0:  # Log every second
-                                        print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
                                     await asyncio.sleep(0.1)
                                 
                                 # STEP 3: Extra buffer for network latency
-                                # Audio still needs to travel from Twilio servers to phone
-                                print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
                                 await asyncio.sleep(2.0)
                                 
-                                if not self.hangup_triggered:
-                                    # Execute REAL hangup via Twilio REST ONLY (no cancel/clear/flush).
-                                    call_sid = getattr(self, "call_sid", None)
-                                    self.hangup_triggered = True
-                                    self.call_state = CallState.ENDED
-                                    try:
-                                        self.pending_hangup = False
-                                    except Exception:
-                                        pass
-                                    force_print(
-                                        f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
-                                        f"response_id={pending_id or done_resp_id} call_sid={call_sid}"
-                                    )
-                                    if call_sid:
-                                        try:
-                                            from server.services.twilio_call_control import hangup_call
-                                            await asyncio.to_thread(hangup_call, call_sid)
-                                            force_print(f"[HANGUP] success call_sid={call_sid}")
-                                        except Exception as e:
-                                            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
-                                            logger.exception("[HANGUP] error call_sid=%s", call_sid)
-                                    else:
-                                        force_print("[HANGUP] error missing_call_sid")
-                                else:
-                                    print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
-
+                                # Now try to execute hangup via single source of truth
+                                await self.maybe_execute_hangup(via="audio.done", response_id=done_resp_id)
+                            
                             asyncio.create_task(delayed_hangup())
                 
                 elif event_type == "response.audio_transcript.done":
@@ -5331,39 +5287,7 @@ class MediaStreamHandler:
                                 force_print(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
                                 logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
                                 
-                                # 🎯 FIX: Check if audio.done already happened (race condition)
-                                audio_already_done = self.audio_done_by_response_id.get(resp_id, False)
-                                
-                                if audio_already_done:
-                                    # Race condition detected: audio.done arrived before transcript.done
-                                    # Check if queues are empty and hangup immediately
-                                    tx_empty = not hasattr(self, 'tx_q') or self.tx_q.empty()
-                                    out_q_empty = not hasattr(self, 'realtime_audio_out_queue') or self.realtime_audio_out_queue.empty()
-                                    
-                                    if tx_empty and out_q_empty and not self.hangup_triggered:
-                                        force_print(f"[POLITE_HANGUP] via=transcript.done_racefix resp_id={resp_id} (audio.done already happened)")
-                                        logger.info(f"[POLITE_HANGUP] via=transcript.done_racefix resp_id={resp_id}")
-                                        
-                                        # Execute hangup immediately - no need to wait
-                                        self.hangup_triggered = True
-                                        self.call_state = CallState.ENDED
-                                        self.pending_hangup = False
-                                        
-                                        call_sid = getattr(self, "call_sid", None)
-                                        if call_sid:
-                                            try:
-                                                from server.services.twilio_call_control import hangup_call
-                                                await asyncio.to_thread(hangup_call, call_sid)
-                                                force_print(f"[HANGUP] executed reason=bot_goodbye_bye_only_racefix call_sid={call_sid}")
-                                            except Exception as e:
-                                                force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
-                                                logger.exception("[HANGUP] error call_sid=%s", call_sid)
-                                        continue
-                                    else:
-                                        # Queues not empty yet - set pending_hangup to let normal flow handle it
-                                        force_print(f"[BOT_BYE_DETECTED] audio.done happened but queues not empty yet - using normal flow (tx_empty={tx_empty}, out_q_empty={out_q_empty})")
-                                
-                                # Normal flow: audio.done will trigger hangup
+                                # Set pending_hangup first (request_hangup sets all the state)
                                 await self.request_hangup(
                                     "bot_goodbye_bye_only",  # 🔥 NEW REASON: Explicit bye-only
                                     "response.audio_transcript.done",
@@ -5371,6 +5295,16 @@ class MediaStreamHandler:
                                     "bot",
                                     response_id=resp_id,
                                 )
+                                
+                                # 🎯 FIX: Check if audio.done already happened (race condition)
+                                audio_already_done = self.audio_done_by_response_id.get(resp_id, False)
+                                
+                                if audio_already_done:
+                                    # Race condition: audio.done came before transcript.done
+                                    # Try to execute hangup immediately via single source of truth
+                                    await self.maybe_execute_hangup(via="transcript.done_racefix", response_id=resp_id)
+                                # else: Normal flow - audio.done will call maybe_execute_hangup later
+                                
                                 continue
                         except Exception as e:
                             # Never break the realtime loop due to hangup matching errors.
@@ -8119,6 +8053,10 @@ class MediaStreamHandler:
                 self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset on session close
                 self._last_flushed_response_id = None  # 🔥 IDEMPOTENT CANCEL: Reset on session close
                 self._cancel_sent_for_response_ids.clear()  # 🔥 IDEMPOTENT CANCEL: Clear sent cancels on session close
+                
+                # Clear race condition tracking
+                if hasattr(self, 'audio_done_by_response_id'):
+                    self.audio_done_by_response_id.clear()
                 
                 # Clear barge-in state
                 self.barge_in_active = False
@@ -11878,6 +11816,78 @@ class MediaStreamHandler:
 
         return None
 
+    async def maybe_execute_hangup(self, via: str, response_id: str):
+        """
+        🎯 SINGLE SOURCE OF TRUTH: Execute hangup if ALL conditions are met
+        
+        This is the ONLY function that executes Twilio hangup.
+        Called from both audio.done and transcript.done handlers.
+        
+        Conditions for execution (ALL must be True):
+        1. pending_hangup is True
+        2. pending_hangup_response_id matches response_id
+        3. active_response_status != "cancelled"
+        4. audio_done_by_response_id[response_id] == True
+        5. tx_q is empty
+        6. realtime_audio_out_queue is empty
+        7. hangup_executed is False (idempotent guard)
+        
+        Args:
+            via: Source of the call ("audio.done" or "transcript.done_racefix")
+            response_id: Response ID to check
+        """
+        # Idempotent check - prevent duplicate execution
+        if self.hangup_executed:
+            if DEBUG:
+                _orig_print(f"[MAYBE_HANGUP] Already executed - skipping (via={via})", flush=True)
+            return
+        
+        # Check all conditions
+        conditions = {
+            "pending_hangup": self.pending_hangup,
+            "response_id_match": self.pending_hangup_response_id == response_id,
+            "not_cancelled": getattr(self, "active_response_status", None) != "cancelled",
+            "audio_done": self.audio_done_by_response_id.get(response_id, False),
+            "tx_empty": not hasattr(self, 'tx_q') or self.tx_q.empty(),
+            "out_q_empty": not hasattr(self, 'realtime_audio_out_queue') or self.realtime_audio_out_queue.empty(),
+            "not_triggered": not self.hangup_triggered,
+        }
+        
+        # All conditions must be True
+        all_met = all(conditions.values())
+        
+        if not all_met:
+            # Log which condition(s) failed (DEBUG only)
+            if DEBUG:
+                failed = [k for k, v in conditions.items() if not v]
+                _orig_print(f"[MAYBE_HANGUP] Conditions not met (via={via}): {failed}", flush=True)
+            return
+        
+        # All conditions met - execute hangup
+        force_print(f"[POLITE_HANGUP] via={via} resp_id={response_id[:20] if response_id else 'none'}...")
+        logger.info(f"[POLITE_HANGUP] via={via} resp_id={response_id}")
+        
+        # Mark as executed BEFORE calling Twilio (prevent race)
+        self.hangup_executed = True
+        self.hangup_executed_at = time.time()
+        self.hangup_triggered = True
+        self.call_state = CallState.ENDED
+        self.pending_hangup = False
+        
+        call_sid = getattr(self, "call_sid", None)
+        if not call_sid:
+            force_print(f"[HANGUP] error missing_call_sid")
+            return
+        
+        # Execute Twilio hangup
+        try:
+            from server.services.twilio_call_control import hangup_call
+            await asyncio.to_thread(hangup_call, call_sid)
+            force_print(f"[HANGUP] executed reason={self.pending_hangup_reason} call_sid={call_sid}")
+        except Exception as e:
+            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+            logger.exception("[HANGUP] error call_sid=%s", call_sid)
+
     async def request_hangup(
         self,
         reason: str,
@@ -11930,11 +11940,13 @@ class MediaStreamHandler:
                     self.pending_hangup_reason = reason
                     self.pending_hangup_source = source
                     self.pending_hangup_response_id = bound_response_id
+                    self.pending_hangup_set_at = time.time()
             else:
                 self.pending_hangup = True
                 self.pending_hangup_reason = reason
                 self.pending_hangup_source = source
                 self.pending_hangup_response_id = bound_response_id
+                self.pending_hangup_set_at = time.time()
 
             # Fallback: if we never get response.audio.done for this response_id (mismatch/cancel/missed event),
             # don't get stuck pending forever. Fire after >=6s (and do not cut bot audio if still playing).
