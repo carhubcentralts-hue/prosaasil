@@ -264,7 +264,14 @@ def get_business_policy(
                     if db_session:
                         business = db_session.query(Business).filter_by(id=business_id).first()
                     else:
-                        business = Business.query.get(business_id)
+                        # 🔥 CRITICAL: Flask-SQLAlchemy query needs app context
+                        if not has_app_context():
+                            from server.app_factory import get_process_app
+                            app = get_process_app()
+                            with app.app_context():
+                                business = Business.query.get(business_id)
+                        else:
+                            business = Business.query.get(business_id)
                     
                     if business and business.working_hours and '-' in business.working_hours:
                         parts = business.working_hours.strip().split('-')

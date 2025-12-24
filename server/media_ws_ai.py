@@ -568,136 +568,137 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     assumed to be Israel local time. For cross-timezone support, always 
     pass timezone-aware datetimes.
     """
-    try:
-        from server.policy.business_policy import get_business_policy
-        from datetime import datetime, timedelta
-        import pytz
-        
-        policy = get_business_policy(business_id)
-        business_tz = pytz.timezone(policy.tz)  # Get business timezone early
-        
-        # 🔥 STRICT TIMEZONE HANDLING:
-        # 1. Timezone-aware input: Convert to business timezone
-        # 2. Naive input: Assume it's already in business timezone (Israel local time)
-        if requested_dt.tzinfo is not None:
-            # Convert from source timezone to business timezone
-            requested_dt = requested_dt.astimezone(business_tz)
-            logger.debug(f"[VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
-        else:
-            # Naive datetime - assume it's in business local time
-            logger.debug(f"[VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
-        
-        # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
-        now = datetime.now(business_tz)
-        
-        # Check minimum notice time
-        if policy.min_notice_min > 0:
-            min_allowed_time = now + timedelta(minutes=policy.min_notice_min)
-            if requested_dt.tzinfo is None:
-                # Make requested_dt timezone-aware for comparison
-                requested_dt_aware = business_tz.localize(requested_dt)
+    # 🔥 FIX #5: Wrap entire function in Flask app context for thread safety
+    app = _get_flask_app()
+    with app.app_context():
+        try:
+            from server.policy.business_policy import get_business_policy
+            from datetime import datetime, timedelta
+            import pytz
+            from server.models_sql import Appointment
+            
+            policy = get_business_policy(business_id)
+            business_tz = pytz.timezone(policy.tz)  # Get business timezone early
+            
+            # 🔥 STRICT TIMEZONE HANDLING:
+            # 1. Timezone-aware input: Convert to business timezone
+            # 2. Naive input: Assume it's already in business timezone (Israel local time)
+            if requested_dt.tzinfo is not None:
+                # Convert from source timezone to business timezone
+                requested_dt = requested_dt.astimezone(business_tz)
+                logger.debug(f"[VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
             else:
-                requested_dt_aware = requested_dt
+                # Naive datetime - assume it's in business local time
+                logger.debug(f"[VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
             
-            if requested_dt_aware < min_allowed_time:
-                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
-                return False
-            else:
-                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
-        
-        # Check booking window (max days ahead)
-        if policy.booking_window_days > 0:
-            max_booking_date = now + timedelta(days=policy.booking_window_days)
-            if requested_dt.tzinfo is None:
-                requested_dt_aware = business_tz.localize(requested_dt)
-            else:
-                requested_dt_aware = requested_dt
+            # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
+            now = datetime.now(business_tz)
             
-            if requested_dt_aware > max_booking_date:
-                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
-                return False
-            else:
-                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
-        
-        # 🔥 STEP 1: Check business hours (skip for 24/7)
-        if not policy.allow_24_7:
-            # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
-            # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
-            weekday_map = {
-                0: "mon",
-                1: "tue",
-                2: "wed",
-                3: "thu",
-                4: "fri",
-                5: "sat",
-                6: "sun"
-            }
-            
-            weekday_key = weekday_map.get(requested_dt.weekday())
-            if not weekday_key:
-                print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
-                return False
-            
-            # Get opening hours for this day
-            day_hours = policy.opening_hours.get(weekday_key, [])
-            if not day_hours:
-                print(f"❌ [VALIDATION] Business closed on {weekday_key}")
-                return False
-            
-            # Check if time falls within any window
-            requested_time = requested_dt.time()
-            time_valid = False
-            
-            for window in day_hours:
-                start_str, end_str = window[0], window[1]
-                
-                # Parse times
-                start_time = datetime.strptime(start_str, "%H:%M").time()
-                end_time = datetime.strptime(end_str, "%H:%M").time()
-                
-                # Handle overnight windows (e.g., 21:00-02:00)
-                if start_time <= end_time:
-                    # Normal window (same day)
-                    if start_time <= requested_time <= end_time:
-                        time_valid = True
-                        break
+            # Check minimum notice time
+            if policy.min_notice_min > 0:
+                min_allowed_time = now + timedelta(minutes=policy.min_notice_min)
+                if requested_dt.tzinfo is None:
+                    # Make requested_dt timezone-aware for comparison
+                    requested_dt_aware = business_tz.localize(requested_dt)
                 else:
-                    # Overnight window
-                    if requested_time >= start_time or requested_time <= end_time:
-                        time_valid = True
-                        break
+                    requested_dt_aware = requested_dt
+                
+                if requested_dt_aware < min_allowed_time:
+                    print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                    return False
+                else:
+                    print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
             
-            if not time_valid:
-                print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
-                return False
+            # Check booking window (max days ahead)
+            if policy.booking_window_days > 0:
+                max_booking_date = now + timedelta(days=policy.booking_window_days)
+                if requested_dt.tzinfo is None:
+                    requested_dt_aware = business_tz.localize(requested_dt)
+                else:
+                    requested_dt_aware = requested_dt
+                
+                if requested_dt_aware > max_booking_date:
+                    print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                    return False
+                else:
+                    print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+            
+            # 🔥 STEP 1: Check business hours (skip for 24/7)
+            if not policy.allow_24_7:
+                # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
+                # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
+                weekday_map = {
+                    0: "mon",
+                    1: "tue",
+                    2: "wed",
+                    3: "thu",
+                    4: "fri",
+                    5: "sat",
+                    6: "sun"
+                }
+                
+                weekday_key = weekday_map.get(requested_dt.weekday())
+                if not weekday_key:
+                    print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+                    return False
+                
+                # Get opening hours for this day
+                day_hours = policy.opening_hours.get(weekday_key, [])
+                if not day_hours:
+                    print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+                    return False
+                
+                # Check if time falls within any window
+                requested_time = requested_dt.time()
+                time_valid = False
+                
+                for window in day_hours:
+                    start_str, end_str = window[0], window[1]
+                    
+                    # Parse times
+                    start_time = datetime.strptime(start_str, "%H:%M").time()
+                    end_time = datetime.strptime(end_str, "%H:%M").time()
+                    
+                    # Handle overnight windows (e.g., 21:00-02:00)
+                    if start_time <= end_time:
+                        # Normal window (same day)
+                        if start_time <= requested_time <= end_time:
+                            time_valid = True
+                            break
+                    else:
+                        # Overnight window
+                        if requested_time >= start_time or requested_time <= end_time:
+                            time_valid = True
+                            break
+                
+                if not time_valid:
+                    print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+                    return False
+                else:
+                    print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
             else:
-                print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
-        else:
-            print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
-        
-        # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
-        # Calculate end time using slot_size_min from policy
-        slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes
-        
-        # Note: requested_dt is already normalized to business timezone at the start
-        # Convert to naive for DB comparison (DB stores naive in Israel local time)
-        requested_end_dt = requested_dt + timedelta(minutes=slot_duration_min)
-        
-        # Strip tzinfo for DB comparison - requested_dt is already in correct timezone
-        if hasattr(requested_dt, 'tzinfo') and requested_dt.tzinfo:
-            requested_start_naive = requested_dt.replace(tzinfo=None)
-            requested_end_naive = requested_end_dt.replace(tzinfo=None)
-        else:
-            # Already naive
-            requested_start_naive = requested_dt
-            requested_end_naive = requested_end_dt
-        
-        logger.debug(f"[VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
-        
-        # Query DB for overlapping appointments
-        from server.models_sql import Appointment
-        app = _get_flask_app()
-        with app.app_context():
+                print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
+            
+            # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
+            # Calculate end time using slot_size_min from policy
+            slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes
+            
+            # Note: requested_dt is already normalized to business timezone at the start
+            # Convert to naive for DB comparison (DB stores naive in Israel local time)
+            requested_end_dt = requested_dt + timedelta(minutes=slot_duration_min)
+            
+            # Strip tzinfo for DB comparison - requested_dt is already in correct timezone
+            if hasattr(requested_dt, 'tzinfo') and requested_dt.tzinfo:
+                requested_start_naive = requested_dt.replace(tzinfo=None)
+                requested_end_naive = requested_end_dt.replace(tzinfo=None)
+            else:
+                # Already naive
+                requested_start_naive = requested_dt
+                requested_end_naive = requested_end_dt
+            
+            logger.debug(f"[VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
+            
+            # Query DB for overlapping appointments
             # Find appointments that overlap with requested slot
             # Overlap logic: (start1 < end2) AND (end1 > start2)
             overlapping = Appointment.query.filter(
@@ -713,12 +714,12 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             else:
                 print(f"✅ [VALIDATION] Calendar available - no conflicts")
                 return True
-        
-    except Exception as e:
-        print(f"❌ [VALIDATION] Error validating slot: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+            
+        except Exception as e:
+            print(f"❌ [VALIDATION] Error validating slot: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
 
 # 🔧 CRM HELPER FUNCTIONS (Server-side only, no Realtime Tools)
@@ -2178,10 +2179,14 @@ class MediaStreamHandler:
         self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
         self.connection_start_time = time.time()  # Track connection start for metrics
         
-        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
+        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics with explicit reasons
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
         self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
+        self._frames_dropped_by_ai_speaking_guard = 0  # Frames dropped by AI speaking guard (half-duplex)
+        self._frames_dropped_by_gate_block = 0  # Frames dropped by gates (echo/voice)
+        self._frames_dropped_by_pace_late = 0  # Frames dropped due to pacing issues
+        self._frames_dropped_by_unknown = 0  # Frames dropped for unknown reasons
 
         # ═══════════════════════════════════════════════════════════════════════════
         # 🔥 OUTBOUND VOICE GATE: Wait for real human voice before AI speaks
@@ -2612,32 +2617,157 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
+            # 🔥 FIX #4: PARALLEL STARTUP - Connect to OpenAI while loading business info
             # ═══════════════════════════════════════════════════════════════════════
-            # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
-            # We only add a timeout wrapper to prevent infinite hangs - NO external retry loop!
-            # Total internal retry time: ~7s (1s + 2s + 4s backoff)
+            # OLD: Sequential - connect → wait → business → prompt → session
+            # NEW: Parallel - (connect || business+prompt) → session
+            # This eliminates 5s wait on critical path by overlapping operations
             # ═══════════════════════════════════════════════════════════════════════
+            
             logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             t_client = time.time()
             if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
+            # 🔥 FIX #4: Start OpenAI connect as a task (non-blocking)
             t_connect_start = time.time()
-            _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
+            _orig_print(f"🔌 [FIX #4] Starting OpenAI connect (parallel with business load)...", flush=True)
             
-            try:
-                # 🔥 FIX #3: Increased timeout to 8s and max_retries to 3 for better reliability
-                # Timeout: 8s covers internal retries (1s + 2s + 4s + margin)
-                # max_retries=3 gives more chances to connect (was 2)
-                await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
-                connect_ms = (time.time() - t_connect_start) * 1000
+            # Create connect task (will run in background)
+            async def _connect_task():
+                t_conn_start = time.time()
+                print(f"📊 [FIX #4 DEBUG] connect_task started at t={t_conn_start:.3f}")
+                try:
+                    await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
+                    t_conn_end = time.time()
+                    print(f"📊 [FIX #4 DEBUG] connect_task completed at t={t_conn_end:.3f}, duration={(t_conn_end - t_conn_start)*1000:.0f}ms")
+                    return ('success', t_conn_end - t_conn_start, t_conn_start, t_conn_end)
+                except asyncio.TimeoutError:
+                    t_conn_end = time.time()
+                    return ('timeout', t_conn_end - t_conn_start, t_conn_start, t_conn_end)
+                except Exception as e:
+                    t_conn_end = time.time()
+                    return ('error', t_conn_end - t_conn_start, t_conn_start, t_conn_end, e)
+            
+            connect_task = asyncio.create_task(_connect_task())
+            
+            # 🔥 FIX #4: Start business/prompt loading in parallel
+            async def _business_prompt_task():
+                t_biz_start = time.time()
+                print(f"📊 [FIX #4 DEBUG] business_task started at t={t_biz_start:.3f}")
+                
+                # Wait for business info from background thread
+                print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
+                loop = asyncio.get_event_loop()
+                try:
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(0.3)),
+                        timeout=0.6
+                    )
+                    t_ready = time.time()
+                    wait_ms = (t_ready - t_biz_start) * 1000
+                    print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
+                except asyncio.TimeoutError:
+                    print(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults")
+                    self._set_safe_business_defaults(force_greeting=True)
+                
+                # Verify business_id
+                if self.business_id is None:
+                    logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
+                    _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
+                    raise ValueError("CRITICAL: business_id required for greeting")
+                
+                business_id_safe = self.business_id
+                call_direction = getattr(self, 'call_direction', 'inbound')
+                
+                logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
+                _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
+                
+                # Load prompts from registry
+                from server.stream_state import stream_registry
+                compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
+                full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
+                
+                # Fallback - build if not in registry
+                if not compact_prompt or not full_prompt:
+                    print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
+                    print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
+                    try:
+                        from server.services.realtime_prompt_builder import (
+                            build_compact_greeting_prompt,
+                            build_full_business_prompt,
+                        )
+                        app = _get_flask_app()
+                        with app.app_context():
+                            if not compact_prompt:
+                                compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars")
+                            if not full_prompt:
+                                full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars")
+                    except Exception as prompt_err:
+                        print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
+                        import traceback
+                        traceback.print_exc()
+                        # Last resort fallback
+                        if not compact_prompt:
+                            greeting_text = getattr(self, 'greeting_text', None)
+                            biz_name = getattr(self, 'business_name', None) or "העסק"
+                            if greeting_text and str(greeting_text).strip():
+                                compact_prompt = str(greeting_text).strip()
+                            else:
+                                compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
+                        if not full_prompt:
+                            full_prompt = compact_prompt
+                else:
+                    print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
+                    print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
+                    print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
+                
+                biz_elapsed_ms = (time.time() - t_biz_start) * 1000
+                print(f"📊 [FIX #4 DEBUG] business_task completed at t={time.time():.3f}, duration={biz_elapsed_ms:.0f}ms")
+                return (compact_prompt, full_prompt, biz_elapsed_ms, t_biz_start)
+            
+            business_task = asyncio.create_task(_business_prompt_task())
+            
+            # 🔥 FIX #4: Wait for BOTH tasks to complete (parallel execution)
+            print(f"⏳ [FIX #4] Waiting for both OpenAI connect AND business/prompt loading...")
+            t_parallel_start = time.time()
+            print(f"📊 [FIX #4 DEBUG] parallel wait started at t={t_parallel_start:.3f}")
+            
+            connect_result, business_result = await asyncio.gather(connect_task, business_task)
+            
+            t_parallel_end = time.time()
+            parallel_elapsed_ms = (t_parallel_end - t_parallel_start) * 1000
+            print(f"📊 [FIX #4 DEBUG] parallel wait ended at t={t_parallel_end:.3f}")
+            print(f"✅ [FIX #4] Parallel loading complete in {parallel_elapsed_ms:.0f}ms")
+            
+            # 🔥 FIX #4: Process connect result with corrected metrics
+            if connect_result[0] == 'success':
+                connect_duration_sec = connect_result[1]
+                t_connect_start = connect_result[2]
+                t_connect_end = connect_result[3]
+                connect_ms = connect_duration_sec * 1000
+                
+                # Extract business task results
+                compact_prompt, full_prompt, business_duration_ms, t_business_start = business_result
+                
+                # Calculate true parallel overlap
+                # Both tasks started at approximately the same time (t_parallel_start)
+                # actual_start = max(t_connect_start, t_business_start) to account for task startup
+                # actual_end = max(t_connect_end, business end time)
+                actual_parallel_duration_ms = (t_parallel_end - t_parallel_start) * 1000
+                sequential_duration_ms = connect_ms + business_duration_ms
+                overlap_savings_ms = sequential_duration_ms - actual_parallel_duration_ms
+                
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
-                
-            except asyncio.TimeoutError:
-                connect_ms = (time.time() - t_connect_start) * 1000
+                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (parallel)", flush=True)
+                print(f"📊 [FIX #4 METRICS] connect_ms={connect_ms:.0f}, business_load_ms={business_duration_ms:.0f}, parallel_total_ms={actual_parallel_duration_ms:.0f}, overlap_savings_ms={overlap_savings_ms:.0f}")
+                print(f"📊 [FIX #4 TIMESTAMPS] connect_start={t_connect_start:.3f}, connect_end={t_connect_end:.3f}, business_start={t_business_start:.3f}, parallel_end={t_parallel_end:.3f}")
+            elif connect_result[0] == 'timeout':
+                connect_duration_sec = connect_result[1]
+                connect_ms = connect_duration_sec * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
                 _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
                 logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
@@ -2647,32 +2777,32 @@ class MediaStreamHandler:
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
                 return
-                
-            except Exception as connect_err:
-                connect_ms = (time.time() - t_connect_start) * 1000
+            else:  # connect_result[0] == 'error'
+                connect_duration_sec = connect_result[1]
+                connect_err = connect_result[4] if len(connect_result) > 4 else None
+                connect_ms = connect_duration_sec * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
                 
-                # 🔥 FIX #3: Enhanced error logging with full traceback for diagnostics
+                # Enhanced error logging
                 import traceback
-                error_details = traceback.format_exc()
                 _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
                 _orig_print(f"❌ [REALTIME] Error type: {type(connect_err).__name__}", flush=True)
-                _orig_print(f"❌ [REALTIME] Full traceback:\n{error_details}", flush=True)
                 logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
-                logger.error(f"[REALTIME] Full error details:\n{error_details}")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
-                
-                # 🔥 FIX #3: Log call context for debugging
-                _orig_print(f"📊 [REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
                 return
+            
+            # 🔥 FIX #4: Process business/prompt result
+            compact_prompt, full_prompt, business_duration_ms, t_business_start = business_result
+            print(f"📊 [FIX #4 METRICS] business_load_ms={business_duration_ms:.0f}")
             
             t_connected = time.time()
             
-            # Warn if connection is slow (>1.5s is too slow for good UX)
+            # Warn if connection is slow
+            connect_ms = connect_result[1] * 1000
             if connect_ms > 1500:
                 print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
             if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
@@ -2683,115 +2813,10 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.debug("[REALTIME] Connected")
             
-            # 🚀 PARALLEL STEP 2: Wait briefly for business info (do NOT block greeting)
-            print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
-            
-            # Use asyncio to wait for the threading.Event
-            loop = asyncio.get_event_loop()
-            try:
-                # Keep this short: greeting must not depend on DB readiness.
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(0.3)),
-                    timeout=0.6
-                )
-                t_ready = time.time()
-                wait_ms = (t_ready - t_connected) * 1000
-                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
-            except asyncio.TimeoutError:
-                print(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults (do not block greeting)")
-                # Use helper with force_greeting=True to ensure greeting fires
-                self._set_safe_business_defaults(force_greeting=True)
-            
-            # 🔥 BUILD 315: FULL PROMPT FROM START - AI has complete context from first moment!
-            # This ensures the AI understands the business, services, and context when greeting
-            # and when interpreting user responses (e.g., city names like "קריית אתא")
-            t_before_prompt = time.time()
-            greeting_text = getattr(self, 'greeting_text', None)
-            biz_name = getattr(self, 'business_name', None) or "העסק"
-            
-            # ⛔ CRITICAL: business_id must be set before this point - no fallback allowed
-            if self.business_id is None:
-                logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
-                _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
-                raise ValueError("CRITICAL: business_id required for greeting")
-            
+            # Get business_id and call_direction
             business_id_safe = self.business_id
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
-            
-            # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
-            logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
-            _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
-            
-            # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
-            # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
-            # This eliminates 500-2000ms DB query latency from async loop!
-            # After greeting, we can send full prompt via session.update if needed
-            # ═══════════════════════════════════════════════════════════════════════
-            
-            # 🔥 PROMPT STRATEGY: COMPACT for fast greeting, FULL after first response
-            # Strategy: Use pre-built COMPACT from registry → greeting in <2s
-            #           Then upgrade to pre-built FULL after first response completes
-            
-            from server.stream_state import stream_registry
-            
-            # Step 1: Load COMPACT prompt from registry (built in webhook - ZERO latency!)
-            compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
-            
-            # Step 2: Load FULL BUSINESS prompt from registry (for post-greeting injection)
-            full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
-            
-            # Step 3: Fallback - build if not in registry (should rarely happen)
-            if not compact_prompt or not full_prompt:
-                print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
-                # 🔥 LOG: Direction being used for prompt building
-                print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
-                try:
-                    from server.services.realtime_prompt_builder import (
-                        build_compact_greeting_prompt,
-                        build_full_business_prompt,
-                    )
-                    app = _get_flask_app()
-                    with app.app_context():
-                        if not compact_prompt:
-                            compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
-                        if not full_prompt:
-                            full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
-                except Exception as prompt_err:
-                    print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
-                    import traceback
-                    traceback.print_exc()
-                    # Last resort fallback
-                    if not compact_prompt:
-                        # Business-only fallback for COMPACT (no global/system rules).
-                        # Prefer DB greeting text if available, else short business greeting.
-                        if greeting_text and str(greeting_text).strip():
-                            compact_prompt = str(greeting_text).strip()
-                        else:
-                            compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
-                    if not full_prompt:
-                        full_prompt = compact_prompt
-            else:
-                print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
-                print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
-                print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
-                
-                # 🔥 HARD LOCK: Verify call_direction matches pre-built prompt
-                # If mismatch detected - LOG WARNING but DO NOT REBUILD
-                # The call continues with the already-loaded prompt
-                prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
-                if prompt_direction_check != call_direction:
-                    # 🔥 CRITICAL: DO NOT REBUILD - just log and continue
-                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt direction mismatch detected!")
-                    print(f"   Expected: {call_direction}, Pre-built for: {prompt_direction_check}")
-                    print(f"   ❌ NOT rebuilding - continuing with pre-built prompt (HARD LOCK)")
-                    _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prompt_direction_check} action=CONTINUE_NO_REBUILD", flush=True)
-                else:
-                    print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
-                    _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
             
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
@@ -4294,6 +4319,9 @@ class MediaStreamHandler:
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Per-response markers to track audio delivery quality
                         # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 FIX #2: DO NOT set is_ai_speaking_event here!
+                        # ai_speaking should ONLY be set on first audio.delta (actual audio arrival)
+                        # This ensures barge-in works properly - flag tracks actual audio playback
                         if not hasattr(self, '_response_tracking'):
                             self._response_tracking = {}
                         self._response_tracking[resp_id] = {
@@ -4553,6 +4581,21 @@ class MediaStreamHandler:
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
                     
+                    # 🔥 DEBUG: Log first user audio detection for timing analysis
+                    t_now = time.time()
+                    t_since_greeting_start = None
+                    if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
+                        t_since_greeting_start = (t_now - self._greeting_start_ts) * 1000
+                    t_since_first_ai_audio = None
+                    if hasattr(self, '_first_ai_audio_ts') and self._first_ai_audio_ts:
+                        t_since_first_ai_audio = (t_now - self._first_ai_audio_ts) * 1000
+                    
+                    print(f"🎤 [FIRST_USER_AUDIO_DETECTED] speech_started at t={t_now:.3f}, "
+                          f"since_greeting_start_ms={t_since_greeting_start:.0f if t_since_greeting_start else 'N/A'}, "
+                          f"since_first_ai_audio_ms={t_since_first_ai_audio:.0f if t_since_first_ai_audio else 'N/A'}, "
+                          f"ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                          f"greeting_lock={getattr(self, 'greeting_lock_active', False)}")
+                    
                     if DEBUG:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
                     else:
@@ -4644,12 +4687,29 @@ class MediaStreamHandler:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
                         # Step 1: Cancel active response (with duplicate guard)
+                        # 🔥 FIX #2 VERIFICATION: Log complete state before cancel
+                        ai_speaking = self.is_ai_speaking_event.is_set()
+                        ai_response_active = getattr(self, 'ai_response_active', False)
+                        active_resp_id = self.active_response_id
+                        last_audio_delta_ts = getattr(self, '_last_audio_delta_ts', None)
+                        time_since_last_audio = (time.time() - last_audio_delta_ts) if last_audio_delta_ts else None
+                        
+                        print(f"🔥 [BARGE-IN STATE] Before cancel:")
+                        print(f"   ai_speaking={ai_speaking}")
+                        print(f"   ai_response_active={ai_response_active}")
+                        print(f"   active_response_id={active_resp_id[:20] if active_resp_id else None}...")
+                        print(f"   last_audio_delta_ts={last_audio_delta_ts}")
+                        print(f"   time_since_last_audio_ms={time_since_last_audio*1000 if time_since_last_audio else None}")
+                        
                         if self._should_send_cancel(self.active_response_id):
                             try:
+                                t_cancel_sent = time.time()
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
                                 logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
+                                print(f"✅ [BARGE-IN] response.cancel sent for {self.active_response_id[:20]}... at t={t_cancel_sent:.3f}")
+                                print(f"📊 [BARGE-IN TIMING] cancel_sent_ts={t_cancel_sent:.3f}, time_since_last_audio_ms={time_since_last_audio*1000 if time_since_last_audio else None}")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors
@@ -5043,6 +5103,11 @@ class MediaStreamHandler:
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
+                            
+                            # 🔥 DEBUG: Track first AI audio for timing analysis
+                            if not hasattr(self, '_first_ai_audio_ts') or not self._first_ai_audio_ts:
+                                self._first_ai_audio_ts = now
+                                print(f"📊 [TIMING] First AI audio delta at t={now:.3f}")
                             # 🔥 Track AI audio start time for metrics
                             self._last_ai_audio_start_ts = now
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
@@ -6160,7 +6225,7 @@ class MediaStreamHandler:
                             # Don't process this utterance - continue waiting
                         else:
                             # Whitelist of Hebrew greetings
-                            hebrew_greetings = {"הלו", "הלו.", "כן", "כן.", "מי זה", "מי זה?", "שלום", "שלום."}
+                            hebrew_greetings = {"הלו", "הלו.", "כן", "כן.", "מי זה", "מי זה?", "שלום", "שלום.", "אהלו", "אהלו."}
                             is_greeting = text in hebrew_greetings
                             has_min_length = len(text.strip()) >= 4
                             
@@ -6182,16 +6247,26 @@ class MediaStreamHandler:
                             passes_basic_check = has_min_duration and (is_greeting or has_min_length) and not is_filler_only
                             
                             if passes_basic_check and not self.suspected_voicemail:
-                                # 🔥 FIX 1: Need 2 voice confirmations (not just 1)
-                                # Increment confirmation counter
-                                self.outbound_voice_confirmations += 1
-                                self.outbound_last_utterance_ts = time.time()
-                                
-                                print(f"[OUTBOUND_VOICE_GATE] voice_confirmation #{self.outbound_voice_confirmations} text='{text}' duration={int(utterance_duration_ms)}ms")
-                                
-                                # Open gate only after 2 confirmations OR 1 confirmation if text >= 8 chars (full sentence)
-                                needs_second_confirmation = len(text.strip()) < 8
-                                can_open_gate = (self.outbound_voice_confirmations >= 2) or not needs_second_confirmation
+                                # 🔥 OUTBOUND GATE FIX: In SIMPLE_MODE, single confirmation is enough
+                                # In SIMPLE_MODE, trust STT and open gate on first valid utterance
+                                # (Reduces 2-confirmation requirement that blocks legitimate human responses)
+                                if SIMPLE_MODE:
+                                    # SIMPLE_MODE: Open gate immediately on first valid utterance
+                                    # This includes short greetings like "הלו", "כן", "שלום"
+                                    can_open_gate = True
+                                    self.outbound_voice_confirmations = 1
+                                    print(f"[OUTBOUND_VOICE_GATE] SIMPLE_MODE: opening gate on first valid utterance text='{text}' duration={int(utterance_duration_ms)}ms")
+                                else:
+                                    # Non-SIMPLE_MODE: Original 2-confirmation logic
+                                    # Increment confirmation counter
+                                    self.outbound_voice_confirmations += 1
+                                    self.outbound_last_utterance_ts = time.time()
+                                    
+                                    print(f"[OUTBOUND_VOICE_GATE] voice_confirmation #{self.outbound_voice_confirmations} text='{text}' duration={int(utterance_duration_ms)}ms")
+                                    
+                                    # Open gate only after 2 confirmations OR 1 confirmation if text >= 8 chars (full sentence)
+                                    needs_second_confirmation = len(text.strip()) < 8
+                                    can_open_gate = (self.outbound_voice_confirmations >= 2) or not needs_second_confirmation
                                 
                                 if can_open_gate:
                                     # ✅ GATE OPENS - Human detected with confirmation!
@@ -7510,32 +7585,35 @@ class MediaStreamHandler:
         if action == "hours_info":
             print(f"📋 [NLP] User asking for business hours info - responding with policy")
             try:
-                # Load business hours from policy
-                from server.policy.business_policy import get_business_policy
-                policy = get_business_policy(self.business_id)
-                
-                if DEBUG: print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
-                
-                if policy.allow_24_7:
-                    await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
-                elif policy.opening_hours:
-                    # Format hours in Hebrew
-                    day_names = {"sun": "ראשון", "mon": "שני", "tue": "שלישי", "wed": "רביעי", "thu": "חמישי", "fri": "שישי", "sat": "שבת"}
-                    hours_lines = []
-                    for day_key in ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]:
-                        windows = policy.opening_hours.get(day_key, [])
-                        if not windows:
-                            hours_lines.append(f"{day_names[day_key]}: סגור")
-                        else:
-                            time_ranges = ", ".join([f"{w[0]}-{w[1]}" for w in windows])
-                            hours_lines.append(f"{day_names[day_key]}: {time_ranges}")
+                # 🔥 FIX #5: Wrap policy access in Flask app context
+                app = _get_flask_app()
+                with app.app_context():
+                    # Load business hours from policy
+                    from server.policy.business_policy import get_business_policy
+                    policy = get_business_policy(self.business_id)
                     
-                    hours_text = "שעות הפעילות שלנו:\n" + "\n".join(hours_lines)
-                    print(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
-                    await self._send_server_event_to_ai(f"hours_info - {hours_text}")
-                else:
-                    print(f"⚠️ [DEBUG] No opening_hours in policy!")
-                    await self._send_server_event_to_ai("hours_info - שעות הפעילות לא הוגדרו במערכת.")
+                    if DEBUG: print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
+                    
+                    if policy.allow_24_7:
+                        await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
+                    elif policy.opening_hours:
+                        # Format hours in Hebrew
+                        day_names = {"sun": "ראשון", "mon": "שני", "tue": "שלישי", "wed": "רביעי", "thu": "חמישי", "fri": "שישי", "sat": "שבת"}
+                        hours_lines = []
+                        for day_key in ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]:
+                            windows = policy.opening_hours.get(day_key, [])
+                            if not windows:
+                                hours_lines.append(f"{day_names[day_key]}: סגור")
+                            else:
+                                time_ranges = ", ".join([f"{w[0]}-{w[1]}" for w in windows])
+                                hours_lines.append(f"{day_names[day_key]}: {time_ranges}")
+                        
+                        hours_text = "שעות הפעילות שלנו:\n" + "\n".join(hours_lines)
+                        print(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
+                        await self._send_server_event_to_ai(f"hours_info - {hours_text}")
+                    else:
+                        print(f"⚠️ [DEBUG] No opening_hours in policy!")
+                        await self._send_server_event_to_ai("hours_info - שעות הפעילות לא הוגדרו במערכת.")
             except Exception as e:
                 print(f"❌ [ERROR] Failed to load business policy: {e}")
                 import traceback
@@ -7642,9 +7720,12 @@ class MediaStreamHandler:
                         print(f"🛡️ [GUARD] Marked slot {busy_key} as busy - will not recheck")
                     
                     # Find next 3 available slots
-                    from server.policy.business_policy import get_business_policy
-                    policy = get_business_policy(self.business_id)
-                    slot_size_min = policy.slot_size_min
+                    # 🔥 FIX #5: Wrap policy access in Flask app context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        from server.policy.business_policy import get_business_policy
+                        policy = get_business_policy(self.business_id)
+                        slot_size_min = policy.slot_size_min
                     
                     alternatives = []
                     check_dt = start_dt + timedelta(minutes=slot_size_min)
@@ -7771,9 +7852,12 @@ class MediaStreamHandler:
                         print(f"📝 [FLOW STEP 5]   - hydrated temp cache → crm_context")
             
             # 🔥 BUILD 182: Check if business requires phone verification via DTMF
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(self.business_id)
-            require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
+            # 🔥 FIX #5: Wrap policy access in Flask app context
+            app = _get_flask_app()
+            with app.app_context():
+                from server.policy.business_policy import get_business_policy
+                policy = get_business_policy(self.business_id)
+                require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
             print(f"📝 [FLOW STEP 5.5] Business setting require_phone_before_booking: {require_phone_verification}")
             
             # 🔥 Check if all required data is complete
@@ -8982,6 +9066,12 @@ class MediaStreamHandler:
                         try:
                             self._stats_audio_blocked += 1
                             self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                            # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                            if SIMPLE_MODE and not hasattr(self, '_greeting_drop_logged'):
+                                print(f"⚠️ [DROP DEBUG] greeting_lock drop: SIMPLE_MODE={SIMPLE_MODE}, "
+                                      f"greeting_lock_active={getattr(self, 'greeting_lock_active', False)}, "
+                                      f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                self._greeting_drop_logged = True
                         except Exception:
                             pass
                         continue
@@ -9081,15 +9171,33 @@ class MediaStreamHandler:
                             try:
                                 self._stats_audio_blocked += 1
                                 self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                                # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                                if SIMPLE_MODE and not hasattr(self, '_greeting_drop_logged_2'):
+                                    print(f"⚠️ [DROP DEBUG] greeting_lock drop #2: SIMPLE_MODE={SIMPLE_MODE}, "
+                                          f"greeting_lock_active={getattr(self, 'greeting_lock_active', False)}, "
+                                          f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                    self._greeting_drop_logged_2 = True
                             except Exception:
                                 pass
                             continue
                         
                         if not self.barge_in_enabled_after_greeting:
-                            # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
+                            # 🔥 FIX #1: FULL DUPLEX IN SIMPLE_MODE - Never block audio forwarding when AI is speaking
+                            # This is CRITICAL for real barge-in to work. The AI's server_vad needs continuous
+                            # audio stream to detect when user interrupts, even while AI is speaking.
+                            # 
+                            # In SIMPLE_MODE:
+                            # - ALL audio forwards to OpenAI continuously (full duplex)
+                            # - No forwarding windows, no echo gates, no half-duplex behavior
+                            # - OpenAI's server_vad handles echo rejection
+                            # - Barge-in works because OpenAI receives user speech during AI talk
                             if SIMPLE_MODE:
-                                # SIMPLE_MODE = no guards, passthrough all audio + logs only
-                                pass  # Skip all echo gate logic
+                                # SIMPLE_MODE = FULL DUPLEX - passthrough all audio, no blocking
+                                # Track that we're in full duplex mode for metrics
+                                if not hasattr(self, '_full_duplex_mode_logged'):
+                                    print(f"🔊 [FULL_DUPLEX] SIMPLE_MODE active - forwarding ALL audio to OpenAI (no echo gate)")
+                                    self._full_duplex_mode_logged = True
+                                # NO blocking logic - audio always forwards
                             else:
                                 # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
                                 # This prevents OpenAI from transcribing its own voice output as user speech!
@@ -9165,6 +9273,20 @@ class MediaStreamHandler:
                                         if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
                                             print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
                                             self._echo_gate_logged = True
+                                        # 🔥 FIX #3: Track drop reason for diagnostics
+                                        try:
+                                            self._stats_audio_blocked += 1
+                                            self._frames_dropped_by_ai_speaking_guard += 1
+                                            # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                                            if SIMPLE_MODE and not hasattr(self, '_ai_guard_drop_logged'):
+                                                print(f"⚠️ [DROP DEBUG] ai_speaking_guard drop: SIMPLE_MODE={SIMPLE_MODE}, "
+                                                      f"ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                                                      f"barge_in_active={self.barge_in_active}, "
+                                                      f"window_open={window_is_open}, "
+                                                      f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                                self._ai_guard_drop_logged = True
+                                        except Exception:
+                                            pass
                                         continue
                                     elif window_is_open:
                                         # Forwarding window is open - let audio through
@@ -9184,6 +9306,19 @@ class MediaStreamHandler:
                                             if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
                                                 print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
                                                 self._echo_decay_logged = True
+                                            # 🔥 FIX #3: Track drop reason for diagnostics
+                                            try:
+                                                self._stats_audio_blocked += 1
+                                                self._frames_dropped_by_gate_block += 1
+                                                # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                                                if SIMPLE_MODE and not hasattr(self, '_gate_drop_logged'):
+                                                    print(f"⚠️ [DROP DEBUG] gate_block drop: SIMPLE_MODE={SIMPLE_MODE}, "
+                                                          f"echo_decay_ms={echo_decay_ms:.0f}, "
+                                                          f"window_open={window_is_open}, "
+                                                          f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                                    self._gate_drop_logged = True
+                                            except Exception:
+                                                pass
                                             continue
                                     else:
                                         # Echo decay complete - reset log flags for next AI response
@@ -15241,6 +15376,39 @@ class MediaStreamHandler:
             frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
+            # 🔥 FIX #3: Track drop reasons explicitly
+            frames_dropped_by_ai_speaking_guard = getattr(self, '_frames_dropped_by_ai_speaking_guard', 0)
+            frames_dropped_by_gate_block = getattr(self, '_frames_dropped_by_gate_block', 0)
+            frames_dropped_by_pace_late = getattr(self, '_frames_dropped_by_pace_late', 0)
+            frames_dropped_by_unknown = getattr(self, '_frames_dropped_by_unknown', 0)
+            
+            # 🔥 VERIFICATION: Ensure drop counters add up correctly
+            sum_of_drop_reasons = (
+                frames_dropped_by_greeting_lock +
+                frames_dropped_by_filters +
+                frames_dropped_by_queue_full +
+                frames_dropped_by_ai_speaking_guard +
+                frames_dropped_by_gate_block +
+                frames_dropped_by_pace_late +
+                frames_dropped_by_unknown
+            )
+            if sum_of_drop_reasons != frames_dropped_total:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ DROP COUNTER MISMATCH: "
+                    f"frames_dropped_total={frames_dropped_total} but "
+                    f"sum_of_reasons={sum_of_drop_reasons}. "
+                    f"Some drops not categorized or counter bug."
+                )
+            
+            # 🔥 VERIFICATION: In SIMPLE_MODE, frames_in should equal frames_forwarded
+            if SIMPLE_MODE:
+                if frames_in_from_twilio != frames_forwarded_to_realtime + frames_dropped_total:
+                    logger.warning(
+                        f"[CALL_METRICS] ⚠️ FRAME ACCOUNTING ERROR: "
+                        f"frames_in={frames_in_from_twilio} != "
+                        f"frames_forwarded={frames_forwarded_to_realtime} + "
+                        f"frames_dropped={frames_dropped_total}"
+                    )
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
             # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
@@ -15250,7 +15418,11 @@ class MediaStreamHandler:
                     f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
                     f"greeting_lock={frames_dropped_by_greeting_lock}, "
                     f"filters={frames_dropped_by_filters}, "
-                    f"queue_full={frames_dropped_by_queue_full}. "
+                    f"queue_full={frames_dropped_by_queue_full}, "
+                    f"ai_speaking_guard={frames_dropped_by_ai_speaking_guard}, "
+                    f"gate_block={frames_dropped_by_gate_block}, "
+                    f"pace_late={frames_dropped_by_pace_late}, "
+                    f"unknown={frames_dropped_by_unknown}. "
                     f"In SIMPLE_MODE, no frames should be dropped."
                 )
             
@@ -15272,7 +15444,11 @@ class MediaStreamHandler:
                 "frames_dropped_total=%(frames_dropped_total)d, "
                 "frames_dropped_greeting=%(frames_dropped_greeting)d, "
                 "frames_dropped_filters=%(frames_dropped_filters)d, "
-                "frames_dropped_queue=%(frames_dropped_queue)d",
+                "frames_dropped_queue=%(frames_dropped_queue)d, "
+                "frames_dropped_ai_guard=%(frames_dropped_ai_guard)d, "
+                "frames_dropped_gate=%(frames_dropped_gate)d, "
+                "frames_dropped_pace=%(frames_dropped_pace)d, "
+                "frames_dropped_unknown=%(frames_dropped_unknown)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -15290,7 +15466,11 @@ class MediaStreamHandler:
                     'frames_dropped_total': frames_dropped_total,
                     'frames_dropped_greeting': frames_dropped_by_greeting_lock,
                     'frames_dropped_filters': frames_dropped_by_filters,
-                    'frames_dropped_queue': frames_dropped_by_queue_full
+                    'frames_dropped_queue': frames_dropped_by_queue_full,
+                    'frames_dropped_ai_guard': frames_dropped_by_ai_speaking_guard,
+                    'frames_dropped_gate': frames_dropped_by_gate_block,
+                    'frames_dropped_pace': frames_dropped_by_pace_late,
+                    'frames_dropped_unknown': frames_dropped_by_unknown
                 }
             )
             
@@ -15305,7 +15485,7 @@ class MediaStreamHandler:
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
-            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}, ai_guard={frames_dropped_by_ai_speaking_guard}, gate={frames_dropped_by_gate_block}, pace={frames_dropped_by_pace_late}, unknown={frames_dropped_by_unknown}")
             if SIMPLE_MODE and frames_dropped_total > 0:
                 print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
             
