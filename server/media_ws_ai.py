@@ -5248,34 +5248,19 @@ class MediaStreamHandler:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
 
                         # 🔴 BYE-ONLY HANGUP: Disconnect ONLY if BOT says explicit goodbye phrases
-                        # CRITICAL RULES:
-                        # 1. Only BOT saying bye (not user)
-                        # 2. Must match ביי OR להתראות OR שלום ולהתראות
-                        # 3. Must appear at END of response (last sentence)
-                        # 4. Actual hangup happens AFTER response.audio.done + queue drain
+                        # CRITICAL RULES (SIMPLIFIED):
+                        # 1. Only BOT saying bye (not user) - checked by event type (response.audio_transcript.done)
+                        # 2. Must match ביי OR להתראות (word boundary, anywhere in text)
+                        # 3. Actual hangup happens AFTER response.audio.done + queue drain
+                        # 4. No complex logic - just simple keyword matching
                         try:
                             _t_raw = (transcript or "").strip()
-                            # Normalize: remove punctuation but preserve word boundaries
-                            _t_norm = re.sub(r"""[.,;:!?"'()\[\]\{\}<>״""''\-–—]""", " ", _t_raw)
-                            _t_norm = " ".join(_t_norm.split()).lower()
                             
-                            # 🔥 BYE-ONLY: Check LAST sentence only (not middle)
-                            # Split by sentence delimiters and take the last meaningful part
-                            sentences = [s.strip() for s in re.split(r'[.!?]', _t_raw) if s.strip()]
-                            last_sentence = sentences[-1] if sentences else _t_raw
-                            last_sentence_norm = " ".join(re.sub(r"""[.,;:!?"'()\[\]\{\}<>״""''\-–—]""", " ", last_sentence).split()).lower()
-                            
-                            # 🔥 STRICT PATTERNS: Only ביי, להתראות, שלום ולהתראות
-                            # Use word boundary matching to avoid false positives
-                            # 🔥 FIX 3: Regex must match END of response only
-                            # Pattern: (bye_word)(?:\s*[.!?…"]\s*)?$ ensures it's at the end
-                            bye_patterns = [
-                                r"\bביי\b(?:\s*[.!?\"'׳״…]*\s*)?$",
-                                r"\bלהתראות\b(?:\s*[.!?\"'׳״…]*\s*)?$", 
-                                r"\bשלום[\s,]*ולהתראות\b(?:\s*[.!?\"'׳״…]*\s*)?$"  # 🔥 Point 3: Handles "שלום ולהתראות" or "שלום, ולהתראות"
-                            ]
-                            
-                            has_goodbye = any(re.search(pattern, last_sentence_norm) for pattern in bye_patterns)
+                            # 🔥 SIMPLIFIED: Just check if ביי OR להתראות appears with word boundaries
+                            # No need to check "end of sentence" - just presence of goodbye keyword
+                            # This matches: "ביי", "תודה ביי", "ביי ולהתראות", "להתראות", etc.
+                            # ✅ CRITICAL: Simple regex - one of two words must appear
+                            has_goodbye = re.search(r"\b(ביי|ו?להתראות)\b", _t_raw)
                             
                             if has_goodbye:
                                 resp_id = event.get('response_id')
