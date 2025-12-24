@@ -13,6 +13,10 @@ from flask import current_app, has_app_context
 
 log = logging.getLogger(__name__)
 
+# File-based lock configuration
+LOCK_TIMEOUT_SECONDS = 45  # Maximum time to wait for lock acquisition
+LOCK_POLL_INTERVAL = 0.5   # Check lock availability every 0.5 seconds
+
 def _get_recordings_dir() -> str:
     """
     ✅ מחזיר נתיב מוחלט לתיקיית הקלטות
@@ -96,14 +100,12 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     lock_file = None
     
     try:
-        # Open/create lock file
-        lock_file = open(lock_file_path, 'w')
+        # Open lock file (use 'a' mode to avoid truncation race condition)
+        lock_file = open(lock_file_path, 'a')
         
         # Try to acquire exclusive lock with timeout
         # LOCK_EX = exclusive lock, LOCK_NB = non-blocking
-        max_wait = 45  # Maximum seconds to wait for lock
-        wait_interval = 0.5  # Check every 0.5 seconds
-        attempts = int(max_wait / wait_interval)
+        attempts = int(LOCK_TIMEOUT_SECONDS / LOCK_POLL_INTERVAL)
         
         lock_acquired = False
         for attempt in range(attempts):
@@ -115,10 +117,10 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                 # Lock is held by another process, wait and retry
                 if attempt == 0:
                     log.info(f"[RECORDING_SERVICE] Waiting for lock on {call_sid} (another worker downloading)...")
-                time.sleep(wait_interval)
+                time.sleep(LOCK_POLL_INTERVAL)
         
         if not lock_acquired:
-            log.warning(f"[RECORDING_SERVICE] Could not acquire file lock for {call_sid} after {max_wait}s")
+            log.warning(f"[RECORDING_SERVICE] Could not acquire file lock for {call_sid} after {LOCK_TIMEOUT_SECONDS}s")
             # Check if file was created by other process while we waited
             for retry in range(3):
                 time.sleep(3)
@@ -127,8 +129,7 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                     return local_path
             log.error(f"[RECORDING_SERVICE] Timeout waiting for {call_sid} to be downloaded")
             return None
-    
-    try:
+        
         # Double-check file doesn't exist (another process may have created it before we got lock)
         if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
             log.info(f"[RECORDING_SERVICE] ✅ File already exists (created by another process): {local_path}")
