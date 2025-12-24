@@ -13,25 +13,27 @@ You were calling the wrong URL. Here's the fix:
 
 ### Correct URLs
 
-#### Option 1: Authenticated (for logged-in users)
+#### Option 1: Session-Authenticated (for web app only)
 ```
 ✅ POST https://prosaas.pro/api/whatsapp/send
    Headers:
-     Authorization: Bearer <token>
      Content-Type: application/json
+     Cookie: session=... (from browser)
    Body:
      {"to": "+972...", "message": "..."}
 ```
+**Note:** Only for logged-in web app users. Don't use for n8n!
 
-#### Option 2: Webhook (for n8n/external services) - NEW!
+#### Option 2: Webhook (for n8n/external services) - RECOMMENDED
 ```
 ✅ POST https://prosaas.pro/api/whatsapp/webhook/send
    Headers:
      X-Webhook-Secret: <your-secret>
      Content-Type: application/json
    Body:
-     {"to": "+972...", "message": "..."}
+     {"to": "+972...", "message": "...", "business_id": 1}
 ```
+**This is the one to use for n8n!**
 
 ---
 
@@ -79,10 +81,44 @@ Send a test request. You should get:
 
 ## 🐛 Troubleshooting
 
+### Understanding 405 Errors
+
+**405 can come from two places:**
+
+1. **nginx (before reaching Flask):**
+   - Response: HTML page with `Server: nginx` header
+   - Cause: URL path not proxied to backend OR POST method blocked
+   - Fix: Check nginx.conf routing
+
+2. **Flask backend (after nginx):**
+   - Response: JSON with error message
+   - Cause: Route exists but wrong HTTP method
+   - Fix: Check you're using POST, not GET
+
+**How to tell the difference:**
+```bash
+curl -i -X POST https://prosaas.pro/api/whatsapp/webhook/send -d '{}'
+```
+- Returns HTML = nginx issue (not reaching backend)
+- Returns JSON = backend issue (backend reached)
+
 ### Still getting 405?
-**Check:** Is your URL correct?
-- Must start with `/api/`
-- Full path: `/api/whatsapp/webhook/send`
+
+**Step 1:** Verify it's reaching the backend
+```bash
+curl -i -X POST https://prosaas.pro/api/whatsapp/webhook/send \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**If you get JSON response (400/401):** ✅ Backend is working!
+- 401 = Missing/wrong webhook secret
+- 400 = Missing required fields (to/message)
+
+**If you get HTML with nginx header:** ❌ nginx blocking
+- Check your URL path is exactly: `/api/whatsapp/webhook/send`
+- Verify nginx proxies `/api/` to backend
+- Check for any `limit_except` directives in nginx.conf
 
 ### Getting 401 Unauthorized?
 **Check:** Is your webhook secret correct?
@@ -110,9 +146,19 @@ Send a test request. You should get:
 
 ### Test 1: Check endpoint exists
 ```bash
-curl -i https://prosaas.pro/api/whatsapp/webhook/send
+# Test with OPTIONS
+curl -i -X OPTIONS https://prosaas.pro/api/whatsapp/webhook/send
+
+# Test with POST (empty body)
+curl -i -X POST https://prosaas.pro/api/whatsapp/webhook/send \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
-Expected: `401 Unauthorized` (means it exists!)
+
+**What to look for:**
+- ✅ Returns JSON with error (400/401) = Backend is working
+- ❌ Returns HTML from nginx = nginx blocking request
+- ❌ Returns 404 = Route doesn't exist
 
 ### Test 2: Send with secret
 ```bash

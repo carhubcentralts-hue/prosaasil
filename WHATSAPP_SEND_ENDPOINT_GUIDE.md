@@ -18,8 +18,10 @@ If you're getting **405 Method Not Allowed** from nginx, it means you're calling
 **Headers:**
 ```
 Content-Type: application/json
-Authorization: Bearer <your-token>
+Cookie: session=... (from browser login)
 ```
+
+**Note:** This endpoint requires active session authentication from the web app. For automated services (n8n, Zapier), use the webhook endpoint below instead.
 
 **Request Body:**
 ```json
@@ -49,18 +51,51 @@ Authorization: Bearer <your-token>
 
 ---
 
+### Webhook Endpoint (for n8n/automation)
+**URL:** `POST /api/whatsapp/webhook/send`
+
+**Headers:**
+```
+Content-Type: application/json
+X-Webhook-Secret: <secret-from-env>
+```
+
+**⚠️ Use this for n8n! Don't use session/cookie authentication for automated services.**
+
+**Request Body:**
+```json
+{
+  "to": "+972501234567",
+  "message": "Hello World",
+  "business_id": 1
+}
+```
+
+**Response:** Same as above
+
+---
+
 ## 🔧 n8n Integration
 
 ### Step 1: Configure HTTP Request Node
 
+**⚠️ Important: Use the webhook endpoint with X-Webhook-Secret header!**
+
 1. **Method:** `POST`
-2. **URL:** `https://prosaas.pro/api/whatsapp/send`
-3. **Authentication:** Choose "Header Auth" or "Generic Credential Type"
-   - **Name:** `Authorization`
-   - **Value:** `Bearer <your-token>`
-4. **Send Body:** ON
-5. **Body Content Type:** `JSON`
-6. **Specify Body:** `Using JSON`
+2. **URL:** `https://prosaas.pro/api/whatsapp/webhook/send`
+3. **Authentication:** None (we use custom header below)
+4. **Send Headers:** ON
+   - Add Header:
+     - **Name:** `X-Webhook-Secret`
+     - **Value:** `your-secret-from-env-file`
+5. **Send Body:** ON
+6. **Body Content Type:** `JSON`
+7. **Specify Body:** `Using JSON`
+
+**Do NOT use:**
+- ❌ Session cookies (they expire)
+- ❌ Authorization: Bearer tokens (for web app only)
+- ✅ Use X-Webhook-Secret header only
 
 ### Step 2: Configure Body
 
@@ -116,54 +151,41 @@ message=test
 
 ---
 
-## 🔒 Security: Add Webhook Secret
+## 🔒 Security Setup
 
-### For External Webhooks (n8n, Zapier, etc.)
+### For n8n/External Services (REQUIRED)
 
-To prevent unauthorized access, you have two options:
+The webhook endpoint is already implemented and secured with a secret header.
 
-### Option 1: Use Session Authentication
-Login to ProSaaS and use your session token.
+**Setup Steps:**
 
-### Option 2: Create a Webhook-Specific Endpoint
-
-Add this to your backend (recommended for n8n):
-
-```python
-@whatsapp_bp.route('/webhook/send', methods=['POST'])
-@csrf.exempt
-def send_via_webhook():
-    """Send WhatsApp message via webhook - for n8n/external services"""
-    
-    # Verify webhook secret
-    webhook_secret = request.headers.get('X-Webhook-Secret')
-    expected_secret = os.getenv('WHATSAPP_WEBHOOK_SECRET')
-    
-    if not webhook_secret or webhook_secret != expected_secret:
-        log.error("[WA-WEBHOOK] Unauthorized access attempt")
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
-    
-    # Get data
-    data = request.get_json(force=True)
-    to_number = data.get('to')
-    message = data.get('message')
-    business_id = data.get('business_id', 1)  # Default or from header
-    
-    if not to_number or not message:
-        return jsonify({"ok": False, "error": "missing_required_fields"}), 400
-    
-    # Send message
-    # ... (rest of send logic)
-```
-
-Then in `.env`:
+**1. Generate a secure secret:**
 ```bash
-WHATSAPP_WEBHOOK_SECRET=your-secret-key-here-generate-random
+openssl rand -hex 32
 ```
 
-And in n8n:
-- **Header Name:** `X-Webhook-Secret`
-- **Header Value:** `your-secret-key-here-generate-random`
+**2. Add to `.env` file:**
+```bash
+WHATSAPP_WEBHOOK_SECRET=<paste-generated-secret-here>
+```
+
+**3. Restart backend:**
+```bash
+docker-compose restart backend
+```
+
+**4. Configure n8n:**
+- **URL:** `https://prosaas.pro/api/whatsapp/webhook/send`
+- **Method:** POST
+- **Headers:**
+  - Name: `X-Webhook-Secret`
+  - Value: `<same-secret-from-env>`
+- **Body:** JSON (see examples above)
+
+**⚠️ Critical:**
+- ❌ Do NOT use session cookies for n8n (they expire)
+- ❌ Do NOT use Authorization: Bearer tokens (for web app only)
+- ✅ ONLY use `X-Webhook-Secret` header for automated services
 
 ---
 
@@ -172,11 +194,25 @@ And in n8n:
 ### Test 1: Check if endpoint is reachable
 
 ```bash
-curl -i https://prosaas.pro/api/whatsapp/send
+# Test 1a: Check OPTIONS (CORS/routing)
+curl -i -X OPTIONS https://prosaas.pro/api/whatsapp/send
+
+# Test 1b: Test POST with empty body (check if route exists)
+curl -i -X POST https://prosaas.pro/api/whatsapp/send \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
-**Expected:** `401 Unauthorized` or `405 Method Not Allowed` (means it reaches the backend)
-**Problem:** If you get `404 Not Found`, the route doesn't exist
+**Expected Results:**
+- **If returns JSON with error** (400/401) → ✅ Route exists, reached Flask backend
+- **If returns HTML with nginx header** → ❌ nginx blocking, not reaching backend
+- **If returns 404** → ❌ Route doesn't exist
+
+**Common Responses:**
+- `401 Unauthorized` (JSON) → Backend reached, needs auth
+- `400 Bad Request` (JSON) → Backend reached, missing fields
+- `405 Method Not Allowed` with nginx HTML → nginx blocking POST
+- `405 Method Not Allowed` (JSON) → Backend reached but wrong method
 
 ### Test 2: Test with authentication
 
