@@ -1619,6 +1619,12 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         
+        # 🔥 CRITICAL FIX: Initialize audio counters FIRST (before any threads/queues)
+        # These counters MUST exist for every call direction (inbound/outbound)
+        # Must be initialized before thread objects created to prevent race conditions
+        self.realtime_audio_in_chunks = 0   # Count of audio chunks received from Twilio
+        self.realtime_audio_out_chunks = 0  # Count of audio chunks sent to Twilio
+        
         # 🔥 SESSION LIFECYCLE GUARD: Atomic close protection
         self.closed = False
         self.close_lock = threading.Lock()
@@ -1803,11 +1809,7 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
-        # 🔥 CRITICAL FIX: Initialize audio counters in __init__ to prevent AttributeError
-        # These counters MUST exist for every call direction (inbound/outbound)
-        # Previously initialized in _run_realtime_mode_async which could run after first use
-        self.realtime_audio_in_chunks = 0   # Count of audio chunks received from Twilio
-        self.realtime_audio_out_chunks = 0  # Count of audio chunks sent to Twilio
+        # 🔥 Counters moved to top of __init__ (line ~1624) for race condition prevention
         
         # 🔥 NEW: Initialize backlog monitoring timestamps
         self._last_backlog_warning = 0.0  # For tx_q backlog warnings
