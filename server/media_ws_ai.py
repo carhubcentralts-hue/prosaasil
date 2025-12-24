@@ -2201,7 +2201,7 @@ class MediaStreamHandler:
         # Legacy fields (keeping for compatibility but using new gate logic)
         self.call_mode = None  # Will be set to "outbound_prompt_only" for outbound calls
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
-        # Note: greeting_pending removed - no longer needed with gate lock
+        self.greeting_pending = False  # Flag to defer greeting if active response exists (not used when gate exists)
         
         # C) 7-second silence detection
         self.last_user_activity_ts = time.time()  # Track last user audio/speech activity
@@ -3397,20 +3397,10 @@ class MediaStreamHandler:
                     _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
                     _session_wait_logged = False  # Reset for next check
                 
-                # 🔥 OUTBOUND_GATE: Block audio transmission while gate is WAITING
-                # Prevents OpenAI from processing audio/creating auto-responses before human confirmed
-                is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                if is_outbound and getattr(self, 'outbound_gate', None) == "WAIT_FOR_VOICE":
-                    # Drop audio frames - don't send to OpenAI until gate opens
-                    if not hasattr(self, '_outbound_gate_audio_block_logged'):
-                        _orig_print(f"[OUTBOUND_GATE] BLOCK audio→AI (state=WAITING)", flush=True)
-                        self._outbound_gate_audio_block_logged = True
-                    _frames_dropped += 1
-                    continue
-                elif is_outbound and getattr(self, '_outbound_gate_audio_block_logged', False):
-                    # Gate opened - resume audio transmission
-                    _orig_print(f"[OUTBOUND_GATE] Audio transmission RESUMED (gate=OPEN)", flush=True)
-                    del self._outbound_gate_audio_block_logged
+                # 🔥 OUTBOUND_GATE: Continue sending audio during WAITING (for VAD detection)
+                # Audio must flow to OpenAI so server_vad can detect speech and generate transcripts
+                # We block the RESPONSE creation, not the audio itself
+                # Blocking happens in trigger_response() and in response.created handler
                 
                 try:
                     audio_chunk = self.realtime_audio_in_queue.get_nowait()
@@ -4212,8 +4202,40 @@ class MediaStreamHandler:
                             self.barge_in_active = False
                             _orig_print(f"✅ [STATE_RESET] Response complete - drain check scheduled (response_id={resp_id[:20]}... status={status})", flush=True)
                             
-                            # 🔥 REMOVED: greeting_pending logic - no longer needed with gate lock
-                            # Gate lock prevents any responses before gate opens, so greeting_pending is obsolete
+                            # 🔥 GREETING_PENDING: Only used when there's NO gate (inbound or non-gate outbound)
+                            # When gate exists, greeting is triggered only after gate opens (no deferral needed)
+                            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                            has_gate = is_outbound and hasattr(self, 'outbound_gate')
+                            
+                            if not has_gate and getattr(self, 'greeting_pending', False) and not getattr(self, 'greeting_sent', False):
+                                self.greeting_pending = False
+                                print(f"✅ [GREETING_PENDING] Active response done - triggering deferred greeting now")
+                                logger.info("[GREETING_PENDING] Triggering deferred greeting after response.done")
+                                # Trigger greeting asynchronously
+                                async def _trigger_deferred_greeting():
+                                    try:
+                                        greeting_start_ts = time.time()
+                                        self.greeting_sent = True
+                                        self.is_playing_greeting = True
+                                        self.greeting_mode_active = True
+                                        self.greeting_lock_active = True
+                                        self._greeting_lock_response_id = None
+                                        self._greeting_start_ts = greeting_start_ts
+                                        logger.info("[GREETING_LOCK] activated (deferred after response.done)")
+                                        
+                                        triggered = await self.trigger_response("GREETING_DEFERRED", client, is_greeting=True, force=True)
+                                        if triggered:
+                                            print(f"✅ [GREETING_PENDING] Deferred greeting triggered successfully")
+                                        else:
+                                            print(f"❌ [GREETING_PENDING] Failed to trigger deferred greeting")
+                                            self.greeting_sent = False
+                                            self.is_playing_greeting = False
+                                    except Exception as e:
+                                        print(f"❌ [GREETING_PENDING] Error triggering deferred greeting: {e}")
+                                        import traceback
+                                        traceback.print_exc()
+                                
+                                asyncio.create_task(_trigger_deferred_greeting())
                         elif self.active_response_id:
                             # Mismatch - log but still schedule drain check to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
@@ -4792,6 +4814,33 @@ class MediaStreamHandler:
                         if hasattr(self, '_watchdog_utterance_id'):
                             self._watchdog_utterance_id = None
 
+                        # 🔥 OUTBOUND_GATE: Cancel auto-created responses during WAITING
+                        # If gate is still WAITING, this response shouldn't exist - cancel it immediately
+                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        if is_outbound and getattr(self, 'outbound_gate', None) == "WAIT_FOR_VOICE":
+                            # Gate is still waiting - this is an unwanted auto-response
+                            _orig_print(f"[OUTBOUND_GATE] BLOCKED_RESPONSE_DURING_GATE response_id={response_id[:20]}... - cancelling", flush=True)
+                            print(f"🛑 [OUTBOUND_GATE] Auto-response created during WAITING - cancelling immediately")
+                            
+                            # Cancel the response
+                            try:
+                                await client.send_event({
+                                    "type": "response.cancel",
+                                    "response_id": response_id
+                                })
+                                print(f"✅ [OUTBOUND_GATE] Response cancelled: {response_id[:20]}...")
+                                
+                                # Mark as cancelled locally to ignore its audio
+                                if not hasattr(self, '_gate_cancelled_responses'):
+                                    self._gate_cancelled_responses = set()
+                                self._gate_cancelled_responses.add(response_id)
+                                
+                            except Exception as cancel_err:
+                                print(f"❌ [OUTBOUND_GATE] Failed to cancel response: {cancel_err}")
+                            
+                            # Skip the rest of response.created processing
+                            continue
+
                         # 🔴 FINAL CRITICAL FIX #1:
                         # Bind greeting_response_id the moment the greeting response is created.
                         if getattr(self, "greeting_lock_active", False) and not getattr(self, "_greeting_lock_response_id", None):
@@ -4838,6 +4887,14 @@ class MediaStreamHandler:
                     audio_b64 = event.get("delta", "")
                     response_id = event.get("response_id", "")
                     if audio_b64:
+                        # 🔥 OUTBOUND_GATE: Drop audio from cancelled responses during WAITING
+                        if response_id and hasattr(self, '_gate_cancelled_responses') and response_id in self._gate_cancelled_responses:
+                            # This audio is from a response we cancelled during gate WAITING - drop it
+                            if not hasattr(self, '_gate_cancelled_audio_logged'):
+                                print(f"🗑️ [OUTBOUND_GATE] Dropping audio from cancelled response (gate was WAITING)")
+                                self._gate_cancelled_audio_logged = True
+                            continue
+                        
                         # ═══════════════════════════════════════════════════════════════
                         # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (DEBUG only)
                         # ═══════════════════════════════════════════════════════════════
