@@ -898,6 +898,8 @@ export function SettingsPage() {
                     value={integrationSettings.inbound_webhook_url || ''}
                     onChange={(e) => setIntegrationSettings({...integrationSettings, inbound_webhook_url: e.target.value})}
                     placeholder="https://n8n.example.com/webhook/inbound"
+                    pattern="https?://.*"
+                    title="URL חייב להתחיל ב-http:// או https://"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     dir="ltr"
                     data-testid="input-inbound-webhook-url"
@@ -915,6 +917,8 @@ export function SettingsPage() {
                     value={integrationSettings.outbound_webhook_url || ''}
                     onChange={(e) => setIntegrationSettings({...integrationSettings, outbound_webhook_url: e.target.value})}
                     placeholder="https://n8n.example.com/webhook/outbound"
+                    pattern="https?://.*"
+                    title="URL חייב להתחיל ב-http:// או https://"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
                     dir="ltr"
                     data-testid="input-outbound-webhook-url"
@@ -932,6 +936,8 @@ export function SettingsPage() {
                     value={integrationSettings.status_webhook_url || ''}
                     onChange={(e) => setIntegrationSettings({...integrationSettings, status_webhook_url: e.target.value})}
                     placeholder="https://n8n.example.com/webhook/status-changes"
+                    pattern="https?://.*"
+                    title="URL חייב להתחיל ב-http:// או https://"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
                     dir="ltr"
                     data-testid="input-status-webhook-url"
@@ -959,6 +965,8 @@ export function SettingsPage() {
                     value={integrationSettings.generic_webhook_url || ''}
                     onChange={(e) => setIntegrationSettings({...integrationSettings, generic_webhook_url: e.target.value})}
                     placeholder="https://n8n.example.com/webhook/all"
+                    pattern="https?://.*"
+                    title="URL חייב להתחיל ב-http:// או https://"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white"
                     dir="ltr"
                     data-testid="input-webhook-url"

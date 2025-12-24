@@ -16,6 +16,21 @@ from server.models_sql import BusinessSettings, Lead
 
 log = logging.getLogger(__name__)
 
+# Track invalid URLs we've already warned about (to avoid spam)
+# Note: This is per-worker/process. Each worker will log once per unique URL.
+# This is acceptable and avoids the complexity of cross-process coordination.
+_warned_invalid_urls = set()
+
+def _is_valid_webhook_url(url: str) -> bool:
+    """
+    Validate webhook URL format - must start with http:// or https://
+    Prevents invalid URLs like 'popopop' from being sent
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    return url.startswith('http://') or url.startswith('https://')
+
 # Hebrew status mapping - canonical lowercase to Hebrew display
 STATUS_HE_MAP = {
     'new': 'חדש',
@@ -71,6 +86,15 @@ def dispatch_lead_status_webhook(
         
         if not settings or not settings.status_webhook_url:
             log.debug(f"No status webhook configured for business {business_id}")
+            return False
+        
+        # Validate webhook URL format
+        if not _is_valid_webhook_url(settings.status_webhook_url):
+            # Create unique key for this invalid URL to log warning only once
+            url_key = f"status:{business_id}:{settings.status_webhook_url}"
+            if url_key not in _warned_invalid_urls:
+                _warned_invalid_urls.add(url_key)
+                log.warning(f"Invalid status webhook URL for business {business_id}: {settings.status_webhook_url} - URL must start with http:// or https://")
             return False
         
         # Check if status actually changed

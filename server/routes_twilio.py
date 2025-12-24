@@ -1245,11 +1245,11 @@ def call_status():
                                 daemon=True,
                                 name=f"FillSlots-{job.id}"
                             ).start()
-                            log.info(f"✅ [QUEUE] Call completed for job {job.id}, filling slots")
+                            logger.info(f"✅ [QUEUE] Call completed for job {job.id}, filling slots")
                         else:
                             db.session.commit()
             except Exception as queue_err:
-                log.warning(f"Queue slot fill error (non-critical): {queue_err}")
+                logger.warning(f"Queue slot fill error (non-critical): {queue_err}")
             
             # 🔥 VERIFICATION #1: Close handler from webhook for terminal statuses
             if call_sid:

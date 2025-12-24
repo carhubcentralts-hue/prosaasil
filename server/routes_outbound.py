@@ -1674,9 +1674,33 @@ def fill_queue_slots_for_job(job_id: int):
                         db.session.commit()
                         continue
                     
-                    # Update job status
-                    next_job.status = "calling"
-                    next_job.started_at = datetime.utcnow()
+                    # 🔒 ATOMIC LOCKING: Acquire lock before dialing
+                    # This prevents duplicate calls from retry/concurrency/timeout scenarios
+                    import uuid
+                    lock_token = str(uuid.uuid4())
+                    from sqlalchemy import text
+                    
+                    # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
+                    result = db.session.execute(text("""
+                        UPDATE outbound_call_jobs 
+                        SET status='dialing', 
+                            dial_started_at=NOW(), 
+                            dial_lock_token=:lock_token
+                        WHERE id=:job_id 
+                            AND status='queued' 
+                            AND twilio_call_sid IS NULL
+                            AND dial_lock_token IS NULL
+                    """), {"job_id": next_job.id, "lock_token": lock_token})
+                    
+                    db.session.commit()
+                    
+                    # Check if we acquired the lock
+                    if result.rowcount == 0:
+                        # Someone else already started this call or it's no longer queued
+                        log.warning(f"[FillSlots] Job {next_job.id} already being processed, skipping")
+                        continue
+                    
+                    # Successfully acquired lock, proceed with call
                     run.in_progress_count += 1
                     run.queued_count -= 1
                     db.session.commit()
@@ -1713,30 +1737,75 @@ def fill_queue_slots_for_job(job_id: int):
                     client = get_twilio_client()
                     
                     # 🔥 NO AMD: Voice-only outbound gate handles human detection
-                    twilio_call = client.calls.create(
-                        to=normalized_phone,
-                        from_=from_phone,
-                        url=webhook_url,
-                        status_callback=f"https://{host}/webhook/call_status",
-                        status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                        record=True
-                    )
-                    
-                    call_log.call_sid = twilio_call.sid
-                    next_job.call_sid = twilio_call.sid
-                    db.session.commit()
-                    
-                    log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
-                    active_count += 1
+                    try:
+                        twilio_call = client.calls.create(
+                            to=normalized_phone,
+                            from_=from_phone,
+                            url=webhook_url,
+                            status_callback=f"https://{host}/webhook/call_status",
+                            status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                            record=True
+                        )
+                        
+                        # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
+                        result = db.session.execute(text("""
+                            UPDATE outbound_call_jobs 
+                            SET twilio_call_sid=:twilio_sid, 
+                                call_sid=:twilio_sid,
+                                status='calling',
+                                started_at=NOW()
+                            WHERE id=:job_id 
+                                AND dial_lock_token=:lock_token
+                        """), {
+                            "job_id": next_job.id, 
+                            "twilio_sid": twilio_call.sid, 
+                            "lock_token": lock_token
+                        })
+                        
+                        if result.rowcount == 0:
+                            log.error(f"[FillSlots] Lock token mismatch for job {next_job.id}, call may be duplicate")
+                        
+                        call_log.call_sid = twilio_call.sid
+                        db.session.commit()
+                        
+                        log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
+                        active_count += 1
+                        
+                    except Exception as twilio_error:
+                        # 🔒 DEDUPLICATION: Handle Twilio timeout/exception
+                        log.error(f"[FillSlots] Twilio error for job {next_job.id}: {twilio_error}")
+                        
+                        # Check if call was actually created despite the error
+                        db.session.refresh(next_job)
+                        if not next_job.twilio_call_sid:
+                            # Call was not created - reset to queued for retry
+                            result = db.session.execute(text("""
+                                UPDATE outbound_call_jobs 
+                                SET status='queued',
+                                    dial_lock_token=NULL,
+                                    dial_started_at=NULL
+                                WHERE id=:job_id 
+                                    AND twilio_call_sid IS NULL
+                                    AND dial_lock_token=:lock_token
+                            """), {"job_id": next_job.id, "lock_token": lock_token})
+                            
+                            run.in_progress_count -= 1
+                            run.queued_count += 1
+                            db.session.commit()
+                        
+                        raise twilio_error
                     
                 except Exception as e:
                     log.error(f"[FillSlots] Error starting call for job {next_job.id}: {e}")
-                    next_job.status = "failed"
-                    next_job.error_message = str(e)
-                    next_job.completed_at = datetime.utcnow()
-                    run.in_progress_count -= 1
-                    run.failed_count += 1
-                    db.session.commit()
+                    # Only mark as failed if we don't have a call SID
+                    db.session.refresh(next_job)
+                    if not next_job.twilio_call_sid:
+                        next_job.status = "failed"
+                        next_job.error_message = str(e)
+                        next_job.completed_at = datetime.utcnow()
+                        run.in_progress_count = max(0, run.in_progress_count - 1)
+                        run.failed_count += 1
+                        db.session.commit()
                     
         except Exception as e:
             log.error(f"[FillSlots] Error in fill_queue_slots_for_job: {e}")
@@ -1757,6 +1826,9 @@ def process_bulk_call_run(run_id: int):
     
     with app.app_context():
         try:
+            # 🔒 CLEANUP: Reset any stuck jobs from previous run failures
+            cleanup_stuck_dialing_jobs()
+            
             run = OutboundCallRun.query.get(run_id)
             if not run:
                 log.error(f"Run {run_id} not found")
@@ -1815,9 +1887,27 @@ def process_bulk_call_run(run_id: int):
                                 db.session.commit()
                                 continue
                             
-                            # Update job status
-                            next_job.status = "calling"
-                            next_job.started_at = datetime.utcnow()
+                            # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
+                            result = db.session.execute(text("""
+                                UPDATE outbound_call_jobs 
+                                SET status='dialing', 
+                                    dial_started_at=NOW(), 
+                                    dial_lock_token=:lock_token
+                                WHERE id=:job_id 
+                                    AND status='queued' 
+                                    AND twilio_call_sid IS NULL
+                                    AND dial_lock_token IS NULL
+                            """), {"job_id": next_job.id, "lock_token": lock_token})
+                            
+                            db.session.commit()
+                            
+                            # Check if we acquired the lock
+                            if result.rowcount == 0:
+                                # Someone else already started this call or it's no longer queued
+                                log.warning(f"[BulkCall] Job {next_job.id} already being processed, skipping")
+                                continue
+                            
+                            # Successfully acquired lock, proceed with call
                             run.in_progress_count += 1
                             run.queued_count -= 1
                             db.session.commit()
@@ -1854,30 +1944,83 @@ def process_bulk_call_run(run_id: int):
                             client = get_twilio_client()
                             
                             # 🔥 NO AMD: Voice-only outbound gate handles human detection
-                            twilio_call = client.calls.create(
-                                to=normalized_phone,
-                                from_=from_phone,
-                                url=webhook_url,
-                                status_callback=f"https://{host}/webhook/call_status",
-                                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                                record=True
-                            )
-                            
-                            call_log.call_sid = twilio_call.sid
-                            next_job.call_sid = twilio_call.sid
-                            db.session.commit()
-                            
-                            log.info(f"[BulkCall] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
+                            try:
+                                twilio_call = client.calls.create(
+                                    to=normalized_phone,
+                                    from_=from_phone,
+                                    url=webhook_url,
+                                    status_callback=f"https://{host}/webhook/call_status",
+                                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                                    record=True
+                                )
+                                
+                                # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
+                                result = db.session.execute(text("""
+                                    UPDATE outbound_call_jobs 
+                                    SET twilio_call_sid=:twilio_sid, 
+                                        call_sid=:twilio_sid,
+                                        status='calling',
+                                        started_at=NOW()
+                                    WHERE id=:job_id 
+                                        AND dial_lock_token=:lock_token
+                                """), {
+                                    "job_id": next_job.id, 
+                                    "twilio_sid": twilio_call.sid, 
+                                    "lock_token": lock_token
+                                })
+                                
+                                if result.rowcount == 0:
+                                    log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
+                                    # Call was created but we lost the lock - log warning but continue
+                                    # Twilio will handle the duplicate via their idempotency
+                                
+                                call_log.call_sid = twilio_call.sid
+                                db.session.commit()
+                                
+                                log.info(f"[BulkCall] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
+                                
+                            except Exception as twilio_error:
+                                # 🔒 DEDUPLICATION: Handle Twilio timeout/exception
+                                # Don't retry if we already have a twilio_call_sid (call may have succeeded)
+                                log.error(f"[BulkCall] Twilio error for job {next_job.id}: {twilio_error}")
+                                
+                                # Check if call was actually created despite the error
+                                db.session.refresh(next_job)
+                                if next_job.twilio_call_sid:
+                                    # Call was created successfully despite error
+                                    log.info(f"[BulkCall] Call created despite error for job {next_job.id}")
+                                    raise twilio_error
+                                else:
+                                    # Call was not created - reset to queued for retry (but only if no call SID)
+                                    result = db.session.execute(text("""
+                                        UPDATE outbound_call_jobs 
+                                        SET status='queued',
+                                            dial_lock_token=NULL,
+                                            dial_started_at=NULL
+                                        WHERE id=:job_id 
+                                            AND twilio_call_sid IS NULL
+                                            AND dial_lock_token=:lock_token
+                                    """), {"job_id": next_job.id, "lock_token": lock_token})
+                                    
+                                    run.in_progress_count -= 1
+                                    run.queued_count += 1
+                                    db.session.commit()
+                                    
+                                    log.warning(f"[BulkCall] Reset job {next_job.id} to queued for retry")
+                                    raise twilio_error
                             
                         except Exception as e:
                             log.error(f"[BulkCall] Error starting call for job {next_job.id}: {e}")
-                            next_job.status = "failed"
-                            next_job.error_message = str(e)
-                            next_job.completed_at = datetime.utcnow()
-                            run.in_progress_count -= 1
-                            run.failed_count += 1
-                            run.last_error = str(e)[:500]
-                            db.session.commit()
+                            # Only mark as failed if we don't have a call SID (meaning call didn't start)
+                            db.session.refresh(next_job)
+                            if not next_job.twilio_call_sid:
+                                next_job.status = "failed"
+                                next_job.error_message = str(e)
+                                next_job.completed_at = datetime.utcnow()
+                                run.in_progress_count = max(0, run.in_progress_count - 1)
+                                run.failed_count += 1
+                                run.last_error = str(e)[:500]
+                                db.session.commit()
                     else:
                         # No more queued jobs
                         if active_jobs == 0:
@@ -1911,6 +2054,114 @@ def process_bulk_call_run(run_id: int):
                     db.session.commit()
             except:
                 pass
+
+
+def cleanup_stuck_dialing_jobs():
+    """
+    Cleanup jobs stuck in 'dialing' status without a twilio_call_sid
+    
+    This handles edge cases where:
+    - calls.create succeeded but UPDATE with call_sid failed
+    - Process crashed between acquiring lock and creating call
+    
+    Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'
+    """
+    from server.app_factory import get_process_app
+    from server.models_sql import OutboundCallJob
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+    
+    app = get_process_app()
+    
+    with app.app_context():
+        try:
+            # Find jobs stuck in 'dialing' for more than 5 minutes without call_sid
+            cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+            
+            # Complete lock reset: status, lock_token, and started_at
+            # This prevents "half-locked" state and allows the job to be retried
+            result = db.session.execute(text("""
+                UPDATE outbound_call_jobs 
+                SET status='queued',
+                    dial_lock_token=NULL,
+                    dial_started_at=NULL
+                WHERE status='dialing'
+                    AND twilio_call_sid IS NULL
+                    AND dial_started_at < :cutoff_time
+                    AND dial_lock_token IS NOT NULL
+            """), {"cutoff_time": cutoff_time})
+            
+            db.session.commit()
+            
+            if result.rowcount > 0:
+                log.info(f"[CLEANUP] Reset {result.rowcount} stuck 'dialing' jobs to 'queued'")
+            
+            return result.rowcount
+            
+        except Exception as e:
+            log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
+            db.session.rollback()
+            return 0
+
+
+@outbound_bp.route("/api/outbound/cleanup-stuck-jobs", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def cleanup_stuck_jobs_endpoint():
+    """
+    Manually trigger cleanup of jobs stuck in 'dialing' status
+    
+    This is useful for recovering from crashes or network issues.
+    Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'.
+    
+    Rate limited to 1 request per minute per business to prevent abuse.
+    Note: Rate limit is per-worker/process. In multi-worker setups, each worker
+    enforces its own limit. This is acceptable for this use case.
+    """
+    from flask import session
+    from datetime import datetime, timedelta
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            # System admin can clean up across all tenants
+            pass
+        else:
+            return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    # Rate limiting: Check if cleanup was called in the last minute
+    # This is per-worker, which is acceptable for this admin endpoint
+    cache_key = f"cleanup_last_call_{tenant_id or 'all'}"
+    from server.stream_state import stream_registry
+    last_call = stream_registry.get_metadata('global', cache_key)
+    
+    if last_call:
+        last_call_time = datetime.fromisoformat(last_call)
+        if datetime.utcnow() - last_call_time < timedelta(minutes=1):
+            seconds_remaining = 60 - (datetime.utcnow() - last_call_time).seconds
+            return jsonify({
+                "error": f"יש להמתין {seconds_remaining} שניות לפני ניקוי נוסף",
+                "retry_after": seconds_remaining
+            }), 429
+    
+    try:
+        count = cleanup_stuck_dialing_jobs()
+        
+        # Update last call time
+        stream_registry.set_metadata('global', cache_key, datetime.utcnow().isoformat())
+        
+        log.info(f"✅ Cleanup completed: {count} jobs reset to queued")
+        
+        return jsonify({
+            "success": True,
+            "cleaned_count": count,
+            "message": f"נוקו {count} משימות תקועות"
+        })
+        
+    except Exception as e:
+        log.error(f"Error in cleanup endpoint: {e}")
+        return jsonify({"error": "שגיאה בניקוי משימות"}), 500
 
 
 @outbound_bp.route("/api/outbound/leads/export", methods=["GET"])

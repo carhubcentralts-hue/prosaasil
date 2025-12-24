@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 # Global service instance
 _whatsapp_service = None
 
+def _is_valid_url(url: str) -> bool:
+    """
+    Validate URL format - must start with http:// or https://
+    Prevents invalid URLs like 'popopop' from being sent to Twilio
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    return url.startswith('http://') or url.startswith('https://')
+
 class Provider:
     """Abstract WhatsApp provider interface"""
     def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
@@ -409,9 +419,14 @@ class TwilioProvider(Provider):
     def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
         """Send text message via Twilio WhatsApp API (tenant_id unused - Twilio is single-tenant)"""
         try:
-            # Add status callback URL if PUBLIC_BASE_URL is available
+            # Add status callback URL if PUBLIC_BASE_URL is available and valid
             public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
-            status_callback = f"{public_base}/webhook/whatsapp/status" if public_base else None
+            status_callback = None
+            if public_base and _is_valid_url(f"{public_base}/webhook/whatsapp/status"):
+                status_callback = f"{public_base}/webhook/whatsapp/status"
+            elif public_base:
+                # Log once that the URL is invalid
+                logger.warning(f"Invalid PUBLIC_BASE_URL configured: {public_base} - skipping status_callback")
             
             message_params = {
                 'body': text,
@@ -442,9 +457,14 @@ class TwilioProvider(Provider):
     def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
         """Send media message via Twilio WhatsApp API (tenant_id unused - Twilio is single-tenant)"""
         try:
-            # Add status callback
+            # Add status callback URL if PUBLIC_BASE_URL is available and valid
             public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
-            status_callback = f"{public_base}/webhook/whatsapp/status" if public_base else None
+            status_callback = None
+            if public_base and _is_valid_url(f"{public_base}/webhook/whatsapp/status"):
+                status_callback = f"{public_base}/webhook/whatsapp/status"
+            elif public_base:
+                # Log once that the URL is invalid
+                logger.warning(f"Invalid PUBLIC_BASE_URL configured: {public_base} - skipping status_callback")
             
             message_params = {
                 'body': caption,

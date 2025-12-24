@@ -20,6 +20,22 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "prosaas-webhook-secret-key")
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 3, 10]
 
+# Track invalid URLs we've already warned about (to avoid spam)
+# Note: This is per-worker/process. Each worker will log once per unique URL.
+# This is acceptable and avoids the complexity of cross-process coordination.
+_warned_invalid_urls = set()
+
+
+def _is_valid_webhook_url(url: str) -> bool:
+    """
+    Validate webhook URL format - must start with http:// or https://
+    Prevents invalid URLs like 'popopop' from being sent
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    return url.startswith('http://') or url.startswith('https://')
+
 
 def generate_signature(payload: str) -> str:
     """Generate HMAC-SHA256 signature for webhook payload"""
@@ -102,6 +118,16 @@ def send_generic_webhook(
                 logger.info(f"[WEBHOOK] Using generic_webhook_url for business {business_id}")
         
         if not webhook_url:
+            return False
+        
+        # Validate webhook URL format before sending
+        if not _is_valid_webhook_url(webhook_url):
+            # Create unique key for this invalid URL to log warning only once
+            webhook_type = direction or "generic"
+            url_key = f"{webhook_type}:{business_id}:{webhook_url}"
+            if url_key not in _warned_invalid_urls:
+                _warned_invalid_urls.add(url_key)
+                logger.warning(f"[WEBHOOK] Invalid webhook URL for business {business_id} (type={webhook_type}): {webhook_url} - URL must start with http:// or https://")
             return False
         
         payload = {
