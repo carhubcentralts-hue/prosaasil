@@ -2198,6 +2198,7 @@ class MediaStreamHandler:
         # D) Watchdog for silent mode (bot gets stuck)
         self._watchdog_timer_active = False  # Track if watchdog is active
         self._watchdog_utterance_id = None  # Track which utterance watchdog is for (idempotent)
+        self.pending_user_utterance = False  # Track if there's a user utterance awaiting AI response
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -4774,6 +4775,15 @@ class MediaStreamHandler:
                         # This allows cancellation even if audio hasn't started yet
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                        
+                        # 🔥 WATCHDOG: Clear pending_user_utterance - AI is responding now
+                        if hasattr(self, 'pending_user_utterance'):
+                            self.pending_user_utterance = False
+                            print(f"[WATCHDOG] pending_user_utterance=False (AI responding)")
+                        
+                        # 🔥 WATCHDOG: Clear watchdog ID - response is being created
+                        if hasattr(self, '_watchdog_utterance_id'):
+                            self._watchdog_utterance_id = None
 
                         # 🔴 FINAL CRITICAL FIX #1:
                         # Bind greeting_response_id the moment the greeting response is created.
@@ -6154,6 +6164,12 @@ class MediaStreamHandler:
                         f"will_generate_response={not is_filler_only}"
                     )
                     
+                    # 🔥 WATCHDOG: Set pending_user_utterance flag for valid utterances
+                    # This tells the watchdog there's something to respond to
+                    if not is_filler_only and text and len(text.strip()) > 0:
+                        self.pending_user_utterance = True
+                        print(f"[WATCHDOG] pending_user_utterance=True (valid utterance received)")
+                    
                     # 🔥 MASTER CHECK: Confirm transcript committed to model (Path A - Realtime-native)
                     # Transcript is already in session state via conversation.item.input_audio_transcription.completed
                     # No manual conversation.item.create needed - OpenAI handles it automatically
@@ -6189,29 +6205,54 @@ class MediaStreamHandler:
                     else:
                         print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     
-                    # 🔥 NEW REQUIREMENT D: Watchdog for silent mode (MINIMAL - one retry only)
-                    # Start a 3-second timer. If no response.created by then, retry response.create ONCE
-                    utterance_id = f"{time.time()}_{text[:WATCHDOG_UTTERANCE_ID_LENGTH]}"  # Unique ID for this utterance
+                    # ═══════════════════════════════════════════════════════════════════════════
+                    # 🔥 WATCHDOG: Conservative retry logic (DISABLED in SIMPLE_MODE)
+                    # ═══════════════════════════════════════════════════════════════════════════
+                    # Requirements:
+                    # 1. DISABLED completely in SIMPLE_MODE (90% of duplicate response issues)
+                    # 2. Only active when:
+                    #    - There is a pending_user_utterance (something to respond to)
+                    #    - 3-4 seconds have passed
+                    #    - No response.created since that utterance
+                    # 3. All other cases → don't fire watchdog
                     
-                    async def _watchdog_retry_response(watchdog_utterance_id):
-                        """
-                        Minimal watchdog: if AI doesn't respond after 3s, retry response.create ONCE.
-                        """
-                        try:
-                            await asyncio.sleep(WATCHDOG_TIMEOUT_SEC)  # Wait 3 seconds
+                    # Only start watchdog if:
+                    # - NOT in SIMPLE_MODE
+                    # - NOT a filler utterance
+                    # - We have valid text to respond to
+                    if not SIMPLE_MODE and not is_filler_only and text and len(text.strip()) > 0:
+                        utterance_id = f"{time.time()}_{text[:WATCHDOG_UTTERANCE_ID_LENGTH]}"
+                        
+                        async def _watchdog_retry_response(watchdog_utterance_id, utterance_text):
+                            """
+                            Conservative watchdog: ONLY fires if there's a pending utterance
+                            that hasn't received a response after 3.5 seconds.
                             
-                            # Check if this watchdog is still relevant
-                            if self._watchdog_utterance_id != watchdog_utterance_id:
-                                return
-                            
-                            # Check if AI has responded
-                            if (not self.response_pending_event.is_set() and
-                                not self.is_ai_speaking_event.is_set() and
-                                not getattr(self, "has_pending_ai_response", False)):
+                            Disabled in SIMPLE_MODE to prevent duplicate responses.
+                            """
+                            try:
+                                await asyncio.sleep(3.5)  # Wait 3.5 seconds (was 3.0)
                                 
-                                # AI didn't respond - retry response.create ONCE
-                                print(f"🐕 [WATCHDOG] No response after 3s - retrying response.create")
-                                logger.warning(f"[WATCHDOG] Retrying response.create after 3s timeout")
+                                # Check 1: Is this watchdog still relevant?
+                                if self._watchdog_utterance_id != watchdog_utterance_id:
+                                    return  # Newer utterance exists, this watchdog is stale
+                                
+                                # Check 2: Is there actually a pending utterance?
+                                # Only fire if we have something to respond to
+                                if not hasattr(self, 'pending_user_utterance') or not self.pending_user_utterance:
+                                    return  # No pending utterance, watchdog not needed
+                                
+                                # Check 3: Has AI already responded?
+                                if (self.response_pending_event.is_set() or
+                                    self.is_ai_speaking_event.is_set() or
+                                    getattr(self, "has_pending_ai_response", False) or
+                                    getattr(self, "active_response_id", None)):
+                                    return  # AI already responding, watchdog not needed
+                                
+                                # All checks passed - AI truly hasn't responded to a valid utterance
+                                # This is a real stuck state - retry ONCE
+                                print(f"🐕 [WATCHDOG] No response after 3.5s to utterance: '{utterance_text[:40]}...' - retrying")
+                                logger.warning(f"[WATCHDOG] Retrying response.create after 3.5s for: '{utterance_text[:30]}'")
                                 
                                 # Get realtime client
                                 realtime_client = getattr(self, 'realtime_client', None)
@@ -6220,17 +6261,23 @@ class MediaStreamHandler:
                                         # Simple retry - just send response.create
                                         await realtime_client.send_event({"type": "response.create"})
                                         print(f"✅ [WATCHDOG] Retry response.create sent")
+                                        # Clear watchdog - we only retry ONCE per utterance
+                                        self._watchdog_utterance_id = None
                                     except Exception as e:
                                         print(f"❌ [WATCHDOG] Error retrying response: {e}")
-                        except asyncio.CancelledError:
-                            pass
-                        except Exception as e:
-                            print(f"❌ [WATCHDOG] Error in watchdog: {e}")
-                    
-                    # Only start watchdog if not a filler
-                    if not is_filler_only:
+                                        logger.error(f"[WATCHDOG] Retry failed: {e}")
+                            except asyncio.CancelledError:
+                                pass
+                            except Exception as e:
+                                print(f"❌ [WATCHDOG] Error in watchdog: {e}")
+                        
+                        # Start watchdog task
                         self._watchdog_utterance_id = utterance_id
-                        asyncio.create_task(_watchdog_retry_response(utterance_id))
+                        asyncio.create_task(_watchdog_retry_response(utterance_id, text))
+                        print(f"🐕 [WATCHDOG] Started for utterance: '{text[:30]}...' (SIMPLE_MODE={SIMPLE_MODE})")
+                    elif SIMPLE_MODE:
+                        # Explicitly log that watchdog is disabled in SIMPLE_MODE
+                        print(f"[WATCHDOG] DISABLED in SIMPLE_MODE - no retry will fire")
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
