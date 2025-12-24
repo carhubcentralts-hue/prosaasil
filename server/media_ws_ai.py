@@ -1803,6 +1803,12 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
+        # 🔥 CRITICAL FIX: Initialize audio counters in __init__ to prevent AttributeError
+        # These counters MUST exist for every call direction (inbound/outbound)
+        # Previously initialized in _run_realtime_mode_async which could run after first use
+        self.realtime_audio_in_chunks = 0   # Count of audio chunks received from Twilio
+        self.realtime_audio_out_chunks = 0  # Count of audio chunks sent to Twilio
+        
         # 🎯 PROBE 4: Queue Flow Probe tracking
         self._enq_counter = 0  # Frames enqueued to realtime_audio_out_queue
         self._enq_last_log_time = time.monotonic()
@@ -2516,8 +2522,9 @@ class MediaStreamHandler:
         client = None
         call_start_time = time.time()
         
-        self.realtime_audio_in_chunks = 0
-        self.realtime_audio_out_chunks = 0
+        # 🔥 REMOVED: Counters now initialized in __init__ (line ~1806)
+        # self.realtime_audio_in_chunks = 0
+        # self.realtime_audio_out_chunks = 0
         self._user_speech_start = None
         self._ai_speech_start = None
         
@@ -4853,7 +4860,8 @@ class MediaStreamHandler:
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
                         if not hasattr(self, '_ai_speech_start') or self._ai_speech_start is None:
                             self._ai_speech_start = now
-                        self.realtime_audio_out_chunks += 1
+                        # 🛡️ DEFENSIVE: Use getattr fallback to prevent AttributeError crashes
+                        self.realtime_audio_out_chunks = getattr(self, "realtime_audio_out_chunks", 0) + 1
                         
                         # ✅ P0-3: Track last audio delta timestamp for watchdog
                         self._last_audio_delta_ts = now
@@ -5643,7 +5651,8 @@ class MediaStreamHandler:
                         # 💰 COST TRACKING: AI finished speaking - stop timer (DEBUG only)
                         if hasattr(self, '_ai_speech_start') and self._ai_speech_start is not None:
                             ai_duration = time.time() - self._ai_speech_start
-                            logger.debug(f"[COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
+                            ai_chunks = getattr(self, 'realtime_audio_out_chunks', 0)
+                            logger.debug(f"[COST] AI utterance: {ai_duration:.2f}s ({ai_chunks} chunks)")
                             self._ai_speech_start = None  # Reset for next utterance
                         
                         # Track conversation
@@ -6333,7 +6342,8 @@ class MediaStreamHandler:
                     # 💰 COST TRACKING: User finished speaking - stop timer (DEBUG only)
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
                         user_duration = time.time() - self._user_speech_start
-                        logger.debug(f"[COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
+                        user_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
+                        logger.debug(f"[COST] User utterance: {user_duration:.2f}s ({user_chunks} chunks total)")
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
@@ -8562,7 +8572,8 @@ class MediaStreamHandler:
                     self.rx += 1
                     # 🔥 FIX: Count ALL frames received from Twilio (before any filtering)
                     # This is the source of truth for "frames_in" - must happen here, not after filters
-                    self.realtime_audio_in_chunks += 1
+                    # 🛡️ DEFENSIVE: Use getattr fallback to prevent AttributeError crashes
+                    self.realtime_audio_in_chunks = getattr(self, "realtime_audio_in_chunks", 0) + 1
                     # 🔴 GREETING_LOCK (HARD, earliest):
                     # While greeting is playing, the bot must NOT "hear" the caller at all.
                     # Drop inbound frames immediately (no decode/RMS/VAD/buffer/append/commit/barge-in paths).
