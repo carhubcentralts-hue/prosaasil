@@ -1,269 +1,120 @@
-# 🎯 סיכום תיקון קריטי - ZERO BUGS ACHIEVED ✨
+# Critical Fixes for Race Condition Handler
 
-## התיקון הושלם בהצלחה! 
+## Issues Addressed (Comment #3690267970)
 
-כל הבעיות הקריטיות שזוהו בלוגי הפרודקשן תוקנו במלואן.
+### 1. ✅ ERROR Logging in DEBUG=1 (Minimal Mode)
+**Status**: Already correct
+- `force_print()` always logs errors regardless of DEBUG level
+- `logger.exception()` always logs exceptions with traceback
+- No changes needed - errors are never silenced
 
----
+### 2. ✅ Handle Race with close_session()
+**Issue**: If `close_session()` runs early (Twilio STOP), then `transcript.done` arrives late, `maybe_execute_hangup()` would try to execute on a closed session.
 
-## 📋 בעיות שתוקנו
-
-### 1️⃣ שגיאות DB Schema (Migration 39) ✅
-
-**הבעיה:**
-```
-psycopg2.errors.UndefinedColumn: column call_log.audio_bytes_len does not exist
-```
-
-**התיקון:**
-- נוספה Migration 39 ב-`server/db_migrate.py`
-- הוספנו 3 עמודות חסרות ל-`call_log`:
-  - `audio_bytes_len BIGINT` - גודל קובץ ההקלטה
-  - `audio_duration_sec DOUBLE PRECISION` - משך ההקלטה בשניות
-  - `transcript_source VARCHAR(32)` - מקור התמלול
-- המיגרציה idempotent - ניתן להריץ מספר פעמים בבטחה
-
-**קוד:**
+**Fix Applied**:
 ```python
-if not check_column_exists('call_log', 'audio_bytes_len'):
-    db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_bytes_len BIGINT"))
+# Check if session is closed (prevent race with close_session)
+if getattr(self, 'closed', False):
+    return
 ```
 
----
+Added as first check in `maybe_execute_hangup()` to prevent execution after session closure.
 
-### 2️⃣ InFailedSqlTransaction - Cascade Errors ✅
-
-**הבעיה:**
-```
-InFailedSqlTransaction: current transaction is aborted
-```
-
-**התיקון:**
-הוספנו 21 קריאות ל-`db.session.rollback()` בכל מקום שיש exception של DB:
-
-- **api_adapter.py** (10 מקומות):
-  - בכל query של calls/whatsapp/payments
-  - ב-dashboard_stats ו-dashboard_activity
-  
-- **tasks_recording.py** (5 מקומות):
-  - process_recording_async
-  - save_call_to_db
-  - business context queries
-  
-- **media_ws_ai.py** (1 מקום):
-  - finalize_in_background
-  
-- **routes_leads.py** (5 מקומות):
-  - list_leads
-  - create_lead_note
-  - update_lead_note
-  - upload_note_attachment
-  - upload_lead_attachment
-
-**קוד לדוגמה:**
+### 3. ✅ Clear audio_done_by_response_id in close_session()
+**Status**: Already implemented (line 8056)
 ```python
-except Exception as e:
-    db.session.rollback()
-    logger.error(f"Error: {e}")
+if hasattr(self, 'audio_done_by_response_id'):
+    self.audio_done_by_response_id.clear()
 ```
 
----
+This prevents stale response_id from previous calls triggering racefix incorrectly.
 
-### 3️⃣ tool_choice Scope Error ✅
+### 4. ✅ Handle Stuck Frames (300-500ms threshold)
+**Issue**: In production, `tx_q.qsize()` sometimes stays at 1 due to thread shutdown, causing "said bye but won't disconnect" situation.
 
-**הבעיה:**
-```
-cannot access free variable 'tool_choice' where it is not associated with a value
-```
+**Fix Applied**:
+- Reduced stuck detection from 3 seconds to 500ms
+- Changed `STUCK_THRESHOLD` from 30 to 5 iterations (5 * 100ms = 500ms)
+- Check if `tx_running` is False (TX thread stopped)
+- Proceed with hangup if TX thread is dead and frames are stuck
+- Log warning when proceeding with stuck frames
 
-**התיקון:**
-העברנו את הגדרת `tool_choice` להיות **לפני** ה-closure, לא בתוכו:
-
+**Code**:
 ```python
-# 🔥 BEFORE (BAD):
-if realtime_tools:
-    tool_choice = "auto"  # ❌ הוגדר רק בתוך if
-else:
-    async def _load_appointment_tool():
-        tool_choice  # ❌ לא מוגדר כאן!
+STUCK_THRESHOLD = 5  # 500ms without progress (5 * 100ms)
 
-# ✅ AFTER (GOOD):
-tool_choice = "auto"  # ✅ מוגדר תמיד, לפני הכל
-if realtime_tools:
-    ...
-else:
-    async def _load_appointment_tool():
-        tool_choice  # ✅ כעת זה עובד!
+if stuck_iterations >= STUCK_THRESHOLD:
+    tx_running = getattr(self, 'tx_running', False)
+    if not tx_running:
+        # TX thread stopped but queue has frames - proceed with hangup
+        _orig_print(f"⚠️ [POLITE HANGUP] TX thread stopped with {tx_size} frames stuck - proceeding anyway", flush=True)
+        break
 ```
 
-**קובץ:** `server/media_ws_ai.py` שורה 2508
+## Updated Conditions in maybe_execute_hangup()
 
----
+Now checks **8 conditions** (added session closure check):
+1. ✅ Session not closed (`self.closed == False`)
+2. ✅ `hangup_executed == False`
+3. ✅ `pending_hangup == True`
+4. ✅ `pending_hangup_response_id == response_id`
+5. ✅ `active_response_status != "cancelled"`
+6. ✅ `audio_done_by_response_id[response_id] == True`
+7. ✅ `tx_q.empty()`
+8. ✅ `realtime_audio_out_queue.empty()`
 
-### 4️⃣ WebSocket Close Error Spam ✅
+## Expected Behavior in Production
 
-**הבעיה:**
+### Normal Goodbye Flow
 ```
-ERROR: Unexpected ASGI message 'websocket.close'
-ERROR: 'SyncWebSocketWrapper' object has no attribute 'close'
-```
-
-**התיקון:**
-תיקנו את הלוגיקה ההפוכה ב-error handling:
-
-```python
-# 🔥 BEFORE (BAD):
-if 'websocket.close' not in error_msg:  # ❌ הפוך!
-    print(f"[DEBUG] Error: {e}")
-
-# ✅ AFTER (GOOD):
-if 'websocket.close' in error_msg or 'asgi' in error_msg:
-    print(f"[DEBUG] Websocket already closed (expected): {e}")  # ✅ DEBUG רמה
-else:
-    print(f"Error in final websocket close: {e}")  # ❌ ERROR רק לבעיות אמיתיות
+[BOT_BYE_DETECTED] response_id=resp_abc123... text='ביי ולהתראות'
+[POLITE_HANGUP] via=audio.done resp_id=resp_abc123...
+[HANGUP] executed reason=bot_goodbye_bye_only call_sid=CA123...
 ```
 
-**קובץ:** `server/media_ws_ai.py` שורה 7774
-
----
-
-### 5️⃣ קבצים בהערות לא נשמרים! 🔥 **הבעיה הכי חמורה** ✅
-
-**הבעיה:**
-משתמש מעלה קובץ → נראה שהקובץ קיים → שומר → הקובץ נעלם לגמרי! 😱
-
-**3 סיבות שורש:**
-
-#### א. SQLAlchemy לא עוקב אחר JSON fields
-```python
-# ❌ BAD: SQLAlchemy doesn't track changes to mutable objects
-note.attachments = attachments
-db.session.commit()  # ❌ לא נשמר!
-
-# ✅ GOOD: Mark field as modified
-note.attachments = attachments
-from sqlalchemy.orm.attributes import flag_modified
-flag_modified(note, 'attachments')  # ✅ עכשיו SQLAlchemy יודע ששינינו!
-db.session.commit()  # ✅ נשמר!
+### Race Condition Flow
+```
+[BOT_BYE_DETECTED] response_id=resp_abc123... text='ביי ולהתראות'
+[POLITE_HANGUP] via=transcript.done_racefix resp_id=resp_abc123...
+[HANGUP] executed reason=bot_goodbye_bye_only call_sid=CA123...
 ```
 
-**תוקן ב-3 מקומות:**
-- `create_lead_note()` - שורה 1675
-- `update_lead_note()` - שורה 1720
-- `upload_note_attachment()` - שורה 1813
-
-#### ב. אי-התאמה בין כתיבה לקריאה
-```python
-# ❌ BAD: Upload saves to JSON field
-note.attachments = [...]  # ✅ שומר ל-JSON
-
-# ❌ But GET reads from different table!
-all_attachments = LeadAttachment.query...  # ❌ קורא מטבלה אחרת!
-
-# ✅ GOOD: Read from same place we write
-return note.attachments  # ✅ קורא מאותו שדה JSON
+### Stuck Frames Flow
+```
+[BOT_BYE_DETECTED] response_id=resp_abc123... text='ביי ולהתראות'
+⚠️ [POLITE HANGUP] TX thread stopped with 1 frames stuck - proceeding anyway
+[POLITE_HANGUP] via=audio.done resp_id=resp_abc123...
+[HANGUP] executed reason=bot_goodbye_bye_only call_sid=CA123...
 ```
 
-**תוקן:** `get_lead_notes()` שורה 1631 - הסרנו 15 שורות קוד מיותר
-
-#### ג. כפתור מנוטרל בלי קבצים
-```typescript
-// ❌ BAD: Button disabled if no text, even with files
-disabled={!newNoteContent.trim()}  // ❌ לא ניתן לשמור קבצים בלי טקסט
-
-// ✅ GOOD: Allow save with files only
-disabled={!newNoteContent.trim() && pendingFiles.length === 0}
+### Condition Failure (DEBUG=0 only)
+```
+[BOT_BYE_DETECTED] response_id=resp_abc123... text='ביי ולהתראות'
+[MAYBE_HANGUP] Conditions not met (via=audio.done): ['tx_empty']
 ```
 
-**תוקן:** `LeadDetailPage.tsx` שורות 1942, 1948, 2175
+## Troubleshooting Guide
 
----
+If you see `[BOT_BYE_DETECTED]` but no `[POLITE_HANGUP]`:
 
-## 📊 סיכום השינויים
+1. **Check DEBUG=0 logs** for `[MAYBE_HANGUP] Conditions not met` message
+2. **Most likely failures**:
+   - `tx_empty`: Queue still has frames (should resolve with stuck frame fix)
+   - `out_q_empty`: OpenAI queue still has frames (wait longer)
+   - `audio_done`: audio.done event didn't arrive (OpenAI API issue)
+   - `response_id_match`: Mismatch between pending and received response_id
 
-| קובץ | שינויים | תיאור |
-|------|---------|-------|
-| `server/db_migrate.py` | +32 שורות | Migration 39 - עמודות חסרות |
-| `server/api_adapter.py` | +14 שורות | 10 rollback calls |
-| `server/tasks_recording.py` | +34 שורות | 5 rollback calls + function signature |
-| `server/media_ws_ai.py` | +15 שורות | tool_choice fix + rollback + WS errors |
-| `server/routes_leads.py` | +64 שורות | flag_modified × 3 + rollback × 5 + read fix |
-| `client/.../LeadDetailPage.tsx` | +10 שורות | Enable files-only notes |
-| `test_migration_39.py` | +114 שורות | Test for migration |
-| **סה"כ** | **283 שורות** | **21 rollback + 3 flag_modified** |
+3. **If stuck forever**:
+   - Verify TX thread is running: `tx_running` should be True
+   - Check if stuck frame detection kicked in (500ms threshold)
+   - Verify queues are actually draining (not stuck at same size)
 
----
+## Testing Checklist
 
-## ✅ מה עובד עכשיו
-
-### קריאות למסד נתונים:
-- ✅ כל שגיאה עוקבת ב-rollback מיידי
-- ✅ אין InFailedSqlTransaction
-- ✅ לא קורסים בגלל schema mismatch
-- ✅ Pipeline post-call שלם
-
-### הערות ליד עם קבצים:
-- ✅ העלאת קובץ בלי טקסט → עובד!
-- ✅ העלאת קובץ עם טקסט → עובד!
-- ✅ הקבצים נשמרים ב-DB
-- ✅ הקבצים מוצגים אחרי שמירה
-- ✅ הקבצים מוצגים בעריכה
-- ✅ אין קבצים שנעלמים!
-
-### כלים ו-WebSocket:
-- ✅ רישום כלים לא קורס
-- ✅ אין ERROR spam בלוגים
-- ✅ סגירה נקייה של connections
-
----
-
-## 🚀 להפעלה בפרודקשן
-
-### 1. Deploy קוד
-```bash
-git checkout copilot/fix-db-schema-mismatch
-git pull origin copilot/fix-db-schema-mismatch
-```
-
-### 2. הרץ Migration 39
-```bash
-python -m server.db_migrate
-```
-
-### 3. אמת שהעמודות נוספו
-```sql
-SELECT column_name, data_type
-FROM information_schema.columns
-WHERE table_name='call_log'
-AND column_name IN ('recording_sid','audio_bytes_len','audio_duration_sec','transcript_source');
-```
-
-צריך להחזיר 4 שורות.
-
-### 4. בדוק בלוגים
-אחרי deploy, ודא שאין:
-- ❌ `UndefinedColumn` errors
-- ❌ `InFailedSqlTransaction` errors  
-- ❌ `tool_choice` errors
-- ❌ WebSocket `ASGI` ERROR messages
-
-### 5. בדוק הערות עם קבצים
-1. לך ללקוח בדף Leads
-2. הוסף הערה חדשה
-3. העלה קובץ (בלי טקסט)
-4. שמור
-5. ✅ הקובץ צריך להישאר!
-
----
-
-## 🎯 ZERO BUGS - הושג!
-
-כל הבעיות הקריטיות מהלוגים תוקנו:
-1. ✅ DB Schema errors
-2. ✅ Transaction errors
-3. ✅ Tool registration errors
-4. ✅ WebSocket spam
-5. ✅ קבצים לא נשמרים
-6. ✅ קבצים נעלמים
-
-**המערכת כעת יציבה ומוכנה לפרודקשן!** 🎉
+- [ ] Normal flow: Bot says goodbye → disconnects within 2-3 seconds
+- [ ] Race flow: audio.done before transcript.done → still disconnects
+- [ ] Stuck frames: TX thread dies with frames in queue → disconnects anyway (500ms)
+- [ ] Session closed: transcript.done after close_session → no exception, graceful return
+- [ ] Cancelled response: User interrupts goodbye → no disconnect
+- [ ] DEBUG=1: Only sees BOT_BYE_DETECTED, POLITE_HANGUP, errors
+- [ ] DEBUG=0: Sees condition failures for debugging
