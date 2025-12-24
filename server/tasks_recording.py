@@ -89,7 +89,7 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
 
 
-def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number=""):
+def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
     """
     🔥 FIX: Enqueue PRIORITY job to download recording (without transcription)
     Used by UI when user clicks "play" to get recording ASAP
@@ -103,11 +103,15 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         "business_id": business_id,
         "from_number": from_number,
         "to_number": to_number,
-        "retry_count": 0,
+        "retry_count": retry_count,  # 🔥 FIX: Track retry count
         "type": "download_only"  # 🔥 NEW: Just download, skip transcription
     })
-    print(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid}")
-    log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: {call_sid}")
+    if retry_count == 0:
+        print(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid}")
+        log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: {call_sid}")
+    else:
+        print(f"🔁 [DOWNLOAD_ONLY] Retry {retry_count} enqueued for {call_sid}")
+        log.info(f"[DOWNLOAD_ONLY] Retry {retry_count} enqueued: {call_sid}")
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""
@@ -194,7 +198,8 @@ def start_recording_worker(app):
                                     recording_url=recording_url,
                                     business_id=business_id,
                                     from_number=from_number,
-                                    to_number=to_number
+                                    to_number=to_number,
+                                    retry_count=retry_count + 1  # 🔥 FIX: Increment retry count
                                 )
                             
                             retry_thread = threading.Thread(target=delayed_retry, daemon=True)
