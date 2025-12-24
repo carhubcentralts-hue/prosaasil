@@ -183,6 +183,24 @@ class CallState(Enum):
     ENDED = "ended"         # Call finished, cleanup done
 
 
+class FrameDropReason(Enum):
+    """
+    🔥 DIAGNOSTIC: Precise reasons for frame drops in SIMPLE_MODE
+    
+    Used to track WHY frames are being dropped even when all filters should be off.
+    Each drop path must increment the appropriate counter to enable debugging.
+    """
+    GREETING_LOCK = "greeting_lock"          # Dropped during greeting protection window
+    ECHO_GATE = "echo_gate"                  # Dropped by echo suppression (AI speaking)
+    ECHO_DECAY = "echo_decay"                # Dropped during post-AI echo decay window
+    AUDIO_GUARD = "audio_guard"              # Dropped by audio quality filter
+    MUSIC_MODE = "music_mode"                # Dropped during music detection
+    QUEUE_FULL = "queue_full"                # Dropped due to queue capacity
+    NOISE_GATE = "noise_gate"                # Dropped by noise threshold
+    SESSION_NOT_READY = "session_not_ready"  # Dropped before session.updated
+    OTHER = "other"                          # Unknown/uncategorized drop
+
+
 # 🔥 BUILD 172: CALL CONFIG - Loaded from BusinessSettings
 @dataclass
 class CallConfig:
@@ -2076,8 +2094,22 @@ class MediaStreamHandler:
         
         # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
-        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
+        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters (echo gate, decay, etc.)
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
+        
+        # 🔥 DIAGNOSTIC: Detailed frame drop tracking by reason
+        # Dictionary mapping FrameDropReason -> count for precise debugging
+        self._frames_dropped_by_reason = {
+            FrameDropReason.GREETING_LOCK: 0,
+            FrameDropReason.ECHO_GATE: 0,
+            FrameDropReason.ECHO_DECAY: 0,
+            FrameDropReason.AUDIO_GUARD: 0,
+            FrameDropReason.MUSIC_MODE: 0,
+            FrameDropReason.QUEUE_FULL: 0,
+            FrameDropReason.NOISE_GATE: 0,
+            FrameDropReason.SESSION_NOT_READY: 0,
+            FrameDropReason.OTHER: 0,
+        }
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3046,6 +3078,7 @@ class MediaStreamHandler:
                             if lead_id and hasattr(self, 'call_sid') and self.call_sid:
                                 try:
                                     from server.models_sql import CallLog
+                                    from server.db import db
                                     from sqlalchemy.orm import scoped_session, sessionmaker
                                     
                                     # ✅ P0-1: Create new session for this background thread
@@ -3226,6 +3259,7 @@ class MediaStreamHandler:
                         _greeting_block_logged = True
                     self._stats_audio_blocked += 1
                     _frames_dropped += 1  # counted as "withheld" during lock
+                    self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
                     continue
 
                 # If greeting just ended, discard any buffered audio (should be empty) and resume live audio.
@@ -8348,6 +8382,7 @@ class MediaStreamHandler:
                         try:
                             self._stats_audio_blocked += 1
                             self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                            self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
                         except Exception:
                             pass
                         continue
@@ -8527,6 +8562,10 @@ class MediaStreamHandler:
                                         if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
                                             print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
                                             self._echo_gate_logged = True
+                                        # 🔥 FIX: Track frame drop reason
+                                        self._stats_audio_blocked += 1
+                                        self._frames_dropped_by_filters += 1  # Dropped by echo gate filter
+                                        self._frames_dropped_by_reason[FrameDropReason.ECHO_GATE] += 1  # Detailed tracking
                                         continue
                                     elif window_is_open:
                                         # Forwarding window is open - let audio through
@@ -8546,6 +8585,10 @@ class MediaStreamHandler:
                                             if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
                                                 print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
                                                 self._echo_decay_logged = True
+                                            # 🔥 FIX: Track frame drop reason
+                                            self._stats_audio_blocked += 1
+                                            self._frames_dropped_by_filters += 1  # Dropped by echo decay filter
+                                            self._frames_dropped_by_reason[FrameDropReason.ECHO_DECAY] += 1  # Detailed tracking
                                             continue
                                     else:
                                         # Echo decay complete - reset log flags for next AI response
@@ -8611,6 +8654,16 @@ class MediaStreamHandler:
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
+                                # 🔥 FIX: Track queue full drops
+                                self._stats_audio_blocked += 1
+                                self._frames_dropped_by_queue_full += 1
+                                self._frames_dropped_by_reason[FrameDropReason.QUEUE_FULL] += 1  # Detailed tracking
+                                # Rate-limit logging
+                                if not hasattr(self, '_queue_full_log_count'):
+                                    self._queue_full_log_count = 0
+                                self._queue_full_log_count += 1
+                                if self._queue_full_log_count % 50 == 1:
+                                    print(f"⚠️ [QUEUE_FULL] Dropped {self._queue_full_log_count} frames - realtime_audio_in_queue full")
                                 pass
                         else:
                             # 🔥 BUILD 171: Enhanced logging for debugging
@@ -14328,11 +14381,20 @@ class MediaStreamHandler:
             # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
             # Filters should also respect SIMPLE_MODE (passthrough)
             if SIMPLE_MODE and frames_dropped_total > 0:
+                # Get detailed breakdown from enum-tracked reasons
+                reason_breakdown = []
+                for reason, count in getattr(self, '_frames_dropped_by_reason', {}).items():
+                    if count > 0:
+                        reason_breakdown.append(f"{reason.value}={count}")
+                
+                reason_details = ", ".join(reason_breakdown) if reason_breakdown else "unknown"
+                
                 logger.warning(
                     f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
                     f"greeting_lock={frames_dropped_by_greeting_lock}, "
                     f"filters={frames_dropped_by_filters}, "
                     f"queue_full={frames_dropped_by_queue_full}. "
+                    f"Detailed breakdown: {reason_details}. "
                     f"In SIMPLE_MODE, no frames should be dropped."
                 )
             
