@@ -178,10 +178,32 @@ def start_recording_worker(app):
                         print(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
                         log.info(f"[DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
                     else:
-                        print(f"❌ [DOWNLOAD_ONLY] Failed to download recording for {call_sid}")
-                        log.error(f"[DOWNLOAD_ONLY] Failed to download recording: {call_sid}")
+                        # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
+                        if retry_count < 2:
+                            import time
+                            import threading
+                            
+                            delay = 5  # Short delay for download retries
+                            print(f"⚠️ [DOWNLOAD_ONLY] Download failed for {call_sid}, retrying in {delay}s")
+                            log.warning(f"[DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
+                            
+                            def delayed_retry():
+                                time.sleep(delay)
+                                enqueue_recording_download_only(
+                                    call_sid=call_sid,
+                                    recording_url=recording_url,
+                                    business_id=business_id,
+                                    from_number=from_number,
+                                    to_number=to_number
+                                )
+                            
+                            retry_thread = threading.Thread(target=delayed_retry, daemon=True)
+                            retry_thread.start()
+                        else:
+                            print(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                            log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                     
-                    # Always mark as done (no retry for download_only)
+                    # Always mark as done
                     RECORDING_QUEUE.task_done()
                     continue
                 

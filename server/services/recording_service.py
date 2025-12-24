@@ -98,9 +98,10 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     # 🔥 FIX: Check if download is already in progress (by another thread/process)
     if is_download_in_progress(call_sid):
         log.info(f"[RECORDING_SERVICE] Download already in progress for {call_sid} (another worker) - waiting...")
-        # Wait for up to 30 seconds for the other download to complete
-        for wait_attempt in range(15):  # 15 * 2 = 30 seconds
-            time.sleep(2)
+        # Wait with exponential backoff for up to 30 seconds
+        wait_delays = [1, 2, 4, 8, 15]  # Total: 30 seconds
+        for delay in wait_delays:
+            time.sleep(delay)
             if check_local_recording_exists(call_sid):
                 log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
                 return local_path
@@ -111,14 +112,18 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     if not mark_download_started(call_sid):
         # Someone else started between our check and mark - wait for them
         log.info(f"[RECORDING_SERVICE] Another worker started download for {call_sid} - waiting...")
-        for wait_attempt in range(15):
-            time.sleep(2)
+        wait_delays = [1, 2, 4, 8, 15]  # Total: 30 seconds
+        for delay in wait_delays:
+            time.sleep(delay)
             if check_local_recording_exists(call_sid):
                 log.info(f"[RECORDING_SERVICE] ✅ File became available: {local_path}")
                 return local_path
         return None
     
     # From this point, we're responsible for the download
+    download_success = False  # Track if download actually succeeded
+    lock_file = None  # Track lock file for cleanup in finally
+    
     try:
         # 2. Download from Twilio using call_log.recording_url
         if not call_log.recording_url:
@@ -128,7 +133,6 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         # 🔥 FIX: Use file-based lock to prevent concurrent downloads across multiple workers/pods
         # File locks work across processes and containers sharing the same volume
         lock_file_path = os.path.join(recordings_dir, f".{call_sid}.lock")
-        lock_file = None
         
         try:
             # Open lock file (use 'a' mode to avoid truncation race condition)
@@ -209,6 +213,7 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                 if download_time > 10:
                     log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
                 
+                download_success = True  # 🔥 FIX: Mark successful download
                 return local_path
                 
             except Exception as e:
@@ -232,8 +237,10 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                     log.debug(f"[RECORDING_SERVICE] Error removing lock file: {e}")
     
     finally:
-        # 🔥 FIX: Always mark download as finished
-        mark_download_finished(call_sid)
+        # 🔥 FIX: Only mark download as finished if we actually attempted it
+        # Don't mark as finished if we returned early (no recording_url, etc.)
+        if download_success or lock_file is not None:
+            mark_download_finished(call_sid)
 
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:
