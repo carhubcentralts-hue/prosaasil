@@ -101,14 +101,16 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
             _download_locks[call_sid] = threading.Lock()
         download_lock = _download_locks[call_sid]
     
-    # Try to acquire lock with timeout - if another thread is downloading, wait briefly
-    lock_acquired = download_lock.acquire(blocking=True, timeout=60)  # Increased to 60s
+    # Try to acquire lock with timeout - if another thread is downloading, wait
+    # 45 seconds should be enough for most downloads (typical recording: 1-10MB over reasonable connection)
+    lock_acquired = download_lock.acquire(blocking=True, timeout=45)
     
     if not lock_acquired:
         log.warning(f"[RECORDING_SERVICE] Could not acquire lock for {call_sid} - another download in progress")
-        # Wait longer and retry checking if file exists (other thread may have finished)
-        for retry in range(5):  # Retry up to 5 times
-            time.sleep(3)  # Wait 3 seconds between retries
+        # Wait and retry checking if file exists (other thread may have finished)
+        # Total additional wait: 9 seconds (3 retries × 3s), so max 54s total
+        for retry in range(3):  # Reduced to 3 retries
+            time.sleep(3)
             if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
                 log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
                 return local_path
@@ -173,9 +175,12 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     finally:
         # Always release lock
         download_lock.release()
-        # Note: We don't remove lock from dictionary immediately to allow other threads
-        # to see it's locked. Lock objects are lightweight and will be garbage collected
-        # when no longer referenced. For explicit cleanup, use a background cleanup task.
+        # Note: Locks remain in _download_locks dictionary to prevent race conditions.
+        # Memory impact is minimal (Lock objects are ~80 bytes each).
+        # For production systems with millions of recordings, consider:
+        # 1. Periodic cleanup: Remove locks older than 5 minutes
+        # 2. Use WeakValueDictionary (requires Python 3.9+)
+        # 3. LRU cache with maxsize to limit dictionary growth
 
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:
