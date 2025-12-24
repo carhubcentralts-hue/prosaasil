@@ -51,31 +51,7 @@ def abs_url(path: str) -> str:
     base   = f"{scheme}://{host}"
     return f"{base}{path}"
 
-def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
-    """Watchdog to redirect calls if WebSocket fails"""
-    time.sleep(start_timeout)
-    st = stream_registry.get(call_sid)
-    if not st.get("started"):
-        _do_redirect(call_sid, wss_host, reason="no_stream_start")
-        return
-    if time.time() - st.get("last_media_at", 0) > no_media_timeout:
-        _do_redirect(call_sid, wss_host, reason="no_media")
 
-def _do_redirect(call_sid, wss_host, reason):
-    """Watchdog redirect function"""
-    current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
-    # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
-    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-    host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
-    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
-    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Record playBeep="false" timeout="4" maxLength="30" transcribe="false" action="https://{host}/webhook/handle_recording"/></Response>'
-    try:
-        # Use Deployment ENV vars (critical for production)
-        client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
-        client.calls(call_sid).update(twiml=twiml)
-        current_app.logger.info("WATCHDOG_REDIRECT_OK", extra={"call_sid": call_sid})
-    except Exception:
-        current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
 def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
     """
