@@ -168,10 +168,32 @@ async def ws_twilio_media(websocket: WebSocket):
     try:
         print("[REALTIME] INSIDE try block - importing MediaStreamHandler...", flush=True)
         twilio_log.info("[REALTIME] Importing MediaStreamHandler...")
-        # Import MediaStreamHandler
-        from server.media_ws_ai import MediaStreamHandler
-        print("[REALTIME] MediaStreamHandler imported successfully!", flush=True)
-        twilio_log.info("[REALTIME] MediaStreamHandler imported successfully")
+        # Import MediaStreamHandler with comprehensive error handling
+        # 🔥 NEW: Catch import errors to prevent "Application error" in Twilio
+        try:
+            from server.media_ws_ai import MediaStreamHandler
+            print("[REALTIME] MediaStreamHandler imported successfully!", flush=True)
+            twilio_log.info("[REALTIME] MediaStreamHandler imported successfully")
+        except (ImportError, SyntaxError, AttributeError) as import_err:
+            # Critical import failure - log and close WebSocket gracefully
+            error_msg = f"CRITICAL: Failed to import MediaStreamHandler: {type(import_err).__name__}: {import_err}"
+            print(f"[REALTIME] {error_msg}", flush=True)
+            twilio_log.error(f"[REALTIME] {error_msg}")
+            import traceback
+            traceback_str = traceback.format_exc()
+            print(f"[REALTIME] Import traceback:\n{traceback_str}", flush=True)
+            twilio_log.error(f"[REALTIME] Import traceback:\n{traceback_str}")
+            
+            # Close WebSocket gracefully with error message
+            try:
+                await websocket.send_text(json.dumps({
+                    "event": "error",
+                    "error": "Server configuration error - contact support"
+                }))
+                await websocket.close(code=1011, reason="Server error")
+            except Exception:
+                pass
+            return  # Exit handler - no point continuing without MediaStreamHandler
         
         # Task 1: Receive from Starlette WS → put in queue for sync handler
         async def receive_loop():

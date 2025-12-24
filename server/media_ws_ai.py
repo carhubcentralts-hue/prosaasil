@@ -1072,10 +1072,41 @@ def _close_session(call_sid: str):
             if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
 def _register_handler(call_sid: str, handler):
-    """Register MediaStreamHandler for webhook-triggered close (thread-safe)"""
+    """
+    Register MediaStreamHandler for webhook-triggered close (thread-safe)
+    
+    🔥 SHADOW HANDLER PROTECTION: If handler already exists for call_sid,
+    close it first to prevent duplicate handlers causing weird behavior.
+    """
     with _handler_registry_lock:
+        # Check if handler already exists (shadow handler from previous instance)
+        existing_handler = _handler_registry.get(call_sid)
+        # Only close if it's a different handler (not the same object being re-registered)
+        if existing_handler and existing_handler is not handler:
+            _orig_print(
+                f"⚠️ [REGISTRY_REPLACED] Found existing handler for {call_sid[:8]}... - closing shadow handler",
+                flush=True
+            )
+            # Close the existing handler outside the lock to prevent deadlock
+            # Store it to close after releasing lock
+            shadow_handler = existing_handler
+        else:
+            shadow_handler = None
+        
+        # Register new handler
         _handler_registry[call_sid] = handler
         _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
+    
+    # Close shadow handler if found (outside lock to prevent deadlock)
+    # This runs outside the lock to prevent blocking and potential deadlocks
+    if shadow_handler:
+        try:
+            _orig_print(f"🧹 [REGISTRY_REPLACED] Closing shadow handler for {call_sid[:8]}...", flush=True)
+            shadow_handler.close_session("replaced_by_new_handler")
+        except Exception as e:
+            _orig_print(f"⚠️ [REGISTRY_REPLACED] Error closing shadow handler: {e}", flush=True)
+            import traceback
+            _orig_print(f"   Traceback: {traceback.format_exc()}", flush=True)
 
 def _get_handler(call_sid: str):
     """Get MediaStreamHandler for a call (thread-safe)"""
@@ -1619,6 +1650,12 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         
+        # 🔥 CRITICAL FIX: Initialize audio counters FIRST (before any threads/queues)
+        # These counters MUST exist for every call direction (inbound/outbound)
+        # Must be initialized before thread objects created to prevent race conditions
+        self.realtime_audio_in_chunks = 0   # Count of audio chunks received from Twilio
+        self.realtime_audio_out_chunks = 0  # Count of audio chunks sent to Twilio
+        
         # 🔥 SESSION LIFECYCLE GUARD: Atomic close protection
         self.closed = False
         self.close_lock = threading.Lock()
@@ -1802,6 +1839,12 @@ class MediaStreamHandler:
         self.realtime_stop_flag = False  # Signal to stop Realtime threads
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
+        
+        # 🔥 Counters moved to top of __init__ (line ~1624) for race condition prevention
+        
+        # 🔥 NEW: Initialize backlog monitoring timestamps
+        self._last_backlog_warning = 0.0  # For tx_q backlog warnings
+        self._last_realtime_backlog_warning = 0.0  # For realtime_audio_out_queue backlog warnings
         
         # 🎯 PROBE 4: Queue Flow Probe tracking
         self._enq_counter = 0  # Frames enqueued to realtime_audio_out_queue
@@ -2023,6 +2066,7 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
+        self._last_response_create_ts = 0  # Track timing for double-create detection
         
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
@@ -2138,6 +2182,43 @@ class MediaStreamHandler:
         self._vad_speech_started_count_first_3s = 0  # Count speech_started events in first 3 seconds
         self._vad_calibrated_noise_floor = None  # Calibrated noise floor value
         self._vad_calibrated_threshold = None  # Calibrated VAD threshold
+
+    def _check_queue_backlog(self, queue, queue_name: str, threshold: int = 200) -> None:
+        """
+        🔥 Helper method to monitor queue backlog and log warnings
+        ⚠️ WARN-ONLY: Does not drop, truncate, or modify queue - just logs
+        
+        Args:
+            queue: The queue object to check
+            queue_name: Name for logging (e.g., 'tx_q', 'realtime_audio_out_queue')
+            threshold: Frame threshold for warning (default 200 = 4 seconds @ 50fps)
+        """
+        try:
+            current_qsize = queue.qsize()
+            if current_qsize > threshold:
+                now_mono = time.monotonic()
+                warning_attr = f'_last_{queue_name}_backlog_warning'
+                last_warning = getattr(self, warning_attr, 0.0)
+                
+                if now_mono - last_warning > 3.0:
+                    # Include full context for debugging
+                    call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
+                    stream_sid_short = self.stream_sid[:8] if hasattr(self, 'stream_sid') and self.stream_sid else 'none'
+                    active_resp = getattr(self, 'active_response_id', None)
+                    active_resp_short = active_resp[:8] if active_resp else 'none'
+                    is_speaking = getattr(self, 'is_ai_speaking_event', None)
+                    speaking_status = is_speaking.is_set() if is_speaking else False
+                    
+                    _orig_print(
+                        f"⚠️ [BACKLOG] {queue_name}={current_qsize} frames (>{threshold}) | "
+                        f"call={call_sid_short} stream={stream_sid_short} "
+                        f"resp={active_resp_short} ai_speaking={speaking_status}",
+                        flush=True
+                    )
+                    setattr(self, warning_attr, now_mono)
+        except Exception as e:
+            # Don't let backlog monitoring crash the call
+            pass
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -2516,8 +2597,9 @@ class MediaStreamHandler:
         client = None
         call_start_time = time.time()
         
-        self.realtime_audio_in_chunks = 0
-        self.realtime_audio_out_chunks = 0
+        # 🔥 REMOVED: Counters now initialized in __init__ (line ~1806)
+        # self.realtime_audio_in_chunks = 0
+        # self.realtime_audio_out_chunks = 0
         self._user_speech_start = None
         self._ai_speech_start = None
         
@@ -3700,7 +3782,49 @@ class MediaStreamHandler:
             # For forced greeting, make sure we don't inherit a stale pending lock.
             if force and is_greeting and self.response_pending_event.is_set():
                 self.response_pending_event.clear()
+            
+            # 🔥 NEW: DOUBLE CREATE TELEMETRY - Detect rapid response.create without completion
+            # This prevents "weird speech" / audio overlap from concurrent responses
+            prev_active_id = getattr(self, 'active_response_id', None)
+            prev_status = getattr(self, 'active_response_status', None)
+            last_create_ts = getattr(self, '_last_response_create_ts', 0)
+            now = time.time()
+            time_since_last = (now - last_create_ts) * 1000  # milliseconds
+            
+            # Warn if creating response while previous still active
+            if prev_active_id and prev_status == "in_progress":
+                _orig_print(
+                    f"⚠️ [DOUBLE_CREATE_RISK] Creating new response while prev active | "
+                    f"reason={reason}, prev_id={prev_active_id[:8]}, "
+                    f"prev_status={prev_status}, time_since_last={time_since_last:.0f}ms",
+                    flush=True
+                )
+            
+            # Warn if creating response too quickly (< 500ms since last)
+            if time_since_last < 500 and time_since_last > 0:
+                _orig_print(
+                    f"⚠️ [RAPID_CREATE] response.create very fast | "
+                    f"reason={reason}, interval={time_since_last:.0f}ms (<500ms)",
+                    flush=True
+                )
+            
+            self._last_response_create_ts = now
+            
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+            
+            # Log with full context for debugging
+            tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+            out_q_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+            is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
+            
+            _orig_print(
+                f"🎯 [RESPONSE_CREATE] reason={reason}, "
+                f"prev_active={prev_active_id[:8] if prev_active_id else 'none'}, "
+                f"is_ai_speaking={is_speaking}, "
+                f"tx_q={tx_q_size}, out_q={out_q_size}",
+                flush=True
+            )
+            
             await _client.send_event({"type": "response.create"})
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
@@ -4772,6 +4896,13 @@ class MediaStreamHandler:
                             # 🔥 VERIFICATION #3: Block enqueue if closed
                             if not self.closed:
                                 try:
+                                    # 🔥 NEW: BACKLOG GUARD - Monitor realtime_audio_out_queue overflow
+                                    self._check_queue_backlog(
+                                        self.realtime_audio_out_queue,
+                                        'realtime_audio_out_queue',
+                                        threshold=200
+                                    )
+                                    
                                     self.realtime_audio_out_queue.put_nowait(audio_b64)
                                     # 🎯 PROBE 4: Track enqueue for rate monitoring
                                     self._enq_counter += 1
@@ -4853,6 +4984,7 @@ class MediaStreamHandler:
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
                         if not hasattr(self, '_ai_speech_start') or self._ai_speech_start is None:
                             self._ai_speech_start = now
+                        # Counter initialized in __init__ - direct increment (no getattr masking)
                         self.realtime_audio_out_chunks += 1
                         
                         # ✅ P0-3: Track last audio delta timestamp for watchdog
@@ -4908,6 +5040,13 @@ class MediaStreamHandler:
                         # 🔥 VERIFICATION #3: Block audio enqueue if closed
                         if not self.closed:
                             try:
+                                # 🔥 NEW: BACKLOG GUARD - Monitor realtime_audio_out_queue overflow
+                                self._check_queue_backlog(
+                                    self.realtime_audio_out_queue,
+                                    'realtime_audio_out_queue',
+                                    threshold=200
+                                )
+                                
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
                                 self._enq_counter += 1
@@ -5643,7 +5782,8 @@ class MediaStreamHandler:
                         # 💰 COST TRACKING: AI finished speaking - stop timer (DEBUG only)
                         if hasattr(self, '_ai_speech_start') and self._ai_speech_start is not None:
                             ai_duration = time.time() - self._ai_speech_start
-                            logger.debug(f"[COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
+                            ai_chunks = getattr(self, 'realtime_audio_out_chunks', 0)
+                            logger.debug(f"[COST] AI utterance: {ai_duration:.2f}s ({ai_chunks} chunks)")
                             self._ai_speech_start = None  # Reset for next utterance
                         
                         # Track conversation
@@ -6333,7 +6473,8 @@ class MediaStreamHandler:
                     # 💰 COST TRACKING: User finished speaking - stop timer (DEBUG only)
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
                         user_duration = time.time() - self._user_speech_start
-                        logger.debug(f"[COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
+                        user_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
+                        logger.debug(f"[COST] User utterance: {user_duration:.2f}s ({user_chunks} chunks total)")
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
@@ -7940,6 +8081,10 @@ class MediaStreamHandler:
                 self.barge_in_active = False
                 self._barge_in_started_ts = None
                 
+                # Clear thread-started flags (per-instance)
+                if hasattr(self, '_realtime_audio_out_thread_started'):
+                    delattr(self, '_realtime_audio_out_thread_started')
+                
                 # Clear user speaking state
                 self.user_speaking = False
                 self._candidate_user_speaking = False
@@ -8025,6 +8170,20 @@ class MediaStreamHandler:
                             break
                     if cleared > 0:
                         _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
+            
+            # STEP 5.5: Join background threads (realtime_audio_out_loop, etc.)
+            if not DEBUG:
+                _orig_print(f"   [5.5/8] Joining background threads...", flush=True)
+            if hasattr(self, 'background_threads') and self.background_threads:
+                for thread in self.background_threads:
+                    if thread and thread.is_alive():
+                        try:
+                            thread.join(timeout=1.0)
+                            if thread.is_alive():
+                                _orig_print(f"   ⚠️ Background thread {thread.name if hasattr(thread, 'name') else 'unnamed'} still alive after timeout", flush=True)
+                        except Exception as e:
+                            _orig_print(f"   ⚠️ Error joining background thread: {e}", flush=True)
+                _orig_print(f"   ✅ Background threads cleanup complete", flush=True)
             
             # STEP 6: Close Twilio WebSocket
             if not DEBUG:
@@ -8464,12 +8623,19 @@ class MediaStreamHandler:
                             logger.debug(f"[REALTIME] Realtime thread started successfully!")
                             
                             logger.debug(f"[REALTIME] Creating realtime audio out thread...")
-                            realtime_out_thread = threading.Thread(
-                                target=self._realtime_audio_out_loop,
-                                daemon=True
-                            )
-                            realtime_out_thread.start()
-                            self.background_threads.append(realtime_out_thread)
+                            # 🔥 NEW: DOUBLE LOOP GUARD - Ensure only ONE audio_out loop per call
+                            if not hasattr(self, '_realtime_audio_out_thread_started'):
+                                realtime_out_thread = threading.Thread(
+                                    target=self._realtime_audio_out_loop,
+                                    daemon=True,
+                                    name=f"AudioOut-{self.call_sid[:8] if self.call_sid else 'unknown'}"
+                                )
+                                realtime_out_thread.start()
+                                self.background_threads.append(realtime_out_thread)
+                                self._realtime_audio_out_thread_started = True
+                                logger.debug(f"[REALTIME] Audio out thread started (thread_id={realtime_out_thread.ident})")
+                            else:
+                                logger.warning(f"[REALTIME] Audio out thread already started - skipping duplicate start")
                             logger.debug(f"[REALTIME] Both realtime threads started successfully!")
                         else:
                             logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
@@ -8517,10 +8683,17 @@ class MediaStreamHandler:
                         _orig_print(f"✅ [TX_FIX] streamSid validated: {self.stream_sid[:16]}... - TX ready", flush=True)
                     
                     # ✅ ברכה מיידית - בלי השהיה!
+                    # 🔥 NEW: DOUBLE LOOP GUARD - Ensure only ONE TX thread per call
                     if not self.tx_running:
-                        self.tx_running = True
-                        self.tx_thread.start()
-                        _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'})", flush=True)
+                        # Verify thread hasn't started yet
+                        if self.tx_thread.is_alive():
+                            _orig_print(f"⚠️ [TX_GUARD] TX thread already running - skipping start", flush=True)
+                        else:
+                            self.tx_running = True
+                            self.tx_thread.start()
+                            _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'}, thread_id={self.tx_thread.ident})", flush=True)
+                    else:
+                        _orig_print(f"⚠️ [TX_GUARD] TX loop already running - skipping duplicate start", flush=True)
                     
                     # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
                     if not self.greeting_sent and USE_REALTIME_API:
@@ -8562,6 +8735,7 @@ class MediaStreamHandler:
                     self.rx += 1
                     # 🔥 FIX: Count ALL frames received from Twilio (before any filtering)
                     # This is the source of truth for "frames_in" - must happen here, not after filters
+                    # Counter initialized in __init__ - direct increment (no getattr masking)
                     self.realtime_audio_in_chunks += 1
                     # 🔴 GREETING_LOCK (HARD, earliest):
                     # While greeting is playing, the bot must NOT "hear" the caller at all.
@@ -9898,10 +10072,15 @@ class MediaStreamHandler:
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         🔥 VERIFICATION #3: Block enqueue when session is closed
+        🔥 NEW: Queue backlog monitoring - prevent overflow that causes "weird speech"
         """
         # 🔥 VERIFICATION #3: No enqueue after close
         if self.closed:
             return  # Silently drop - session is closing/closed
+        
+        # 🔥 NEW: BACKLOG GUARD - Monitor queue overflow (>200 frames = 4 seconds)
+        # Large backlogs cause timing issues and weird bot behavior
+        self._check_queue_backlog(self.tx_q, 'tx_q', threshold=200)
         
         # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
         # 🔥 BUILD 178: Disabled for outbound calls
