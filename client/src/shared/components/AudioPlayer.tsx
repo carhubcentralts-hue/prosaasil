@@ -37,52 +37,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const MAX_RETRIES = 20; // Max 20 retries (up to 60 seconds for large recordings)
   const RETRY_DELAY = 3000; // 3 seconds between retries (more patient)
 
-  // Load saved playback speed preference from localStorage
-  useEffect(() => {
-    try {
-      const savedSpeed = localStorage.getItem(PLAYBACK_SPEED_KEY);
-      if (savedSpeed) {
-        const parsed = parseFloat(savedSpeed);
-        if (parsed === 1 || parsed === 1.5 || parsed === 2) {
-          setPlaybackSpeed(parsed as PlaybackSpeed);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading playback speed preference:', error);
-    }
-  }, []);
-
-  // 🔥 NEW: Load recording with retry logic for async downloads
-  useEffect(() => {
-    // If src is already a blob URL, use it directly
-    if (src.startsWith('blob:')) {
-      setBlobUrl(src);
-      setIsLoading(false);
-      return;
-    }
-
-    // If src points to /api/recordings/<call_sid>/stream, fetch with retry logic
-    if (src.includes('/api/recordings/') && src.includes('/stream')) {
-      loadRecordingWithRetry(src);
-    } else {
-      // For other URLs (like old /api/calls/<call_sid>/download), use directly
-      setBlobUrl(src);
-      setIsLoading(false);
-    }
-  }, [src]);
-
-  // Cleanup blob URL on unmount or when src changes
-  useEffect(() => {
-    return () => {
-      if (blobUrl && blobUrl.startsWith('blob:')) {
-        window.URL.revokeObjectURL(blobUrl);
-      }
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-    };
-  }, [blobUrl]);
-
+  // 🔥 FIX: Define loadRecordingWithRetry BEFORE useEffect to avoid Temporal Dead Zone
   const loadRecordingWithRetry = async (url: string, currentRetry = 0) => {
     setPreparingRecording(true);
     setErrorMessage(null);
@@ -123,8 +78,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
       // Success - load the blob
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      setBlobUrl(url);
+      const blobUrl = window.URL.createObjectURL(blob);
+      setBlobUrl(blobUrl);
       setPreparingRecording(false);
       setIsLoading(false);
       setRetryCount(0);
@@ -135,6 +90,60 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       setIsLoading(false);
     }
   };
+
+  // Load saved playback speed preference from localStorage
+  useEffect(() => {
+    try {
+      const savedSpeed = localStorage.getItem(PLAYBACK_SPEED_KEY);
+      if (savedSpeed) {
+        const parsed = parseFloat(savedSpeed);
+        if (parsed === 1 || parsed === 1.5 || parsed === 2) {
+          setPlaybackSpeed(parsed as PlaybackSpeed);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading playback speed preference:', error);
+    }
+  }, []);
+
+  // 🔥 NEW: Load recording with retry logic for async downloads
+  useEffect(() => {
+    try {
+      // If src is already a blob URL, use it directly
+      if (src.startsWith('blob:')) {
+        setBlobUrl(src);
+        setIsLoading(false);
+        return;
+      }
+
+      // If src points to /api/recordings/<call_sid>/stream, fetch with retry logic
+      if (src.includes('/api/recordings/') && src.includes('/stream')) {
+        loadRecordingWithRetry(src).catch((err) => {
+          console.error('Error loading recording:', err);
+          setErrorMessage('לא הצלחתי לנגן את ההקלטה');
+        });
+      } else {
+        // For other URLs (like old /api/calls/<call_sid>/download), use directly
+        setBlobUrl(src);
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error('Error loading recording:', err);
+      setErrorMessage('לא הצלחתי לנגן את ההקלטה');
+    }
+  }, [src]);
+
+  // Cleanup blob URL on unmount or when src changes
+  useEffect(() => {
+    return () => {
+      if (blobUrl && blobUrl.startsWith('blob:')) {
+        window.URL.revokeObjectURL(blobUrl);
+      }
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, [blobUrl]);
 
   // Apply playback speed to audio element
   useEffect(() => {
