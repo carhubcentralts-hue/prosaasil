@@ -1913,7 +1913,7 @@ export function OutboundCallsPage() {
                                     <Download className="h-4 w-4" />
                                     הורד
                                   </a>
-                                  <AudioPlayer src={`/api/calls/${call.call_sid}/download`} />
+                                  <AudioPlayer src={`/api/recordings/${call.call_sid}/stream`} />
                                 </div>
                               ) : (
                                 '-'

@@ -354,6 +354,151 @@ def download_recording(call_sid):
         log.error(f"Error downloading recording: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@calls_bp.route("/api/recordings/<call_sid>/stream", methods=["GET"])
+@require_api_auth()
+def stream_recording(call_sid):
+    """
+    🔥 FIX 502: Asynchronous recording streaming endpoint
+    
+    Returns:
+    - 200 + audio file if recording is cached locally
+    - 202 Accepted if recording needs to be downloaded (job enqueued)
+    - 403 Forbidden if call doesn't belong to user's tenant
+    - 404 Not Found if call doesn't exist or no recording available
+    - 410 Gone if recording is expired (>7 days)
+    """
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            log.warning(f"Stream recording: No business_id for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "Business ID required"}), 400
+        
+        # Check if call exists and belongs to this business (tenant validation)
+        call = Call.query.filter(
+            Call.call_sid == call_sid,
+            Call.business_id == business_id
+        ).first()
+        
+        if not call:
+            log.warning(f"Stream recording: Call not found or access denied call_sid={call_sid}, business_id={business_id}")
+            return jsonify({"success": False, "error": "Recording not found"}), 404
+        
+        # Check if recording is expired (7 days)
+        if call.created_at and (datetime.utcnow() - call.created_at).days > 7:
+            log.info(f"Stream recording: Recording expired for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "Recording expired"}), 410
+        
+        # Check if recording_url exists
+        if not call.recording_url:
+            log.warning(f"Stream recording: No recording_url for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "No recording available"}), 404
+        
+        # Check if file exists locally
+        from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
+        
+        if check_local_recording_exists(call_sid):
+            # File exists - serve it immediately
+            recordings_dir = _get_recordings_dir()
+            local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
+            
+            # Get file size for Content-Length and Range calculations
+            file_size = os.path.getsize(local_path)
+            
+            # Check if Range header is present (iOS requires this)
+            range_header = request.headers.get('Range', None)
+            
+            if range_header:
+                # Parse Range header (format: "bytes=start-end")
+                byte_range = range_header.replace('bytes=', '').split('-')
+                
+                # Handle suffix-byte-range-spec: bytes=-500 (last N bytes)
+                if not byte_range[0] and byte_range[1]:
+                    suffix_length = int(byte_range[1])
+                    start = max(0, file_size - suffix_length)
+                    end = file_size - 1
+                else:
+                    start = int(byte_range[0]) if byte_range[0] else 0
+                    end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+                
+                # Ensure valid range
+                if start >= file_size:
+                    return Response(status=416)  # Range Not Satisfiable
+                
+                end = min(end, file_size - 1)
+                length = end - start + 1
+                
+                # Read partial content
+                with open(local_path, 'rb') as f:
+                    f.seek(start)
+                    data = f.read(length)
+                
+                # Return 206 Partial Content with proper headers
+                rv = Response(
+                    data,
+                    206,
+                    mimetype='audio/mpeg',
+                    direct_passthrough=True
+                )
+                rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
+                rv.headers.add('Accept-Ranges', 'bytes')
+                rv.headers.add('Content-Length', str(length))
+                rv.headers.add('Content-Disposition', 'inline')
+                
+                # CORS headers
+                origin = request.headers.get('Origin')
+                if origin:
+                    rv.headers.add('Access-Control-Allow-Origin', origin)
+                    rv.headers.add('Access-Control-Allow-Credentials', 'true')
+                    rv.headers.add('Vary', 'Origin')
+                    rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
+                return rv
+            else:
+                # No Range header - serve entire file
+                response = make_response(send_file(
+                    local_path,
+                    mimetype="audio/mpeg",
+                    as_attachment=False,
+                    conditional=True,
+                    max_age=3600
+                ))
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['Content-Disposition'] = 'inline'
+                response.headers['Content-Length'] = str(file_size)
+                
+                # CORS headers
+                origin = request.headers.get('Origin')
+                if origin:
+                    response.headers['Access-Control-Allow-Origin'] = origin
+                    response.headers['Access-Control-Allow-Credentials'] = 'true'
+                    response.headers['Vary'] = 'Origin'
+                    response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
+                return response
+        else:
+            # File doesn't exist locally - enqueue download job and return 202
+            log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing download job")
+            
+            # Enqueue job to download recording in background
+            from server.tasks_recording import enqueue_recording_job
+            enqueue_recording_job(
+                call_sid=call_sid,
+                recording_url=call.recording_url,
+                business_id=business_id,
+                from_number=call.from_number or "",
+                to_number=call.to_number or "",
+                retry_count=0
+            )
+            
+            # Return 202 Accepted to indicate processing
+            return jsonify({
+                "success": True,
+                "status": "processing",
+                "message": "Recording is being prepared, please retry in a few seconds"
+            }), 202
+        
+    except Exception as e:
+        log.error(f"Error streaming recording for {call_sid}: {e}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+
 @calls_bp.route("/api/calls/cleanup", methods=["POST"])
 @calls_bp.route("/api/calls/cleanup-recordings", methods=["POST"])
 @require_api_auth(["system_admin", "owner", "admin"])

@@ -290,31 +290,62 @@ export function CallsPage() {
     }
   };
 
-  // 🔥 FIX: Load recording as blob with authentication for playback
-  const loadRecordingBlob = async (callSid: string) => {
+  // 🔥 FIX 502: Load recording with retry logic for async downloads
+  const loadRecordingBlob = async (callSid: string, retryCount = 0) => {
     // Skip if already loaded or currently loading (check ref for source of truth)
     if (recordingUrlsRef.current[callSid] || loadingRecording === callSid) return;
     
+    const MAX_RETRIES = 10; // Max 10 retries (up to 20 seconds)
+    const RETRY_DELAY = 2000; // 2 seconds between retries
+    
     setLoadingRecording(callSid);
     try {
-      const response = await fetch(`/api/calls/${callSid}/download`, {
+      const response = await fetch(`/api/recordings/${callSid}/stream`, {
         method: 'GET',
         credentials: 'include'
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to load recording');
+      // Handle 202 Accepted - recording is being prepared
+      if (response.status === 202) {
+        if (retryCount < MAX_RETRIES) {
+          console.log(`Recording is being prepared for ${callSid}, retrying in ${RETRY_DELAY/1000}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          
+          // Retry after delay
+          setTimeout(() => {
+            setLoadingRecording(null); // Clear loading state before retry
+            loadRecordingBlob(callSid, retryCount + 1);
+          }, RETRY_DELAY);
+          return; // Keep loading state active
+        } else {
+          throw new Error('Recording preparation timed out. Please try again later.');
+        }
       }
       
+      // Handle 410 Gone - recording expired
+      if (response.status === 410) {
+        throw new Error('Recording has expired (older than 7 days)');
+      }
+      
+      // Handle other errors
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to load recording');
+      }
+      
+      // Success - load the blob
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       recordingUrlsRef.current[callSid] = url;  // Track in ref for cleanup
       setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
     } catch (error) {
       console.error('Error loading recording:', error);
+      alert('שגיאה בטעינת ההקלטה: ' + (error as Error).message);
       // Don't set URL in ref on error - allow retry
     } finally {
-      setLoadingRecording(null);
+      // Only clear loading if not retrying
+      if (retryCount >= MAX_RETRIES || !loadingRecording) {
+        setLoadingRecording(null);
+      }
     }
   };
 
