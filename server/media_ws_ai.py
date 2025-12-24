@@ -6201,22 +6201,22 @@ class MediaStreamHandler:
                                             async def _trigger_delayed_greeting():
                                                 try:
                                                     await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
-                                                        triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
-                                                        if triggered:
-                                                            print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
-                                                        else:
-                                                            print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
-                                                            self.greeting_sent = False
-                                                            self.is_playing_greeting = False
-                                                            self.outbound_first_response_sent = False
-                                                    except Exception as e:
-                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
-                                                        import traceback
-                                                        traceback.print_exc()
-                                                
-                                                asyncio.create_task(_trigger_delayed_greeting())
-                                            else:
-                                                print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
+                                                    triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
+                                                    if triggered:
+                                                        print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
+                                                    else:
+                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
+                                                        self.greeting_sent = False
+                                                        self.is_playing_greeting = False
+                                                        self.outbound_first_response_sent = False
+                                                except Exception as e:
+                                                    print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
+                                                    import traceback
+                                                    traceback.print_exc()
+                                            
+                                            asyncio.create_task(_trigger_delayed_greeting())
+                                        else:
+                                            print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
                                 else:
                                     # Need second confirmation - keep waiting
                                     print(f"[OUTBOUND_VOICE_GATE] waiting_second_confirmation (need 2 voice indications)")
