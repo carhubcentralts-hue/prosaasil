@@ -42,6 +42,7 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     Returns:
         str: Absolute path to local recording file, or None if failed
     """
+    # 🔥 FIX 502: Add validation and error handling to prevent crashes
     if not call_log or not call_log.call_sid:
         log.error("[RECORDING_SERVICE] Invalid call_log provided")
         return None
@@ -49,42 +50,60 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     call_sid = call_log.call_sid
     
     # 1. Check if we already have the file locally
-    recordings_dir = _get_recordings_dir()
-    os.makedirs(recordings_dir, exist_ok=True)
+    try:
+        recordings_dir = _get_recordings_dir()
+        os.makedirs(recordings_dir, exist_ok=True)
+    except Exception as e:
+        log.error(f"[RECORDING_SERVICE] Failed to create recordings directory: {e}")
+        return None
+    
     local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
     
     if os.path.exists(local_path):
-        file_size = os.path.getsize(local_path)
-        if file_size > 1000:  # Valid file (>1KB)
-            log.info(f"[RECORDING_SERVICE] ✅ Using existing local file: {local_path} ({file_size} bytes)")
-            return local_path
-        else:
-            log.warning(f"[RECORDING_SERVICE] Local file too small ({file_size} bytes), will re-download")
-            os.remove(local_path)
+        try:
+            file_size = os.path.getsize(local_path)
+            if file_size > 1000:  # Valid file (>1KB)
+                log.info(f"[RECORDING_SERVICE] ✅ Using existing local file: {local_path} ({file_size} bytes)")
+                return local_path
+            else:
+                log.warning(f"[RECORDING_SERVICE] Local file too small ({file_size} bytes), will re-download")
+                os.remove(local_path)
+        except Exception as e:
+            log.warning(f"[RECORDING_SERVICE] Error checking local file: {e}")
     
     # 2. Download from Twilio using call_log.recording_url
     if not call_log.recording_url:
         log.error(f"[RECORDING_SERVICE] No recording_url for call {call_sid}")
         return None
     
-    log.info(f"[RECORDING_SERVICE] Downloading recording from Twilio for {call_sid}")
+    log.warning(f"[RECORDING_SERVICE] ⚠️  Cache miss - downloading from Twilio for {call_sid} (this may take time and cause 502 if slow)")
+    import time
+    download_start = time.time()
     
     # Get Twilio credentials
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-    
-    if not account_sid or not auth_token:
-        log.error("[RECORDING_SERVICE] Missing Twilio credentials")
+    try:
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        
+        if not account_sid or not auth_token:
+            log.error("[RECORDING_SERVICE] Missing Twilio credentials")
+            return None
+    except Exception as e:
+        log.error(f"[RECORDING_SERVICE] Error getting Twilio credentials: {e}")
         return None
     
     # ✅ Use EXACT same logic as UI (routes_calls.py download_recording)
     # This is the single source of truth for downloading recordings
-    recording_content = _download_from_twilio(
-        call_log.recording_url,
-        account_sid,
-        auth_token,
-        call_sid
-    )
+    try:
+        recording_content = _download_from_twilio(
+            call_log.recording_url,
+            account_sid,
+            auth_token,
+            call_sid
+        )
+    except Exception as e:
+        log.error(f"[RECORDING_SERVICE] Exception during Twilio download for {call_sid}: {e}")
+        return None
     
     if not recording_content:
         log.error(f"[RECORDING_SERVICE] Failed to download recording for {call_sid}")
@@ -95,7 +114,12 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         with open(local_path, "wb") as f:
             f.write(recording_content)
         
-        log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes)")
+        download_time = time.time() - download_start
+        log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes) - took {download_time:.2f}s")
+        
+        if download_time > 10:
+            log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
+        
         return local_path
         
     except Exception as e:
@@ -123,6 +147,17 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
         bytes: Recording content, or None if failed
     """
     try:
+        # 🔥 FIX 502: Validate inputs before attempting download
+        if not recording_url:
+            log.error(f"[RECORDING_SERVICE] Missing recording_url for call_sid={call_sid}")
+            return None
+        if not account_sid:
+            log.error(f"[RECORDING_SERVICE] Missing TWILIO_ACCOUNT_SID for call_sid={call_sid}")
+            return None
+        if not auth_token:
+            log.error(f"[RECORDING_SERVICE] Missing TWILIO_AUTH_TOKEN for call_sid={call_sid}")
+            return None
+        
         # Handle .json URLs from Twilio properly (same as UI)
         base_url = recording_url
         if base_url.endswith(".json"):
@@ -149,6 +184,7 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
                 log.debug(f"[RECORDING_SERVICE] Trying format {attempt}/{len(urls_to_try)}: {format_desc}")
                 log.debug(f"[RECORDING_SERVICE] URL: {try_url[:80]}...")
                 
+                # 🔥 FIX 502: Add timeout to prevent hanging requests
                 response = requests.get(try_url, auth=auth, timeout=30)
                 
                 log.debug(f"[RECORDING_SERVICE] Status: {response.status_code}, bytes: {len(response.content)}")
@@ -160,6 +196,19 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
                         time.sleep(5)
                     continue
                 
+                # 🔥 FIX 502: Handle other error codes explicitly
+                if response.status_code == 401:
+                    log.error(f"[RECORDING_SERVICE] Authentication failed (401) for {call_sid}")
+                    return None
+                elif response.status_code == 403:
+                    log.error(f"[RECORDING_SERVICE] Access forbidden (403) for {call_sid}")
+                    return None
+                elif response.status_code >= 500:
+                    log.warning(f"[RECORDING_SERVICE] Twilio server error ({response.status_code}) for {call_sid}")
+                    if attempt < len(urls_to_try):
+                        continue  # Try next format
+                    return None
+                
                 # Success!
                 if response.status_code == 200 and len(response.content) > 1000:
                     log.info(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes using {format_desc}")
@@ -167,8 +216,16 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
                 else:
                     log.debug(f"[RECORDING_SERVICE] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
                     
+            except requests.Timeout as e:
+                log.warning(f"[RECORDING_SERVICE] Timeout downloading from Twilio for {call_sid}: {e}")
+                last_error = e
+                continue
             except requests.RequestException as e:
                 log.debug(f"[RECORDING_SERVICE] Failed URL: {e}")
+                last_error = e
+                continue
+            except Exception as e:
+                log.error(f"[RECORDING_SERVICE] Unexpected error during download attempt: {e}")
                 last_error = e
                 continue
         

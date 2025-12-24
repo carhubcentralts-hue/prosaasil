@@ -1,6 +1,11 @@
 """
 OpenAI Realtime API Client
 WebSocket client for low-latency speech-to-speech conversations
+
+🔥 PRODUCTION LOGGING POLICY:
+- IS_PROD (DEBUG=1): Only log response.created, first audio.delta, response.done
+- DEV (DEBUG=0): Log all events except .delta spam
+- REALTIME_VERBOSE=1: Override - log everything
 """
 import os
 import json
@@ -17,6 +22,10 @@ else:
         websockets = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# Production mode control
+IS_PROD = os.getenv("DEBUG", "1") == "1"  # DEBUG=1 means production
+REALTIME_VERBOSE = os.getenv("REALTIME_VERBOSE", "0") == "1"  # Explicit verbose flag
 
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
 
@@ -240,37 +249,88 @@ class OpenAIRealtimeClient:
         """
         Receive events from Realtime API (async generator)
         
+        🔥 PRODUCTION MODE: Only logs macro events (response.created, response.done, errors)
+        🔥 DEVELOPMENT MODE: Logs all events except .delta spam
+        🔥 REALTIME_VERBOSE=1: Logs everything including deltas
+        
         Yields:
             Event dictionaries from the API
         """
         if not self.ws:
             raise RuntimeError("Not connected. Call connect() first.")
         
+        # Track first audio delta per response for production logging
+        _first_audio_per_response = set()
+        
         try:
             async for raw in self.ws:
                 try:
                     event = json.loads(raw)
                     
-                    # Log important events (not audio deltas)
                     event_type = event.get("type", "")
                     
-                    # 🎯 TASK 1: Log audio chunks from OpenAI (DEBUG only)
-                    if event_type == "response.audio.delta":
-                        audio_b64 = event.get("delta", "")
-                        if audio_b64:
-                            import base64
-                            chunk_bytes = base64.b64decode(audio_b64)
-                            logger.debug(
-                                "[REALTIME] got audio chunk from OpenAI: bytes=%d",
-                                len(chunk_bytes)
-                            )
+                    # 🔥 PRODUCTION MODE: Silent except for macro events
+                    if IS_PROD and not REALTIME_VERBOSE:
+                        # Log only critical macro events in production
+                        if event_type == "response.created":
+                            response_id = event.get("response", {}).get("id", "unknown")
+                            modalities = event.get("response", {}).get("modalities", [])
+                            logger.info(f"[REALTIME] response.created: {response_id} modalities={modalities}")
+                        
+                        elif event_type == "response.audio.delta":
+                            # Log only FIRST audio delta per response
+                            response_id = event.get("response_id", "unknown")
+                            if response_id not in _first_audio_per_response:
+                                _first_audio_per_response.add(response_id)
+                                logger.info(f"[REALTIME] AI started speaking: response={response_id}")
+                        
+                        elif event_type == "response.done":
+                            response_id = event.get("response", {}).get("id", "unknown")
+                            status = event.get("response", {}).get("status", "unknown")
+                            status_details = event.get("response", {}).get("status_details", {})
+                            cancelled_reason = status_details.get("reason", "") if status == "cancelled" else ""
+                            log_msg = f"[REALTIME] response.done: {response_id} status={status}"
+                            if cancelled_reason:
+                                log_msg += f" reason={cancelled_reason}"
+                            logger.info(log_msg)
+                        
+                        elif event_type == "error":
+                            logger.error(f"[REALTIME] error: {event.get('error', {})}")
+                        
+                        elif event_type == "session.updated":
+                            logger.info("[REALTIME] session.updated: configuration applied")
+                        
+                        # DO NOT LOG: response.audio_transcript.delta, response.content_part.*, 
+                        # response.output_item.*, conversation.item.*, input_audio_buffer.*
                     
-                    if not event_type.endswith(".delta"):
-                        logger.debug(f"📥 Received: {event_type}")
+                    # 🔥 DEVELOPMENT MODE: Log all except .delta spam
+                    elif not IS_PROD:
+                        # In dev, log everything except delta spam
+                        if not event_type.endswith(".delta"):
+                            logger.debug(f"📥 [REALTIME] {event_type}")
+                    
+                    # 🔥 REALTIME_VERBOSE=1: Log everything
+                    elif REALTIME_VERBOSE:
+                        if event_type == "response.audio.delta":
+                            audio_b64 = event.get("delta", "")
+                            if audio_b64:
+                                import base64
+                                chunk_bytes = base64.b64decode(audio_b64)
+                                logger.debug(f"[REALTIME] audio.delta: {len(chunk_bytes)} bytes")
+                        else:
+                            logger.debug(f"📥 [REALTIME] {event_type}")
                     
                     yield event
                     
                 except json.JSONDecodeError as e:
+                    logger.error(f"❌ Invalid JSON from Realtime API: {e}")
+                    continue
+                    
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.warning(f"⚠️ Realtime API connection closed: {e}")
+        except Exception as e:
+            logger.error(f"❌ Error receiving events: {e}")
+            raise
                     logger.error(f"❌ Invalid JSON from Realtime API: {e}")
                     continue
                     
