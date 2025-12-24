@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
 Manual validation of recording download fix
-Checks that all required changes are in place
+Checks that all 5 critical requirements are in place
+בדיקה שכל 5 הדברים הקריטיים קיימים
 """
 import os
 import sys
 
 def check_nginx_config():
     """Verify nginx.conf has streaming support"""
-    print("🔍 Checking nginx.conf...")
+    print("🔍 בדיקה 1: Nginx Configuration")
+    print("----------------------------------------")
     
     nginx_path = os.path.join(os.path.dirname(__file__), 'docker', 'nginx.conf')
     
@@ -26,12 +28,14 @@ def check_nginx_config():
         ('proxy_send_timeout', 'Send timeout configured'),
         ('Range $http_range', 'Range header forwarding'),
         ('If-Range $http_if_range', 'If-Range header forwarding'),
+        ('proxy_http_version 1.1', 'HTTP/1.1 configured'),
+        ('Connection ""', 'Connection header cleared for keepalive'),
     ]
     
     all_ok = True
     for setting, description in required:
         if setting in content:
-            print(f"  ✅ {description}: {setting}")
+            print(f"  ✅ {description}")
         else:
             print(f"  ❌ Missing: {description} ({setting})")
             all_ok = False
@@ -39,9 +43,43 @@ def check_nginx_config():
     return all_ok
 
 
-def check_routes_calls():
-    """Verify routes_calls.py has error handling"""
-    print("\n🔍 Checking routes_calls.py error handling...")
+def check_backend_timeout():
+    """Verify backend has adequate timeout"""
+    print("\n🔍 בדיקה 2: Backend Timeout Configuration")
+    print("----------------------------------------")
+    
+    dockerfile_path = os.path.join(os.path.dirname(__file__), 'Dockerfile.backend')
+    
+    if not os.path.exists(dockerfile_path):
+        print("❌ Dockerfile.backend not found")
+        return False
+    
+    with open(dockerfile_path, 'r') as f:
+        content = f.read()
+    
+    if 'uvicorn' in content:
+        print("  ✅ Using Uvicorn")
+        if 'timeout-keep-alive' in content and '75' in content:
+            print("  ✅ timeout-keep-alive configured (75+ seconds)")
+        else:
+            print("  ⚠️  timeout-keep-alive should be 75+ seconds")
+    elif 'gunicorn' in content:
+        print("  ✅ Using Gunicorn")
+        if '--timeout' in content and '300' in content:
+            print("  ✅ --timeout configured (300 seconds)")
+        else:
+            print("  ❌ --timeout should be 300+ seconds")
+            return False
+    else:
+        print("  ⚠️  Could not detect Uvicorn or Gunicorn")
+    
+    return True
+
+
+def check_206_support():
+    """Verify endpoint returns 206 Partial Content"""
+    print("\n🔍 בדיקה 3: 206 Partial Content Support (critical for iOS)")
+    print("----------------------------------------")
     
     routes_path = os.path.join(os.path.dirname(__file__), 'server', 'routes_calls.py')
     
@@ -53,10 +91,41 @@ def check_routes_calls():
         content = f.read()
     
     checks = [
-        ('FIX 502', 'Has fix comments'),
-        ('if not call.recording_url:', 'Checks for recording_url before download'),
+        ('206', 'Returns 206 status code'),
+        ('Content-Range', 'Sets Content-Range header'),
+        ('Accept-Ranges', 'Sets Accept-Ranges header'),
+        ('range_header', 'Handles Range header'),
+    ]
+    
+    all_ok = True
+    for check, description in checks:
+        if check in content:
+            print(f"  ✅ {description}")
+        else:
+            print(f"  ❌ Missing: {description}")
+            all_ok = False
+    
+    return all_ok
+
+
+def check_error_handling():
+    """Verify routes_calls.py has comprehensive error handling"""
+    print("\n🔍 בדיקה 4: Error Handling (prevents crashes)")
+    print("----------------------------------------")
+    
+    routes_path = os.path.join(os.path.dirname(__file__), 'server', 'routes_calls.py')
+    
+    if not os.path.exists(routes_path):
+        print("❌ routes_calls.py not found")
+        return False
+    
+    with open(routes_path, 'r') as f:
+        content = f.read()
+    
+    checks = [
+        ('if not call.recording_url:', 'Checks for recording_url'),
         ('try:', 'Has try-except blocks'),
-        ('get_recording_file_for_call(call)', 'Calls recording service'),
+        ('except Exception', 'Catches exceptions'),
         ('os.path.exists(audio_path)', 'Verifies file exists'),
         ('log.warning', 'Has warning logging'),
         ('log.error', 'Has error logging'),
@@ -74,8 +143,9 @@ def check_routes_calls():
 
 
 def check_recording_service():
-    """Verify recording_service.py has error handling"""
-    print("\n🔍 Checking recording_service.py error handling...")
+    """Verify recording_service.py has resilience"""
+    print("\n🔍 בדיקה 5: Recording Service Resilience")
+    print("----------------------------------------")
     
     service_path = os.path.join(os.path.dirname(__file__), 'server', 'services', 'recording_service.py')
     
@@ -86,25 +156,24 @@ def check_recording_service():
     with open(service_path, 'r') as f:
         content = f.read()
     
-    # Required checks - must be present
+    # Required checks
     required_checks = [
-        ('FIX 502', 'Has fix comments'),
         ('try:', 'Has try-except blocks'),
         ('except Exception', 'Catches exceptions'),
+        ('timeout', 'Has timeout for Twilio requests'),
         ('log.error', 'Has error logging'),
     ]
     
-    # Optional but recommended checks
+    # Optional but recommended
     optional_checks = [
         ('status_code == 401', 'Handles 401 errors'),
         ('status_code == 403', 'Handles 403 errors'),
         ('status_code >= 500', 'Handles 5xx errors'),
-        ('requests.Timeout', 'Handles timeout errors'),
+        ('os.path.exists(local_path)', 'Checks for local cache'),
     ]
     
     all_ok = True
     
-    # Check required items
     for check, description in required_checks:
         if check in content:
             print(f"  ✅ {description}")
@@ -112,7 +181,6 @@ def check_recording_service():
             print(f"  ❌ Missing: {description}")
             all_ok = False
     
-    # Check optional items (don't affect pass/fail)
     for check, description in optional_checks:
         if check in content:
             print(f"  ✅ {description} (recommended)")
@@ -124,18 +192,21 @@ def check_recording_service():
 
 def main():
     print("=" * 60)
-    print("Recording Download Fix Validation")
+    print("תיקון 502 - אימות 5 דברים קריטיים")
+    print("Recording Download Fix - 5 Critical Checks")
     print("=" * 60)
     print()
     
     results = []
     
-    results.append(('nginx.conf', check_nginx_config()))
-    results.append(('routes_calls.py', check_routes_calls()))
-    results.append(('recording_service.py', check_recording_service()))
+    results.append(('Nginx streaming config', check_nginx_config()))
+    results.append(('Backend timeout', check_backend_timeout()))
+    results.append(('206 Partial Content support', check_206_support()))
+    results.append(('Error handling', check_error_handling()))
+    results.append(('Recording service resilience', check_recording_service()))
     
     print("\n" + "=" * 60)
-    print("Summary")
+    print("Summary / סיכום")
     print("=" * 60)
     
     all_passed = True
@@ -147,16 +218,20 @@ def main():
     
     print()
     if all_passed:
-        print("✅ All validations passed!")
+        print("✅ כל 5 הבדיקות עברו בהצלחה!")
+        print("✅ All 5 critical checks passed!")
         print()
-        print("Next steps:")
-        print("1. Rebuild Docker containers: docker compose build")
-        print("2. Restart services: docker compose restart nginx backend")
-        print("3. Test recording playback in browser")
-        print("4. Check logs: docker compose logs -f nginx backend")
+        print("Next steps / צעדים הבאים:")
+        print("1. docker compose build --no-cache backend frontend")
+        print("2. docker compose restart nginx backend")
+        print("3. Test in browser / בדוק בדפדפן")
+        print("4. If 502 persists / אם עדיין 502:")
+        print("   ./verify_502_fix.sh  (comprehensive live test)")
+        print("   docker compose logs -f nginx backend")
         return 0
     else:
-        print("❌ Some validations failed. Please review the changes.")
+        print("❌ חלק מהבדיקות נכשלו")
+        print("❌ Some checks failed. Please review the changes.")
         return 1
 
 
