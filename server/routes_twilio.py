@@ -31,13 +31,6 @@ CALL_STATUS_INITIATED = "initiated"
 CALL_STATUS_IN_PROGRESS = "in_progress"
 CALL_STATUS_STREAMING = "streaming"
 
-# Early-stage call statuses that can be updated by AMD (set for O(1) lookup)
-EARLY_STAGE_STATUSES = {CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING}
-
-# AMD Status Constants - Max 32 chars (status field limit)
-AMD_STATUS_VOICEMAIL = "voicemail"  # Generic voicemail/machine
-AMD_STATUS_HUMAN = "answered_human"  # Human answered
-
 twilio_bp = Blueprint("twilio", __name__)
 # Backwards-compatible alias used by pre-deploy smoke checks / older imports.
 routes_twilio_bp = twilio_bp
@@ -1296,71 +1289,6 @@ def call_status():
     
     return resp
 
-
-@csrf.exempt
-@twilio_bp.route("/webhook/amd_status", methods=["POST", "GET"])
-@require_twilio_signature
-def amd_status():
-    """
-    ✅ Outbound AMD (Answering Machine Detection) callback.
-    Twilio sends AnsweredBy for outbound calls when machineDetection is enabled.
-    - If AnsweredBy indicates voicemail/fax → mark in DB and hang up immediately.
-    """
-    # Support both POST and GET to be resilient (Twilio normally POSTs)
-    if request.method == "GET":
-        call_sid = request.args.get("CallSid") or ""
-        answered_by = request.args.get("AnsweredBy") or ""
-    else:
-        call_sid = request.form.get("CallSid") or ""
-        answered_by = request.form.get("AnsweredBy") or ""
-
-    # Fast response (Twilio retries on slow handlers)
-    resp = make_response("", 204)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-
-    try:
-        logger.info("AMD_STATUS", extra={"call_sid": call_sid, "answered_by": answered_by})
-
-        # Twilio AnsweredBy can be: human, machine_start, machine_end_beep, machine_end, fax, unknown, etc.
-        machine_values = {"machine_start", "machine_end_beep", "machine_end", "fax"}
-        is_machine = answered_by in machine_values
-
-        # Update DB (best-effort)
-        if call_sid:
-            try:
-                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-                if call_log:
-                    # 🔥 FIX: Store AMD result in status field, NOT in summary
-                    # summary field is reserved for AI-generated conversation summaries
-                    # Only update status if call is in early stages to avoid overwriting terminal statuses
-                    if call_log.status in EARLY_STAGE_STATUSES:
-                        if is_machine:
-                            call_log.status = AMD_STATUS_VOICEMAIL
-                        else:
-                            call_log.status = AMD_STATUS_HUMAN
-                        db.session.commit()
-                    else:
-                        logger.info("AMD_STATUS: Skipping status update - already in terminal status", extra={"call_sid": call_sid, "status": call_log.status})
-            except Exception as db_err:
-                logger.warning(f"AMD_STATUS db update failed: {db_err}")
-                db.session.rollback()
-
-        # Hang up immediately for voicemail/fax
-        if is_machine and call_sid:
-            try:
-                account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-                auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-                if account_sid and auth_token:
-                    client = Client(account_sid, auth_token)
-                    client.calls(call_sid).update(status="completed")
-                    logger.info("AMD_HANGUP_OK", extra={"call_sid": call_sid, "answered_by": answered_by})
-            except Exception as hang_err:
-                logger.warning(f"AMD_HANGUP_FAIL call_sid={call_sid}: {hang_err}")
-    except Exception:
-        logger.exception("AMD_STATUS_HANDLER_ERROR")
-
-    return resp
 
 @csrf.exempt  # ✅ BUILD 155: Added CSRF exemption for test webhook
 @twilio_bp.route("/webhook/test", methods=["POST", "GET"])
