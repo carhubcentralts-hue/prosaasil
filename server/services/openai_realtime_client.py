@@ -331,14 +331,6 @@ class OpenAIRealtimeClient:
         except Exception as e:
             logger.error(f"❌ Error receiving events: {e}")
             raise
-                    logger.error(f"❌ Invalid JSON from Realtime API: {e}")
-                    continue
-                    
-        except websockets.exceptions.ConnectionClosed as e:
-            logger.warning(f"⚠️ Realtime API connection closed: {e}")
-        except Exception as e:
-            logger.error(f"❌ Error receiving events: {e}")
-            raise
     
     async def send_audio_chunk(self, audio_base64: str):
         """
