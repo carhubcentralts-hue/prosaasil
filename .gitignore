@@ -63,6 +63,7 @@ services/whatsapp/auth/
 storage/recordings/
 storage/audio/
 storage/media/
+server/recordings/
 
 # Logs
 *.log
