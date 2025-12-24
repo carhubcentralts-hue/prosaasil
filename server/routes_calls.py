@@ -12,7 +12,7 @@ from sqlalchemy import or_
 import os
 import tempfile
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import urllib.parse
 
@@ -384,7 +384,7 @@ def stream_recording(call_sid):
             return jsonify({"success": False, "error": "Recording not found"}), 404
         
         # Check if recording is expired (7 days)
-        if call.created_at and (datetime.now(datetime.timezone.utc).replace(tzinfo=None) - call.created_at).days > 7:
+        if call.created_at and (datetime.now(timezone.utc).replace(tzinfo=None) - call.created_at).days > 7:
             log.info(f"Stream recording: Recording expired for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording expired"}), 410
         
