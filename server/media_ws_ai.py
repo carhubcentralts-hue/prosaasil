@@ -4453,9 +4453,13 @@ class MediaStreamHandler:
                     
                     # 🔥 IDEMPOTENT CHECK: Only proceed if ALL conditions are met
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
-                        # Condition 1: active_response_id must exist (already checked above)
+                        # Use _should_send_cancel for centralized duplicate protection
+                        # This checks: response_id exists, not already sent cancel, not already done
+                        if not self._should_send_cancel(self.active_response_id):
+                            # Already sent cancel or response already done - skip
+                            logger.debug(f"[BARGE-IN] Skipping cancel - duplicate guard triggered for {self.active_response_id[:20] if self.active_response_id else 'None'}...")
                         # Condition 2: Response must be in_progress (not done/cancelled)
-                        if self.active_response_status != "in_progress":
+                        elif self.active_response_status != "in_progress":
                             logger.debug(f"[BARGE-IN] Skipping cancel - response status={self.active_response_status} (not in_progress)")
                         # Condition 3: No cancel already in flight
                         elif self.cancel_in_flight:
@@ -4469,9 +4473,11 @@ class MediaStreamHandler:
                             logger.info(f"[BARGE-IN] 🎯 IDEMPOTENT: Starting cancel for response {response_id_to_cancel[:20]}... (cancel_in_flight=True)")
                             
                             # Step 2: Send cancel to OpenAI (only once)
+                            cancel_succeeded = False
                             try:
                                 await self.realtime_client.cancel_response(response_id_to_cancel)
                                 logger.info(f"[BARGE-IN] ✅ Cancel sent successfully for {response_id_to_cancel[:20]}...")
+                                cancel_succeeded = True
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Handle response_cancel_not_active gracefully (DEBUG level, not ERROR)
@@ -4480,14 +4486,16 @@ class MediaStreamHandler:
                                     'response_cancel_not_active' in error_str):
                                     # This is EXPECTED when response already ended - not an error
                                     logger.debug(f"[BARGE-IN] response_cancel_not_active - response already ended ({response_id_to_cancel[:20]}...)")
-                                    # Clear cancel_in_flight since cancel is not needed
-                                    self.cancel_in_flight = False
                                 else:
                                     # Unexpected error - log but don't retry
                                     logger.info(f"[BARGE-IN] Cancel error (ignoring, no retry): {e}")
-                                    self.cancel_in_flight = False
+                                # Clear cancel_in_flight on ANY error
+                                self.cancel_in_flight = False
+                                # Remove from sent set since cancel didn't actually go through
+                                self._cancel_sent_for_response_ids.discard(response_id_to_cancel)
                             
-                            # Step 3: Mark response as cancelled locally (immediately after cancel)
+                            # Step 3: Mark response as cancelled locally (immediately after cancel attempt)
+                            # Do this even if cancel failed (response might already be done)
                             self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
                             
                             # Step 4: Clear "AI speaking" flags ONLY (no session/conversation/STT reset)
@@ -4518,7 +4526,8 @@ class MediaStreamHandler:
                             # Step 7: Set barge-in flag with timestamp
                             self.barge_in_active = True
                             self._barge_in_started_ts = time.time()
-                            logger.info(f"[BARGE-IN] ✅ IDEMPOTENT cancel complete - AI speaking flags cleared (response_id={response_id_to_cancel[:20]}...)")
+                            status_msg = "succeeded" if cancel_succeeded else "not needed (already done)"
+                            logger.info(f"[BARGE-IN] ✅ IDEMPOTENT cancel {status_msg} - AI speaking flags cleared (response_id={response_id_to_cancel[:20]}...)")
                             
                             # NOTE: active_response_id and cancel_in_flight will be cleared in response.done/cancelled handler
                     elif has_active_response and DEBUG:
@@ -7854,6 +7863,7 @@ class MediaStreamHandler:
                 self.active_response_status = None  # 🔥 IDEMPOTENT CANCEL: Reset on session close
                 self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset on session close
                 self._last_flushed_response_id = None  # 🔥 IDEMPOTENT CANCEL: Reset on session close
+                self._cancel_sent_for_response_ids.clear()  # 🔥 IDEMPOTENT CANCEL: Clear sent cancels on session close
                 
                 # Clear barge-in state
                 self.barge_in_active = False
