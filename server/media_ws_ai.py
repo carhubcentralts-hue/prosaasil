@@ -2110,6 +2110,14 @@ class MediaStreamHandler:
             FrameDropReason.SESSION_NOT_READY: 0,
             FrameDropReason.OTHER: 0,
         }
+        
+        # 🔥 VERIFICATION: VAD calibration tracking (first 3 seconds)
+        self._vad_calibration_start_ts = None  # When first audio frame received
+        self._vad_calibration_complete = False  # Set after 3 seconds
+        self._vad_frames_in_first_3s = 0  # Count frames received in first 3 seconds
+        self._vad_speech_started_count_first_3s = 0  # Count speech_started events in first 3 seconds
+        self._vad_calibrated_noise_floor = None  # Calibrated noise floor value
+        self._vad_calibrated_threshold = None  # Calibrated VAD threshold
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -4315,6 +4323,12 @@ class MediaStreamHandler:
                     # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
+                    
+                    # 🔥 VERIFICATION: Track speech_started during calibration period
+                    if not self._vad_calibration_complete and self._vad_calibration_start_ts:
+                        calibration_elapsed = time.time() - self._vad_calibration_start_ts
+                        if calibration_elapsed <= 3.0:
+                            self._vad_speech_started_count_first_3s += 1
                     
                     if DEBUG:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
@@ -8397,6 +8411,33 @@ class MediaStreamHandler:
                     # 🔥 BUILD 165: NOISE GATE BEFORE SENDING TO AI!
                     # Calculate RMS first to decide if we should send audio at all
                     rms = audioop.rms(pcm16, 2)
+                    
+                    # 🔥 VERIFICATION: Track VAD calibration in first 3 seconds
+                    if self._vad_calibration_start_ts is None:
+                        self._vad_calibration_start_ts = time.time()
+                        print(f"🎯 [VAD_CALIBRATION] Started tracking first 3 seconds")
+                    
+                    if not self._vad_calibration_complete:
+                        calibration_elapsed = time.time() - self._vad_calibration_start_ts
+                        if calibration_elapsed <= 3.0:
+                            self._vad_frames_in_first_3s += 1
+                        elif calibration_elapsed > 3.0 and not self._vad_calibration_complete:
+                            # Calibration period ended - log results
+                            self._vad_calibration_complete = True
+                            self._vad_calibrated_noise_floor = getattr(self, '_recent_audio_rms', 0)
+                            self._vad_calibrated_threshold = getattr(self, 'vad_threshold', 0)
+                            print(f"✅ [VAD_CALIBRATION] Complete after 3s:")
+                            print(f"   noise_floor={self._vad_calibrated_noise_floor:.1f}")
+                            print(f"   threshold={self._vad_calibrated_threshold:.1f}")
+                            print(f"   vad_calibrated=True")
+                            print(f"   frames_in_first_3s={self._vad_frames_in_first_3s}")
+                            print(f"   speech_started_count_first_3s={self._vad_speech_started_count_first_3s}")
+                            if self._vad_speech_started_count_first_3s > 0 and self._vad_frames_in_first_3s < 50:
+                                # Warning: speech_started triggered very early (possible false trigger)
+                                logger.warning(
+                                    f"[VAD_WARNING] speech_started triggered {self._vad_speech_started_count_first_3s} times "
+                                    f"in first {self._vad_frames_in_first_3s} frames - possible false trigger!"
+                                )
                     
                     # 🔥 BUILD 170: Track recent RMS for silence gate in transcription handler
                     # Use exponential moving average for smooth tracking
@@ -14452,6 +14493,40 @@ class MediaStreamHandler:
             print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
             if SIMPLE_MODE and frames_dropped_total > 0:
                 print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
+            
+            # 🔥 VERIFICATION: Mathematical frame accounting validation
+            # Ensure frames_in == frames_forwarded + frames_dropped_total
+            expected_total = frames_forwarded_to_realtime + frames_dropped_total
+            if frames_in_from_twilio != expected_total:
+                accounting_error = frames_in_from_twilio - expected_total
+                logger.error(
+                    f"[FRAME_ACCOUNTING_ERROR] Mathematical inconsistency detected! "
+                    f"frames_in={frames_in_from_twilio}, "
+                    f"frames_forwarded={frames_forwarded_to_realtime}, "
+                    f"frames_dropped_total={frames_dropped_total}, "
+                    f"expected_total={expected_total}, "
+                    f"accounting_error={accounting_error}"
+                )
+                print(f"   🚨 FRAME ACCOUNTING ERROR: Missing/extra {accounting_error} frames!")
+                print(f"      frames_in={frames_in_from_twilio} != forwarded({frames_forwarded_to_realtime}) + dropped({frames_dropped_total})")
+            else:
+                print(f"   ✅ Frame accounting OK: {frames_in_from_twilio} = {frames_forwarded_to_realtime} + {frames_dropped_total}")
+            
+            # 🔥 VERIFICATION: Validate drop reason sum matches total
+            reason_sum = sum(getattr(self, '_frames_dropped_by_reason', {}).values())
+            if reason_sum != frames_dropped_total:
+                logger.error(
+                    f"[DROP_REASON_ERROR] Drop reason sum mismatch! "
+                    f"reason_sum={reason_sum}, frames_dropped_total={frames_dropped_total}, "
+                    f"difference={frames_dropped_total - reason_sum}"
+                )
+                print(f"   🚨 DROP REASON ERROR: sum of reasons ({reason_sum}) != total dropped ({frames_dropped_total})")
+                # Print all reason counts for debugging
+                for reason, count in getattr(self, '_frames_dropped_by_reason', {}).items():
+                    if count > 0:
+                        print(f"      {reason.value}: {count}")
+            else:
+                print(f"   ✅ Drop reason accounting OK: sum({reason_sum}) = total({frames_dropped_total})")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
