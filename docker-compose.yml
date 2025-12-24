@@ -16,6 +16,8 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
     ports:
       - "5000:5000"
+    volumes:
+      - recordings_data:/app/server/recordings
 
   frontend:
     container_name: prosaas-frontend
@@ -62,3 +64,4 @@ services:
 
 volumes:
   n8n_data:
+  recordings_data:
