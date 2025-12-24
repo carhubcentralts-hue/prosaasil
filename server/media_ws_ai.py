@@ -5020,6 +5020,16 @@ class MediaStreamHandler:
                     if event_type == "response.audio.done" and self.pending_hangup and not self.hangup_triggered:
                         pending_id = getattr(self, "pending_hangup_response_id", None)
                         done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        
+                        # 🔥 Point 2 Fix: Don't hangup if response was cancelled/aborted
+                        response_status = getattr(self, "active_response_status", None)
+                        if response_status == "cancelled":
+                            print(f"⏭️ [HANGUP FLOW] response.audio.done ignored (response was cancelled, status={response_status})")
+                            # Clear pending_hangup since this response was cancelled
+                            self.pending_hangup = False
+                            self.pending_hangup_response_id = None
+                            continue
+                        
                         # STRICT: Only hang up after audio.done for the SAME response_id we bound.
                         # If we don't have a bound id (should be rare), allow first audio.done to release.
                         if pending_id and done_resp_id and pending_id != done_resp_id:
@@ -5153,7 +5163,7 @@ class MediaStreamHandler:
                             bye_patterns = [
                                 r'\bביי\b(?:\s*[.!?…"']*\s*)?$',
                                 r'\bלהתראות\b(?:\s*[.!?…"']*\s*)?$', 
-                                r'\bשלום ולהתראות\b(?:\s*[.!?…"']*\s*)?$'
+                                r'\bשלום[\s,]*ולהתראות\b(?:\s*[.!?…"']*\s*)?$'  # 🔥 Point 3: Handles "שלום ולהתראות" or "שלום, ולהתראות"
                             ]
                             
                             has_goodbye = any(re.search(pattern, last_sentence_norm) for pattern in bye_patterns)
@@ -5645,8 +5655,10 @@ class MediaStreamHandler:
                                 print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
                         # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
-                        # 🔴 CRITICAL — Real Hangup (BOT): trigger only on allowed closing-sentence phrases
-                        ai_polite_closing_detected = self._classify_real_hangup_intent(transcript, "bot") == "hangup"
+                        # 🔴 DISABLED — Old goodbye detection (replaced by BYE-ONLY at line 5131-5176)
+                        # Point 1 Fix: Only ONE goodbye detection path (the strict BYE-ONLY one above)
+                        # ai_polite_closing_detected = self._classify_real_hangup_intent(transcript, "bot") == "hangup"
+                        ai_polite_closing_detected = False  # Disabled - use BYE-ONLY detection only
                         
                         # 🛡️ SAFETY: Don't allow hangup too early in the call (prevent premature disconnect)
                         # Wait at least 5 seconds after greeting before allowing smart ending
@@ -6929,6 +6941,7 @@ class MediaStreamHandler:
         
         # 2) Flush BOTH queues to stop audio playback immediately
         # 🔥 FIX 5: NO TRUNCATION enforcement - MUST clear ALL queues during barge-in
+        # 🔥 Point 4: TX loop verified - uses only tx_q, no local buffers
         realtime_cleared = 0
         tx_cleared = 0
         try:

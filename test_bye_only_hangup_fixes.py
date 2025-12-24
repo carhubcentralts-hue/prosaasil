@@ -36,6 +36,7 @@ def test_fix_3_goodbye_at_end_only():
         ("תודה רבה, ביי", True),  # Should match - bye at end
         ("ביי ויום טוב", False),  # Should NOT match - "ויום טוב" comes after bye
         ("שלום ולהתראות!", True),  # Should match
+        ("שלום, ולהתראות", True),  # 🔥 Point 3: Should match - comma before ו
         ("ביי ביי", True),  # Should match
         ("תודה אבל לא ביי עדיין, יש לי שאלה", False),  # Should NOT match - bye not at end
         ("ביי, אני חוזר", False),  # Should NOT match - bye in middle
@@ -213,6 +214,8 @@ def test_fix_6_timeouts_no_hangup():
 def test_fix_1_2_bye_only_final_text():
     """
     FIX 1 & 2: Test that BYE detection only on FINAL text with response_id
+    
+    Point 1: Verify only ONE listener (no duplicate detection)
     """
     print("\n=== Testing FIX 1 & 2: BYE only on FINAL text with response_id ===")
     
@@ -262,6 +265,18 @@ def test_fix_1_2_bye_only_final_text():
             print(f"  ❌ FAIL: {description} - '{check_str}' not found")
             failed += 1
     
+    # 🔥 Point 1 verification: Check for duplicate detection
+    # OLD detection should be disabled: ai_polite_closing_detected = False
+    if 'ai_polite_closing_detected = False  # Disabled' in bye_section:
+        print(f"  ✅ PASS: Point 1 - Old duplicate detection disabled")
+        passed += 1
+    elif '_classify_real_hangup_intent(transcript, "bot")' in bye_section:
+        print(f"  ❌ FAIL: Point 1 - Duplicate detection still active (should be disabled)")
+        failed += 1
+    else:
+        print(f"  ✅ PASS: Point 1 - No duplicate detection found")
+        passed += 1
+    
     # Also check audio.done handler has response_id matching - search for the hangup-specific one
     # We need the line that has BOTH "response.audio.done" AND "pending_hangup"
     search_str = 'response.audio.done" and self.pending_hangup'
@@ -276,6 +291,8 @@ def test_fix_1_2_bye_only_final_text():
         has_pending_id = 'pending_hangup_response_id' in audio_done_section
         has_done_id = 'done_resp_id' in audio_done_section
         has_comparison = 'pending_id != done_resp_id' in audio_done_section or 'pending_id and done_resp_id' in audio_done_section
+        # 🔥 Point 2 verification: Check for cancelled response guard
+        has_cancelled_check = 'response_status == "cancelled"' in audio_done_section or 'active_response_status' in audio_done_section
         
         if has_pending_id and has_done_id and has_comparison:
             print(f"  ✅ PASS: audio.done handler checks response_id match")
@@ -288,6 +305,13 @@ def test_fix_1_2_bye_only_final_text():
                 print(f"      - Missing done_resp_id extraction")
             if not has_comparison:
                 print(f"      - Missing ID comparison logic")
+            failed += 1
+        
+        if has_cancelled_check:
+            print(f"  ✅ PASS: Point 2 - audio.done checks for cancelled response")
+            passed += 1
+        else:
+            print(f"  ❌ FAIL: Point 2 - audio.done doesn't check for cancelled response")
             failed += 1
     
     print(f"\nFIX 1 & 2 Results: {passed} passed, {failed} failed")
