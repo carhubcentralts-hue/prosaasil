@@ -1816,6 +1816,9 @@ class MediaStreamHandler:
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
+        self.active_response_status = None  # 🔥 IDEMPOTENT CANCEL: Track response status ("in_progress" | "done" | "cancelled")
+        self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Prevent double-cancel
+        self._last_flushed_response_id = None  # 🔥 IDEMPOTENT CANCEL: Track last flushed response to prevent duplicate flushes
         self.min_ai_talk_guard_ms = 150  # 🔥 BUILD 164B: 150ms grace period
         self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 170.3: RMS > 60 now (was 200) - better barge-in
         self.min_voice_duration_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: 220ms continuous speech
@@ -3407,6 +3410,8 @@ class MediaStreamHandler:
                             print(f"🔧 [BUILD 301] STUCK RESPONSE DETECTED! Clearing active_response_id after {response_age:.1f}s")
                             print(f"   Was: {self.active_response_id[:20]}...")
                             self.active_response_id = None
+                            self.active_response_status = "done"  # 🔥 IDEMPOTENT CANCEL: Mark as done (timeout)
+                            self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                             self.response_pending_event.clear()
                             self.is_ai_speaking_event.clear()
                             self._stuck_check_first_seen_ts = None  # Reset for next response
@@ -3793,14 +3798,16 @@ class MediaStreamHandler:
                 if response_id and response_id in self._cancelled_response_ids:
                     if event_type in ("response.done", "response.cancelled"):
                         # ✅ CRITICAL FIX: Reset state on response.cancelled just like response.done
-                        # Per הנחיה: Clear all response state flags to prevent stale state
+                        # Per הנחיה: IDEMPOTENT CANCEL - Clear all response state flags to prevent stale state
                         if self.active_response_id == response_id:
                             self.active_response_id = None
+                            self.active_response_status = "cancelled"  # 🔥 IDEMPOTENT CANCEL
+                            self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
-                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, is_ai_speaking=False, ai_response_active=False (response_id={response_id[:20]}...)")
+                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False (response_id={response_id[:20]}...)")
                         
                         self._cancelled_response_ids.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
@@ -4012,22 +4019,28 @@ class MediaStreamHandler:
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
-                        # Ensure both active_response_id AND is_ai_speaking are cleared
-                        # Per הנחיה: Also clear ai_response_active flag
+                        # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
+                        # Clear active_response_id, set status to done/cancelled, clear cancel_in_flight
+                        # DO NOT reset session/conversation/STT - only AI speaking flags
                         resp_id = response.get("id", "")
                         if resp_id and self.active_response_id == resp_id:
+                            # This response is done - clear all response state
                             self.active_response_id = None
+                            self.active_response_status = "done" if status != "cancelled" else "cancelled"  # 🔥 IDEMPOTENT CANCEL
+                            self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                             # 🔥 BARGE-IN FIX: Clear all response flags
                             self.barge_in_active = False
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
-                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
+                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, status={self.active_response_status}, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
                             self.active_response_id = None
+                            self.active_response_status = "done" if status != "cancelled" else "cancelled"  # 🔥 IDEMPOTENT CANCEL
+                            self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                             # 🔥 BARGE-IN FIX: Clear all response flags
@@ -4089,6 +4102,7 @@ class MediaStreamHandler:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
                 # ✅ CRITICAL FIX: Handle response.cancelled event explicitly
+                # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
                 # Ensure state cleanup even if response.done doesn't arrive
                 if event_type == "response.cancelled":
                     _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
@@ -4098,12 +4112,14 @@ class MediaStreamHandler:
                     if not cancelled_resp_id and "response" in event:
                         cancelled_resp_id = event.get("response", {}).get("id")
                     
-                    # Clear state for this response
+                    # Clear state for this response (IDEMPOTENT - only if it matches active_response_id)
                     if cancelled_resp_id and self.active_response_id == cancelled_resp_id:
                         self.active_response_id = None
+                        self.active_response_status = "cancelled"  # 🔥 IDEMPOTENT CANCEL
+                        self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
-                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
+                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
                 
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
@@ -4415,7 +4431,17 @@ class MediaStreamHandler:
                     # Exception: Still protect greeting_lock (hard lock during greeting)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ NEW: Cancel on speech_started if ANY active_response_id exists
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Requirements per הנחיה:
+                    # 1. If active_response_id is empty → do nothing
+                    # 2. If active_response_status != "in_progress" → do nothing
+                    # 3. If cancel_in_flight == True → do nothing (already canceling)
+                    # 4. Otherwise: Set cancel_in_flight=True, send cancel ONCE, mark locally
+                    # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
+                    # ═══════════════════════════════════════════════════════════════════════
+                    
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
@@ -4425,56 +4451,76 @@ class MediaStreamHandler:
                         and not is_greeting_now
                     )
                     
-                    # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
-                    # Don't check ai_response_active or is_ai_speaking - just cancel!
+                    # 🔥 IDEMPOTENT CHECK: Only proceed if ALL conditions are met
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
-                        # AI has active response - user is interrupting, cancel IMMEDIATELY
-                        
-                        # Step 1: Cancel active response (with duplicate guard)
-                        if self._should_send_cancel(self.active_response_id):
+                        # Condition 1: active_response_id must exist (already checked above)
+                        # Condition 2: Response must be in_progress (not done/cancelled)
+                        if self.active_response_status != "in_progress":
+                            logger.debug(f"[BARGE-IN] Skipping cancel - response status={self.active_response_status} (not in_progress)")
+                        # Condition 3: No cancel already in flight
+                        elif self.cancel_in_flight:
+                            logger.debug(f"[BARGE-IN] Skipping cancel - cancel already in flight for {self.active_response_id[:20]}...")
+                        else:
+                            # All conditions met - proceed with IDEMPOTENT cancel
+                            response_id_to_cancel = self.active_response_id
+                            
+                            # Step 1: Set cancel_in_flight BEFORE sending cancel
+                            self.cancel_in_flight = True
+                            logger.info(f"[BARGE-IN] 🎯 IDEMPOTENT: Starting cancel for response {response_id_to_cancel[:20]}... (cancel_in_flight=True)")
+                            
+                            # Step 2: Send cancel to OpenAI (only once)
                             try:
-                                await self.realtime_client.cancel_response(self.active_response_id)
-                                # Mark as cancelled locally to track state
-                                self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
+                                await self.realtime_client.cancel_response(response_id_to_cancel)
+                                logger.info(f"[BARGE-IN] ✅ Cancel sent successfully for {response_id_to_cancel[:20]}...")
                             except Exception as e:
                                 error_str = str(e).lower()
-                                # Gracefully handle not_active errors
+                                # Handle response_cancel_not_active gracefully (DEBUG level, not ERROR)
                                 if ('not_active' in error_str or 'no active' in error_str or 
-                                    'already_cancelled' in error_str or 'already_completed' in error_str):
-                                    logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
+                                    'already_cancelled' in error_str or 'already_completed' in error_str or
+                                    'response_cancel_not_active' in error_str):
+                                    # This is EXPECTED when response already ended - not an error
+                                    logger.debug(f"[BARGE-IN] response_cancel_not_active - response already ended ({response_id_to_cancel[:20]}...)")
+                                    # Clear cancel_in_flight since cancel is not needed
+                                    self.cancel_in_flight = False
                                 else:
-                                    logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
-                        else:
-                            logger.debug("[BARGE-IN] Skipped duplicate cancel")
-                        
-                        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
-                        # 🔥 CRITICAL: Clear Twilio queue immediately to prevent AI audio from continuing
-                        if self.stream_sid:
-                            try:
-                                clear_event = {
-                                    "event": "clear",
-                                    "streamSid": self.stream_sid
-                                }
-                                self._ws_send(json.dumps(clear_event))
-                                logger.debug("[BARGE-IN] Sent Twilio clear event")
-                            except Exception as e:
-                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
-                        
-                        # Step 3: Flush TX queue (clear all pending audio frames)
-                        # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
-                        self._flush_tx_queue()
-                        
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
-                        self.is_ai_speaking_event.clear()
-                        self.active_response_id = None
-                        if hasattr(self, 'ai_response_active'):
-                            self.ai_response_active = False
-                        
-                        # Step 5: Set barge-in flag with timestamp
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                                    # Unexpected error - log but don't retry
+                                    logger.info(f"[BARGE-IN] Cancel error (ignoring, no retry): {e}")
+                                    self.cancel_in_flight = False
+                            
+                            # Step 3: Mark response as cancelled locally (immediately after cancel)
+                            self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
+                            
+                            # Step 4: Clear "AI speaking" flags ONLY (no session/conversation/STT reset)
+                            self.is_ai_speaking_event.clear()
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                            
+                            # Step 5: Send Twilio "clear" event to stop buffered audio
+                            if self.stream_sid:
+                                try:
+                                    clear_event = {
+                                        "event": "clear",
+                                        "streamSid": self.stream_sid
+                                    }
+                                    self._ws_send(json.dumps(clear_event))
+                                    logger.debug("[BARGE-IN] Sent Twilio clear event")
+                                except Exception as e:
+                                    logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
+                            
+                            # Step 6: Flush TX queue (idempotent - check if already flushed)
+                            if self._last_flushed_response_id != response_id_to_cancel:
+                                self._flush_tx_queue()
+                                self._last_flushed_response_id = response_id_to_cancel
+                                logger.debug(f"[BARGE-IN] Flushed TX queue for response {response_id_to_cancel[:20]}...")
+                            else:
+                                logger.debug(f"[BARGE-IN] TX queue already flushed for {response_id_to_cancel[:20]}... (skipping)")
+                            
+                            # Step 7: Set barge-in flag with timestamp
+                            self.barge_in_active = True
+                            self._barge_in_started_ts = time.time()
+                            logger.info(f"[BARGE-IN] ✅ IDEMPOTENT cancel complete - AI speaking flags cleared (response_id={response_id_to_cancel[:20]}...)")
+                            
+                            # NOTE: active_response_id and cancel_in_flight will be cleared in response.done/cancelled handler
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
@@ -4593,6 +4639,8 @@ class MediaStreamHandler:
                         # Per הנחיה: Enable barge-in detection on response.created (not audio.delta)
                         # This allows cancellation even if audio hasn't started yet
                         self.active_response_id = response_id
+                        self.active_response_status = "in_progress"  # 🔥 IDEMPOTENT CANCEL: Mark as in_progress
+                        self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag for new response
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
 
                         # 🔴 FINAL CRITICAL FIX #1:
@@ -4608,7 +4656,7 @@ class MediaStreamHandler:
                         if not hasattr(self, 'ai_response_active'):
                             self.ai_response_active = False
                         self.ai_response_active = True
-                        _orig_print(f"✅ [BARGE-IN] ai_response_active=True on response.created (id={response_id[:20]}...)", flush=True)
+                        _orig_print(f"✅ [BARGE-IN] ai_response_active=True, status=in_progress on response.created (id={response_id[:20]}...)", flush=True)
                         self.barge_in_active = False  # Reset barge-in flag for new response
                         print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
                         
@@ -4950,6 +4998,8 @@ class MediaStreamHandler:
                     
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
+                    self.active_response_status = "done"  # 🔥 IDEMPOTENT CANCEL: Mark as done (audio.done)
+                    self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                     self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                     
                     # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
@@ -6665,6 +6715,8 @@ class MediaStreamHandler:
                     # 🔒 Clear locks on error to prevent permanent stall
                     self.response_pending_event.clear()
                     self.active_response_id = None
+                    self.active_response_status = "done"  # 🔥 IDEMPOTENT CANCEL: Mark as done (error)
+                    self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                     # 🔥 CRITICAL: Reset greeting state on error to prevent hangup block
                     if self.is_playing_greeting:
                         print(f"🛡️ [ERROR CLEANUP] Resetting is_playing_greeting due to error")
@@ -6774,6 +6826,8 @@ class MediaStreamHandler:
             if self.active_response_id:
                 print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
                 self.active_response_id = None
+                self.active_response_status = "done"  # 🔥 IDEMPOTENT CANCEL: Mark as done (timeout)
+                self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
             
             if self.has_pending_ai_response:
                 print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
@@ -6861,6 +6915,8 @@ class MediaStreamHandler:
                 self.is_ai_speaking_event.clear()
             self.speaking = False
             self.active_response_id = None
+            self.active_response_status = "cancelled"  # 🔥 IDEMPOTENT CANCEL: Mark as cancelled
+            self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
         except Exception as e:
             print(f"⚠️ [BARGE_IN] Error clearing flags: {e}")
         
@@ -7795,6 +7851,9 @@ class MediaStreamHandler:
                     self.is_ai_speaking_event.clear()
                 self.speaking = False
                 self.active_response_id = None
+                self.active_response_status = None  # 🔥 IDEMPOTENT CANCEL: Reset on session close
+                self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset on session close
+                self._last_flushed_response_id = None  # 🔥 IDEMPOTENT CANCEL: Reset on session close
                 
                 # Clear barge-in state
                 self.barge_in_active = False
