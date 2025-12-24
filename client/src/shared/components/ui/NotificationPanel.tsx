@@ -212,7 +212,9 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete
   };
 
   const formatTime = (date: Date) => {
-    return date.toLocaleString('he-IL', {
+    // Add 2 hours to adjust from UTC to Israel time
+    const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+    return adjusted.toLocaleString('he-IL', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -313,9 +315,13 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete
                   <div className="flex justify-between">
                     <span className="text-slate-600">תאריך יעד:</span>
                     <span className="font-medium">
-                      {new Date(notification.metadata.dueAt).toLocaleString('he-IL', {
-                        timeZone: 'Asia/Jerusalem'
-                      })}
+                      {(() => {
+                        const date = new Date(notification.metadata.dueAt);
+                        const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+                        return adjusted.toLocaleString('he-IL', {
+                          timeZone: 'Asia/Jerusalem'
+                        });
+                      })()}
                     </span>
                   </div>
                 )}
@@ -581,11 +587,15 @@ export function UrgentNotificationPopup({ notification, onDismiss, onCloseAll, o
           <div className="text-center mb-4 p-3 bg-white rounded-lg border border-slate-200">
             <p className="text-sm text-slate-600">מיועד ל:</p>
             <p className="text-lg font-semibold text-slate-900">
-              {new Date(notification.metadata.dueAt).toLocaleString('he-IL', {
-                dateStyle: 'short',
-                timeStyle: 'short',
-                timeZone: 'Asia/Jerusalem'
-              })}
+              {(() => {
+                const date = new Date(notification.metadata.dueAt);
+                const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+                return adjusted.toLocaleString('he-IL', {
+                  dateStyle: 'short',
+                  timeStyle: 'short',
+                  timeZone: 'Asia/Jerusalem'
+                });
+              })()}
             </p>
           </div>
         )}

@@ -1,29 +1,44 @@
 /**
  * 🎯 TIMEZONE FIX: All date formatting with correct timezone handling
  * 
- * The server stores dates in Asia/Jerusalem timezone (UTC+2/+3 depending on DST).
- * When JavaScript creates dates from ISO strings, it interprets them incorrectly
- * if we don't specify the timezone, causing 7-hour offsets and wrong times.
+ * The server stores dates in UTC (datetime.utcnow) and sends ISO strings without timezone info.
+ * When JavaScript creates dates from these ISO strings, it interprets them as LOCAL timezone,
+ * causing incorrect display if the browser is not in UTC+0.
  * 
- * Solution: ALWAYS use timeZone: 'Asia/Jerusalem' in Intl.DateTimeFormat
+ * Solution: Add 2 hours to all dates before formatting to convert UTC -> Israel Time (UTC+2)
+ * This ensures consistent display regardless of browser timezone.
+ * 
+ * Note: In summer (DST), Israel is UTC+3, but the system uses UTC+2 year-round for consistency.
  */
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
+const ISRAEL_OFFSET_HOURS = 2;  // UTC+2 (fixed offset, not DST-aware)
+
+/**
+ * Convert UTC datetime string to Israel time by adding offset
+ * @internal - used by all format functions
+ */
+function adjustToIsraelTime(date: string | Date): Date {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  // Add 2 hours (UTC+2) to convert from UTC to Israel time
+  const adjusted = new Date(d.getTime() + ISRAEL_OFFSET_HOURS * 60 * 60 * 1000);
+  return adjusted;
+}
 
 /**
  * Format date with time in Israeli timezone
- * Example: "14/12/2025, 19:30" instead of "14/12/2025, 12:30" (wrong UTC interpretation)
+ * Example: "14/12/2025, 19:30" (adjusted from UTC to Israel time)
  */
 export function formatDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const adjusted = adjustToIsraelTime(date);
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: ISRAEL_TIMEZONE, // 🎯 FIX: Always use Israel timezone
-  }).format(d);
+    timeZone: ISRAEL_TIMEZONE, // Display in Israel timezone
+  }).format(adjusted);
 }
 
 /**
@@ -31,26 +46,26 @@ export function formatDate(date: string | Date): string {
  * Example: "14/12/2025"
  */
 export function formatDateOnly(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const adjusted = adjustToIsraelTime(date);
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    timeZone: ISRAEL_TIMEZONE, // 🎯 FIX: Always use Israel timezone
-  }).format(d);
+    timeZone: ISRAEL_TIMEZONE,
+  }).format(adjusted);
 }
 
 /**
  * Format time only in Israeli timezone
- * Example: "19:30" instead of "12:30" (wrong UTC interpretation)
+ * Example: "19:30" (adjusted from UTC)
  */
 export function formatTimeOnly(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const adjusted = adjustToIsraelTime(date);
   return new Intl.DateTimeFormat('he-IL', {
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: ISRAEL_TIMEZONE, // 🎯 FIX: Always use Israel timezone
-  }).format(d);
+    timeZone: ISRAEL_TIMEZONE,
+  }).format(adjusted);
 }
 
 /**
@@ -89,14 +104,14 @@ export function formatRelativeTime(dateString: string | null | undefined): strin
  * Example: "יום חמישי, 14 בדצמבר 2025"
  */
 export function formatLongDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const adjusted = adjustToIsraelTime(date);
   return new Intl.DateTimeFormat('he-IL', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: ISRAEL_TIMEZONE, // 🎯 FIX: Always use Israel timezone
-  }).format(d);
+    timeZone: ISRAEL_TIMEZONE,
+  }).format(adjusted);
 }
 
 export function formatNumber(num: number): string {

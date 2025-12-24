@@ -4,6 +4,7 @@ import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, 
 import { http } from '../../services/http';
 import { formatDate as formatDateUtil, formatDuration } from '../../shared/utils/format';
 import { CallCard } from '../../shared/components/CallCard';
+import { AudioPlayer } from '../../shared/components/AudioPlayer';
 
 // Debounce hook for search optimization
 function useDebounce<T>(value: T, delay: number): T {
@@ -104,7 +105,9 @@ export function CallsPage() {
   const [directionFilter, setDirectionFilter] = useState('all');
   const [callDetails, setCallDetails] = useState<CallDetails | null>(null);
   const [downloadingRecording, setDownloadingRecording] = useState<string | null>(null);
-  const [playingRecording, setPlayingRecording] = useState<string | null>(null);
+  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
+  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
+  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState('');
   const [deletingCall, setDeletingCall] = useState<string | null>(null);
@@ -213,6 +216,11 @@ export function CallsPage() {
       setSelectedCall(call);
       setShowDetails(true);
       
+      // 🔥 FIX: Load recording blob for audio playback
+      if (call.hasRecording && call.sid) {
+        loadRecordingBlob(call.sid);
+      }
+      
       const response = await http.get(`/api/calls/${call.sid}/details`);
       
       if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
@@ -282,22 +290,46 @@ export function CallsPage() {
     }
   };
 
-  const playRecording = async (call: Call) => {
-    if (!call.recording_url) return;
+  // 🔥 FIX: Load recording as blob with authentication for playback
+  const loadRecordingBlob = async (callSid: string) => {
+    // Skip if already loaded or currently loading (check ref for source of truth)
+    if (recordingUrlsRef.current[callSid] || loadingRecording === callSid) return;
     
+    setLoadingRecording(callSid);
     try {
-      setPlayingRecording(call.sid);
+      const response = await fetch(`/api/calls/${callSid}/download`, {
+        method: 'GET',
+        credentials: 'include'
+      });
       
-      // TODO: Replace with real audio player implementation
-      // For now, just simulate playing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      console.log('Playing recording:', call.sid);
+      if (!response.ok) {
+        throw new Error('Failed to load recording');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      recordingUrlsRef.current[callSid] = url;  // Track in ref for cleanup
+      setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
     } catch (error) {
-      console.error('Error playing recording:', error);
+      console.error('Error loading recording:', error);
+      // Don't set URL in ref on error - allow retry
     } finally {
-      setPlayingRecording(null);
+      setLoadingRecording(null);
     }
   };
+
+  // 🔥 FIX: Cleanup blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      // Revoke all blob URLs to prevent memory leaks
+      Object.values(recordingUrlsRef.current).forEach(url => {
+        window.URL.revokeObjectURL(url);
+      });
+    };
+  }, []); // Only run on mount/unmount
+
+  // 🎯 FIX: Removed playRecording - replaced with inline audio player using authenticated download endpoint
+  // Audio is now played directly in the table using AudioPlayer component (same as LeadDetailPage)
 
   // 🎯 REMOVED: Use centralized formatDuration from utils
   // const formatDuration = (seconds: number) => { ... }
@@ -643,16 +675,6 @@ export function CallsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => playRecording(call)}
-                              disabled={playingRecording === call.sid}
-                              data-testid={`button-play-${call.sid}`}
-                            >
-                              <PlayCircle className={`h-4 w-4 ${playingRecording === call.sid ? 'animate-spin' : ''}`} />
-                            </Button>
-                            
-                            <Button
-                              variant="ghost"
-                              size="sm"
                               onClick={() => downloadRecording(call)}
                               disabled={downloadingRecording === call.sid}
                               data-testid={`button-download-${call.sid}`}
@@ -761,18 +783,6 @@ export function CallsPage() {
                     
                     {call.hasRecording && (
                       <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => playRecording(call)}
-                          disabled={playingRecording === call.sid}
-                          data-testid={`button-play-${call.sid}`}
-                          className="flex-1"
-                        >
-                          <PlayCircle className={`h-4 w-4 mr-1 ${playingRecording === call.sid ? 'animate-spin' : ''}`} />
-                          השמע
-                        </Button>
-                        
                         <Button
                           variant="ghost"
                           size="sm"
@@ -913,23 +923,40 @@ export function CallsPage() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3">
+              <div className="space-y-4">
                 {selectedCall.hasRecording && (
-                  <>
-                    <Button variant="outline" onClick={() => playRecording(selectedCall)}>
-                      <PlayCircle className="h-4 w-4 ml-2" />
-                      נגן הקלטה
-                    </Button>
-                    <Button variant="outline" onClick={() => downloadRecording(selectedCall)}>
-                      <Download className="h-4 w-4 ml-2" />
-                      הורד הקלטה
-                    </Button>
-                  </>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-medium text-slate-700">הקלטת שיחה</h4>
+                      <Button variant="outline" size="sm" onClick={() => downloadRecording(selectedCall)}>
+                        <Download className="h-4 w-4 ml-2" />
+                        הורד
+                      </Button>
+                    </div>
+                    {/* 🔥 FIX: Use AudioPlayer with authenticated blob URL */}
+                    {recordingUrls[selectedCall.sid] ? (
+                      <AudioPlayer
+                        src={recordingUrls[selectedCall.sid]}
+                        loading={loadingRecording === selectedCall.sid}
+                      />
+                    ) : loadingRecording === selectedCall.sid ? (
+                      <div className="flex items-center justify-center py-4">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                        <span className="text-sm text-slate-500 mr-2">טוען הקלטה...</span>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
+                      </div>
+                    )}
+                  </div>
                 )}
-                <Button variant="outline" onClick={() => selectedCall && openInCRM(selectedCall)} data-testid="button-open-crm">
-                  <ExternalLink className="h-4 w-4 ml-2" />
-                  פתח בCRM
-                </Button>
+                <div className="flex gap-3 pt-2 border-t">
+                  <Button variant="outline" onClick={() => selectedCall && openInCRM(selectedCall)} data-testid="button-open-crm">
+                    <ExternalLink className="h-4 w-4 ml-2" />
+                    פתח בCRM
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
