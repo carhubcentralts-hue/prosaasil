@@ -170,7 +170,9 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                 log.info(f"[RECORDING_SERVICE] ✅ File already exists (created by another process): {local_path}")
                 return local_path
             
-            log.warning(f"[RECORDING_SERVICE] ⚠️  Cache miss - downloading from Twilio for {call_sid} (this may take time and cause 502 if slow)")
+            # 🔥 FIX: Changed to INFO level - this is expected on first playback, not an error
+            # The offline worker should populate cache, but first playback will always trigger this
+            log.info(f"[RECORDING_SERVICE] Cache miss - downloading from Twilio for {call_sid} (async download in progress, client may need to retry)")
             download_start = time.time()
             
             # Get Twilio credentials
