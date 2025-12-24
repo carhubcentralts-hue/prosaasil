@@ -2184,6 +2184,11 @@ class MediaStreamHandler:
         self.outbound_first_response_sent = False  # Ensure greeting triggers only ONCE
         self.outbound_gate_timeout_sec = 12.0  # Hard timeout: end call if no voice in 12s
         
+        # 🔥 CRITICAL FIXES for gate robustness
+        self.outbound_voice_confirmations = 0  # Count voice indications (need 2 for gate open)
+        self.outbound_last_utterance_ts = None  # Track last utterance time
+        self.suspected_voicemail = False  # Flag long/continuous speech as voicemail
+        
         # Legacy fields (keeping for compatibility but using new gate logic)
         self.call_mode = None  # Will be set to "outbound_prompt_only" for outbound calls
         self.human_confirmed = False  # For outbound: starts False, becomes True after first valid STT_FINAL
@@ -6058,6 +6063,7 @@ class MediaStreamHandler:
                     
                     # ═══════════════════════════════════════════════════════════════════════════
                     # 🔥 OUTBOUND VOICE GATE: Voice-only human detection (replaces AMD)
+                    # 3 CRITICAL FIXES: 2-voice confirmation, voicemail detection, adaptive duration
                     # ═══════════════════════════════════════════════════════════════════════════
                     is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                     
@@ -6071,75 +6077,107 @@ class MediaStreamHandler:
                             logger.info(f"[OUTBOUND_VOICE_GATE] Early utterance ignored: {int(call_age_sec*1000)}ms < 1200ms")
                             # Don't process this utterance - continue waiting
                         else:
-                            # Filter 2: Content + Duration filter
-                            # Accept ONLY if ALL conditions met:
-                            # 1. Duration >= 450ms
-                            # 2. Text is in Hebrew greeting whitelist OR len >= 4 chars
-                            # 3. NOT filler-only (already validated above)
-                            
                             # Whitelist of Hebrew greetings
                             hebrew_greetings = {"הלו", "הלו.", "כן", "כן.", "מי זה", "מי זה?", "שלום", "שלום."}
                             is_greeting = text in hebrew_greetings
                             has_min_length = len(text.strip()) >= 4
-                            has_min_duration = utterance_duration_ms >= 450
                             
-                            # Check all conditions
-                            if has_min_duration and (is_greeting or has_min_length) and not is_filler_only:
-                                # ✅ GATE OPENS - Human detected!
-                                self.outbound_gate = "OPEN"
-                                self.user_has_spoken = True
-                                self.human_confirmed = True  # Legacy flag for compatibility
+                            # 🔥 FIX 3: Adaptive duration threshold
+                            # Whitelist words (כן/הלו/מי זה) can be 200-350ms → require 250ms minimum
+                            # Non-whitelist → require 450ms minimum
+                            min_duration_threshold = 250 if is_greeting else 450
+                            has_min_duration = utterance_duration_ms >= min_duration_threshold
+                            
+                            # 🔥 FIX 2: Voicemail detection for long/continuous speech
+                            # If greeting word but VERY long or continuous → suspected voicemail
+                            if is_greeting and utterance_duration_ms >= 1800:
+                                self.suspected_voicemail = True
+                                print(f"[OUTBOUND_VOICE_GATE] suspected_voicemail=True (greeting word but {int(utterance_duration_ms)}ms >= 1800ms)")
+                                logger.warning(f"[OUTBOUND_VOICE_GATE] Suspected voicemail: long greeting {int(utterance_duration_ms)}ms")
+                                # Don't open gate - wait for short human response
+                            
+                            # Check basic conditions (duration + content)
+                            passes_basic_check = has_min_duration and (is_greeting or has_min_length) and not is_filler_only
+                            
+                            if passes_basic_check and not self.suspected_voicemail:
+                                # 🔥 FIX 1: Need 2 voice confirmations (not just 1)
+                                # Increment confirmation counter
+                                self.outbound_voice_confirmations += 1
+                                self.outbound_last_utterance_ts = time.time()
                                 
-                                print(f"[OUTBOUND_VOICE_GATE] OPEN ✅ first_valid_utterance duration_ms={int(utterance_duration_ms)} text='{text}' → response.create")
-                                logger.info(f"[OUTBOUND_VOICE_GATE] Gate opened: duration={int(utterance_duration_ms)}ms, text='{text}'")
-                                _orig_print(f"[OUTBOUND_VOICE_GATE] OPEN call_sid={self.call_sid[:8]}... text='{text[:20]}' duration_ms={int(utterance_duration_ms)}", flush=True)
+                                print(f"[OUTBOUND_VOICE_GATE] voice_confirmation #{self.outbound_voice_confirmations} text='{text}' duration={int(utterance_duration_ms)}ms")
                                 
-                                # Trigger AI response ONCE
-                                if not self.outbound_first_response_sent and not self.greeting_sent:
-                                    # Check if there's already an active response before triggering greeting
-                                    has_active_response = bool(getattr(self, 'active_response_id', None) or getattr(self, 'ai_response_active', False))
+                                # Open gate only after 2 confirmations OR 1 confirmation if text >= 8 chars (full sentence)
+                                needs_second_confirmation = len(text.strip()) < 8
+                                can_open_gate = (self.outbound_voice_confirmations >= 2) or not needs_second_confirmation
+                                
+                                if can_open_gate:
+                                    # ✅ GATE OPENS - Human detected with confirmation!
+                                    self.outbound_gate = "OPEN"
+                                    self.user_has_spoken = True
+                                    self.human_confirmed = True  # Legacy flag for compatibility
                                     
-                                    if has_active_response:
-                                        # Active response exists (probably VAD auto-response) - defer greeting
-                                        self.greeting_pending = True
-                                        print(f"⏸️ [OUTBOUND_VOICE_GATE] Active response detected - deferring greeting (greeting_pending=True)")
-                                        logger.info("[GREETING_DEFER] Active response exists - greeting deferred until response.done")
-                                    else:
-                                        # No active response - safe to trigger greeting now
-                                        # Set greeting flags
-                                        greeting_start_ts = time.time()
-                                        self.greeting_sent = True
-                                        self.is_playing_greeting = True
-                                        self.greeting_mode_active = True
-                                        self.greeting_lock_active = True
-                                        self._greeting_lock_response_id = None
-                                        self._greeting_start_ts = greeting_start_ts
-                                        self.outbound_first_response_sent = True  # Ensure only once
-                                        logger.info("[GREETING_LOCK] activated (post voice gate open)")
+                                    print(f"[OUTBOUND_VOICE_GATE] OPEN ✅ first_valid_utterance duration_ms={int(utterance_duration_ms)} text='{text}' confirmations={self.outbound_voice_confirmations} → response.create")
+                                    logger.info(f"[OUTBOUND_VOICE_GATE] Gate opened: duration={int(utterance_duration_ms)}ms, text='{text}', confirmations={self.outbound_voice_confirmations}")
+                                    _orig_print(f"[OUTBOUND_VOICE_GATE] OPEN call_sid={self.call_sid[:8]}... text='{text[:20]}' duration_ms={int(utterance_duration_ms)}", flush=True)
+                                    
+                                    # 🔥 CRITICAL: Trigger AI response ONCE (and ONLY after gate opens)
+                                    if not self.outbound_first_response_sent and not self.greeting_sent:
+                                        # Check if there's already an active response before triggering greeting
+                                        has_active_response = bool(getattr(self, 'active_response_id', None) or getattr(self, 'ai_response_active', False))
                                         
-                                        # Trigger the greeting response
-                                        realtime_client = getattr(self, 'realtime_client', None)
-                                        if realtime_client:
-                                            # Create task to trigger greeting (don't block STT processing)
-                                            async def _trigger_delayed_greeting():
-                                                try:
-                                                    await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
-                                                    triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
-                                                    if triggered:
-                                                        print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
-                                                    else:
-                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
-                                                        self.greeting_sent = False
-                                                        self.is_playing_greeting = False
-                                                        self.outbound_first_response_sent = False
-                                                except Exception as e:
-                                                    print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
-                                                    import traceback
-                                                    traceback.print_exc()
-                                            
-                                            asyncio.create_task(_trigger_delayed_greeting())
+                                        if has_active_response:
+                                            # Active response exists (probably VAD auto-response) - defer greeting
+                                            self.greeting_pending = True
+                                            print(f"⏸️ [OUTBOUND_VOICE_GATE] Active response detected - deferring greeting (greeting_pending=True)")
+                                            logger.info("[GREETING_DEFER] Active response exists - greeting deferred until response.done")
                                         else:
-                                            print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
+                                            # No active response - safe to trigger greeting now
+                                            # Set greeting flags
+                                            greeting_start_ts = time.time()
+                                            self.greeting_sent = True
+                                            self.is_playing_greeting = True
+                                            self.greeting_mode_active = True
+                                            self.greeting_lock_active = True
+                                            self._greeting_lock_response_id = None
+                                            self._greeting_start_ts = greeting_start_ts
+                                            self.outbound_first_response_sent = True  # Ensure only once
+                                            logger.info("[GREETING_LOCK] activated (post voice gate open)")
+                                            
+                                            # Trigger the greeting response
+                                            realtime_client = getattr(self, 'realtime_client', None)
+                                            if realtime_client:
+                                                # Create task to trigger greeting (don't block STT processing)
+                                                async def _trigger_delayed_greeting():
+                                                    try:
+                                                        await asyncio.sleep(0.1)  # Small delay to ensure STT is processed
+                                                        triggered = await self.trigger_response("GREETING_VOICE_GATE", realtime_client, is_greeting=True, force=True)
+                                                        if triggered:
+                                                            print(f"✅ [OUTBOUND_VOICE_GATE] Greeting triggered after gate open")
+                                                        else:
+                                                            print(f"❌ [OUTBOUND_VOICE_GATE] Failed to trigger greeting")
+                                                            self.greeting_sent = False
+                                                            self.is_playing_greeting = False
+                                                            self.outbound_first_response_sent = False
+                                                    except Exception as e:
+                                                        print(f"❌ [OUTBOUND_VOICE_GATE] Error triggering greeting: {e}")
+                                                        import traceback
+                                                        traceback.print_exc()
+                                                
+                                                asyncio.create_task(_trigger_delayed_greeting())
+                                            else:
+                                                print(f"⚠️ [OUTBOUND_VOICE_GATE] No realtime_client available for greeting trigger")
+                                else:
+                                    # Need second confirmation - keep waiting
+                                    print(f"[OUTBOUND_VOICE_GATE] waiting_second_confirmation (need 2 voice indications)")
+                            elif self.suspected_voicemail:
+                                # Suspected voicemail - waiting for short human response
+                                # Reset if we get a SHORT utterance (< 800ms) which indicates human
+                                if utterance_duration_ms < 800 and has_min_duration:
+                                    print(f"[OUTBOUND_VOICE_GATE] suspected_voicemail reset - got short response {int(utterance_duration_ms)}ms")
+                                    self.suspected_voicemail = False
+                                    self.outbound_voice_confirmations = 1  # Count this as first confirmation
+                                    self.outbound_last_utterance_ts = time.time()
                             else:
                                 # Gate still closed - log rejection reason
                                 reject_reasons = []
