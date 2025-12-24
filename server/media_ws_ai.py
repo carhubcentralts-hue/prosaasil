@@ -1809,6 +1809,10 @@ class MediaStreamHandler:
         self.realtime_audio_in_chunks = 0   # Count of audio chunks received from Twilio
         self.realtime_audio_out_chunks = 0  # Count of audio chunks sent to Twilio
         
+        # 🔥 NEW: Initialize backlog monitoring timestamps
+        self._last_backlog_warning = 0.0  # For tx_q backlog warnings
+        self._last_realtime_backlog_warning = 0.0  # For realtime_audio_out_queue backlog warnings
+        
         # 🎯 PROBE 4: Queue Flow Probe tracking
         self._enq_counter = 0  # Frames enqueued to realtime_audio_out_queue
         self._enq_last_log_time = time.monotonic()
@@ -2144,6 +2148,33 @@ class MediaStreamHandler:
         self._vad_speech_started_count_first_3s = 0  # Count speech_started events in first 3 seconds
         self._vad_calibrated_noise_floor = None  # Calibrated noise floor value
         self._vad_calibrated_threshold = None  # Calibrated VAD threshold
+
+    def _check_queue_backlog(self, queue, queue_name: str, threshold: int = 200) -> None:
+        """
+        🔥 Helper method to monitor queue backlog and log warnings
+        Prevents audio timing issues from large queue backlogs
+        
+        Args:
+            queue: The queue object to check
+            queue_name: Name for logging (e.g., 'tx_q', 'realtime_audio_out_queue')
+            threshold: Frame threshold for warning (default 200 = 4 seconds @ 50fps)
+        """
+        try:
+            current_qsize = queue.qsize()
+            if current_qsize > threshold:
+                now_mono = time.monotonic()
+                warning_attr = f'_last_{queue_name}_backlog_warning'
+                last_warning = getattr(self, warning_attr, 0.0)
+                
+                if now_mono - last_warning > 3.0:
+                    _orig_print(
+                        f"⚠️ [BACKLOG WARNING] {queue_name} overflow: {current_qsize} frames (>{threshold}) - potential timing issues",
+                        flush=True
+                    )
+                    setattr(self, warning_attr, now_mono)
+        except Exception as e:
+            # Don't let backlog monitoring crash the call
+            pass
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -4780,13 +4811,11 @@ class MediaStreamHandler:
                             if not self.closed:
                                 try:
                                     # 🔥 NEW: BACKLOG GUARD - Monitor realtime_audio_out_queue overflow
-                                    REALTIME_BACKLOG_THRESHOLD = 200  # frames (4 seconds @ 50fps)
-                                    current_qsize = self.realtime_audio_out_queue.qsize()
-                                    if current_qsize > REALTIME_BACKLOG_THRESHOLD:
-                                        now_mono_check = time.monotonic()
-                                        if now_mono_check - getattr(self, '_last_realtime_backlog_warning', 0) > 3.0:
-                                            _orig_print(f"⚠️ [BACKLOG WARNING] realtime_audio_out_queue overflow: {current_qsize} frames (>{REALTIME_BACKLOG_THRESHOLD})", flush=True)
-                                            self._last_realtime_backlog_warning = now_mono_check
+                                    self._check_queue_backlog(
+                                        self.realtime_audio_out_queue,
+                                        'realtime_audio_out_queue',
+                                        threshold=200
+                                    )
                                     
                                     self.realtime_audio_out_queue.put_nowait(audio_b64)
                                     # 🎯 PROBE 4: Track enqueue for rate monitoring
@@ -4926,13 +4955,11 @@ class MediaStreamHandler:
                         if not self.closed:
                             try:
                                 # 🔥 NEW: BACKLOG GUARD - Monitor realtime_audio_out_queue overflow
-                                REALTIME_BACKLOG_THRESHOLD = 200  # frames (4 seconds @ 50fps)
-                                current_qsize = self.realtime_audio_out_queue.qsize()
-                                if current_qsize > REALTIME_BACKLOG_THRESHOLD:
-                                    now_mono_check = time.monotonic()
-                                    if now_mono_check - getattr(self, '_last_realtime_backlog_warning', 0) > 3.0:
-                                        _orig_print(f"⚠️ [BACKLOG WARNING] realtime_audio_out_queue overflow: {current_qsize} frames (>{REALTIME_BACKLOG_THRESHOLD})", flush=True)
-                                        self._last_realtime_backlog_warning = now_mono_check
+                                self._check_queue_backlog(
+                                    self.realtime_audio_out_queue,
+                                    'realtime_audio_out_queue',
+                                    threshold=200
+                                )
                                 
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
@@ -9949,16 +9976,7 @@ class MediaStreamHandler:
         
         # 🔥 NEW: BACKLOG GUARD - Monitor queue overflow (>200 frames = 4 seconds)
         # Large backlogs cause timing issues and weird bot behavior
-        BACKLOG_THRESHOLD = 200  # frames (4 seconds @ 50fps)
-        current_qsize = self.tx_q.qsize()
-        if current_qsize > BACKLOG_THRESHOLD:
-            # Log warning (throttled)
-            now = time.monotonic()
-            if now - getattr(self, '_last_backlog_warning', 0) > 3.0:
-                _orig_print(f"⚠️ [BACKLOG WARNING] tx_q overflow: {current_qsize} frames (>{BACKLOG_THRESHOLD}) - potential timing issues", flush=True)
-                self._last_backlog_warning = now
-            # Consider draining or blocking if this persists
-            # For now, drop-oldest policy below will handle it
+        self._check_queue_backlog(self.tx_q, 'tx_q', threshold=200)
         
         # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
         # 🔥 BUILD 178: Disabled for outbound calls
