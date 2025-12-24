@@ -476,18 +476,30 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - enqueue download job and return 202
-            log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing download job")
+            # File doesn't exist locally - check if download is in progress or enqueue
+            from server.services.recording_service import is_download_in_progress
             
-            # Enqueue job to download recording in background
-            from server.tasks_recording import enqueue_recording_job
-            enqueue_recording_job(
+            if is_download_in_progress(call_sid):
+                # Download already in progress - tell client to retry
+                log.info(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
+                return jsonify({
+                    "success": True,
+                    "status": "processing",
+                    "message": "Recording is being prepared, please retry in a few seconds"
+                }), 202
+            
+            # Not in progress and not cached - enqueue PRIORITY download job
+            log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
+            
+            # 🔥 FIX: Use download_only job for UI requests (fast!)
+            # This skips transcription and only downloads the file
+            from server.tasks_recording import enqueue_recording_download_only
+            enqueue_recording_download_only(
                 call_sid=call_sid,
                 recording_url=call.recording_url,
                 business_id=business_id,
                 from_number=call.from_number or "",
-                to_number=call.to_number or "",
-                retry_count=0
+                to_number=call.to_number or ""
             )
             
             # Return 202 Accepted to indicate processing

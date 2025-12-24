@@ -33,8 +33,9 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const MAX_RETRIES = 10; // Max 10 retries (up to 20 seconds)
-  const RETRY_DELAY = 2000; // 2 seconds between retries
+  // 🔥 FIX: Increase retry patience for slow downloads
+  const MAX_RETRIES = 20; // Max 20 retries (up to 60 seconds for large recordings)
+  const RETRY_DELAY = 3000; // 3 seconds between retries (more patient)
 
   // Load saved playback speed preference from localStorage
   useEffect(() => {
@@ -95,7 +96,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
       // Handle 202 Accepted - recording is being prepared
       if (response.status === 202) {
         if (currentRetry < MAX_RETRIES) {
-          console.log(`Recording is being prepared, retrying in ${RETRY_DELAY/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
+          const secondsWaited = (currentRetry + 1) * (RETRY_DELAY / 1000);
+          console.log(`Recording is being prepared (${secondsWaited}s elapsed), retrying... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
           setRetryCount(currentRetry + 1);
           
           // Retry after delay
@@ -104,7 +106,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
           }, RETRY_DELAY);
           return;
         } else {
-          throw new Error('הכנת ההקלטה לקחה יותר מדי זמן. אנא נסה שוב מאוחר יותר.');
+          throw new Error('ההכנה של ההקלטה נמשכת זמן רב. אנא נסה שוב בעוד דקה.');
         }
       }
 
@@ -170,12 +172,18 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   };
 
   if (loading || preparingRecording) {
+    // Calculate estimated seconds remaining
+    const secondsElapsed = retryCount * (RETRY_DELAY / 1000);
+    const maxSeconds = MAX_RETRIES * (RETRY_DELAY / 1000);
+    
     return (
       <div className="flex items-center justify-center py-4">
         <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
         <span className="text-sm text-gray-500 mr-2">
           {preparingRecording && retryCount > 0 
-            ? `מכין הקלטה... (נסיון ${retryCount}/${MAX_RETRIES})`
+            ? `מכין הקלטה... (${secondsElapsed}s / ${maxSeconds}s)`
+            : preparingRecording
+            ? 'מוריד הקלטה מהשרת...'
             : 'טוען הקלטה...'
           }
         </span>
