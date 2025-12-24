@@ -6,11 +6,16 @@ import os
 import logging
 import requests
 import time
+import fcntl
 from typing import Optional
 from server.models_sql import CallLog
 from flask import current_app, has_app_context
 
 log = logging.getLogger(__name__)
+
+# File-based lock configuration
+LOCK_TIMEOUT_SECONDS = 45  # Maximum time to wait for lock acquisition
+LOCK_POLL_INTERVAL = 0.5   # Check lock availability every 0.5 seconds
 
 def _get_recordings_dir() -> str:
     """
@@ -57,74 +62,143 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         log.error(f"[RECORDING_SERVICE] Failed to create recordings directory: {e}")
         return None
     
-    local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
+    # 🔥 FIX: Try both call_sid and parent_call_sid (for outbound child legs)
+    # Canonical path: always {call_sid}.mp3, but try parent if child doesn't have recording
+    sids_to_try = [call_sid]
+    if call_log.parent_call_sid:
+        sids_to_try.append(call_log.parent_call_sid)
+        log.debug(f"[RECORDING_SERVICE] Will also check parent_call_sid={call_log.parent_call_sid}")
     
-    if os.path.exists(local_path):
-        try:
-            file_size = os.path.getsize(local_path)
-            if file_size > 1000:  # Valid file (>1KB)
-                log.info(f"[RECORDING_SERVICE] ✅ Using existing local file: {local_path} ({file_size} bytes)")
-                return local_path
-            else:
-                log.warning(f"[RECORDING_SERVICE] Local file too small ({file_size} bytes), will re-download")
-                os.remove(local_path)
-        except Exception as e:
-            log.warning(f"[RECORDING_SERVICE] Error checking local file: {e}")
+    # Check for existing local file (try call_sid first, then parent_call_sid)
+    for try_sid in sids_to_try:
+        local_path = os.path.join(recordings_dir, f"{try_sid}.mp3")
+        
+        if os.path.exists(local_path):
+            try:
+                file_size = os.path.getsize(local_path)
+                if file_size > 1000:  # Valid file (>1KB)
+                    log.info(f"[RECORDING_SERVICE] ✅ Cache HIT - using existing local file: {local_path} ({file_size} bytes)")
+                    return local_path
+                else:
+                    log.warning(f"[RECORDING_SERVICE] Local file too small ({file_size} bytes), will re-download")
+                    os.remove(local_path)
+            except Exception as e:
+                log.warning(f"[RECORDING_SERVICE] Error checking local file: {e}")
+    
+    # If we get here, no valid local file exists - need to download
+    # Use the primary call_sid for download path
+    local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
     
     # 2. Download from Twilio using call_log.recording_url
     if not call_log.recording_url:
         log.error(f"[RECORDING_SERVICE] No recording_url for call {call_sid}")
         return None
     
-    log.warning(f"[RECORDING_SERVICE] ⚠️  Cache miss - downloading from Twilio for {call_sid} (this may take time and cause 502 if slow)")
-    import time
-    download_start = time.time()
+    # 🔥 FIX: Use file-based lock to prevent concurrent downloads across multiple workers/pods
+    # File locks work across processes and containers sharing the same volume
+    lock_file_path = os.path.join(recordings_dir, f".{call_sid}.lock")
+    lock_file = None
     
-    # Get Twilio credentials
     try:
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        # Open lock file (use 'a' mode to avoid truncation race condition)
+        lock_file = open(lock_file_path, 'a')
         
-        if not account_sid or not auth_token:
-            log.error("[RECORDING_SERVICE] Missing Twilio credentials")
+        # Try to acquire exclusive lock with timeout
+        # LOCK_EX = exclusive lock, LOCK_NB = non-blocking
+        attempts = int(LOCK_TIMEOUT_SECONDS / LOCK_POLL_INTERVAL)
+        
+        lock_acquired = False
+        for attempt in range(attempts):
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_acquired = True
+                break
+            except IOError:
+                # Lock is held by another process, wait and retry
+                if attempt == 0:
+                    log.info(f"[RECORDING_SERVICE] Waiting for lock on {call_sid} (another worker downloading)...")
+                time.sleep(LOCK_POLL_INTERVAL)
+        
+        if not lock_acquired:
+            log.warning(f"[RECORDING_SERVICE] Could not acquire file lock for {call_sid} after {LOCK_TIMEOUT_SECONDS}s")
+            # Check if file was created by other process while we waited
+            for retry in range(3):
+                time.sleep(3)
+                if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
+                    log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
+                    return local_path
+            log.error(f"[RECORDING_SERVICE] Timeout waiting for {call_sid} to be downloaded")
             return None
-    except Exception as e:
-        log.error(f"[RECORDING_SERVICE] Error getting Twilio credentials: {e}")
-        return None
+        
+        # Double-check file doesn't exist (another process may have created it before we got lock)
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 1000:
+            log.info(f"[RECORDING_SERVICE] ✅ File already exists (created by another process): {local_path}")
+            return local_path
+        
+        log.warning(f"[RECORDING_SERVICE] ⚠️  Cache miss - downloading from Twilio for {call_sid} (this may take time and cause 502 if slow)")
+        download_start = time.time()
+        
+        # Get Twilio credentials
+        try:
+            account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            
+            if not account_sid or not auth_token:
+                log.error("[RECORDING_SERVICE] Missing Twilio credentials")
+                return None
+        except Exception as e:
+            log.error(f"[RECORDING_SERVICE] Error getting Twilio credentials: {e}")
+            return None
+        
+        # ✅ Use EXACT same logic as UI (routes_calls.py download_recording)
+        # This is the single source of truth for downloading recordings
+        try:
+            recording_content = _download_from_twilio(
+                call_log.recording_url,
+                account_sid,
+                auth_token,
+                call_sid
+            )
+        except Exception as e:
+            log.error(f"[RECORDING_SERVICE] Exception during Twilio download for {call_sid}: {e}")
+            return None
+        
+        if not recording_content:
+            log.error(f"[RECORDING_SERVICE] Failed to download recording for {call_sid}")
+            return None
+        
+        # 3. Save to local disk
+        try:
+            with open(local_path, "wb") as f:
+                f.write(recording_content)
+            
+            download_time = time.time() - download_start
+            log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes) - took {download_time:.2f}s")
+            
+            if download_time > 10:
+                log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
+            
+            return local_path
+            
+        except Exception as e:
+            log.error(f"[RECORDING_SERVICE] Failed to save recording to disk: {e}")
+            return None
     
-    # ✅ Use EXACT same logic as UI (routes_calls.py download_recording)
-    # This is the single source of truth for downloading recordings
-    try:
-        recording_content = _download_from_twilio(
-            call_log.recording_url,
-            account_sid,
-            auth_token,
-            call_sid
-        )
-    except Exception as e:
-        log.error(f"[RECORDING_SERVICE] Exception during Twilio download for {call_sid}: {e}")
-        return None
-    
-    if not recording_content:
-        log.error(f"[RECORDING_SERVICE] Failed to download recording for {call_sid}")
-        return None
-    
-    # 3. Save to local disk
-    try:
-        with open(local_path, "wb") as f:
-            f.write(recording_content)
-        
-        download_time = time.time() - download_start
-        log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes) - took {download_time:.2f}s")
-        
-        if download_time > 10:
-            log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
-        
-        return local_path
-        
-    except Exception as e:
-        log.error(f"[RECORDING_SERVICE] Failed to save recording to disk: {e}")
-        return None
+    finally:
+        # Always release file lock and cleanup
+        if lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception as e:
+                log.debug(f"[RECORDING_SERVICE] Error releasing lock: {e}")
+            
+            # Clean up lock file if it exists
+            try:
+                if os.path.exists(lock_file_path):
+                    os.remove(lock_file_path)
+            except Exception as e:
+                log.debug(f"[RECORDING_SERVICE] Error removing lock file: {e}")
 
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:
