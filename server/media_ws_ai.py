@@ -9066,6 +9066,12 @@ class MediaStreamHandler:
                         try:
                             self._stats_audio_blocked += 1
                             self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                            # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                            if SIMPLE_MODE and not hasattr(self, '_greeting_drop_logged'):
+                                print(f"⚠️ [DROP DEBUG] greeting_lock drop: SIMPLE_MODE={SIMPLE_MODE}, "
+                                      f"greeting_lock_active={getattr(self, 'greeting_lock_active', False)}, "
+                                      f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                self._greeting_drop_logged = True
                         except Exception:
                             pass
                         continue
@@ -9165,6 +9171,12 @@ class MediaStreamHandler:
                             try:
                                 self._stats_audio_blocked += 1
                                 self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
+                                # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                                if SIMPLE_MODE and not hasattr(self, '_greeting_drop_logged_2'):
+                                    print(f"⚠️ [DROP DEBUG] greeting_lock drop #2: SIMPLE_MODE={SIMPLE_MODE}, "
+                                          f"greeting_lock_active={getattr(self, 'greeting_lock_active', False)}, "
+                                          f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                    self._greeting_drop_logged_2 = True
                             except Exception:
                                 pass
                             continue
@@ -9265,6 +9277,14 @@ class MediaStreamHandler:
                                         try:
                                             self._stats_audio_blocked += 1
                                             self._frames_dropped_by_ai_speaking_guard += 1
+                                            # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                                            if SIMPLE_MODE and not hasattr(self, '_ai_guard_drop_logged'):
+                                                print(f"⚠️ [DROP DEBUG] ai_speaking_guard drop: SIMPLE_MODE={SIMPLE_MODE}, "
+                                                      f"ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                                                      f"barge_in_active={self.barge_in_active}, "
+                                                      f"window_open={window_is_open}, "
+                                                      f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                                self._ai_guard_drop_logged = True
                                         except Exception:
                                             pass
                                         continue
@@ -9290,6 +9310,13 @@ class MediaStreamHandler:
                                             try:
                                                 self._stats_audio_blocked += 1
                                                 self._frames_dropped_by_gate_block += 1
+                                                # 🔥 DEBUG: Log drop context for SIMPLE_MODE violations
+                                                if SIMPLE_MODE and not hasattr(self, '_gate_drop_logged'):
+                                                    print(f"⚠️ [DROP DEBUG] gate_block drop: SIMPLE_MODE={SIMPLE_MODE}, "
+                                                          f"echo_decay_ms={echo_decay_ms:.0f}, "
+                                                          f"window_open={window_is_open}, "
+                                                          f"queue_size={self.realtime_audio_in_queue.qsize()}")
+                                                    self._gate_drop_logged = True
                                             except Exception:
                                                 pass
                                             continue
