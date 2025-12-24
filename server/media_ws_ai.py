@@ -1081,7 +1081,8 @@ def _register_handler(call_sid: str, handler):
     with _handler_registry_lock:
         # Check if handler already exists (shadow handler from previous instance)
         existing_handler = _handler_registry.get(call_sid)
-        if existing_handler:
+        # Only close if it's a different handler (not the same object being re-registered)
+        if existing_handler and existing_handler is not handler:
             _orig_print(
                 f"⚠️ [REGISTRY_REPLACED] Found existing handler for {call_sid[:8]}... - closing shadow handler",
                 flush=True
@@ -1097,12 +1098,15 @@ def _register_handler(call_sid: str, handler):
         _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
     
     # Close shadow handler if found (outside lock to prevent deadlock)
+    # This runs outside the lock to prevent blocking and potential deadlocks
     if shadow_handler:
         try:
             _orig_print(f"🧹 [REGISTRY_REPLACED] Closing shadow handler for {call_sid[:8]}...", flush=True)
             shadow_handler.close_session("replaced_by_new_handler")
         except Exception as e:
             _orig_print(f"⚠️ [REGISTRY_REPLACED] Error closing shadow handler: {e}", flush=True)
+            import traceback
+            _orig_print(f"   Traceback: {traceback.format_exc()}", flush=True)
 
 def _get_handler(call_sid: str):
     """Get MediaStreamHandler for a call (thread-safe)"""
