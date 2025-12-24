@@ -1438,6 +1438,23 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 46d: Add composite index for cleanup query performance
+        if check_table_exists('outbound_call_jobs') and not check_index_exists('idx_outbound_call_jobs_status_twilio_sid'):
+            checkpoint("Migration 46d: Adding composite index for cleanup query performance")
+            try:
+                from sqlalchemy import text
+                # Composite index on (status, twilio_call_sid) for efficient cleanup queries
+                db.session.execute(text("""
+                    CREATE INDEX idx_outbound_call_jobs_status_twilio_sid 
+                    ON outbound_call_jobs(status, twilio_call_sid)
+                """))
+                migrations_applied.append('add_composite_index_status_twilio_sid')
+                log.info("✅ Added composite index on (status, twilio_call_sid) for cleanup query performance")
+            except Exception as e:
+                log.error(f"❌ Migration 46d failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

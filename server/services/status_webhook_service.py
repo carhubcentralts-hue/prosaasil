@@ -16,6 +16,9 @@ from server.models_sql import BusinessSettings, Lead
 
 log = logging.getLogger(__name__)
 
+# Track invalid URLs we've already warned about (to avoid spam)
+_warned_invalid_urls = set()
+
 def _is_valid_webhook_url(url: str) -> bool:
     """
     Validate webhook URL format - must start with http:// or https://
@@ -85,7 +88,11 @@ def dispatch_lead_status_webhook(
         
         # Validate webhook URL format
         if not _is_valid_webhook_url(settings.status_webhook_url):
-            log.warning(f"Invalid status webhook URL for business {business_id}: {settings.status_webhook_url} - URL must start with http:// or https://")
+            # Create unique key for this invalid URL to log warning only once
+            url_key = f"status:{business_id}:{settings.status_webhook_url}"
+            if url_key not in _warned_invalid_urls:
+                _warned_invalid_urls.add(url_key)
+                log.warning(f"Invalid status webhook URL for business {business_id}: {settings.status_webhook_url} - URL must start with http:// or https://")
             return False
         
         # Check if status actually changed

@@ -1680,7 +1680,7 @@ def fill_queue_slots_for_job(job_id: int):
                     lock_token = str(uuid.uuid4())
                     from sqlalchemy import text
                     
-                    # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL
+                    # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
                     result = db.session.execute(text("""
                         UPDATE outbound_call_jobs 
                         SET status='dialing', 
@@ -1689,6 +1689,7 @@ def fill_queue_slots_for_job(job_id: int):
                         WHERE id=:job_id 
                             AND status='queued' 
                             AND twilio_call_sid IS NULL
+                            AND dial_lock_token IS NULL
                     """), {"job_id": next_job.id, "lock_token": lock_token})
                     
                     db.session.commit()
@@ -1886,13 +1887,7 @@ def process_bulk_call_run(run_id: int):
                                 db.session.commit()
                                 continue
                             
-                            # 🔒 ATOMIC LOCKING: Acquire lock before dialing
-                            # This prevents duplicate calls from retry/concurrency/timeout scenarios
-                            import uuid
-                            lock_token = str(uuid.uuid4())
-                            from sqlalchemy import text
-                            
-                            # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL
+                            # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
                             result = db.session.execute(text("""
                                 UPDATE outbound_call_jobs 
                                 SET status='dialing', 
@@ -1901,6 +1896,7 @@ def process_bulk_call_run(run_id: int):
                                 WHERE id=:job_id 
                                     AND status='queued' 
                                     AND twilio_call_sid IS NULL
+                                    AND dial_lock_token IS NULL
                             """), {"job_id": next_job.id, "lock_token": lock_token})
                             
                             db.session.commit()
@@ -2090,6 +2086,7 @@ def cleanup_stuck_dialing_jobs():
                 WHERE status='dialing'
                     AND twilio_call_sid IS NULL
                     AND dial_started_at < :cutoff_time
+                    AND dial_lock_token IS NOT NULL
             """), {"cutoff_time": cutoff_time})
             
             db.session.commit()
@@ -2113,8 +2110,11 @@ def cleanup_stuck_jobs_endpoint():
     
     This is useful for recovering from crashes or network issues.
     Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'.
+    
+    Rate limited to 1 request per minute per business to prevent abuse.
     """
     from flask import session
+    from datetime import datetime, timedelta
     
     tenant_id = g.get('tenant')
     
@@ -2126,8 +2126,25 @@ def cleanup_stuck_jobs_endpoint():
         else:
             return jsonify({"error": "אין גישה לעסק"}), 403
     
+    # Rate limiting: Check if cleanup was called in the last minute
+    cache_key = f"cleanup_last_call_{tenant_id or 'all'}"
+    from server.stream_state import stream_registry
+    last_call = stream_registry.get_metadata('global', cache_key)
+    
+    if last_call:
+        last_call_time = datetime.fromisoformat(last_call)
+        if datetime.utcnow() - last_call_time < timedelta(minutes=1):
+            seconds_remaining = 60 - (datetime.utcnow() - last_call_time).seconds
+            return jsonify({
+                "error": f"יש להמתין {seconds_remaining} שניות לפני ניקוי נוסף",
+                "retry_after": seconds_remaining
+            }), 429
+    
     try:
         count = cleanup_stuck_dialing_jobs()
+        
+        # Update last call time
+        stream_registry.set_metadata('global', cache_key, datetime.utcnow().isoformat())
         
         log.info(f"✅ Cleanup completed: {count} jobs reset to queued")
         

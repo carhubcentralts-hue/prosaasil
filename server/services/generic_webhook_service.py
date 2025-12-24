@@ -20,6 +20,9 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "prosaas-webhook-secret-key")
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 3, 10]
 
+# Track invalid URLs we've already warned about (to avoid spam)
+_warned_invalid_urls = set()
+
 
 def _is_valid_webhook_url(url: str) -> bool:
     """
@@ -117,7 +120,12 @@ def send_generic_webhook(
         
         # Validate webhook URL format before sending
         if not _is_valid_webhook_url(webhook_url):
-            logger.warning(f"[WEBHOOK] Invalid webhook URL for business {business_id}: {webhook_url} - URL must start with http:// or https://")
+            # Create unique key for this invalid URL to log warning only once
+            webhook_type = direction or "generic"
+            url_key = f"{webhook_type}:{business_id}:{webhook_url}"
+            if url_key not in _warned_invalid_urls:
+                _warned_invalid_urls.add(url_key)
+                logger.warning(f"[WEBHOOK] Invalid webhook URL for business {business_id} (type={webhook_type}): {webhook_url} - URL must start with http:// or https://")
             return False
         
         payload = {
