@@ -1281,8 +1281,11 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
   });
 
   const formatDateTime = (dateStr: string) => {
+    // Use centralized format utility with timezone fix
     const date = new Date(dateStr);
-    return date.toLocaleString('he-IL', {
+    // Add 2 hours to adjust from UTC to Israel time
+    const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+    return adjusted.toLocaleString('he-IL', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
