@@ -568,136 +568,137 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     assumed to be Israel local time. For cross-timezone support, always 
     pass timezone-aware datetimes.
     """
-    try:
-        from server.policy.business_policy import get_business_policy
-        from datetime import datetime, timedelta
-        import pytz
-        
-        policy = get_business_policy(business_id)
-        business_tz = pytz.timezone(policy.tz)  # Get business timezone early
-        
-        # 🔥 STRICT TIMEZONE HANDLING:
-        # 1. Timezone-aware input: Convert to business timezone
-        # 2. Naive input: Assume it's already in business timezone (Israel local time)
-        if requested_dt.tzinfo is not None:
-            # Convert from source timezone to business timezone
-            requested_dt = requested_dt.astimezone(business_tz)
-            logger.debug(f"[VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
-        else:
-            # Naive datetime - assume it's in business local time
-            logger.debug(f"[VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
-        
-        # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
-        now = datetime.now(business_tz)
-        
-        # Check minimum notice time
-        if policy.min_notice_min > 0:
-            min_allowed_time = now + timedelta(minutes=policy.min_notice_min)
-            if requested_dt.tzinfo is None:
-                # Make requested_dt timezone-aware for comparison
-                requested_dt_aware = business_tz.localize(requested_dt)
+    # 🔥 FIX #5: Wrap entire function in Flask app context for thread safety
+    app = _get_flask_app()
+    with app.app_context():
+        try:
+            from server.policy.business_policy import get_business_policy
+            from datetime import datetime, timedelta
+            import pytz
+            from server.models_sql import Appointment
+            
+            policy = get_business_policy(business_id)
+            business_tz = pytz.timezone(policy.tz)  # Get business timezone early
+            
+            # 🔥 STRICT TIMEZONE HANDLING:
+            # 1. Timezone-aware input: Convert to business timezone
+            # 2. Naive input: Assume it's already in business timezone (Israel local time)
+            if requested_dt.tzinfo is not None:
+                # Convert from source timezone to business timezone
+                requested_dt = requested_dt.astimezone(business_tz)
+                logger.debug(f"[VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
             else:
-                requested_dt_aware = requested_dt
+                # Naive datetime - assume it's in business local time
+                logger.debug(f"[VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
             
-            if requested_dt_aware < min_allowed_time:
-                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
-                return False
-            else:
-                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
-        
-        # Check booking window (max days ahead)
-        if policy.booking_window_days > 0:
-            max_booking_date = now + timedelta(days=policy.booking_window_days)
-            if requested_dt.tzinfo is None:
-                requested_dt_aware = business_tz.localize(requested_dt)
-            else:
-                requested_dt_aware = requested_dt
+            # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
+            now = datetime.now(business_tz)
             
-            if requested_dt_aware > max_booking_date:
-                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
-                return False
-            else:
-                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
-        
-        # 🔥 STEP 1: Check business hours (skip for 24/7)
-        if not policy.allow_24_7:
-            # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
-            # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
-            weekday_map = {
-                0: "mon",
-                1: "tue",
-                2: "wed",
-                3: "thu",
-                4: "fri",
-                5: "sat",
-                6: "sun"
-            }
-            
-            weekday_key = weekday_map.get(requested_dt.weekday())
-            if not weekday_key:
-                print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
-                return False
-            
-            # Get opening hours for this day
-            day_hours = policy.opening_hours.get(weekday_key, [])
-            if not day_hours:
-                print(f"❌ [VALIDATION] Business closed on {weekday_key}")
-                return False
-            
-            # Check if time falls within any window
-            requested_time = requested_dt.time()
-            time_valid = False
-            
-            for window in day_hours:
-                start_str, end_str = window[0], window[1]
-                
-                # Parse times
-                start_time = datetime.strptime(start_str, "%H:%M").time()
-                end_time = datetime.strptime(end_str, "%H:%M").time()
-                
-                # Handle overnight windows (e.g., 21:00-02:00)
-                if start_time <= end_time:
-                    # Normal window (same day)
-                    if start_time <= requested_time <= end_time:
-                        time_valid = True
-                        break
+            # Check minimum notice time
+            if policy.min_notice_min > 0:
+                min_allowed_time = now + timedelta(minutes=policy.min_notice_min)
+                if requested_dt.tzinfo is None:
+                    # Make requested_dt timezone-aware for comparison
+                    requested_dt_aware = business_tz.localize(requested_dt)
                 else:
-                    # Overnight window
-                    if requested_time >= start_time or requested_time <= end_time:
-                        time_valid = True
-                        break
+                    requested_dt_aware = requested_dt
+                
+                if requested_dt_aware < min_allowed_time:
+                    print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                    return False
+                else:
+                    print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
             
-            if not time_valid:
-                print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
-                return False
+            # Check booking window (max days ahead)
+            if policy.booking_window_days > 0:
+                max_booking_date = now + timedelta(days=policy.booking_window_days)
+                if requested_dt.tzinfo is None:
+                    requested_dt_aware = business_tz.localize(requested_dt)
+                else:
+                    requested_dt_aware = requested_dt
+                
+                if requested_dt_aware > max_booking_date:
+                    print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                    return False
+                else:
+                    print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+            
+            # 🔥 STEP 1: Check business hours (skip for 24/7)
+            if not policy.allow_24_7:
+                # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
+                # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
+                weekday_map = {
+                    0: "mon",
+                    1: "tue",
+                    2: "wed",
+                    3: "thu",
+                    4: "fri",
+                    5: "sat",
+                    6: "sun"
+                }
+                
+                weekday_key = weekday_map.get(requested_dt.weekday())
+                if not weekday_key:
+                    print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+                    return False
+                
+                # Get opening hours for this day
+                day_hours = policy.opening_hours.get(weekday_key, [])
+                if not day_hours:
+                    print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+                    return False
+                
+                # Check if time falls within any window
+                requested_time = requested_dt.time()
+                time_valid = False
+                
+                for window in day_hours:
+                    start_str, end_str = window[0], window[1]
+                    
+                    # Parse times
+                    start_time = datetime.strptime(start_str, "%H:%M").time()
+                    end_time = datetime.strptime(end_str, "%H:%M").time()
+                    
+                    # Handle overnight windows (e.g., 21:00-02:00)
+                    if start_time <= end_time:
+                        # Normal window (same day)
+                        if start_time <= requested_time <= end_time:
+                            time_valid = True
+                            break
+                    else:
+                        # Overnight window
+                        if requested_time >= start_time or requested_time <= end_time:
+                            time_valid = True
+                            break
+                
+                if not time_valid:
+                    print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+                    return False
+                else:
+                    print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
             else:
-                print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
-        else:
-            print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
-        
-        # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
-        # Calculate end time using slot_size_min from policy
-        slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes
-        
-        # Note: requested_dt is already normalized to business timezone at the start
-        # Convert to naive for DB comparison (DB stores naive in Israel local time)
-        requested_end_dt = requested_dt + timedelta(minutes=slot_duration_min)
-        
-        # Strip tzinfo for DB comparison - requested_dt is already in correct timezone
-        if hasattr(requested_dt, 'tzinfo') and requested_dt.tzinfo:
-            requested_start_naive = requested_dt.replace(tzinfo=None)
-            requested_end_naive = requested_end_dt.replace(tzinfo=None)
-        else:
-            # Already naive
-            requested_start_naive = requested_dt
-            requested_end_naive = requested_end_dt
-        
-        logger.debug(f"[VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
-        
-        # Query DB for overlapping appointments
-        from server.models_sql import Appointment
-        app = _get_flask_app()
-        with app.app_context():
+                print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
+            
+            # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
+            # Calculate end time using slot_size_min from policy
+            slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes
+            
+            # Note: requested_dt is already normalized to business timezone at the start
+            # Convert to naive for DB comparison (DB stores naive in Israel local time)
+            requested_end_dt = requested_dt + timedelta(minutes=slot_duration_min)
+            
+            # Strip tzinfo for DB comparison - requested_dt is already in correct timezone
+            if hasattr(requested_dt, 'tzinfo') and requested_dt.tzinfo:
+                requested_start_naive = requested_dt.replace(tzinfo=None)
+                requested_end_naive = requested_end_dt.replace(tzinfo=None)
+            else:
+                # Already naive
+                requested_start_naive = requested_dt
+                requested_end_naive = requested_end_dt
+            
+            logger.debug(f"[VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
+            
+            # Query DB for overlapping appointments
             # Find appointments that overlap with requested slot
             # Overlap logic: (start1 < end2) AND (end1 > start2)
             overlapping = Appointment.query.filter(
@@ -713,12 +714,12 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             else:
                 print(f"✅ [VALIDATION] Calendar available - no conflicts")
                 return True
-        
-    except Exception as e:
-        print(f"❌ [VALIDATION] Error validating slot: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+            
+        except Exception as e:
+            print(f"❌ [VALIDATION] Error validating slot: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
 
 # 🔧 CRM HELPER FUNCTIONS (Server-side only, no Realtime Tools)
@@ -7517,32 +7518,35 @@ class MediaStreamHandler:
         if action == "hours_info":
             print(f"📋 [NLP] User asking for business hours info - responding with policy")
             try:
-                # Load business hours from policy
-                from server.policy.business_policy import get_business_policy
-                policy = get_business_policy(self.business_id)
-                
-                if DEBUG: print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
-                
-                if policy.allow_24_7:
-                    await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
-                elif policy.opening_hours:
-                    # Format hours in Hebrew
-                    day_names = {"sun": "ראשון", "mon": "שני", "tue": "שלישי", "wed": "רביעי", "thu": "חמישי", "fri": "שישי", "sat": "שבת"}
-                    hours_lines = []
-                    for day_key in ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]:
-                        windows = policy.opening_hours.get(day_key, [])
-                        if not windows:
-                            hours_lines.append(f"{day_names[day_key]}: סגור")
-                        else:
-                            time_ranges = ", ".join([f"{w[0]}-{w[1]}" for w in windows])
-                            hours_lines.append(f"{day_names[day_key]}: {time_ranges}")
+                # 🔥 FIX #5: Wrap policy access in Flask app context
+                app = _get_flask_app()
+                with app.app_context():
+                    # Load business hours from policy
+                    from server.policy.business_policy import get_business_policy
+                    policy = get_business_policy(self.business_id)
                     
-                    hours_text = "שעות הפעילות שלנו:\n" + "\n".join(hours_lines)
-                    print(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
-                    await self._send_server_event_to_ai(f"hours_info - {hours_text}")
-                else:
-                    print(f"⚠️ [DEBUG] No opening_hours in policy!")
-                    await self._send_server_event_to_ai("hours_info - שעות הפעילות לא הוגדרו במערכת.")
+                    if DEBUG: print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
+                    
+                    if policy.allow_24_7:
+                        await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
+                    elif policy.opening_hours:
+                        # Format hours in Hebrew
+                        day_names = {"sun": "ראשון", "mon": "שני", "tue": "שלישי", "wed": "רביעי", "thu": "חמישי", "fri": "שישי", "sat": "שבת"}
+                        hours_lines = []
+                        for day_key in ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]:
+                            windows = policy.opening_hours.get(day_key, [])
+                            if not windows:
+                                hours_lines.append(f"{day_names[day_key]}: סגור")
+                            else:
+                                time_ranges = ", ".join([f"{w[0]}-{w[1]}" for w in windows])
+                                hours_lines.append(f"{day_names[day_key]}: {time_ranges}")
+                        
+                        hours_text = "שעות הפעילות שלנו:\n" + "\n".join(hours_lines)
+                        print(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
+                        await self._send_server_event_to_ai(f"hours_info - {hours_text}")
+                    else:
+                        print(f"⚠️ [DEBUG] No opening_hours in policy!")
+                        await self._send_server_event_to_ai("hours_info - שעות הפעילות לא הוגדרו במערכת.")
             except Exception as e:
                 print(f"❌ [ERROR] Failed to load business policy: {e}")
                 import traceback
@@ -7649,9 +7653,12 @@ class MediaStreamHandler:
                         print(f"🛡️ [GUARD] Marked slot {busy_key} as busy - will not recheck")
                     
                     # Find next 3 available slots
-                    from server.policy.business_policy import get_business_policy
-                    policy = get_business_policy(self.business_id)
-                    slot_size_min = policy.slot_size_min
+                    # 🔥 FIX #5: Wrap policy access in Flask app context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        from server.policy.business_policy import get_business_policy
+                        policy = get_business_policy(self.business_id)
+                        slot_size_min = policy.slot_size_min
                     
                     alternatives = []
                     check_dt = start_dt + timedelta(minutes=slot_size_min)
@@ -7778,9 +7785,12 @@ class MediaStreamHandler:
                         print(f"📝 [FLOW STEP 5]   - hydrated temp cache → crm_context")
             
             # 🔥 BUILD 182: Check if business requires phone verification via DTMF
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(self.business_id)
-            require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
+            # 🔥 FIX #5: Wrap policy access in Flask app context
+            app = _get_flask_app()
+            with app.app_context():
+                from server.policy.business_policy import get_business_policy
+                policy = get_business_policy(self.business_id)
+                require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
             print(f"📝 [FLOW STEP 5.5] Business setting require_phone_before_booking: {require_phone_verification}")
             
             # 🔥 Check if all required data is complete
