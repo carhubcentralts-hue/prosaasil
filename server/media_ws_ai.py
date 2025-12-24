@@ -35,6 +35,13 @@ ENABLE_LEGACY_CITY_LOGIC = False
 # 🔥 DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
 DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
+
+# 🔥 NEW: Granular logging flags for production debugging
+# These allow enabling specific verbose logs without flooding production
+LOG_REALTIME_EVENTS = os.getenv("LOG_REALTIME_EVENTS", "0") == "1"  # OpenAI Realtime API events
+LOG_AUDIO_CHUNKS = os.getenv("LOG_AUDIO_CHUNKS", "0") == "1"  # Audio chunk transmission logs
+LOG_TRANSCRIPT_DELTAS = os.getenv("LOG_TRANSCRIPT_DELTAS", "0") == "1"  # Transcript delta events
+
 _orig_print = builtins.print
 
 def _dprint(*args, **kwargs):
@@ -3323,9 +3330,11 @@ class MediaStreamHandler:
                                     self.ws._socket.shutdown(socket.SHUT_RDWR)
                                     print(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
                                 else:
-                                    # Fallback: try to close normally
-                                    self.ws.close()
-                                    print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
+                                    # Fallback: try to close normally (set flag to prevent double close)
+                                    if not self._ws_closed:
+                                        self.ws.close()
+                                        self._ws_closed = True
+                                        print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
                             except Exception as e:
                                 print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
                         
@@ -3345,11 +3354,11 @@ class MediaStreamHandler:
                     
                     break  # Exit the audio sender loop immediately
                 
-                # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
-                # Start timer on first chunk
+                # 💰 COST TRACKING: Start timer on first chunk
                 if not hasattr(self, '_user_speech_start') or self._user_speech_start is None:
                     self._user_speech_start = time.time()
-                self.realtime_audio_in_chunks += 1
+                # 🔥 FIX: realtime_audio_in_chunks is now incremented at frame reception (line ~8398)
+                # not here after filtering - this prevents accounting errors
                 
                 # 🔥 BUILD 341: Count frames sent and log metrics periodically
                 _frames_sent += 1
@@ -7880,12 +7889,27 @@ class MediaStreamHandler:
                 _orig_print(f"   [6/8] Closing Twilio WebSocket...", flush=True)
             try:
                 if hasattr(self.ws, 'close') and not self._ws_closed:
-                    self.ws.close()
-                    self._ws_closed = True
-                    _orig_print(f"   ✅ WebSocket closed", flush=True)
+                    # 🔥 FIX: Check if websocket is still open before closing
+                    # For Starlette/FastAPI, check client_state if available
+                    can_close = True
+                    if hasattr(self.ws, 'client_state'):
+                        from starlette.websockets import WebSocketState
+                        if self.ws.client_state != WebSocketState.CONNECTED:
+                            can_close = False
+                            if DEBUG:
+                                _orig_print(f"   [DEBUG] WebSocket already disconnected (state={self.ws.client_state})", flush=True)
+                    
+                    if can_close:
+                        self.ws.close()
+                        self._ws_closed = True
+                        _orig_print(f"   ✅ WebSocket closed", flush=True)
             except Exception as e:
                 error_msg = str(e).lower()
-                if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
+                # 🔥 FIX: These are expected conditions when client already disconnected - log as DEBUG only
+                if 'websocket.close' in error_msg or 'asgi' in error_msg or 'already' in error_msg:
+                    if DEBUG:
+                        _orig_print(f"   [DEBUG] WebSocket already closed: {e}", flush=True)
+                else:
                     _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
         
         finally:
@@ -8394,6 +8418,9 @@ class MediaStreamHandler:
 
                 if et == "media":
                     self.rx += 1
+                    # 🔥 FIX: Count ALL frames received from Twilio (before any filtering)
+                    # This is the source of truth for "frames_in" - must happen here, not after filters
+                    self.realtime_audio_in_chunks += 1
                     # 🔴 GREETING_LOCK (HARD, earliest):
                     # While greeting is playing, the bot must NOT "hear" the caller at all.
                     # Drop inbound frames immediately (no decode/RMS/VAD/buffer/append/commit/barge-in paths).
@@ -8701,18 +8728,26 @@ class MediaStreamHandler:
                         # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
                         if should_send_audio:
                             try:
-                                # 🔍 DEBUG: Log first few frames from Twilio
+                                # 🔍 DEBUG: Log first few frames from Twilio (only if LOG_AUDIO_CHUNKS enabled)
                                 if not hasattr(self, '_twilio_audio_chunks_sent'):
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
-                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation
-                                if self._twilio_audio_chunks_sent <= 3:
-                                    first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
-                                    guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
-                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
+                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation (first 3 frames only, or if LOG_AUDIO_CHUNKS=1)
+                                if self._twilio_audio_chunks_sent <= 3 or LOG_AUDIO_CHUNKS:
+                                    # Only log first 3 frames by default, or all frames if explicit flag is set
+                                    if self._twilio_audio_chunks_sent <= 3:
+                                        first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                        mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
+                                        guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
+                                        print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                        if LOG_AUDIO_CHUNKS:
+                                            print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
+                                    elif LOG_AUDIO_CHUNKS and self._twilio_audio_chunks_sent % 100 == 0:
+                                        # When LOG_AUDIO_CHUNKS=1, throttle to every 100th frame after initial burst
+                                        first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                        mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
+                                        print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:

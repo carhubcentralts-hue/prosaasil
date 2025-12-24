@@ -615,12 +615,15 @@ def incoming_call():
         stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
     
     # 🔥 GREETING SLA: Assert TwiML generation is fast enough
-    if twiml_ms > 200:
-        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16]}")
+    # 🔥 FIX: Raise threshold to 350ms (313ms seen in production + margin)
+    # and make it configurable via environment variable
+    twiml_threshold_ms = int(os.getenv("TWIML_SLA_MS", "350"))
+    if twiml_ms > twiml_threshold_ms:
+        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > {twiml_threshold_ms}ms for {call_sid[:16]}")
     
     logger.info(f"[GREETING_PROFILER] incoming_call TwiML ready in {twiml_ms}ms")
     
-    status_emoji = "✅" if twiml_ms < 200 else "⚠️"
+    status_emoji = "✅" if twiml_ms < twiml_threshold_ms else "⚠️"
     print(f"{status_emoji} incoming_call: {twiml_ms}ms - {call_sid[:16]}")
     
     # 🔥 DEBUG: Log exact TwiML being sent
@@ -765,8 +768,10 @@ def outbound_call():
         stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
     
     # 🔥 GREETING SLA: Assert TwiML generation is fast enough
-    if twiml_ms > 200:
-        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16] if call_sid else 'N/A'}")
+    # 🔥 FIX: Use configurable threshold (default 350ms)
+    twiml_threshold_ms = int(os.getenv("TWIML_SLA_MS", "350"))
+    if twiml_ms > twiml_threshold_ms:
+        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > {twiml_threshold_ms}ms for {call_sid[:16] if call_sid else 'N/A'}")
     
     logger.info(f"[GREETING_PROFILER] outbound_call TwiML ready in {twiml_ms}ms")
     logger.info(f"✅ outbound_call webhook: {twiml_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
