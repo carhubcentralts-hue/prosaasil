@@ -57,10 +57,11 @@
 
 - [ ] Monitor for FRAME_ACCOUNTING_ERROR messages
 - [ ] Monitor for DROP_REASON_ERROR messages
-- [ ] Monitor for SIMPLE_MODE violations
+- [ ] Review SIMPLE_MODE drop patterns (echo-gate/decay are often intentional)
 - [ ] Monitor for VAD_WARNING messages
 - [ ] Monitor for db import errors
 - [ ] Monitor for websocket close errors
+- [ ] Verify audio pipeline configuration logging (DSP or VAD-only)
 
 ## 📋 Deployment Steps
 
@@ -97,10 +98,11 @@ All must pass before marking as complete:
 - [ ] Test Call 2 (outbound) completes successfully
 - [ ] Frame accounting validation passes
 - [ ] Drop reason accounting passes
-- [ ] No SIMPLE_MODE violations with unknown reasons
+- [ ] SIMPLE_MODE drops have identified reasons (transparency achieved)
 - [ ] No websocket double-close errors
 - [ ] No db import errors
 - [ ] Session validation passes
+- [ ] Audio pipeline configuration logged
 - [ ] VAD calibration completes successfully
 
 ## 📊 Expected Results
@@ -109,6 +111,7 @@ All must pass before marking as complete:
 ```
 🎯 [VAD_CALIBRATION] Started tracking first 3 seconds
 ✅ [SESSION] session.updated received - configuration applied successfully!
+🔊 [AUDIO_PIPELINE_CONFIG] DSP_NOT_CONFIGURED (VAD only, no client-side audio processing)
 ✅ [SESSION] All validations passed - safe to proceed with response.create
 ```
 

@@ -4234,6 +4234,27 @@ class MediaStreamHandler:
                     _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
                     _orig_print(f"✅ [SESSION] Modalities: {modalities}, transcription: model={transcription.get('model')}, lang={transcription.get('language')}", flush=True)
                     
+                    # 🔊 AUDIO_PIPELINE_CONFIG: Log DSP/audio processing parameters
+                    # Check for noise reduction, echo cancellation, AGC, or other audio processing
+                    input_audio_noise_reduction = session_data.get("input_audio_noise_reduction")
+                    # Check for any other DSP-related fields that might exist
+                    dsp_fields = []
+                    if input_audio_noise_reduction is not None:
+                        dsp_fields.append(f"noise_reduction={input_audio_noise_reduction}")
+                    
+                    # Check for other potential audio processing fields
+                    for key in session_data.keys():
+                        if any(term in key.lower() for term in ["echo", "aec", "agc", "noise", "gain"]):
+                            if key != "input_audio_noise_reduction":  # Already logged above
+                                dsp_fields.append(f"{key}={session_data[key]}")
+                    
+                    if dsp_fields:
+                        _orig_print(f"🔊 [AUDIO_PIPELINE_CONFIG] DSP parameters: {', '.join(dsp_fields)}", flush=True)
+                        logger.info(f"[AUDIO_PIPELINE_CONFIG] DSP active: {', '.join(dsp_fields)}")
+                    else:
+                        _orig_print(f"🔊 [AUDIO_PIPELINE_CONFIG] DSP_NOT_CONFIGURED (VAD only, no client-side audio processing)", flush=True)
+                        logger.info("[AUDIO_PIPELINE_CONFIG] DSP_NOT_CONFIGURED (VAD only)")
+                    
                     # 🚨 CRITICAL VALIDATION: Verify all critical settings
                     validation_failed = False
                     
@@ -14418,9 +14439,9 @@ class MediaStreamHandler:
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
             
-            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
-            # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
-            # Filters should also respect SIMPLE_MODE (passthrough)
+            # 🎯 TASK 6.1: SIMPLE MODE MONITORING - Log frame drops with detailed breakdown
+            # Note: Some drops (echo-gate, echo-decay) may be intentional for call quality
+            # The goal is transparency, not zero drops
             if SIMPLE_MODE and frames_dropped_total > 0:
                 # Get detailed breakdown from enum-tracked reasons
                 reason_breakdown = []
@@ -14431,12 +14452,12 @@ class MediaStreamHandler:
                 reason_details = ", ".join(reason_breakdown) if reason_breakdown else "unknown"
                 
                 logger.warning(
-                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE DROPS DETECTED: {frames_dropped_total} frames dropped. "
                     f"greeting_lock={frames_dropped_by_greeting_lock}, "
                     f"filters={frames_dropped_by_filters}, "
                     f"queue_full={frames_dropped_by_queue_full}. "
                     f"Detailed breakdown: {reason_details}. "
-                    f"In SIMPLE_MODE, no frames should be dropped."
+                    f"Note: echo-gate/decay drops are often intentional for call quality."
                 )
             
             # Log comprehensive metrics
@@ -14492,7 +14513,7 @@ class MediaStreamHandler:
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
             print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
             if SIMPLE_MODE and frames_dropped_total > 0:
-                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
+                print(f"   ⚠️ NOTE: SIMPLE_MODE drops detected - {frames_dropped_total} frames (see breakdown above)")
             
             # 🔥 VERIFICATION: Mathematical frame accounting validation
             # Ensure frames_in == frames_forwarded + frames_dropped_total

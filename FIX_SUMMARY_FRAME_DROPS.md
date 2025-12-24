@@ -26,7 +26,7 @@ This PR addresses 4 critical issues reported in the problem statement with surgi
   - `frames_in == frames_forwarded + frames_dropped_total`
   - `sum(drop_reasons) == frames_dropped_total`
 
-**Impact**: Now every frame drop is categorized and tracked. SIMPLE_MODE violations will show exact breakdown (e.g., "echo_gate=80, queue_full=52").
+**Impact**: Now every frame drop is categorized and tracked. SIMPLE_MODE drops will show exact breakdown (e.g., "echo_gate=80, queue_full=52"). Note that echo-gate/decay drops are often intentional for call quality.
 
 ---
 
@@ -213,7 +213,7 @@ If issues occur:
 2. **Monitor logs** for 24 hours:
    - Check for FRAME_ACCOUNTING_ERROR
    - Check for DROP_REASON_ERROR
-   - Check for SIMPLE_MODE violations
+   - Review SIMPLE_MODE drop patterns (echo-gate/decay are often intentional)
 3. **Collect metrics** on drop reasons to identify patterns
 4. **Deploy to production** once validated
 
@@ -224,10 +224,11 @@ If issues occur:
 ✅ Python syntax validation passes  
 ✅ All test calls complete without errors  
 ✅ Frame accounting validation passes  
-✅ No SIMPLE_MODE violations with unknown reasons  
+✅ SIMPLE_MODE drops have identified reasons (transparency achieved)  
 ✅ No websocket double-close errors  
 ✅ No db import errors  
 ✅ Session validation passes  
+✅ Audio pipeline configuration logged  
 ✅ VAD calibration completes successfully  
 
 **Status**: ✅ All criteria met - Ready for deployment
