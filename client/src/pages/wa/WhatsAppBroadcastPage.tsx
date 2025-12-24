@@ -117,6 +117,9 @@ export function WhatsAppBroadcastPage() {
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   
+  // ✅ FIX: Auto-refresh for running campaigns
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  
   // Status options from CRM - store full status objects for labels
   const [availableStatuses, setAvailableStatuses] = useState<Array<{ name: string; label: string }>>([]);
 
@@ -128,6 +131,23 @@ export function WhatsAppBroadcastPage() {
     // 🔥 FIX: Load ALL leads on initial page load (no filters)
     loadLeads();
   }, []);
+  
+  // ✅ FIX: Auto-refresh campaigns when on history tab with running campaigns
+  useEffect(() => {
+    if (activeTab === 'history') {
+      // Check if there are any running or pending campaigns
+      const hasActiveCampaigns = campaigns.some(c => c.status === 'running' || c.status === 'pending');
+      setAutoRefresh(hasActiveCampaigns);
+      
+      if (hasActiveCampaigns) {
+        const interval = setInterval(() => {
+          loadCampaigns();
+        }, 5000); // Refresh every 5 seconds
+        
+        return () => clearInterval(interval);
+      }
+    }
+  }, [activeTab, campaigns]);
 
   const loadTemplates = async () => {
     try {
@@ -330,25 +350,78 @@ export function WhatsAppBroadcastPage() {
         formData.append('csv_file', csvFile);
       }
       
-      const response = await http.post<{ success: boolean; broadcast_id: number; message?: string }>('/api/whatsapp/broadcasts', formData);
+      const response = await http.post<{ 
+        success: boolean; 
+        broadcast_id: number; 
+        queued_count?: number;
+        sent_count?: number;
+        job_id?: string;
+        message?: string;
+        error?: string;
+        details?: any;
+      }>('/api/whatsapp/broadcasts', formData);
       
       if (response.success) {
-        alert(`תפוצה נוצרה בהצלחה! מזהה: ${response.broadcast_id}`);
+        // ✅ FIX: Show proof of queuing with actual count
+        const queuedMsg = response.queued_count 
+          ? `נשלח לתור: ${response.queued_count} נמענים` 
+          : `תפוצה נוצרה בהצלחה!`;
+        
+        alert(`${queuedMsg}\n\nמזהה תפוצה: ${response.broadcast_id}\n\nהתפוצה תישלח ברקע. תוכל לעקוב אחרי ההתקדמות בלשונית "היסטוריה".`);
+        
         // Reset form
         setSelectedTemplate(null);
         setMessageText('');
         setSelectedStatuses([]);
+        setSelectedLeadIds([]);
+        setSelectedImportListId(null);
         setCsvFile(null);
+        
         // Switch to history tab
         setActiveTab('history');
         // Reload campaigns
         await loadCampaigns();
       } else {
-        alert('שגיאה ביצירת תפוצה: ' + (response.message || 'שגיאה לא ידועה'));
+        // ✅ FIX: Show detailed error message
+        let errorMsg = response.error || response.message || 'שגיאה לא ידועה';
+        
+        // If we have detailed diagnostics, show them
+        if (response.details) {
+          const details = response.details;
+          console.error('Broadcast error details:', details);
+          
+          if (details.missing_field === 'lead_ids') {
+            errorMsg += `\n\nנבחרו ${details.selection_count} לידים אך לא נמצאו מספרי טלפון תקינים.`;
+            errorMsg += '\n\nוודא שללידים שבחרת יש מספרי טלפון מלאים.';
+          } else if (details.missing_field === 'import_list_id') {
+            errorMsg += '\n\nרשימת הייבוא ריקה או שאין בה מספרי טלפון.';
+          } else if (details.missing_field === 'csv_file') {
+            errorMsg += '\n\nקובץ ה-CSV לא מכיל מספרי טלפון תקינים בעמודת "phone".';
+          }
+        }
+        
+        alert('שגיאה ביצירת תפוצה:\n\n' + errorMsg);
       }
     } catch (error: any) {
       console.error('Error sending broadcast:', error);
-      alert('שגיאה בשליחת תפוצה: ' + (error.message || 'שגיאה לא ידועה'));
+      let errorMsg = 'שגיאה בשליחת תפוצה';
+      
+      if (error.message) {
+        errorMsg += ':\n\n' + error.message;
+      }
+      
+      // If error response has detailed info
+      if (error.response?.data) {
+        const data = error.response.data;
+        if (data.error) {
+          errorMsg += '\n\n' + data.error;
+        }
+        if (data.details) {
+          console.error('Error details:', data.details);
+        }
+      }
+      
+      alert(errorMsg);
     } finally {
       setSending(false);
     }
@@ -822,7 +895,15 @@ export function WhatsAppBroadcastPage() {
       {/* Campaign History Tab */}
       {activeTab === 'history' && (
         <Card className="p-6">
-          <h2 className="text-lg font-semibold mb-4">היסטוריית תפוצות</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold">היסטוריית תפוצות</h2>
+            {autoRefresh && (
+              <div className="flex items-center gap-2 text-sm text-blue-600">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>מתעדכן אוטומטית</span>
+              </div>
+            )}
+          </div>
           {loadingCampaigns ? (
             <div className="text-center py-8">
               <RefreshCw className="h-8 w-8 animate-spin mx-auto text-slate-400" />
