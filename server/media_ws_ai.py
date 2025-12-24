@@ -2152,7 +2152,7 @@ class MediaStreamHandler:
     def _check_queue_backlog(self, queue, queue_name: str, threshold: int = 200) -> None:
         """
         🔥 Helper method to monitor queue backlog and log warnings
-        Prevents audio timing issues from large queue backlogs
+        ⚠️ WARN-ONLY: Does not drop, truncate, or modify queue - just logs
         
         Args:
             queue: The queue object to check
@@ -2167,8 +2167,18 @@ class MediaStreamHandler:
                 last_warning = getattr(self, warning_attr, 0.0)
                 
                 if now_mono - last_warning > 3.0:
+                    # Include full context for debugging
+                    call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
+                    stream_sid_short = self.stream_sid[:8] if hasattr(self, 'stream_sid') and self.stream_sid else 'none'
+                    active_resp = getattr(self, 'active_response_id', None)
+                    active_resp_short = active_resp[:8] if active_resp else 'none'
+                    is_speaking = getattr(self, 'is_ai_speaking_event', None)
+                    speaking_status = is_speaking.is_set() if is_speaking else False
+                    
                     _orig_print(
-                        f"⚠️ [BACKLOG WARNING] {queue_name} overflow: {current_qsize} frames (>{threshold}) - potential timing issues",
+                        f"⚠️ [BACKLOG] {queue_name}={current_qsize} frames (>{threshold}) | "
+                        f"call={call_sid_short} stream={stream_sid_short} "
+                        f"resp={active_resp_short} ai_speaking={speaking_status}",
                         flush=True
                     )
                     setattr(self, warning_attr, now_mono)
@@ -4898,8 +4908,8 @@ class MediaStreamHandler:
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
                         if not hasattr(self, '_ai_speech_start') or self._ai_speech_start is None:
                             self._ai_speech_start = now
-                        # 🛡️ DEFENSIVE: Use getattr fallback to prevent AttributeError crashes
-                        self.realtime_audio_out_chunks = getattr(self, "realtime_audio_out_chunks", 0) + 1
+                        # Counter initialized in __init__ - direct increment (no getattr masking)
+                        self.realtime_audio_out_chunks += 1
                         
                         # ✅ P0-3: Track last audio delta timestamp for watchdog
                         self._last_audio_delta_ts = now
@@ -7995,6 +8005,10 @@ class MediaStreamHandler:
                 self.barge_in_active = False
                 self._barge_in_started_ts = None
                 
+                # Clear thread-started flags (per-instance)
+                if hasattr(self, '_realtime_audio_out_thread_started'):
+                    delattr(self, '_realtime_audio_out_thread_started')
+                
                 # Clear user speaking state
                 self.user_speaking = False
                 self._candidate_user_speaking = False
@@ -8080,6 +8094,20 @@ class MediaStreamHandler:
                             break
                     if cleared > 0:
                         _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
+            
+            # STEP 5.5: Join background threads (realtime_audio_out_loop, etc.)
+            if not DEBUG:
+                _orig_print(f"   [5.5/8] Joining background threads...", flush=True)
+            if hasattr(self, 'background_threads') and self.background_threads:
+                for thread in self.background_threads:
+                    if thread and thread.is_alive():
+                        try:
+                            thread.join(timeout=1.0)
+                            if thread.is_alive():
+                                _orig_print(f"   ⚠️ Background thread {thread.name if hasattr(thread, 'name') else 'unnamed'} still alive after timeout", flush=True)
+                        except Exception as e:
+                            _orig_print(f"   ⚠️ Error joining background thread: {e}", flush=True)
+                _orig_print(f"   ✅ Background threads cleanup complete", flush=True)
             
             # STEP 6: Close Twilio WebSocket
             if not DEBUG:
@@ -8631,8 +8659,8 @@ class MediaStreamHandler:
                     self.rx += 1
                     # 🔥 FIX: Count ALL frames received from Twilio (before any filtering)
                     # This is the source of truth for "frames_in" - must happen here, not after filters
-                    # 🛡️ DEFENSIVE: Use getattr fallback to prevent AttributeError crashes
-                    self.realtime_audio_in_chunks = getattr(self, "realtime_audio_in_chunks", 0) + 1
+                    # Counter initialized in __init__ - direct increment (no getattr masking)
+                    self.realtime_audio_in_chunks += 1
                     # 🔴 GREETING_LOCK (HARD, earliest):
                     # While greeting is playing, the bot must NOT "hear" the caller at all.
                     # Drop inbound frames immediately (no decode/RMS/VAD/buffer/append/commit/barge-in paths).
