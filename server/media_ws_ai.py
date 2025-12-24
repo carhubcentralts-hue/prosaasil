@@ -4246,6 +4246,12 @@ class MediaStreamHandler:
                             # 🔥 BARGE-IN FIX: Clear barge-in flag
                             self.barge_in_active = False
                         
+                        # 🔥 OUTBOUND_GATE: Cleanup cancelled response from tracking set
+                        # Remove from blocked set after response is done to prevent memory leak
+                        if resp_id and hasattr(self, '_gate_cancelled_responses') and resp_id in self._gate_cancelled_responses:
+                            self._gate_cancelled_responses.discard(resp_id)
+                            print(f"🗑️ [OUTBOUND_GATE] Cleaned up cancelled response: {resp_id[:20]}...")
+                        
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
                         if status == "cancelled" and self.is_playing_greeting:
@@ -4684,7 +4690,9 @@ class MediaStreamHandler:
                         # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        # 🔥 INCREMENT: Track barge-in events for metrics
+                        self._barge_in_event_count = getattr(self, '_barge_in_event_count', 0) + 1
+                        logger.info(f"[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete (event #{self._barge_in_event_count})")
                     elif has_active_response and DEBUG:
                         # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
@@ -4814,32 +4822,47 @@ class MediaStreamHandler:
                         if hasattr(self, '_watchdog_utterance_id'):
                             self._watchdog_utterance_id = None
 
-                        # 🔥 OUTBOUND_GATE: Cancel auto-created responses during WAITING
+                        # 🔥 OUTBOUND_GATE: Cancel auto-created responses during WAITING (with safety checks)
                         # If gate is still WAITING, this response shouldn't exist - cancel it immediately
+                        # Safety: Never cancel greeting or manually-triggered responses
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                         if is_outbound and getattr(self, 'outbound_gate', None) == "WAIT_FOR_VOICE":
-                            # Gate is still waiting - this is an unwanted auto-response
-                            _orig_print(f"[OUTBOUND_GATE] BLOCKED_RESPONSE_DURING_GATE response_id={response_id[:20]}... - cancelling", flush=True)
-                            print(f"🛑 [OUTBOUND_GATE] Auto-response created during WAITING - cancelling immediately")
+                            # Safety check #1: Don't cancel if this is the greeting response
+                            is_greeting_response = (
+                                getattr(self, "greeting_lock_active", False) or
+                                response_id == getattr(self, "_greeting_lock_response_id", None)
+                            )
                             
-                            # Cancel the response
-                            try:
-                                await client.send_event({
-                                    "type": "response.cancel",
-                                    "response_id": response_id
-                                })
-                                print(f"✅ [OUTBOUND_GATE] Response cancelled: {response_id[:20]}...")
-                                
-                                # Mark as cancelled locally to ignore its audio
-                                if not hasattr(self, '_gate_cancelled_responses'):
-                                    self._gate_cancelled_responses = set()
-                                self._gate_cancelled_responses.add(response_id)
-                                
-                            except Exception as cancel_err:
-                                print(f"❌ [OUTBOUND_GATE] Failed to cancel response: {cancel_err}")
+                            # Safety check #2: Don't cancel manually-triggered responses
+                            # (they would have been blocked by trigger_response guard already)
+                            is_manual_response = getattr(self, '_manual_response_pending', False)
                             
-                            # Skip the rest of response.created processing
-                            continue
+                            if not is_greeting_response and not is_manual_response:
+                                # Gate is still waiting - this is an unwanted auto-response from server_vad
+                                _orig_print(f"[OUTBOUND_GATE] BLOCKED_RESPONSE_DURING_GATE response_id={response_id[:20]}... - cancelling", flush=True)
+                                print(f"🛑 [OUTBOUND_GATE] Auto-response created during WAITING - cancelling immediately")
+                                
+                                # Cancel the response
+                                try:
+                                    await client.send_event({
+                                        "type": "response.cancel",
+                                        "response_id": response_id
+                                    })
+                                    print(f"✅ [OUTBOUND_GATE] Response cancelled: {response_id[:20]}...")
+                                    
+                                    # Mark as cancelled locally to ignore its audio
+                                    if not hasattr(self, '_gate_cancelled_responses'):
+                                        self._gate_cancelled_responses = set()
+                                    self._gate_cancelled_responses.add(response_id)
+                                    
+                                except Exception as cancel_err:
+                                    print(f"❌ [OUTBOUND_GATE] Failed to cancel response: {cancel_err}")
+                                
+                                # Skip the rest of response.created processing
+                                continue
+                            else:
+                                # This is a safe response (greeting or manual) - allow it even during WAITING
+                                print(f"[OUTBOUND_GATE] Allowing safe response during WAITING (greeting={is_greeting_response}, manual={is_manual_response})")
 
                         # 🔴 FINAL CRITICAL FIX #1:
                         # Bind greeting_response_id the moment the greeting response is created.
