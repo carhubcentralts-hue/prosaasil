@@ -26,6 +26,42 @@ from server.services.customer_intelligence import CustomerIntelligence
 # ✅ BUILD 96: Logger setup
 logger = logging.getLogger(__name__)
 
+# 🔥 AMD CACHE: Temporary storage for AMD results when handler not ready yet
+# Format: {call_sid: {"result": "human"/"machine", "timestamp": time.time()}}
+# TTL: 60 seconds (cleared after use or timeout)
+_amd_cache = {}
+_amd_cache_lock = threading.Lock()
+AMD_CACHE_TTL_SEC = 60
+
+def _get_amd_from_cache(call_sid):
+    """Get AMD result from cache if available and not expired"""
+    with _amd_cache_lock:
+        if call_sid in _amd_cache:
+            entry = _amd_cache[call_sid]
+            age = time.time() - entry.get("timestamp", 0)
+            if age < AMD_CACHE_TTL_SEC:
+                return entry.get("result")
+            else:
+                # Expired - remove from cache
+                del _amd_cache[call_sid]
+    return None
+
+def _set_amd_in_cache(call_sid, result):
+    """Store AMD result in cache for race condition handling"""
+    with _amd_cache_lock:
+        _amd_cache[call_sid] = {
+            "result": result,
+            "timestamp": time.time()
+        }
+        logger.debug(f"[AMD_CACHE] Stored result={result} for call_sid={call_sid}")
+
+def _clear_amd_from_cache(call_sid):
+    """Clear AMD result from cache after successful handler update"""
+    with _amd_cache_lock:
+        if call_sid in _amd_cache:
+            del _amd_cache[call_sid]
+            logger.debug(f"[AMD_CACHE] Cleared entry for call_sid={call_sid}")
+
 # Call Status Constants - Max 32 chars (status field limit)
 CALL_STATUS_INITIATED = "initiated"
 CALL_STATUS_IN_PROGRESS = "in_progress"
@@ -1305,6 +1341,7 @@ def amd_status():
     ✅ Outbound AMD (Answering Machine Detection) callback.
     Twilio sends AnsweredBy for outbound calls when machineDetection is enabled.
     - If AnsweredBy indicates voicemail/fax → mark in DB and hang up immediately.
+    - If AnsweredBy indicates human → set human_confirmed=True and trigger greeting
     """
     # Support both POST and GET to be resilient (Twilio normally POSTs)
     if request.method == "GET":
@@ -1325,6 +1362,7 @@ def amd_status():
         # Twilio AnsweredBy can be: human, machine_start, machine_end_beep, machine_end, fax, unknown, etc.
         machine_values = {"machine_start", "machine_end_beep", "machine_end", "fax"}
         is_machine = answered_by in machine_values
+        is_human = answered_by == "human"
 
         # Update DB (best-effort)
         if call_sid:
@@ -1345,6 +1383,41 @@ def amd_status():
             except Exception as db_err:
                 logger.warning(f"AMD_STATUS db update failed: {db_err}")
                 db.session.rollback()
+
+        # 🔥 AMD → human_confirmed CONNECTION (OUTBOUND FIX)
+        # If AMD detects human, update the MediaStreamHandler to trigger greeting
+        if is_human and call_sid:
+            try:
+                # Import handler registry access
+                from server.media_ws_ai import _get_handler
+                
+                handler = _get_handler(call_sid)
+                if handler:
+                    # Handler exists - update directly
+                    handler.human_confirmed = True
+                    handler._outbound_gate_state = "CONFIRMED"
+                    handler._human_confirm_timeout_triggered = True  # Skip timeout
+                    
+                    logger.info(f"[OUTBOUND_GATE] AMD human → CONFIRMED (call_sid={call_sid})")
+                    print(f"✅ [OUTBOUND_GATE] AMD human detected → human_confirmed=True")
+                    
+                    # Clear from cache if present
+                    _clear_amd_from_cache(call_sid)
+                    
+                    # 🔥 CRITICAL: Trigger greeting if not already sent
+                    # This happens in the handler's event loop via the _outbound_gate_state flag
+                    # The handler will check this state and trigger greeting accordingly
+                    
+                else:
+                    # Handler not ready yet (race condition) - store in cache
+                    _set_amd_in_cache(call_sid, "human")
+                    logger.info(f"[AMD_CACHE] Handler not ready - cached AMD result for {call_sid}")
+                    print(f"⏳ [AMD_CACHE] Handler will check cache when ready (call_sid={call_sid})")
+                    
+            except Exception as handler_err:
+                logger.warning(f"AMD handler update failed: {handler_err}")
+                # Store in cache as fallback
+                _set_amd_in_cache(call_sid, "human")
 
         # Hang up immediately for voicemail/fax
         if is_machine and call_sid:

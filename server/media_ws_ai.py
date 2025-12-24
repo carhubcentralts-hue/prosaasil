@@ -5642,6 +5642,18 @@ class MediaStreamHandler:
                         # Log state update (NOT hangup)
                         print(f"🔇 [AUDIO_STATE] AI finished speaking (response.audio.done) - ai_speaking=False")
                         
+                        # 🔥 BARGE-IN FIX: Reset ai_response_active flag on audio.done
+                        # This prevents false barge-in from trying to cancel a response that's already done
+                        if done_resp_id and self.active_response_id == done_resp_id:
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                                logger.debug(f"[BARGE_IN_FIX] ai_response_active=False on audio.done (response_id={done_resp_id[:20]}...)")
+                        
+                        # 🔥 BARGE-IN FIX: Clear barge-in flag when audio finishes
+                        if self.barge_in_active:
+                            self.barge_in_active = False
+                            logger.debug(f"[BARGE_IN_FIX] barge_in_active=False on audio.done")
+                        
                         # Check if hangup was PREVIOUSLY requested with a valid reason
                         if self.pending_hangup and not self.hangup_triggered:
                             pending_id = getattr(self, "pending_hangup_response_id", None)
@@ -6602,8 +6614,20 @@ class MediaStreamHandler:
                                 logger.info(f"[BARGE_IN] Sent response.cancel for {cancelled_response_id[:20]}...")
                                 print(f"✅ [BARGE_IN] response.cancel sent")
                             except Exception as cancel_err:
-                                logger.error(f"[BARGE_IN] Failed to send response.cancel: {cancel_err}")
-                                print(f"❌ [BARGE_IN] Cancel failed: {cancel_err}")
+                                error_str = str(cancel_err).lower()
+                                # 🔥 BARGE-IN FIX: Handle response_cancel_not_active gracefully
+                                # This is NOT a fatal error - it just means the response already ended
+                                if ('not_active' in error_str or 'no active' in error_str or 
+                                    'already_cancelled' in error_str or 'already_completed' in error_str):
+                                    logger.debug("[BARGE-IN] response_cancel_not_active → treating as done, continuing")
+                                    print(f"✅ [BARGE_IN] cancel_not_active → response already done, continuing with new response")
+                                    # Mark as done locally to prevent further cancel attempts
+                                    self._response_done_ids.add(cancelled_response_id)
+                                    if hasattr(self, '_audio_done_received'):
+                                        self._audio_done_received[cancelled_response_id] = time.time()
+                                else:
+                                    logger.error(f"[BARGE_IN] Failed to send response.cancel: {cancel_err}")
+                                    print(f"❌ [BARGE_IN] Cancel failed: {cancel_err}")
                         
                         # Step 2: Flush audio queues immediately (thread-safe)
                         # ⚡ SAFETY: Only flush if still in the same response (not new response)
@@ -6677,7 +6701,45 @@ class MediaStreamHandler:
                             print(f"✅ [BARGE_IN] New response created from interrupt")
                         else:
                             logger.error(f"[BARGE_IN] FAILED to create response from pending utterance")
-                            print(f"❌ [BARGE_IN] Failed to create new response - watchdog will retry")
+                            print(f"❌ [BARGE_IN] Failed to create new response - scheduling retry")
+                            
+                            # 🔥 BARGE-IN FIX: Retry with delay if response creation fails
+                            # Store pending utterance for retry after 150-250ms
+                            self._pending_barge_in_utterance = pending_utterance
+                            self._pending_barge_in_raw_text = raw_text
+                            
+                            # Schedule retry with 200ms delay (middle of 150-250ms range)
+                            async def retry_pending_response():
+                                await asyncio.sleep(0.2)  # 200ms delay
+                                
+                                # Check if still pending and not superseded
+                                if hasattr(self, '_pending_barge_in_utterance') and self._pending_barge_in_utterance:
+                                    retry_text = self._pending_barge_in_utterance
+                                    logger.info(f"[BARGE_IN] Retrying response creation: '{retry_text[:40]}...'")
+                                    print(f"🔄 [BARGE_IN] Retry attempt for pending utterance")
+                                    
+                                    # Clear pending before retry
+                                    self._pending_barge_in_utterance = None
+                                    self._pending_barge_in_raw_text = None
+                                    
+                                    # Retry response creation
+                                    retry_success = await self.trigger_response(
+                                        reason="BARGE_IN_RETRY",
+                                        client=client,
+                                        is_greeting=False,
+                                        force=False,
+                                        source="barge_in_retry"
+                                    )
+                                    
+                                    if retry_success:
+                                        logger.info(f"[BARGE_IN] Retry successful for pending utterance")
+                                        print(f"✅ [BARGE_IN] Retry created response successfully")
+                                    else:
+                                        logger.error(f"[BARGE_IN] Retry FAILED - watchdog will handle")
+                                        print(f"❌ [BARGE_IN] Retry failed - watchdog fallback")
+                            
+                            # Schedule retry task
+                            asyncio.create_task(retry_pending_response())
                         
                         # Continue to avoid duplicate processing
                         continue
@@ -12543,11 +12605,14 @@ class MediaStreamHandler:
         2. ai_response_active == True  
         3. response not already done (not in _response_done_ids)
         4. cooldown period passed (200ms since last cancel)
+        5. audio.done not received for this response (prevents false barge-in)
+        6. audio was sent recently (<700ms ago, prevents stale cancel)
         
         This prevents:
         - Cancel on already cancelled/completed responses
         - Double cancel on same speech_started burst
         - response_cancel_not_active errors
+        - False barge-in when response already finished
         """
         # Condition 1: Must have active response
         if not self.active_response_id:
@@ -12563,8 +12628,23 @@ class MediaStreamHandler:
             logger.debug(f"[CANCEL_GUARD] Skip cancel: response {self.active_response_id[:20]}... already done")
             return False
         
-        # Condition 4: Cooldown period check (prevent burst cancels)
+        # 🔥 NEW Condition 5: Check if audio.done was received for this response
+        # This prevents false barge-in when response already finished
+        if hasattr(self, '_audio_done_received'):
+            if self.active_response_id in self._audio_done_received:
+                logger.debug(f"[CANCEL_GUARD] Skip cancel: response {self.active_response_id[:20]}... already received audio.done")
+                return False
+        
+        # 🔥 NEW Condition 6: Check if audio was sent recently (prevents stale cancel)
+        # If last_audio_out_ts is old (>700ms), the response probably already finished
         now = time.time()
+        if self.last_audio_out_ts:
+            time_since_audio_ms = (now - self.last_audio_out_ts) * 1000
+            if time_since_audio_ms > 700:
+                logger.debug(f"[CANCEL_GUARD] Skip cancel: no recent audio output ({time_since_audio_ms:.0f}ms since last audio)")
+                return False
+        
+        # Condition 4: Cooldown period check (prevent burst cancels)
         if (now - self._last_cancel_ts) < 0.2:  # 200ms cooldown
             elapsed_ms = int((now - self._last_cancel_ts) * 1000)
             logger.debug(f"[CANCEL_GUARD] Skip cancel: cooldown active ({elapsed_ms}ms < 200ms)")
