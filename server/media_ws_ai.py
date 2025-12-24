@@ -4581,6 +4581,21 @@ class MediaStreamHandler:
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
                     
+                    # 🔥 DEBUG: Log first user audio detection for timing analysis
+                    t_now = time.time()
+                    t_since_greeting_start = None
+                    if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
+                        t_since_greeting_start = (t_now - self._greeting_start_ts) * 1000
+                    t_since_first_ai_audio = None
+                    if hasattr(self, '_first_ai_audio_ts') and self._first_ai_audio_ts:
+                        t_since_first_ai_audio = (t_now - self._first_ai_audio_ts) * 1000
+                    
+                    print(f"🎤 [FIRST_USER_AUDIO_DETECTED] speech_started at t={t_now:.3f}, "
+                          f"since_greeting_start_ms={t_since_greeting_start:.0f if t_since_greeting_start else 'N/A'}, "
+                          f"since_first_ai_audio_ms={t_since_first_ai_audio:.0f if t_since_first_ai_audio else 'N/A'}, "
+                          f"ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                          f"greeting_lock={getattr(self, 'greeting_lock_active', False)}")
+                    
                     if DEBUG:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
                     else:
@@ -5088,6 +5103,11 @@ class MediaStreamHandler:
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
+                            
+                            # 🔥 DEBUG: Track first AI audio for timing analysis
+                            if not hasattr(self, '_first_ai_audio_ts') or not self._first_ai_audio_ts:
+                                self._first_ai_audio_ts = now
+                                print(f"📊 [TIMING] First AI audio delta at t={now:.3f}")
                             # 🔥 Track AI audio start time for metrics
                             self._last_ai_audio_start_ts = now
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
@@ -15334,6 +15354,34 @@ class MediaStreamHandler:
             frames_dropped_by_gate_block = getattr(self, '_frames_dropped_by_gate_block', 0)
             frames_dropped_by_pace_late = getattr(self, '_frames_dropped_by_pace_late', 0)
             frames_dropped_by_unknown = getattr(self, '_frames_dropped_by_unknown', 0)
+            
+            # 🔥 VERIFICATION: Ensure drop counters add up correctly
+            sum_of_drop_reasons = (
+                frames_dropped_by_greeting_lock +
+                frames_dropped_by_filters +
+                frames_dropped_by_queue_full +
+                frames_dropped_by_ai_speaking_guard +
+                frames_dropped_by_gate_block +
+                frames_dropped_by_pace_late +
+                frames_dropped_by_unknown
+            )
+            if sum_of_drop_reasons != frames_dropped_total:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ DROP COUNTER MISMATCH: "
+                    f"frames_dropped_total={frames_dropped_total} but "
+                    f"sum_of_reasons={sum_of_drop_reasons}. "
+                    f"Some drops not categorized or counter bug."
+                )
+            
+            # 🔥 VERIFICATION: In SIMPLE_MODE, frames_in should equal frames_forwarded
+            if SIMPLE_MODE:
+                if frames_in_from_twilio != frames_forwarded_to_realtime + frames_dropped_total:
+                    logger.warning(
+                        f"[CALL_METRICS] ⚠️ FRAME ACCOUNTING ERROR: "
+                        f"frames_in={frames_in_from_twilio} != "
+                        f"frames_forwarded={frames_forwarded_to_realtime} + "
+                        f"frames_dropped={frames_dropped_total}"
+                    )
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
             # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
