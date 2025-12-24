@@ -1038,10 +1038,17 @@ def send_manual_message():
 @csrf.exempt
 def send_via_webhook():
     """
-    ✅ FIX for 405 Error: Webhook endpoint for external services (n8n)
+    ✅ FIX BUILD 200+: Reliable webhook endpoint for external services (n8n)
     
     This endpoint allows external services to send WhatsApp messages without
     session authentication, using a webhook secret instead.
+    
+    Key Requirements:
+    1. Distinguish between "connected in UI" vs "webhook sees different provider"
+    2. Webhook must NOT use provider="auto" - explicit baileys only
+    3. Internal base URL must be http://baileys:3300 (Docker network)
+    4. Pre-send health check: GET {BAILEYS_BASE_URL}/status
+    5. Return proof response with provider/message_id
     
     Usage:
         POST /api/whatsapp/webhook/send
@@ -1058,33 +1065,34 @@ def send_via_webhook():
     Setup:
         1. Set WHATSAPP_WEBHOOK_SECRET in .env file
         2. Configure n8n to use this endpoint with the secret
+        3. Set BAILEYS_BASE_URL=http://baileys:3300 (Docker network)
     """
     from server.models_sql import WhatsAppMessage
     
-    # ✅ Verify webhook secret
+    # ✅ 1) Verify webhook secret
     webhook_secret = request.headers.get('X-Webhook-Secret')
     expected_secret = os.getenv('WHATSAPP_WEBHOOK_SECRET')
     
     if not expected_secret:
-        log.error("[WA-WEBHOOK] WHATSAPP_WEBHOOK_SECRET not configured in environment")
+        log.error("[WA_WEBHOOK] WHATSAPP_WEBHOOK_SECRET not configured in environment")
         return jsonify({
             "ok": False, 
-            "error": "webhook_not_configured",
+            "error_code": "webhook_not_configured",
             "message": "Administrator must set WHATSAPP_WEBHOOK_SECRET in environment"
         }), 500
     
     if not webhook_secret or webhook_secret != expected_secret:
-        log.error(f"[WA-WEBHOOK] Unauthorized access attempt from {request.remote_addr}")
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
+        log.error(f"[WA_WEBHOOK] Unauthorized access attempt from {request.remote_addr}")
+        return jsonify({"ok": False, "error_code": "unauthorized"}), 401
     
-    # Get data
+    # ✅ 2) Get data
     try:
         data = request.get_json(force=True)
     except Exception as e:
-        log.error(f"[WA-WEBHOOK] Invalid JSON: {e}")
+        log.error(f"[WA_WEBHOOK] Invalid JSON: {e}")
         return jsonify({
             "ok": False, 
-            "error": "invalid_json",
+            "error_code": "invalid_json",
             "message": "Request body must be valid JSON"
         }), 400
     
@@ -1092,36 +1100,121 @@ def send_via_webhook():
     message = data.get('message')
     business_id = data.get('business_id', 1)  # Default to business 1
     
-    # ✅ Validate required fields
+    # ✅ 3) Validate required fields
     if not to_number:
         return jsonify({
             "ok": False, 
-            "error": "missing_to",
+            "error_code": "missing_to",
             "message": "Field 'to' is required (phone number)"
         }), 400
     
     if not message:
         return jsonify({
             "ok": False, 
-            "error": "missing_message",
+            "error_code": "missing_message",
             "message": "Field 'message' is required"
         }), 400
     
-    log.info(f"[WA-WEBHOOK] Received request: to={to_number}, business_id={business_id}")
+    # ✅ 4) Resolve provider - webhook ALWAYS uses baileys (no "auto")
+    # If the system sends via Baileys, webhook must send via Baileys too
+    env_provider = os.getenv('WHATSAPP_PROVIDER', 'baileys').lower()
+    if env_provider == 'auto':
+        # For webhook, resolve to baileys explicitly (no auto)
+        provider_resolved = 'baileys'
+    else:
+        provider_resolved = env_provider if env_provider in ['baileys', 'meta'] else 'baileys'
     
+    tenant_id = f"business_{business_id}"
+    
+    # ✅ 5) Enhanced diagnostic logging
+    log.info(f"[WA_WEBHOOK] business_id={business_id}, provider_requested={env_provider}, provider_resolved={provider_resolved}, secret_ok=True")
+    
+    # ✅ 6) Verify base URL is internal (Docker network) - NOT external domain
+    baileys_base = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
+    if baileys_base.startswith('https://prosaas.pro') or 'prosaas.pro' in baileys_base:
+        log.error(f"[WA_WEBHOOK] ERROR: BAILEYS_BASE_URL contains external domain: {baileys_base}")
+        log.error("[WA_WEBHOOK] CRITICAL: Must use Docker internal URL: http://baileys:3300")
+        return jsonify({
+            "ok": False,
+            "error_code": "invalid_base_url",
+            "message": "BAILEYS_BASE_URL must be internal Docker URL (http://baileys:3300), not external domain"
+        }), 500
+    
+    log.info(f"[WA_WEBHOOK] Using base_url={baileys_base}")
+    
+    # ✅ 7) Pre-send health check - verify WhatsApp is actually connected
     try:
-        # Send message using WhatsApp provider
-        from server.whatsapp_provider import get_whatsapp_service
+        import requests
+        headers = {'X-Internal-Secret': os.getenv('INTERNAL_SECRET', '')}
         
-        tenant_id = f"business_{business_id}"
+        # Check tenant-specific status (not just service health)
+        status_url = f"{baileys_base}/whatsapp/{tenant_id}/status"
+        log.info(f"[WA_WEBHOOK] Checking status: {status_url}")
+        
+        status_resp = requests.get(status_url, headers=headers, timeout=3)
+        
+        if status_resp.status_code == 200:
+            status_data = status_resp.json()
+            connected = status_data.get('connected', False)
+            has_qr = status_data.get('hasQR', False)
+            active_phone = status_data.get('active_phone')
+            last_seen = status_data.get('last_message_ts')
+            
+            log.info(f"[WA_WEBHOOK] status_from_provider connected={connected}, active_phone={active_phone}, hasQR={has_qr}, last_seen={last_seen}")
+            
+            if not connected or has_qr:
+                # Not actually connected - return 503 (not 500!)
+                return jsonify({
+                    "ok": False,
+                    "error_code": "wa_not_connected",
+                    "provider": provider_resolved,
+                    "status_snapshot": {
+                        "connected": connected,
+                        "hasQR": has_qr,
+                        "active_phone": active_phone,
+                        "checked_at": datetime.utcnow().isoformat()
+                    },
+                    "message": "WhatsApp is not connected. Please scan QR code in settings."
+                }), 503
+        else:
+            # Status check failed
+            log.error(f"[WA_WEBHOOK] Status check failed: {status_resp.status_code}")
+            return jsonify({
+                "ok": False,
+                "error_code": "wa_status_check_failed",
+                "provider": provider_resolved,
+                "message": f"WhatsApp status check failed: {status_resp.status_code}"
+            }), 503
+            
+    except requests.exceptions.Timeout:
+        log.error("[WA_WEBHOOK] Status check timeout")
+        return jsonify({
+            "ok": False,
+            "error_code": "wa_status_timeout",
+            "provider": provider_resolved,
+            "message": "WhatsApp status check timeout - service may be down"
+        }), 503
+    except Exception as health_err:
+        log.error(f"[WA_WEBHOOK] Health check error: {health_err}")
+        return jsonify({
+            "ok": False,
+            "error_code": "wa_health_check_failed",
+            "provider": provider_resolved,
+            "message": f"WhatsApp health check failed: {str(health_err)}"
+        }), 503
+    
+    # ✅ 8) Send message using WhatsApp provider
+    try:
+        from server.whatsapp_provider import get_whatsapp_service
         
         try:
             wa_service = get_whatsapp_service(tenant_id=tenant_id)
         except Exception as e:
-            log.error(f"[WA-WEBHOOK] Failed to get WhatsApp service: {e}")
+            log.error(f"[WA_WEBHOOK] Failed to get WhatsApp service: {e}")
             return jsonify({
                 "ok": False, 
-                "error": "whatsapp_service_unavailable",
+                "error_code": "whatsapp_service_unavailable",
+                "provider": provider_resolved,
                 "message": f"WhatsApp service unavailable: {str(e)}"
             }), 503
         
@@ -1134,17 +1227,19 @@ def send_via_webhook():
         try:
             send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
         except Exception as e:
-            log.error(f"[WA-WEBHOOK] Send failed: {e}")
+            log.error(f"[WA_WEBHOOK] Send failed: {e}")
             return jsonify({
                 "ok": False, 
-                "error": "send_failed",
+                "error_code": "send_failed",
+                "provider": provider_resolved,
                 "message": f"Failed to send message: {str(e)}"
             }), 500
         
         if not send_result:
             return jsonify({
                 "ok": False, 
-                "error": "empty_response",
+                "error_code": "empty_response",
+                "provider": provider_resolved,
                 "message": "No response from provider"
             }), 500
         
@@ -1159,6 +1254,7 @@ def send_via_webhook():
             clean_number = to_number.replace('@s.whatsapp.net', '')
             db_status = provider_status if provider_status in success_statuses else 'sent'
             
+            message_db_id = None
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
@@ -1166,43 +1262,48 @@ def send_via_webhook():
                 wa_msg.body = message
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'out'
-                wa_msg.provider = send_result.get('provider', 'baileys')
+                wa_msg.provider = send_result.get('provider', provider_resolved)
                 wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
                 wa_msg.status = db_status
                 
                 db.session.add(wa_msg)
                 db.session.commit()
                 
-                log.info(f"[WA-WEBHOOK] ✅ Message sent successfully: id={wa_msg.id}")
+                message_db_id = wa_msg.id
+                log.info(f"[WA_WEBHOOK] ✅ Message sent successfully: id={message_db_id}")
                 
             except Exception as db_error:
-                log.error(f"[WA-WEBHOOK] DB save failed: {db_error}")
+                log.error(f"[WA_WEBHOOK] DB save failed: {db_error}")
                 db.session.rollback()
                 # Message was sent even if DB failed
             
+            # ✅ 9) Return proof response
             return jsonify({
                 "ok": True,
-                "message_id": wa_msg.id if 'wa_msg' in locals() else None,
-                "provider": send_result.get('provider'),
+                "provider": send_result.get('provider', provider_resolved),
+                "message_id": message_db_id,
+                "queued": True,
                 "status": db_status
             }), 200
         else:
             error_msg = send_result.get('error', 'send_failed')
-            log.error(f"[WA-WEBHOOK] Provider error: {error_msg}")
+            log.error(f"[WA_WEBHOOK] Provider error: {error_msg}")
             return jsonify({
                 "ok": False,
-                "error": error_msg,
+                "error_code": error_msg,
+                "provider": provider_resolved,
                 "message": f"Provider failed to send: {error_msg}"
             }), 500
     
     except Exception as e:
-        log.error(f"[WA-WEBHOOK] Unexpected error: {e}")
+        log.error(f"[WA_WEBHOOK] Unexpected error: {e}")
         import traceback
-        log.error(f"[WA-WEBHOOK] Traceback: {traceback.format_exc()}")
+        log.error(f"[WA_WEBHOOK] Traceback: {traceback.format_exc()}")
         db.session.rollback()
         return jsonify({
             "ok": False, 
-            "error": "internal_error",
+            "error_code": "internal_error",
+            "provider": provider_resolved if 'provider_resolved' in locals() else 'baileys',
             "message": str(e)
         }), 500
 
@@ -1860,7 +1961,9 @@ def get_templates():
 @require_api_auth(['system_admin', 'owner', 'admin'])
 def get_broadcasts():
     """
-    Get broadcast campaign history
+    ✅ FIX BUILD 200+: Get broadcast campaign history
+    
+    REQUIREMENT: Never return 500 - always return {ok:true, campaigns:[]} even if empty/no table
     """
     try:
         from server.routes_crm import get_business_id
@@ -1868,37 +1971,59 @@ def get_broadcasts():
         
         business_id = get_business_id()
         
-        # Get all broadcasts for this business
-        broadcasts = WhatsAppBroadcast.query.filter_by(
-            business_id=business_id
-        ).order_by(WhatsAppBroadcast.created_at.desc()).limit(50).all()
+        # ✅ FIX: Try to get broadcasts, but handle table not existing gracefully
+        broadcasts = []
+        try:
+            broadcasts = WhatsAppBroadcast.query.filter_by(
+                business_id=business_id
+            ).order_by(WhatsAppBroadcast.created_at.desc()).limit(50).all()
+        except Exception as db_err:
+            # ✅ Table might not exist yet (fresh install) - return empty list
+            log.warning(f"[WA_CAMPAIGNS] DB query failed (table may not exist): {db_err}")
+            # Don't raise - just return empty
+            broadcasts = []
         
         campaigns = []
         for broadcast in broadcasts:
-            creator = User.query.get(broadcast.created_by) if broadcast.created_by else None
-            campaigns.append({
-                'id': broadcast.id,
-                'name': broadcast.name or f'תפוצה #{broadcast.id}',
-                'provider': broadcast.provider,
-                'template_id': broadcast.template_id,
-                'message_text': broadcast.message_text,
-                'total_recipients': broadcast.total_recipients,
-                'sent_count': broadcast.sent_count,
-                'failed_count': broadcast.failed_count,
-                'status': broadcast.status,
-                'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
-                'created_by': creator.name if creator else 'לא ידוע'
-            })
+            try:
+                creator = User.query.get(broadcast.created_by) if broadcast.created_by else None
+                campaigns.append({
+                    'id': broadcast.id,
+                    'name': broadcast.name or f'תפוצה #{broadcast.id}',
+                    'provider': broadcast.provider,
+                    'template_id': broadcast.template_id,
+                    'message_text': broadcast.message_text,
+                    'total_recipients': broadcast.total_recipients,
+                    'sent_count': broadcast.sent_count,
+                    'failed_count': broadcast.failed_count,
+                    'status': broadcast.status,
+                    'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
+                    'created_by': creator.name if creator else 'לא ידוע'
+                })
+            except Exception as item_err:
+                # Skip this broadcast if there's an error serializing it
+                log.warning(f"[WA_CAMPAIGNS] Error serializing broadcast {broadcast.id}: {item_err}")
+                continue
         
+        # ✅ ALWAYS return success with campaigns list (even if empty)
         return jsonify({
+            'ok': True,
             'campaigns': campaigns
         }), 200
         
     except Exception as e:
-        log.error(f"Error fetching broadcasts: {e}")
+        # ✅ Even on catastrophic error, return empty list (not 500!)
+        log.error(f"[WA_CAMPAIGNS] Error loading campaigns: {e}")
+        log.error(f"[WA_CAMPAIGNS] error_code: campaigns_load_failed")
         import traceback
-        traceback.print_exc()
-        return jsonify({'campaigns': []}), 500
+        log.error(f"[WA_CAMPAIGNS] Traceback: {traceback.format_exc()}")
+        
+        # Return empty list instead of 500
+        return jsonify({
+            'ok': True,
+            'campaigns': [],
+            'warning': 'Failed to load campaigns - check logs'
+        }), 200
 
 
 @whatsapp_bp.route('/broadcasts', methods=['POST'])
@@ -1956,6 +2081,11 @@ def create_broadcast():
         except:
             lead_ids = []
         
+        # ✅ FIX BUILD 200+: Enhanced diagnostic logging per requirements
+        # Log incoming keys to understand what frontend sends
+        incoming_keys = list(request.form.keys())
+        log.info(f"[WA_BROADCAST] incoming_keys={incoming_keys}")
+        
         # Get recipients based on audience source
         recipients = []
         
@@ -1965,7 +2095,8 @@ def create_broadcast():
             'lead_ids_count': len(lead_ids),
             'statuses_count': len(statuses),
             'has_csv': 'csv_file' in request.files,
-            'import_list_id': import_list_id
+            'import_list_id': import_list_id,
+            'incoming_keys': incoming_keys
         }
         
         # NEW: Direct lead selection from system
@@ -2069,6 +2200,9 @@ def create_broadcast():
                         'message': 'שגיאה בקריאת קובץ CSV'
                     }), 400
         
+        # ✅ FIX BUILD 200+: Log recipient counts BEFORE normalization
+        log.info(f"[WA_BROADCAST] recipients_count={len(recipients)}, lead_ids_count={len(lead_ids) if lead_ids else 0}, phones_count={len([r for r in recipients if r.get('phone')])}")
+        
         # ✅ FIX: Enhanced error message with diagnostics
         if len(recipients) == 0:
             error_details = {
@@ -2095,10 +2229,13 @@ def create_broadcast():
             
             log.error(f"[WA_BROADCAST] No recipients found: {error_details}")
             
+            # ✅ FIX BUILD 200+: Return clear error with expected_one_of format
             return jsonify({
-                'success': False,
-                'message': 'לא נמצאו נמענים',
-                'error': error_msg,
+                'ok': False,
+                'error_code': 'missing_recipients',
+                'expected_one_of': ['recipients', 'phones', 'lead_ids'],
+                'got_keys': incoming_keys,
+                'message': error_msg,
                 'details': error_details
             }), 400
         
@@ -2151,6 +2288,10 @@ def create_broadcast():
         
         log.info(f"[WA_BROADCAST] Normalized {len(normalized_recipients)} phones, invalid={len(invalid_phones)}")
         
+        # ✅ FIX BUILD 200+: Log normalized count with sample
+        sample_phones = [r['phone'] for r in normalized_recipients[:3]]
+        log.info(f"[WA_BROADCAST] normalized_count={len(normalized_recipients)} sample={sample_phones}")
+        
         # ✅ ENHANCEMENT 5: Report invalid recipients count
         if invalid_phones:
             log.warning(f"[WA_BROADCAST] Invalid phones: {invalid_phones[:5]}...")  # Log first 5
@@ -2158,9 +2299,9 @@ def create_broadcast():
         # If all phones are invalid, return error with details
         if len(normalized_recipients) == 0 and len(invalid_phones) > 0:
             return jsonify({
-                'success': False,
+                'ok': False,
+                'error_code': 'all_phones_invalid',
                 'message': 'כל המספרים שנבחרו לא תקינים',
-                'error': f'נמצאו {len(invalid_phones)} מספרים לא תקינים',
                 'invalid_recipients_count': len(invalid_phones),
                 'details': {
                     'invalid_phones': invalid_phones[:10]  # Return first 10 for debugging

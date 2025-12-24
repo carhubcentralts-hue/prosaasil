@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Send, Users, MessageSquare, Filter, Upload, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // UI Components
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
@@ -309,14 +307,6 @@ export function WhatsAppBroadcastPage() {
       return;
     }
 
-    console.log('📤 Sending broadcast:', {
-      audienceSource,
-      selectedLeadIds: selectedLeadIds.length,
-      recipientCount,
-      messageType,
-      provider
-    });
-
     try {
       setSending(true);
       
@@ -350,18 +340,39 @@ export function WhatsAppBroadcastPage() {
         formData.append('csv_file', csvFile);
       }
       
+      // ✅ FIX BUILD 200+: Frontend console logging per requirements
+      // Log the payload being sent for debugging
+      const payloadDebug = {
+        provider,
+        message_type: messageType,
+        audience_source: audienceSource,
+        lead_ids_count: selectedLeadIds.length,
+        selected_statuses: selectedStatuses,
+        has_csv: !!csvFile,
+        recipient_count: recipientCount
+      };
+      console.log('📤 Sending broadcast:', payloadDebug);
+      console.log('📋 Full payload keys:', Array.from(formData.keys()));
+      
       const response = await http.post<{ 
-        success: boolean; 
+        success?: boolean;
+        ok?: boolean;
         broadcast_id: number; 
         queued_count?: number;
         sent_count?: number;
         job_id?: string;
         message?: string;
         error?: string;
+        error_code?: string;
         details?: any;
       }>('/api/whatsapp/broadcasts', formData);
       
-      if (response.success) {
+      console.log('✅ Broadcast response:', response);
+      
+      // Handle both 'success' and 'ok' fields for backwards compatibility
+      const isSuccess = response.success || response.ok;
+      
+      if (isSuccess) {
         // ✅ FIX: Show proof of queuing with actual count
         const queuedMsg = response.queued_count 
           ? `נשלח לתור: ${response.queued_count} נמענים` 
@@ -385,6 +396,8 @@ export function WhatsAppBroadcastPage() {
         // ✅ FIX: Show detailed error message
         let errorMsg = response.error || response.message || 'שגיאה לא ידועה';
         
+        console.error('❌ Broadcast error:', response);
+        
         // If we have detailed diagnostics, show them
         if (response.details) {
           const details = response.details;
@@ -403,7 +416,7 @@ export function WhatsAppBroadcastPage() {
         alert('שגיאה ביצירת תפוצה:\n\n' + errorMsg);
       }
     } catch (error: any) {
-      console.error('Error sending broadcast:', error);
+      console.error('❌ Error sending broadcast:', error);
       let errorMsg = 'שגיאה בשליחת תפוצה';
       
       if (error.message) {
@@ -413,8 +426,9 @@ export function WhatsAppBroadcastPage() {
       // If error response has detailed info
       if (error.response?.data) {
         const data = error.response.data;
-        if (data.error) {
-          errorMsg += '\n\n' + data.error;
+        console.error('Error response data:', data);
+        if (data.error || data.message) {
+          errorMsg += '\n\n' + (data.error || data.message);
         }
         if (data.details) {
           console.error('Error details:', data.details);
