@@ -118,7 +118,8 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
 
       // If src points to /api/recordings/<call_sid>/stream, fetch with retry logic
       if (src.includes('/api/recordings/') && src.includes('/stream')) {
-        // loadRecordingWithRetry handles all async errors internally
+        // Note: We don't await here since loadRecordingWithRetry handles all errors internally
+        // This is intentional to avoid blocking the useEffect and to allow the UI to update state
         loadRecordingWithRetry(src);
       } else {
         // For other URLs (like old /api/calls/<call_sid>/download), use directly
