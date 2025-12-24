@@ -1404,9 +1404,13 @@ def amd_status():
                     # Clear from cache if present
                     _clear_amd_from_cache(call_sid)
                     
-                    # 🔥 CRITICAL: Trigger greeting if not already sent
-                    # This happens in the handler's event loop via the _outbound_gate_state flag
-                    # The handler will check this state and trigger greeting accordingly
+                    # 🔥 CRITICAL: Set flag to trigger greeting in event loop
+                    # AMD webhook is not async, so we can't await trigger_response here
+                    # Instead, set a flag that the event loop will check and trigger greeting
+                    if not handler.greeting_sent and not handler.outbound_first_response_sent:
+                        handler.greeting_pending = True
+                        logger.info(f"[AMD] Set greeting_pending=True - will trigger in event loop")
+                        print(f"⏳ [AMD] Greeting will be triggered in event loop")
                     
                 else:
                     # Handler not ready yet (race condition) - store in cache
