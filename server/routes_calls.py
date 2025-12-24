@@ -226,6 +226,7 @@ def download_recording(call_sid):
     try:
         business_id = get_business_id()
         if not business_id:
+            log.warning(f"Download recording: No business_id for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Business ID required"}), 400
         
         call = Call.query.filter(
@@ -234,18 +235,37 @@ def download_recording(call_sid):
         ).first()
         
         if not call:
+            log.warning(f"Download recording: Call not found call_sid={call_sid}, business_id={business_id}")
             return jsonify({"success": False, "error": "Call not found"}), 404
         
         # Check if recording is expired (7 days)
         if call.created_at and (datetime.utcnow() - call.created_at).days > 7:
+            log.info(f"Download recording: Recording expired for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording expired and deleted"}), 410
+        
+        # 🔥 FIX 502: Check if recording_url exists before attempting download
+        if not call.recording_url:
+            log.warning(f"Download recording: No recording_url for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "Recording URL not available"}), 404
         
         # ✅ Use unified recording service - same source as worker
         from server.services.recording_service import get_recording_file_for_call
         
-        audio_path = get_recording_file_for_call(call)
+        # 🔥 FIX 502: Wrap in try-except to prevent crashes from Twilio failures
+        try:
+            audio_path = get_recording_file_for_call(call)
+        except Exception as fetch_error:
+            log.error(f"Download recording: Failed to fetch recording for call_sid={call_sid}: {fetch_error}")
+            return jsonify({"success": False, "error": "Failed to fetch recording from Twilio"}), 500
+        
         if not audio_path:
+            log.warning(f"Download recording: No audio_path returned for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording not available"}), 404
+        
+        # 🔥 FIX 502: Verify file exists and is readable before attempting to serve
+        if not os.path.exists(audio_path):
+            log.error(f"Download recording: File does not exist at path={audio_path}")
+            return jsonify({"success": False, "error": "Recording file not found"}), 404
         
         # 🎯 iOS FIX: Support Range requests for audio streaming
         # Get file size for Content-Length and Range calculations
