@@ -2617,32 +2617,129 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
+            # 🔥 FIX #4: PARALLEL STARTUP - Connect to OpenAI while loading business info
             # ═══════════════════════════════════════════════════════════════════════
-            # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
-            # We only add a timeout wrapper to prevent infinite hangs - NO external retry loop!
-            # Total internal retry time: ~7s (1s + 2s + 4s backoff)
+            # OLD: Sequential - connect → wait → business → prompt → session
+            # NEW: Parallel - (connect || business+prompt) → session
+            # This eliminates 5s wait on critical path by overlapping operations
             # ═══════════════════════════════════════════════════════════════════════
+            
             logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             t_client = time.time()
             if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
+            # 🔥 FIX #4: Start OpenAI connect as a task (non-blocking)
             t_connect_start = time.time()
-            _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
+            _orig_print(f"🔌 [FIX #4] Starting OpenAI connect (parallel with business load)...", flush=True)
             
-            try:
-                # 🔥 FIX #3: Increased timeout to 8s and max_retries to 3 for better reliability
-                # Timeout: 8s covers internal retries (1s + 2s + 4s + margin)
-                # max_retries=3 gives more chances to connect (was 2)
-                await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
-                connect_ms = (time.time() - t_connect_start) * 1000
+            # Create connect task (will run in background)
+            async def _connect_task():
+                try:
+                    await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
+                    return ('success', time.time() - t_connect_start)
+                except asyncio.TimeoutError:
+                    return ('timeout', time.time() - t_connect_start)
+                except Exception as e:
+                    return ('error', time.time() - t_connect_start, e)
+            
+            connect_task = asyncio.create_task(_connect_task())
+            
+            # 🔥 FIX #4: Start business/prompt loading in parallel
+            async def _business_prompt_task():
+                t_biz_start = time.time()
+                
+                # Wait for business info from background thread
+                print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
+                loop = asyncio.get_event_loop()
+                try:
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(0.3)),
+                        timeout=0.6
+                    )
+                    t_ready = time.time()
+                    wait_ms = (t_ready - t_biz_start) * 1000
+                    print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
+                except asyncio.TimeoutError:
+                    print(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults")
+                    self._set_safe_business_defaults(force_greeting=True)
+                
+                # Verify business_id
+                if self.business_id is None:
+                    logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
+                    _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
+                    raise ValueError("CRITICAL: business_id required for greeting")
+                
+                business_id_safe = self.business_id
+                call_direction = getattr(self, 'call_direction', 'inbound')
+                
+                logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
+                _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
+                
+                # Load prompts from registry
+                from server.stream_state import stream_registry
+                compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
+                full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
+                
+                # Fallback - build if not in registry
+                if not compact_prompt or not full_prompt:
+                    print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
+                    print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
+                    try:
+                        from server.services.realtime_prompt_builder import (
+                            build_compact_greeting_prompt,
+                            build_full_business_prompt,
+                        )
+                        app = _get_flask_app()
+                        with app.app_context():
+                            if not compact_prompt:
+                                compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars")
+                            if not full_prompt:
+                                full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars")
+                    except Exception as prompt_err:
+                        print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
+                        import traceback
+                        traceback.print_exc()
+                        # Last resort fallback
+                        if not compact_prompt:
+                            greeting_text = getattr(self, 'greeting_text', None)
+                            biz_name = getattr(self, 'business_name', None) or "העסק"
+                            if greeting_text and str(greeting_text).strip():
+                                compact_prompt = str(greeting_text).strip()
+                            else:
+                                compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
+                        if not full_prompt:
+                            full_prompt = compact_prompt
+                else:
+                    print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
+                    print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
+                    print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
+                
+                biz_elapsed_ms = (time.time() - t_biz_start) * 1000
+                return (compact_prompt, full_prompt, biz_elapsed_ms)
+            
+            business_task = asyncio.create_task(_business_prompt_task())
+            
+            # 🔥 FIX #4: Wait for BOTH tasks to complete (parallel execution)
+            print(f"⏳ [FIX #4] Waiting for both OpenAI connect AND business/prompt loading...")
+            t_parallel_start = time.time()
+            
+            connect_result, business_result = await asyncio.gather(connect_task, business_task)
+            
+            parallel_elapsed_ms = (time.time() - t_parallel_start) * 1000
+            print(f"✅ [FIX #4] Parallel loading complete in {parallel_elapsed_ms:.0f}ms")
+            
+            # 🔥 FIX #4: Process connect result
+            if connect_result[0] == 'success':
+                connect_ms = connect_result[1] * 1000
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
-                
-            except asyncio.TimeoutError:
-                connect_ms = (time.time() - t_connect_start) * 1000
+                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (parallel)", flush=True)
+                print(f"📊 [FIX #4 METRICS] connect_ms={connect_ms:.0f}, parallel_total_ms={parallel_elapsed_ms:.0f}, overlap_savings_ms={max(0, connect_ms - parallel_elapsed_ms):.0f}")
+            elif connect_result[0] == 'timeout':
+                connect_ms = connect_result[1] * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
                 _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
                 logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
@@ -2652,32 +2749,31 @@ class MediaStreamHandler:
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
                 return
-                
-            except Exception as connect_err:
-                connect_ms = (time.time() - t_connect_start) * 1000
+            else:  # connect_result[0] == 'error'
+                connect_ms = connect_result[1] * 1000
+                connect_err = connect_result[2] if len(connect_result) > 2 else None
                 self._metrics_openai_connect_ms = int(connect_ms)
                 
-                # 🔥 FIX #3: Enhanced error logging with full traceback for diagnostics
+                # Enhanced error logging
                 import traceback
-                error_details = traceback.format_exc()
                 _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
                 _orig_print(f"❌ [REALTIME] Error type: {type(connect_err).__name__}", flush=True)
-                _orig_print(f"❌ [REALTIME] Full traceback:\n{error_details}", flush=True)
                 logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
-                logger.error(f"[REALTIME] Full error details:\n{error_details}")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
                 logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
-                
-                # 🔥 FIX #3: Log call context for debugging
-                _orig_print(f"📊 [REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
                 return
+            
+            # 🔥 FIX #4: Process business/prompt result
+            compact_prompt, full_prompt, biz_elapsed_ms = business_result
+            print(f"📊 [FIX #4 METRICS] business_load_ms={biz_elapsed_ms:.0f}")
             
             t_connected = time.time()
             
-            # Warn if connection is slow (>1.5s is too slow for good UX)
+            # Warn if connection is slow
+            connect_ms = connect_result[1] * 1000
             if connect_ms > 1500:
                 print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
             if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
@@ -2688,115 +2784,10 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.debug("[REALTIME] Connected")
             
-            # 🚀 PARALLEL STEP 2: Wait briefly for business info (do NOT block greeting)
-            print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
-            
-            # Use asyncio to wait for the threading.Event
-            loop = asyncio.get_event_loop()
-            try:
-                # Keep this short: greeting must not depend on DB readiness.
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(0.3)),
-                    timeout=0.6
-                )
-                t_ready = time.time()
-                wait_ms = (t_ready - t_connected) * 1000
-                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
-            except asyncio.TimeoutError:
-                print(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults (do not block greeting)")
-                # Use helper with force_greeting=True to ensure greeting fires
-                self._set_safe_business_defaults(force_greeting=True)
-            
-            # 🔥 BUILD 315: FULL PROMPT FROM START - AI has complete context from first moment!
-            # This ensures the AI understands the business, services, and context when greeting
-            # and when interpreting user responses (e.g., city names like "קריית אתא")
-            t_before_prompt = time.time()
-            greeting_text = getattr(self, 'greeting_text', None)
-            biz_name = getattr(self, 'business_name', None) or "העסק"
-            
-            # ⛔ CRITICAL: business_id must be set before this point - no fallback allowed
-            if self.business_id is None:
-                logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
-                _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
-                raise ValueError("CRITICAL: business_id required for greeting")
-            
+            # Get business_id and call_direction
             business_id_safe = self.business_id
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
-            
-            # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
-            logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
-            _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
-            
-            # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
-            # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
-            # This eliminates 500-2000ms DB query latency from async loop!
-            # After greeting, we can send full prompt via session.update if needed
-            # ═══════════════════════════════════════════════════════════════════════
-            
-            # 🔥 PROMPT STRATEGY: COMPACT for fast greeting, FULL after first response
-            # Strategy: Use pre-built COMPACT from registry → greeting in <2s
-            #           Then upgrade to pre-built FULL after first response completes
-            
-            from server.stream_state import stream_registry
-            
-            # Step 1: Load COMPACT prompt from registry (built in webhook - ZERO latency!)
-            compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
-            
-            # Step 2: Load FULL BUSINESS prompt from registry (for post-greeting injection)
-            full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
-            
-            # Step 3: Fallback - build if not in registry (should rarely happen)
-            if not compact_prompt or not full_prompt:
-                print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
-                # 🔥 LOG: Direction being used for prompt building
-                print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
-                try:
-                    from server.services.realtime_prompt_builder import (
-                        build_compact_greeting_prompt,
-                        build_full_business_prompt,
-                    )
-                    app = _get_flask_app()
-                    with app.app_context():
-                        if not compact_prompt:
-                            compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
-                        if not full_prompt:
-                            full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
-                except Exception as prompt_err:
-                    print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
-                    import traceback
-                    traceback.print_exc()
-                    # Last resort fallback
-                    if not compact_prompt:
-                        # Business-only fallback for COMPACT (no global/system rules).
-                        # Prefer DB greeting text if available, else short business greeting.
-                        if greeting_text and str(greeting_text).strip():
-                            compact_prompt = str(greeting_text).strip()
-                        else:
-                            compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
-                    if not full_prompt:
-                        full_prompt = compact_prompt
-            else:
-                print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
-                print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
-                print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
-                
-                # 🔥 HARD LOCK: Verify call_direction matches pre-built prompt
-                # If mismatch detected - LOG WARNING but DO NOT REBUILD
-                # The call continues with the already-loaded prompt
-                prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
-                if prompt_direction_check != call_direction:
-                    # 🔥 CRITICAL: DO NOT REBUILD - just log and continue
-                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt direction mismatch detected!")
-                    print(f"   Expected: {call_direction}, Pre-built for: {prompt_direction_check}")
-                    print(f"   ❌ NOT rebuilding - continuing with pre-built prompt (HARD LOCK)")
-                    _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prompt_direction_check} action=CONTINUE_NO_REBUILD", flush=True)
-                else:
-                    print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
-                    _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
             
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
@@ -4652,12 +4643,27 @@ class MediaStreamHandler:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
                         # Step 1: Cancel active response (with duplicate guard)
+                        # 🔥 FIX #2 VERIFICATION: Log complete state before cancel
+                        ai_speaking = self.is_ai_speaking_event.is_set()
+                        ai_response_active = getattr(self, 'ai_response_active', False)
+                        active_resp_id = self.active_response_id
+                        last_audio_delta_ts = getattr(self, '_last_audio_delta_ts', None)
+                        time_since_last_audio = (time.time() - last_audio_delta_ts) if last_audio_delta_ts else None
+                        
+                        print(f"🔥 [BARGE-IN STATE] Before cancel:")
+                        print(f"   ai_speaking={ai_speaking}")
+                        print(f"   ai_response_active={ai_response_active}")
+                        print(f"   active_response_id={active_resp_id[:20] if active_resp_id else None}...")
+                        print(f"   last_audio_delta_ts={last_audio_delta_ts}")
+                        print(f"   time_since_last_audio_ms={time_since_last_audio*1000 if time_since_last_audio else None}")
+                        
                         if self._should_send_cancel(self.active_response_id):
                             try:
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
                                 logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
+                                print(f"✅ [BARGE-IN] response.cancel sent for {self.active_response_id[:20]}...")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors
