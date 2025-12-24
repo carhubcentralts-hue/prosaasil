@@ -1825,6 +1825,9 @@ def process_bulk_call_run(run_id: int):
     
     with app.app_context():
         try:
+            # 🔒 CLEANUP: Reset any stuck jobs from previous run failures
+            cleanup_stuck_dialing_jobs()
+            
             run = OutboundCallRun.query.get(run_id)
             if not run:
                 log.error(f"Run {run_id} not found")
@@ -2055,6 +2058,88 @@ def process_bulk_call_run(run_id: int):
                     db.session.commit()
             except:
                 pass
+
+
+def cleanup_stuck_dialing_jobs():
+    """
+    Cleanup jobs stuck in 'dialing' status without a twilio_call_sid
+    
+    This handles edge cases where:
+    - calls.create succeeded but UPDATE with call_sid failed
+    - Process crashed between acquiring lock and creating call
+    
+    Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'
+    """
+    from server.app_factory import get_process_app
+    from server.models_sql import OutboundCallJob
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+    
+    app = get_process_app()
+    
+    with app.app_context():
+        try:
+            # Find jobs stuck in 'dialing' for more than 5 minutes without call_sid
+            cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+            
+            result = db.session.execute(text("""
+                UPDATE outbound_call_jobs 
+                SET status='queued',
+                    dial_lock_token=NULL,
+                    dial_started_at=NULL
+                WHERE status='dialing'
+                    AND twilio_call_sid IS NULL
+                    AND dial_started_at < :cutoff_time
+            """), {"cutoff_time": cutoff_time})
+            
+            db.session.commit()
+            
+            if result.rowcount > 0:
+                log.info(f"[CLEANUP] Reset {result.rowcount} stuck 'dialing' jobs to 'queued'")
+            
+            return result.rowcount
+            
+        except Exception as e:
+            log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
+            db.session.rollback()
+            return 0
+
+
+@outbound_bp.route("/api/outbound/cleanup-stuck-jobs", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def cleanup_stuck_jobs_endpoint():
+    """
+    Manually trigger cleanup of jobs stuck in 'dialing' status
+    
+    This is useful for recovering from crashes or network issues.
+    Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'.
+    """
+    from flask import session
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            # System admin can clean up across all tenants
+            pass
+        else:
+            return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        count = cleanup_stuck_dialing_jobs()
+        
+        log.info(f"✅ Cleanup completed: {count} jobs reset to queued")
+        
+        return jsonify({
+            "success": True,
+            "cleaned_count": count,
+            "message": f"נוקו {count} משימות תקועות"
+        })
+        
+    except Exception as e:
+        log.error(f"Error in cleanup endpoint: {e}")
+        return jsonify({"error": "שגיאה בניקוי משימות"}), 500
 
 
 @outbound_bp.route("/api/outbound/leads/export", methods=["GET"])

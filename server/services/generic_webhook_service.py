@@ -21,6 +21,17 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [1, 3, 10]
 
 
+def _is_valid_webhook_url(url: str) -> bool:
+    """
+    Validate webhook URL format - must start with http:// or https://
+    Prevents invalid URLs like 'popopop' from being sent
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    return url.startswith('http://') or url.startswith('https://')
+
+
 def generate_signature(payload: str) -> str:
     """Generate HMAC-SHA256 signature for webhook payload"""
     return hmac.new(
@@ -102,6 +113,11 @@ def send_generic_webhook(
                 logger.info(f"[WEBHOOK] Using generic_webhook_url for business {business_id}")
         
         if not webhook_url:
+            return False
+        
+        # Validate webhook URL format before sending
+        if not _is_valid_webhook_url(webhook_url):
+            logger.warning(f"[WEBHOOK] Invalid webhook URL for business {business_id}: {webhook_url} - URL must start with http:// or https://")
             return False
         
         payload = {
