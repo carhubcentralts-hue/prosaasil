@@ -38,7 +38,7 @@ if not self._should_send_cancel(self.active_response_id):
 ### Issue 3: Race Condition in Cancel State Management (Line 4468)
 **Problem**: Setting `cancel_in_flight = True` before the actual cancel operation could create a race condition if multiple threads access this code simultaneously. In a scenario where the cancel operation fails, other threads might be blocked from attempting cancellation due to the flag being set prematurely.
 
-**Fix**: Improved error handling to properly clear state and remove from sent set when cancel fails:
+**Fix**: Improved error handling to differentiate between logical success and actual errors:
 
 ```python
 cancel_succeeded = False
@@ -47,17 +47,24 @@ try:
     logger.info(f"[BARGE-IN] ✅ Cancel sent successfully...")
     cancel_succeeded = True
 except Exception as e:
-    # ... error handling ...
-    # Clear cancel_in_flight on ANY error
-    self.cancel_in_flight = False
-    # Remove from sent set since cancel didn't actually go through
-    self._cancel_sent_for_response_ids.discard(response_id_to_cancel)
+    error_str = str(e).lower()
+    if ('not_active' in error_str or 'response_cancel_not_active' in error_str):
+        # LOGICAL SUCCESS - response already ended, treat as success
+        cancel_succeeded = True
+        # Keep in _cancel_sent_for_response_ids to prevent retry spam
+        self.cancel_in_flight = False
+    else:
+        # ACTUAL ERROR - allow retry
+        self.cancel_in_flight = False
+        self._cancel_sent_for_response_ids.discard(response_id_to_cancel)
 ```
 
 **Impact**: 
+- Treats `response_cancel_not_active` as a **logical success** (response already done = mission accomplished)
+- Prevents infinite retry loops on expected "already done" responses
+- Only allows retry for actual errors (network, timeout, etc.)
+- Keeps response_id in guard set for logical success to prevent spam
 - Properly tracks whether the cancel succeeded
-- Clears both `cancel_in_flight` and removes from `_cancel_sent_for_response_ids` on error
-- Allows retry if the cancel didn't actually go through
 - Reduces the window for race conditions by ensuring state is consistent with actual outcomes
 
 ---

@@ -4484,15 +4484,19 @@ class MediaStreamHandler:
                                 if ('not_active' in error_str or 'no active' in error_str or 
                                     'already_cancelled' in error_str or 'already_completed' in error_str or
                                     'response_cancel_not_active' in error_str):
-                                    # This is EXPECTED when response already ended - not an error
+                                    # This is EXPECTED when response already ended - treat as LOGICAL SUCCESS
+                                    # Response already done = no need to cancel = mission accomplished
                                     logger.debug(f"[BARGE-IN] response_cancel_not_active - response already ended ({response_id_to_cancel[:20]}...)")
+                                    cancel_succeeded = True  # Logical success - response is already done
+                                    # Keep response_id in _cancel_sent_for_response_ids (prevent retry spam)
+                                    # Only clear cancel_in_flight
+                                    self.cancel_in_flight = False
                                 else:
-                                    # Unexpected error - log but don't retry
-                                    logger.info(f"[BARGE-IN] Cancel error (ignoring, no retry): {e}")
-                                # Clear cancel_in_flight on ANY error
-                                self.cancel_in_flight = False
-                                # Remove from sent set since cancel didn't actually go through
-                                self._cancel_sent_for_response_ids.discard(response_id_to_cancel)
+                                    # Unexpected error (network, timeout, etc.) - allow retry
+                                    logger.info(f"[BARGE-IN] Cancel error (unexpected, allowing retry): {e}")
+                                    # Clear cancel_in_flight and remove from sent set to allow retry
+                                    self.cancel_in_flight = False
+                                    self._cancel_sent_for_response_ids.discard(response_id_to_cancel)
                             
                             # Step 3: Mark response as cancelled locally (immediately after cancel attempt)
                             # Do this even if cancel failed (response might already be done)
