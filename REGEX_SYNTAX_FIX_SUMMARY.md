@@ -49,6 +49,8 @@ bye_patterns = [
 Created a pre-deployment verification script that:
 - Checks `server/media_ws_ai.py` compiles without errors
 - Checks `asgi.py` compiles without errors
+- Checks `server/routes_twilio.py` compiles without errors
+- Checks `server/app_factory.py` compiles without errors
 - Returns non-zero exit code if any file fails
 - Can be integrated into CI/CD pipeline
 
@@ -64,11 +66,34 @@ Python Compilation Verification
 ======================================================================
 ✓ server/media_ws_ai.py - OK
 ✓ asgi.py - OK
+✓ server/routes_twilio.py - OK
+✓ server/app_factory.py - OK
 ======================================================================
 ✅ All files compile successfully!
 ```
 
-### 3. WebSocket Error Handling Verification
+### 3. Enhanced Webhook Error Handling
+
+**Critical improvements to prevent "application error" messages:**
+
+**a) stream_ended webhook (server/routes_twilio.py:783)**
+- ✅ Wrapped entire function in try/except
+- ✅ Always returns 200 OK even on errors
+- ✅ Logs errors but never propagates exceptions
+- ✅ Prevents Twilio from receiving 500 errors
+
+**b) close_handler_from_webhook (server/media_ws_ai.py:1093)**
+- ✅ Added try/except wrapper
+- ✅ Never throws exceptions
+- ✅ Logs warnings for missing handlers (normal during race conditions)
+- ✅ Always returns gracefully with boolean result
+
+**c) call_status webhook (server/routes_twilio.py:1167)**
+- ✅ Already had proper try/except (verified)
+- ✅ Returns 204 before processing
+- ✅ All processing in try/except block
+
+### 4. Existing WebSocket Error Handling (Verified)
 
 **Verified existing error handling in `asgi.py` (ws_twilio_media function):**
 

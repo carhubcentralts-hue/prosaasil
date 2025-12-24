@@ -783,40 +783,51 @@ def outbound_call():
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 @require_twilio_signature
 def stream_ended():
-    """Stream ended - trigger recording + fast response"""
-    # 🔥 VERIFICATION #2: Extract call_sid with fallback for different formats
-    call_sid = request.form.get('CallSid') or request.form.get('callSid', '')
-    stream_sid = request.form.get('StreamSid') or request.form.get('streamSid', '')
+    """Stream ended - trigger recording + fast response
     
-    # Log for debugging
-    if not call_sid:
-        print(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
-    
-    # 🔥 VERIFICATION #1: Close handler from webhook
-    if call_sid:
-        from server.media_ws_ai import close_handler_from_webhook
-        close_handler_from_webhook(call_sid, "webhook_stream_ended")
-    
-    # החזרה מיידית
-    resp = make_response("", 204)
-    resp.headers["Cache-Control"] = "no-store"
-    
-    # 🎧 CRITICAL LOG: Recording starts AFTER stream ends (after AI greeting finished)
-    if call_sid:
-        print(f"[RECORDING] Stream ended → safe to start recording for {call_sid}")
-        threading.Thread(
-            target=_trigger_recording_for_call, 
-            args=(call_sid,), 
-            daemon=True
-        ).start()
-        
+    🔥 CRITICAL: Always return 200/204 even if handler not found (prevents Twilio "application error")
+    """
     try:
-        status = request.form.get('Status', 'N/A')
-        print(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
-    except:
-        pass
+        # 🔥 VERIFICATION #2: Extract call_sid with fallback for different formats
+        call_sid = request.form.get('CallSid') or request.form.get('callSid', '')
+        stream_sid = request.form.get('StreamSid') or request.form.get('streamSid', '')
         
-    return resp
+        # Log for debugging
+        if not call_sid:
+            print(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
+        
+        # 🔥 VERIFICATION #1: Close handler from webhook
+        if call_sid:
+            from server.media_ws_ai import close_handler_from_webhook
+            close_handler_from_webhook(call_sid, "webhook_stream_ended")
+        
+        # החזרה מיידית
+        resp = make_response("", 204)
+        resp.headers["Cache-Control"] = "no-store"
+        
+        # 🎧 CRITICAL LOG: Recording starts AFTER stream ends (after AI greeting finished)
+        if call_sid:
+            print(f"[RECORDING] Stream ended → safe to start recording for {call_sid}")
+            threading.Thread(
+                target=_trigger_recording_for_call, 
+                args=(call_sid,), 
+                daemon=True
+            ).start()
+            
+        try:
+            status = request.form.get('Status', 'N/A')
+            print(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
+        except:
+            pass
+            
+        return resp
+    except Exception as e:
+        # 🔥 CRITICAL: Always return 200 even on error to prevent Twilio "application error"
+        current_app.logger.exception(f"[STREAM_ENDED] Error processing webhook: {e}")
+        print(f"⚠️ [STREAM_ENDED] Exception in webhook handler: {e}", flush=True)
+        resp = make_response("", 200)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
 @csrf.exempt
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])

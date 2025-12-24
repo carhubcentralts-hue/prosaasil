@@ -29,6 +29,8 @@ def main():
     critical_files = [
         "server/media_ws_ai.py",
         "asgi.py",
+        "server/routes_twilio.py",
+        "server/app_factory.py",
     ]
     
     base_path = Path(__file__).parent
