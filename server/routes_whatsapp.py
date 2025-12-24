@@ -2192,7 +2192,7 @@ def create_broadcast():
                                 'lead_id': None
                             })
                     
-                     log.info(f"[WA_BROADCAST] Loaded {len(recipients)} recipients from CSV")
+                    log.info(f"[WA_BROADCAST] Loaded {len(recipients)} recipients from CSV")
                 except Exception as csv_err:
                     log.error(f"[WA_BROADCAST] CSV parsing error: {csv_err}")
                     return jsonify({
