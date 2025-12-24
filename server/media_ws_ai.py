@@ -2178,10 +2178,14 @@ class MediaStreamHandler:
         self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
         self.connection_start_time = time.time()  # Track connection start for metrics
         
-        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
+        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics with explicit reasons
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
         self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
+        self._frames_dropped_by_ai_speaking_guard = 0  # Frames dropped by AI speaking guard (half-duplex)
+        self._frames_dropped_by_gate_block = 0  # Frames dropped by gates (echo/voice)
+        self._frames_dropped_by_pace_late = 0  # Frames dropped due to pacing issues
+        self._frames_dropped_by_unknown = 0  # Frames dropped for unknown reasons
 
         # ═══════════════════════════════════════════════════════════════════════════
         # 🔥 OUTBOUND VOICE GATE: Wait for real human voice before AI speaks
@@ -4294,6 +4298,9 @@ class MediaStreamHandler:
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Per-response markers to track audio delivery quality
                         # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 FIX #2: DO NOT set is_ai_speaking_event here!
+                        # ai_speaking should ONLY be set on first audio.delta (actual audio arrival)
+                        # This ensures barge-in works properly - flag tracks actual audio playback
                         if not hasattr(self, '_response_tracking'):
                             self._response_tracking = {}
                         self._response_tracking[resp_id] = {
@@ -9086,10 +9093,22 @@ class MediaStreamHandler:
                             continue
                         
                         if not self.barge_in_enabled_after_greeting:
-                            # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
+                            # 🔥 FIX #1: FULL DUPLEX IN SIMPLE_MODE - Never block audio forwarding when AI is speaking
+                            # This is CRITICAL for real barge-in to work. The AI's server_vad needs continuous
+                            # audio stream to detect when user interrupts, even while AI is speaking.
+                            # 
+                            # In SIMPLE_MODE:
+                            # - ALL audio forwards to OpenAI continuously (full duplex)
+                            # - No forwarding windows, no echo gates, no half-duplex behavior
+                            # - OpenAI's server_vad handles echo rejection
+                            # - Barge-in works because OpenAI receives user speech during AI talk
                             if SIMPLE_MODE:
-                                # SIMPLE_MODE = no guards, passthrough all audio + logs only
-                                pass  # Skip all echo gate logic
+                                # SIMPLE_MODE = FULL DUPLEX - passthrough all audio, no blocking
+                                # Track that we're in full duplex mode for metrics
+                                if not hasattr(self, '_full_duplex_mode_logged'):
+                                    print(f"🔊 [FULL_DUPLEX] SIMPLE_MODE active - forwarding ALL audio to OpenAI (no echo gate)")
+                                    self._full_duplex_mode_logged = True
+                                # NO blocking logic - audio always forwards
                             else:
                                 # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
                                 # This prevents OpenAI from transcribing its own voice output as user speech!
@@ -9165,6 +9184,12 @@ class MediaStreamHandler:
                                         if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
                                             print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
                                             self._echo_gate_logged = True
+                                        # 🔥 FIX #3: Track drop reason for diagnostics
+                                        try:
+                                            self._stats_audio_blocked += 1
+                                            self._frames_dropped_by_ai_speaking_guard += 1
+                                        except Exception:
+                                            pass
                                         continue
                                     elif window_is_open:
                                         # Forwarding window is open - let audio through
@@ -9184,6 +9209,12 @@ class MediaStreamHandler:
                                             if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
                                                 print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
                                                 self._echo_decay_logged = True
+                                            # 🔥 FIX #3: Track drop reason for diagnostics
+                                            try:
+                                                self._stats_audio_blocked += 1
+                                                self._frames_dropped_by_gate_block += 1
+                                            except Exception:
+                                                pass
                                             continue
                                     else:
                                         # Echo decay complete - reset log flags for next AI response
@@ -15241,6 +15272,11 @@ class MediaStreamHandler:
             frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
+            # 🔥 FIX #3: Track drop reasons explicitly
+            frames_dropped_by_ai_speaking_guard = getattr(self, '_frames_dropped_by_ai_speaking_guard', 0)
+            frames_dropped_by_gate_block = getattr(self, '_frames_dropped_by_gate_block', 0)
+            frames_dropped_by_pace_late = getattr(self, '_frames_dropped_by_pace_late', 0)
+            frames_dropped_by_unknown = getattr(self, '_frames_dropped_by_unknown', 0)
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
             # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
@@ -15250,7 +15286,11 @@ class MediaStreamHandler:
                     f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
                     f"greeting_lock={frames_dropped_by_greeting_lock}, "
                     f"filters={frames_dropped_by_filters}, "
-                    f"queue_full={frames_dropped_by_queue_full}. "
+                    f"queue_full={frames_dropped_by_queue_full}, "
+                    f"ai_speaking_guard={frames_dropped_by_ai_speaking_guard}, "
+                    f"gate_block={frames_dropped_by_gate_block}, "
+                    f"pace_late={frames_dropped_by_pace_late}, "
+                    f"unknown={frames_dropped_by_unknown}. "
                     f"In SIMPLE_MODE, no frames should be dropped."
                 )
             
@@ -15272,7 +15312,11 @@ class MediaStreamHandler:
                 "frames_dropped_total=%(frames_dropped_total)d, "
                 "frames_dropped_greeting=%(frames_dropped_greeting)d, "
                 "frames_dropped_filters=%(frames_dropped_filters)d, "
-                "frames_dropped_queue=%(frames_dropped_queue)d",
+                "frames_dropped_queue=%(frames_dropped_queue)d, "
+                "frames_dropped_ai_guard=%(frames_dropped_ai_guard)d, "
+                "frames_dropped_gate=%(frames_dropped_gate)d, "
+                "frames_dropped_pace=%(frames_dropped_pace)d, "
+                "frames_dropped_unknown=%(frames_dropped_unknown)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -15290,7 +15334,11 @@ class MediaStreamHandler:
                     'frames_dropped_total': frames_dropped_total,
                     'frames_dropped_greeting': frames_dropped_by_greeting_lock,
                     'frames_dropped_filters': frames_dropped_by_filters,
-                    'frames_dropped_queue': frames_dropped_by_queue_full
+                    'frames_dropped_queue': frames_dropped_by_queue_full,
+                    'frames_dropped_ai_guard': frames_dropped_by_ai_speaking_guard,
+                    'frames_dropped_gate': frames_dropped_by_gate_block,
+                    'frames_dropped_pace': frames_dropped_by_pace_late,
+                    'frames_dropped_unknown': frames_dropped_by_unknown
                 }
             )
             
@@ -15305,7 +15353,7 @@ class MediaStreamHandler:
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
-            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}, ai_guard={frames_dropped_by_ai_speaking_guard}, gate={frames_dropped_by_gate_block}, pace={frames_dropped_by_pace_late}, unknown={frames_dropped_by_unknown}")
             if SIMPLE_MODE and frames_dropped_total > 0:
                 print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
             
