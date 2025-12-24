@@ -4582,6 +4582,13 @@ class MediaStreamHandler:
                             
                             # 🔥 BARGE-IN FIX: Clear barge-in flag (but keep is_ai_speaking for queue drain)
                             self.barge_in_active = False
+                            
+                            # 🔥 BARGE-IN FIX: Double cleanup - ensure ai_response_active is cleared
+                            # Even if drain check is still running, mark response as no longer active
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                                logger.debug(f"[BARGE_IN_FIX] ai_response_active=False on response.done (response_id={resp_id[:20]}...)")
+                            
                             _orig_print(f"✅ [STATE_RESET] Response complete - drain check scheduled (response_id={resp_id[:20]}... status={status})", flush=True)
                             
                             # 🔥 FIX: Check if greeting was pending and trigger it now
@@ -5273,15 +5280,22 @@ class MediaStreamHandler:
                         # 🔥 NEW: Set ai_response_active=True immediately (per requirements)
                         # This is THE fix for barge-in timing issues
                         # ai_response_active means "response exists and can be cancelled"
-                        # is_ai_speaking will still be set on first audio.delta when actual audio arrives
+                        # is_ai_speaking will be set in TX loop when first frame is actually sent
                         if not hasattr(self, 'ai_response_active'):
                             self.ai_response_active = False
                         self.ai_response_active = True
                         _orig_print(f"✅ [BARGE-IN] ai_response_active=True on response.created (id={response_id[:20]}...)", flush=True)
                         self.barge_in_active = False  # Reset barge-in flag for new response
-                        print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
+                        print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first TX frame)")
                         
                         print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
+                        
+                        # 🔥 BARGE-IN FIX: Track response creation time per response_id
+                        # This prevents canceling a response before it has a chance to play (< 150ms)
+                        if not hasattr(self, '_response_created_times'):
+                            self._response_created_times = {}
+                        self._response_created_times[response_id] = time.time()
+                        
                         # 🔥 BUILD 187: Response grace period - track when response started
                         # This prevents false turn_detected from echo/noise in first 500ms
                         self._response_created_ts = time.time()
@@ -5359,13 +5373,14 @@ class MediaStreamHandler:
                                 self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
-                            # 🔥 STATE FIX: Set is_ai_speaking ONLY when actual audio arrives
-                            # This prevents race condition where is_ai_speaking=True before audio actually starts
+                            # 🔥 BARGE-IN FIX: is_ai_speaking will be set in TX loop on first frame sent
+                            # Don't set here - only track timestamps for metrics
                             if not self.is_ai_speaking_event.is_set():
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
-                                print(f"🔊 [STATE] AI started speaking (first audio.delta for greeting) - is_ai_speaking=True")
-                            self.is_ai_speaking_event.set()
+                                # Note: is_ai_speaking will be set in TX loop when first frame is actually sent
+                                print(f"🔊 [STATE] AI audio.delta received for greeting (is_ai_speaking will be set on first TX frame)")
+                            # 🔥 REMOVED: self.is_ai_speaking_event.set() - moved to TX loop
                             self.is_playing_greeting = True
                             # 🔥 VERIFICATION #3: Block enqueue if closed
                             if not self.closed:
@@ -5424,14 +5439,13 @@ class MediaStreamHandler:
                         # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
                         now = time.time()
                         
-                        # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
-                        # This guarantees the flag tracks actual audio playback
-                        # 🔥 STATE FIX: This is the CORRECT place to set is_ai_speaking (not on response.created)
+                        # 🔥 BARGE-IN FIX: is_ai_speaking will be set in TX loop on first frame sent
+                        # Track timestamps here for metrics, but don't set the flag yet
                         if not self.is_ai_speaking_event.is_set():
                             # 🚫 Production mode: Only log in DEBUG
                             if DEBUG:
-                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
-                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
+                                print(f"🔊 [REALTIME] AI audio.delta received")
+                            print(f"🔊 [STATE] AI audio.delta received (is_ai_speaking will be set on first TX frame)")
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
@@ -5442,8 +5456,8 @@ class MediaStreamHandler:
                                 print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
                         
-                        # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
-                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                        # 🔥 REMOVED: self.is_ai_speaking_event.set() - moved to TX loop
+                        # is_ai_speaking will be set ONLY in TX loop when first frame is actually sent
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
@@ -5641,6 +5655,18 @@ class MediaStreamHandler:
                     if event_type == "response.audio.done":
                         # Log state update (NOT hangup)
                         print(f"🔇 [AUDIO_STATE] AI finished speaking (response.audio.done) - ai_speaking=False")
+                        
+                        # 🔥 BARGE-IN FIX: Reset ai_response_active flag on audio.done
+                        # This prevents false barge-in from trying to cancel a response that's already done
+                        if done_resp_id and self.active_response_id == done_resp_id:
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                                logger.debug(f"[BARGE_IN_FIX] ai_response_active=False on audio.done (response_id={done_resp_id[:20]}...)")
+                        
+                        # 🔥 BARGE-IN FIX: Clear barge-in flag when audio finishes
+                        if self.barge_in_active:
+                            self.barge_in_active = False
+                            logger.debug(f"[BARGE_IN_FIX] barge_in_active=False on audio.done")
                         
                         # Check if hangup was PREVIOUSLY requested with a valid reason
                         if self.pending_hangup and not self.hangup_triggered:
@@ -6570,117 +6596,205 @@ class MediaStreamHandler:
                         logger.info("[GREETING_PENDING] Cleared on first valid UTTERANCE - user has spoken")
                         print(f"🔓 [GREETING_PENDING] Cleared - user spoke first (text='{text[:30]}...')")
                     
+                    # 🔥 BARGE-IN FIX: Late transcript detection
+                    # Calculate speech age based on when user actually started speaking (VAD timestamp)
+                    # Don't trigger barge-in if transcription arrives >600ms after speech started
+                    now = time.time()
+                    speech_age_ms = (now - (self._last_user_voice_started_ts or now)) * 1000
+                    is_late_transcript = speech_age_ms > 600
+                    
+                    logger.info(f"[BARGE_IN] late_check: speech_age_ms={speech_age_ms:.0f} late={is_late_transcript}")
+                    
                     # 🚨 REAL BARGE-IN FIX: Handle utterance during AI speech with cancel acknowledgment
                     # If AI is speaking when we get a valid UTTERANCE, we need to:
-                    # 1. Send response.cancel immediately
-                    # 2. Flush audio queues
-                    # 3. Wait for cancel ack (or timeout 500-800ms) ⚡ SAFETY: Longer timeout prevents races
-                    # 4. Store pending utterance text
-                    # 5. Only then create new response
+                    # 1. Check if transcription is fresh (<600ms from speech start) - skip barge-in if late
+                    # 2. Send response.cancel immediately
+                    # 3. Flush audio queues
+                    # 4. Wait for cancel ack (or timeout 500-800ms) ⚡ SAFETY: Longer timeout prevents races
+                    # 5. Store pending utterance text
+                    # 6. Only then create new response
                     ai_is_speaking = self.is_ai_speaking_event.is_set()
                     active_response_id = getattr(self, 'active_response_id', None)
                     
-                    if ai_is_speaking and active_response_id:
+                    # 🔥 CRITICAL: Only proceed with barge-in if transcription is fresh (<600ms)
+                    # Late transcripts should be treated as regular turns after AI finishes
+                    if ai_is_speaking and active_response_id and not is_late_transcript:
                         logger.info(f"[BARGE_IN] Valid UTTERANCE during AI speech - initiating cancel+wait flow")
                         print(f"🛑 [BARGE_IN] User interrupted AI - cancelling active response (id={active_response_id[:20]}...)")
                         
-                        # Store the response_id we're cancelling (for proper ack verification)
+                        # 🔥 CRITICAL GUARD: Store the response_id we're cancelling
+                        # MUST match current active_response_id (not a stale/previous one)
+                        # This prevents cancel_not_active errors from canceling wrong response
                         cancelled_response_id = active_response_id
                         
-                        # Store pending utterance so we don't lose it during cancel wait
-                        self._pending_barge_in_utterance = text
-                        self._pending_barge_in_raw_text = raw_text
-                        
-                        # Step 1: Send response.cancel immediately
-                        if self._should_send_cancel(cancelled_response_id):
-                            try:
-                                await client.send_event({
-                                    "type": "response.cancel",
-                                    "response_id": cancelled_response_id
+                        # 🔥 GUARD: Verify the response we're about to cancel is STILL active
+                        # Race condition: active_response_id could change between check and cancel
+                        if self.active_response_id != cancelled_response_id:
+                            logger.warning(f"[BARGE_IN] SKIP cancel: response_id changed (was {cancelled_response_id[:20]}..., now {self.active_response_id[:20] if self.active_response_id else 'None'}...)")
+                            print(f"⚠️ [BARGE_IN] Response changed - skipping cancel (no longer active)")
+                        else:
+                            # Store pending utterance so we don't lose it during cancel wait
+                            self._pending_barge_in_utterance = text
+                            self._pending_barge_in_raw_text = raw_text
+                            
+                            # Step 1: Send response.cancel immediately
+                            if self._should_send_cancel(cancelled_response_id):
+                                try:
+                                    await client.send_event({
+                                        "type": "response.cancel",
+                                        "response_id": cancelled_response_id
+                                    })
+                                    self._mark_response_cancelled_locally(cancelled_response_id, "barge_in_real")
+                                    logger.info(f"[BARGE_IN] Sent response.cancel for {cancelled_response_id[:20]}...")
+                                    print(f"✅ [BARGE_IN] response.cancel sent")
+                                except Exception as cancel_err:
+                                    error_str = str(cancel_err).lower()
+                                    # 🔥 BARGE-IN FIX: Handle response_cancel_not_active gracefully
+                                    # This is NOT a fatal error - it just means the response already ended
+                                    if ('not_active' in error_str or 'no active' in error_str or 
+                                        'already_cancelled' in error_str or 'already_completed' in error_str):
+                                        logger.info("[BARGE-IN] response_cancel_not_active → response already done, clearing flags and continuing")
+                                        print(f"✅ [BARGE_IN] cancel_not_active → response already ended, creating new response")
+                                        
+                                        # 🔥 CRITICAL: Clear state flags immediately (no flush!)
+                                        # This is the key fix - treat as if response.done was received
+                                        self.ai_response_active = False
+                                        self.is_ai_speaking_event.clear()
+                                        if self.active_response_id == cancelled_response_id:
+                                            self.active_response_id = None
+                                        
+                                        # Mark as done locally to prevent further cancel attempts
+                                        self._response_done_ids.add(cancelled_response_id)
+                                        if hasattr(self, '_audio_done_received'):
+                                            self._audio_done_received[cancelled_response_id] = time.time()
+                                        
+                                        # 🔥 CRITICAL: NO FLUSH - response already ended, queues should be empty/draining
+                                        # Flushing here can cause issues if new response is starting
+                                        logger.debug("[BARGE-IN] Skipping flush - response already ended")
+                                        
+                                    else:
+                                        logger.error(f"[BARGE_IN] Failed to send response.cancel: {cancel_err}")
+                                        print(f"❌ [BARGE_IN] Cancel failed: {cancel_err}")
+                            
+                            # Step 2: Flush audio queues immediately (thread-safe)
+                            # ⚡ SAFETY: Only flush if still in the same response (not new response)
+                            if self.active_response_id == cancelled_response_id:
+                                self._flush_tx_queue()
+                            
+                            # Step 3: Clear speaking flags immediately (don't wait for response.done)
+                            self.is_ai_speaking_event.clear()
+                            self.ai_response_active = False
+                            logger.info(f"[BARGE_IN] Cleared speaking flags - is_ai_speaking=False, ai_response_active=False")
+                            
+                            # Step 4: Wait for cancel acknowledgment or timeout (500-800ms recommended)
+                            # ⚡ SAFETY: Longer timeout prevents race conditions with slow cancel
+                            cancel_wait_start = time.time()
+                            cancel_ack_timeout_ms = 600  # 600ms - safe middle ground (was 300ms)
+                            cancel_ack_received = False
+                            
+                            # Wait for the SPECIFIC response_id to be acknowledged as cancelled
+                            # Check: response_id cleared from active OR in cancelled set OR response.done/cancelled event
+                            while (time.time() - cancel_wait_start) * 1000 < cancel_ack_timeout_ms:
+                                # Check if THIS specific response was cancelled/completed
+                                if (self.active_response_id != cancelled_response_id or 
+                                    cancelled_response_id in self._cancelled_response_ids or
+                                    cancelled_response_id in self._response_done_ids):
+                                    cancel_ack_received = True
+                                    elapsed = (time.time() - cancel_wait_start) * 1000
+                                    logger.info(f"[BARGE_IN] Cancel acknowledged for {cancelled_response_id[:20]}... after {elapsed:.0f}ms")
+                                    break
+                                await asyncio.sleep(0.05)  # Check every 50ms
+                            
+                            if not cancel_ack_received:
+                                logger.warning(f"[BARGE_IN] TIMEOUT_CANCEL_ACK after {cancel_ack_timeout_ms}ms for {cancelled_response_id[:20]}... - proceeding anyway")
+                                print(f"⚠️ [BARGE_IN] Cancel ack timeout ({cancel_ack_timeout_ms}ms) - continuing with new response")
+                            else:
+                                print(f"✅ [BARGE_IN] Cancel completed successfully for {cancelled_response_id[:20]}...")
+                            
+                            # 🔥 CRITICAL: Now create new response from pending utterance
+                            # This is THE fix for "silence after user speaks" - always create response after cancel
+                            pending_utterance = getattr(self, '_pending_barge_in_utterance', text)
+                            logger.info(f"[BARGE_IN] pending_utterance_stored len={len(pending_utterance)}")
+                            logger.info(f"[BARGE_IN] cancel_ack_received={cancel_ack_received}")
+                            
+                            # Store in conversation history first (if not filler)
+                            if not is_filler_only and pending_utterance:
+                                self.conversation_history.append({
+                                    "speaker": "user",
+                                    "text": pending_utterance,
+                                    "timestamp": time.time()
                                 })
-                                self._mark_response_cancelled_locally(cancelled_response_id, "barge_in_real")
-                                logger.info(f"[BARGE_IN] Sent response.cancel for {cancelled_response_id[:20]}...")
-                                print(f"✅ [BARGE_IN] response.cancel sent")
-                            except Exception as cancel_err:
-                                logger.error(f"[BARGE_IN] Failed to send response.cancel: {cancel_err}")
-                                print(f"❌ [BARGE_IN] Cancel failed: {cancel_err}")
-                        
-                        # Step 2: Flush audio queues immediately (thread-safe)
-                        # ⚡ SAFETY: Only flush if still in the same response (not new response)
-                        if self.active_response_id == cancelled_response_id:
-                            self._flush_tx_queue()
-                        
-                        # Step 3: Clear speaking flags immediately (don't wait for response.done)
-                        self.is_ai_speaking_event.clear()
-                        self.ai_response_active = False
-                        logger.info(f"[BARGE_IN] Cleared speaking flags - is_ai_speaking=False, ai_response_active=False")
-                        
-                        # Step 4: Wait for cancel acknowledgment or timeout (500-800ms recommended)
-                        # ⚡ SAFETY: Longer timeout prevents race conditions with slow cancel
-                        cancel_wait_start = time.time()
-                        cancel_ack_timeout_ms = 600  # 600ms - safe middle ground (was 300ms)
-                        cancel_ack_received = False
-                        
-                        # Wait for the SPECIFIC response_id to be acknowledged as cancelled
-                        # Check: response_id cleared from active OR in cancelled set OR response.done/cancelled event
-                        while (time.time() - cancel_wait_start) * 1000 < cancel_ack_timeout_ms:
-                            # Check if THIS specific response was cancelled/completed
-                            if (self.active_response_id != cancelled_response_id or 
-                                cancelled_response_id in self._cancelled_response_ids or
-                                cancelled_response_id in self._response_done_ids):
-                                cancel_ack_received = True
-                                elapsed = (time.time() - cancel_wait_start) * 1000
-                                logger.info(f"[BARGE_IN] Cancel acknowledged for {cancelled_response_id[:20]}... after {elapsed:.0f}ms")
-                                break
-                            await asyncio.sleep(0.05)  # Check every 50ms
-                        
-                        if not cancel_ack_received:
-                            logger.warning(f"[BARGE_IN] TIMEOUT_CANCEL_ACK after {cancel_ack_timeout_ms}ms for {cancelled_response_id[:20]}... - proceeding anyway")
-                            print(f"⚠️ [BARGE_IN] Cancel ack timeout ({cancel_ack_timeout_ms}ms) - continuing with new response")
-                        else:
-                            print(f"✅ [BARGE_IN] Cancel completed successfully for {cancelled_response_id[:20]}...")
-                        
-                        # 🔥 CRITICAL: Now create new response from pending utterance
-                        # This is THE fix for "silence after user speaks" - always create response after cancel
-                        pending_utterance = getattr(self, '_pending_barge_in_utterance', text)
-                        logger.info(f"[BARGE_IN] pending_utterance_stored len={len(pending_utterance)}")
-                        logger.info(f"[BARGE_IN] cancel_ack_received={cancel_ack_received}")
-                        
-                        # Store in conversation history first (if not filler)
-                        if not is_filler_only and pending_utterance:
-                            self.conversation_history.append({
-                                "speaker": "user",
-                                "text": pending_utterance,
-                                "timestamp": time.time()
-                            })
-                        
-                        # Now trigger response for the pending utterance
-                        # Skip the normal pipeline since we already have the text
-                        logger.info(f"[BARGE_IN] creating_new_response source=barge_in_pending utterance='{pending_utterance[:40]}...'")
-                        print(f"🎤 [BARGE_IN] Creating new response from pending utterance: '{pending_utterance[:40]}...'")
-                        
-                        # Clear pending after using it
-                        self._pending_barge_in_utterance = None
-                        self._pending_barge_in_raw_text = None
-                        
-                        # Mark turn open and trigger response
-                        self.user_turn_open = True
-                        triggered = await self.trigger_response(
-                            reason="BARGE_IN_PENDING",
-                            client=client,
-                            is_greeting=False,
-                            force=False,
-                            source="barge_in_pending"
-                        )
-                        if triggered:
-                            logger.info(f"[BARGE_IN] Response created successfully from pending utterance")
-                            print(f"✅ [BARGE_IN] New response created from interrupt")
-                        else:
-                            logger.error(f"[BARGE_IN] FAILED to create response from pending utterance")
-                            print(f"❌ [BARGE_IN] Failed to create new response - watchdog will retry")
-                        
-                        # Continue to avoid duplicate processing
-                        continue
+                            
+                            # Now trigger response for the pending utterance
+                            # Skip the normal pipeline since we already have the text
+                            logger.info(f"[BARGE_IN] creating_new_response source=barge_in_pending utterance='{pending_utterance[:40]}...'")
+                            print(f"🎤 [BARGE_IN] Creating new response from pending utterance: '{pending_utterance[:40]}...'")
+                            
+                            # Clear pending after using it
+                            self._pending_barge_in_utterance = None
+                            self._pending_barge_in_raw_text = None
+                            
+                            # Mark turn open and trigger response
+                            self.user_turn_open = True
+                            triggered = await self.trigger_response(
+                                reason="BARGE_IN_PENDING",
+                                client=client,
+                                is_greeting=False,
+                                force=False,
+                                source="barge_in_pending"
+                            )
+                            if triggered:
+                                logger.info(f"[BARGE_IN] Response created successfully from pending utterance")
+                                print(f"✅ [BARGE_IN] New response created from interrupt")
+                            else:
+                                logger.error(f"[BARGE_IN] FAILED to create response from pending utterance")
+                                print(f"❌ [BARGE_IN] Failed to create new response - scheduling retry")
+                                
+                                # 🔥 BARGE-IN FIX: Retry with delay if response creation fails
+                                # Store pending utterance for retry after 150-250ms
+                                self._pending_barge_in_utterance = pending_utterance
+                                self._pending_barge_in_raw_text = raw_text
+                                
+                                # Schedule retry with 200ms delay (middle of 150-250ms range)
+                                async def retry_pending_response():
+                                    await asyncio.sleep(0.2)  # 200ms delay
+                                    
+                                    # Check if still pending and not superseded
+                                    if hasattr(self, '_pending_barge_in_utterance') and self._pending_barge_in_utterance:
+                                        retry_text = self._pending_barge_in_utterance
+                                        logger.info(f"[BARGE_IN] Retrying response creation: '{retry_text[:40]}...'")
+                                        print(f"🔄 [BARGE_IN] Retry attempt for pending utterance")
+                                        
+                                        # Clear pending before retry
+                                        self._pending_barge_in_utterance = None
+                                        self._pending_barge_in_raw_text = None
+                                        
+                                        # Retry response creation
+                                        retry_success = await self.trigger_response(
+                                            reason="BARGE_IN_RETRY",
+                                            client=client,
+                                            is_greeting=False,
+                                            force=False,
+                                            source="barge_in_retry"
+                                        )
+                                        
+                                        if retry_success:
+                                            logger.info(f"[BARGE_IN] Retry successful for pending utterance")
+                                            print(f"✅ [BARGE_IN] Retry created response successfully")
+                                        else:
+                                            logger.error(f"[BARGE_IN] Retry FAILED - watchdog will handle")
+                                            print(f"❌ [BARGE_IN] Retry failed - watchdog fallback")
+                                
+                                # Schedule retry task
+                                asyncio.create_task(retry_pending_response())
+                            
+                            # Continue to avoid duplicate processing
+                            continue
+                    elif ai_is_speaking and active_response_id and is_late_transcript:
+                        # Late transcript - skip barge-in and treat as regular turn
+                        logger.info(f"[BARGE_IN] SKIP late_utterance: age_ms={speech_age_ms:.0f} (treat as after_done input)")
+                        print(f"⏭️ [BARGE_IN] Late transcription ({speech_age_ms:.0f}ms) - treating as regular turn after AI done")
+                        # Fall through to normal processing (no cancel, no flush)
                     
                     # 🔥 DOUBLE RESPONSE FIX B: Deduplication - Check for duplicate utterance
                     # Create fingerprint from normalized text + time bucket (2-second buckets)
@@ -6848,6 +6962,11 @@ class MediaStreamHandler:
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
+                    
+                    # 🔥 BARGE-IN FIX: Reset speech start timestamp for next utterance
+                    # This ensures speech_age_ms calculation is accurate for each new utterance
+                    # Without this reset, all subsequent transcriptions would appear "late"
+                    self._last_user_voice_started_ts = None
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
@@ -9311,6 +9430,21 @@ class MediaStreamHandler:
                         # 🔥 SESSION LIFECYCLE: Register handler for webhook-triggered close
                         if self.call_sid:
                             _register_handler(self.call_sid, self)
+                            
+                            # 🔥 AMD → human_confirmed: Check cache for early AMD result
+                            # If AMD webhook arrived before handler was ready, apply the cached result now
+                            try:
+                                from server.routes_twilio import _get_amd_from_cache, _clear_amd_from_cache
+                                amd_result = _get_amd_from_cache(self.call_sid)
+                                if amd_result == "human":
+                                    self.human_confirmed = True
+                                    self._outbound_gate_state = "CONFIRMED"
+                                    self._human_confirm_timeout_triggered = True
+                                    _clear_amd_from_cache(self.call_sid)
+                                    logger.info(f"[AMD_CACHE] Applied cached AMD result: human_confirmed=True (call_sid={self.call_sid})")
+                                    print(f"✅ [AMD_CACHE] Applied cached AMD result → human_confirmed=True")
+                            except Exception as amd_err:
+                                logger.debug(f"[AMD_CACHE] Could not check cache: {amd_err}")
                         
                         # 🔥 BUILD 174: Outbound call parameters (direct format)
                         # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
@@ -12543,11 +12677,16 @@ class MediaStreamHandler:
         2. ai_response_active == True  
         3. response not already done (not in _response_done_ids)
         4. cooldown period passed (200ms since last cancel)
+        5. audio.done not received for this response (prevents false barge-in)
+        6. audio was sent recently (<700ms ago, prevents stale cancel)
+        7. response age >= 150ms (don't cancel newly created response before it plays)
         
         This prevents:
         - Cancel on already cancelled/completed responses
         - Double cancel on same speech_started burst
         - response_cancel_not_active errors
+        - False barge-in when response already finished
+        - Cutting off response that just started (most critical fix)
         """
         # Condition 1: Must have active response
         if not self.active_response_id:
@@ -12563,8 +12702,32 @@ class MediaStreamHandler:
             logger.debug(f"[CANCEL_GUARD] Skip cancel: response {self.active_response_id[:20]}... already done")
             return False
         
-        # Condition 4: Cooldown period check (prevent burst cancels)
+        # 🔥 NEW Condition 5: Check if audio.done was received for this response
+        # This prevents false barge-in when response already finished
+        if hasattr(self, '_audio_done_received'):
+            if self.active_response_id in self._audio_done_received:
+                logger.debug(f"[CANCEL_GUARD] Skip cancel: response {self.active_response_id[:20]}... already received audio.done")
+                return False
+        
+        # 🔥 NEW Condition 6: Check if audio was sent recently (prevents stale cancel)
+        # If last_audio_out_ts is old (>700ms), the response probably already finished
         now = time.time()
+        if self.last_audio_out_ts:
+            time_since_audio_ms = (now - self.last_audio_out_ts) * 1000
+            if time_since_audio_ms > 700:
+                logger.debug(f"[CANCEL_GUARD] Skip cancel: no recent audio output ({time_since_audio_ms:.0f}ms since last audio)")
+                return False
+        
+        # 🔥 CRITICAL NEW Condition 7: Response age check - don't cancel too soon!
+        # This is THE fix for "starts speaking then stops" - wait 150ms before allowing cancel
+        # This gives the response time to start playing before it can be interrupted
+        if hasattr(self, '_response_created_times') and self.active_response_id in self._response_created_times:
+            response_age_ms = (now - self._response_created_times[self.active_response_id]) * 1000
+            if response_age_ms < 150:
+                logger.debug(f"[CANCEL_GUARD] Skip cancel: response too new ({response_age_ms:.0f}ms < 150ms) - let it play first")
+                return False
+        
+        # Condition 4: Cooldown period check (prevent burst cancels)
         if (now - self._last_cancel_ts) < 0.2:  # 200ms cooldown
             elapsed_ms = int((now - self._last_cancel_ts) * 1000)
             logger.debug(f"[CANCEL_GUARD] Skip cancel: cooldown active ({elapsed_ms}ms < 200ms)")
@@ -15352,6 +15515,19 @@ class MediaStreamHandler:
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
+                            
+                            # 🔥 CRITICAL BARGE-IN FIX: Set is_ai_speaking ONLY after first frame is actually sent
+                            # This is the Single Source of Truth for AI speaking state
+                            # Set only here (TX loop) - NOT on response.created or audio.delta
+                            if not self.is_ai_speaking_event.is_set():
+                                self.is_ai_speaking_event.set()
+                                # Log only once per response (no spam in TX loop)
+                                if not hasattr(self, '_logged_first_tx_frame'):
+                                    self._logged_first_tx_frame = {}
+                                resp_id = getattr(self, 'active_response_id', 'unknown')
+                                if resp_id not in self._logged_first_tx_frame:
+                                    self._logged_first_tx_frame[resp_id] = True
+                                    logger.info(f"[BARGE_IN_FIX] is_ai_speaking=True on FIRST_TX_FRAME (response_id={resp_id[:20] if resp_id != 'unknown' else 'unknown'}...)")
                     
                     # ✅ Strict 20ms timing - advance deadline and sleep
                     next_deadline += FRAME_INTERVAL
