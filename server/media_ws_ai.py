@@ -8329,6 +8329,18 @@ class MediaStreamHandler:
                 self.has_pending_ai_response = False
                 self.response_pending_event.clear()
                 
+                # 🔥 OUTBOUND_GATE: Clear gate-specific state to prevent leakage
+                if hasattr(self, '_gate_cancelled_responses'):
+                    self._gate_cancelled_responses.clear()
+                if hasattr(self, '_manual_response_pending'):
+                    self._manual_response_pending = False
+                if hasattr(self, 'greeting_lock_active'):
+                    self.greeting_lock_active = False
+                if hasattr(self, '_greeting_lock_response_id'):
+                    self._greeting_lock_response_id = None
+                if hasattr(self, 'outbound_gate'):
+                    self.outbound_gate = "WAIT_FOR_VOICE"  # Reset to initial state
+                
                 _orig_print(f"   ✅ State flags cleared", flush=True)
             except Exception as e:
                 _orig_print(f"   ⚠️ Error clearing state flags: {e}", flush=True)
