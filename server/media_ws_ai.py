@@ -4779,6 +4779,15 @@ class MediaStreamHandler:
                             # 🔥 VERIFICATION #3: Block enqueue if closed
                             if not self.closed:
                                 try:
+                                    # 🔥 NEW: BACKLOG GUARD - Monitor realtime_audio_out_queue overflow
+                                    REALTIME_BACKLOG_THRESHOLD = 200  # frames (4 seconds @ 50fps)
+                                    current_qsize = self.realtime_audio_out_queue.qsize()
+                                    if current_qsize > REALTIME_BACKLOG_THRESHOLD:
+                                        now_mono_check = time.monotonic()
+                                        if now_mono_check - getattr(self, '_last_realtime_backlog_warning', 0) > 3.0:
+                                            _orig_print(f"⚠️ [BACKLOG WARNING] realtime_audio_out_queue overflow: {current_qsize} frames (>{REALTIME_BACKLOG_THRESHOLD})", flush=True)
+                                            self._last_realtime_backlog_warning = now_mono_check
+                                    
                                     self.realtime_audio_out_queue.put_nowait(audio_b64)
                                     # 🎯 PROBE 4: Track enqueue for rate monitoring
                                     self._enq_counter += 1
@@ -4916,6 +4925,15 @@ class MediaStreamHandler:
                         # 🔥 VERIFICATION #3: Block audio enqueue if closed
                         if not self.closed:
                             try:
+                                # 🔥 NEW: BACKLOG GUARD - Monitor realtime_audio_out_queue overflow
+                                REALTIME_BACKLOG_THRESHOLD = 200  # frames (4 seconds @ 50fps)
+                                current_qsize = self.realtime_audio_out_queue.qsize()
+                                if current_qsize > REALTIME_BACKLOG_THRESHOLD:
+                                    now_mono_check = time.monotonic()
+                                    if now_mono_check - getattr(self, '_last_realtime_backlog_warning', 0) > 3.0:
+                                        _orig_print(f"⚠️ [BACKLOG WARNING] realtime_audio_out_queue overflow: {current_qsize} frames (>{REALTIME_BACKLOG_THRESHOLD})", flush=True)
+                                        self._last_realtime_backlog_warning = now_mono_check
+                                
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
                                 self._enq_counter += 1
@@ -8474,12 +8492,19 @@ class MediaStreamHandler:
                             logger.debug(f"[REALTIME] Realtime thread started successfully!")
                             
                             logger.debug(f"[REALTIME] Creating realtime audio out thread...")
-                            realtime_out_thread = threading.Thread(
-                                target=self._realtime_audio_out_loop,
-                                daemon=True
-                            )
-                            realtime_out_thread.start()
-                            self.background_threads.append(realtime_out_thread)
+                            # 🔥 NEW: DOUBLE LOOP GUARD - Ensure only ONE audio_out loop per call
+                            if not hasattr(self, '_realtime_audio_out_thread_started'):
+                                realtime_out_thread = threading.Thread(
+                                    target=self._realtime_audio_out_loop,
+                                    daemon=True,
+                                    name=f"AudioOut-{self.call_sid[:8] if self.call_sid else 'unknown'}"
+                                )
+                                realtime_out_thread.start()
+                                self.background_threads.append(realtime_out_thread)
+                                self._realtime_audio_out_thread_started = True
+                                logger.debug(f"[REALTIME] Audio out thread started (thread_id={realtime_out_thread.ident})")
+                            else:
+                                logger.warning(f"[REALTIME] Audio out thread already started - skipping duplicate start")
                             logger.debug(f"[REALTIME] Both realtime threads started successfully!")
                         else:
                             logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
@@ -8527,10 +8552,17 @@ class MediaStreamHandler:
                         _orig_print(f"✅ [TX_FIX] streamSid validated: {self.stream_sid[:16]}... - TX ready", flush=True)
                     
                     # ✅ ברכה מיידית - בלי השהיה!
+                    # 🔥 NEW: DOUBLE LOOP GUARD - Ensure only ONE TX thread per call
                     if not self.tx_running:
-                        self.tx_running = True
-                        self.tx_thread.start()
-                        _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'})", flush=True)
+                        # Verify thread hasn't started yet
+                        if self.tx_thread.is_alive():
+                            _orig_print(f"⚠️ [TX_GUARD] TX thread already running - skipping start", flush=True)
+                        else:
+                            self.tx_running = True
+                            self.tx_thread.start()
+                            _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'}, thread_id={self.tx_thread.ident})", flush=True)
+                    else:
+                        _orig_print(f"⚠️ [TX_GUARD] TX loop already running - skipping duplicate start", flush=True)
                     
                     # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
                     if not self.greeting_sent and USE_REALTIME_API:
@@ -9909,10 +9941,24 @@ class MediaStreamHandler:
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         🔥 VERIFICATION #3: Block enqueue when session is closed
+        🔥 NEW: Queue backlog monitoring - prevent overflow that causes "weird speech"
         """
         # 🔥 VERIFICATION #3: No enqueue after close
         if self.closed:
             return  # Silently drop - session is closing/closed
+        
+        # 🔥 NEW: BACKLOG GUARD - Monitor queue overflow (>200 frames = 4 seconds)
+        # Large backlogs cause timing issues and weird bot behavior
+        BACKLOG_THRESHOLD = 200  # frames (4 seconds @ 50fps)
+        current_qsize = self.tx_q.qsize()
+        if current_qsize > BACKLOG_THRESHOLD:
+            # Log warning (throttled)
+            now = time.monotonic()
+            if now - getattr(self, '_last_backlog_warning', 0) > 3.0:
+                _orig_print(f"⚠️ [BACKLOG WARNING] tx_q overflow: {current_qsize} frames (>{BACKLOG_THRESHOLD}) - potential timing issues", flush=True)
+                self._last_backlog_warning = now
+            # Consider draining or blocking if this persists
+            # For now, drop-oldest policy below will handle it
         
         # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
         # 🔥 BUILD 178: Disabled for outbound calls
