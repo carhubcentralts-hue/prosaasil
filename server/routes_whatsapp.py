@@ -67,7 +67,10 @@ def _headers():
 @csrf.exempt  # GET requests don't need CSRF
 @require_api_auth()  # BUILD 136: AUTHENTICATION REQUIRED - prevents cross-tenant snooping
 def status():
-    """BUILD 136: SECURE multi-tenant status - each business sees only its own QR/creds"""
+    """
+    ✅ FIX: Enhanced WhatsApp connection status with health details
+    Returns: connected, session_age, last_message_ts, qr_required, active_phone
+    """
     try:
         # BUILD 136: Get tenant from AUTHENTICATED session (secure)
         t = tenant_id_from_ctx()
@@ -76,14 +79,65 @@ def status():
         # Check files for this specific tenant ONLY
         has_qr = os.path.exists(qr_txt)
         connected = os.path.exists(creds) and not has_qr
+        
+        # ✅ FIX: Add more health information
+        health_info = {
+            "connected": connected,
+            "hasQR": has_qr,
+            "qr_required": has_qr,
+            "session_age": None,
+            "last_message_ts": None,
+            "active_phone": None
+        }
+        
+        # Get session age from file timestamp
+        if connected and os.path.exists(creds):
+            import time
+            creds_mtime = os.path.getmtime(creds)
+            session_age_seconds = int(time.time() - creds_mtime)
+            health_info["session_age"] = session_age_seconds
+            health_info["session_age_human"] = f"{session_age_seconds // 3600}h {(session_age_seconds % 3600) // 60}m"
+        
+        # Try to get last message timestamp from DB
+        try:
+            from server.models_sql import WhatsAppMessage
+            business_id = int(t.split('_')[1]) if '_' in t else None
+            if business_id:
+                last_msg = WhatsAppMessage.query.filter_by(
+                    business_id=business_id
+                ).order_by(WhatsAppMessage.created_at.desc()).first()
+                
+                if last_msg:
+                    health_info["last_message_ts"] = last_msg.created_at.isoformat()
+                    # Calculate time since last message
+                    from datetime import datetime
+                    time_since = (datetime.utcnow() - last_msg.created_at).total_seconds()
+                    health_info["last_message_age"] = int(time_since)
+                    health_info["last_message_age_human"] = f"{int(time_since // 60)}m ago"
+        except Exception as db_err:
+            log.warning(f"[WA_STATUS] Could not fetch last message: {db_err}")
+        
         if has_qr or connected:
-            return jsonify({"connected": connected, "hasQR": has_qr}), 200
+            log.info(f"[WA_STATUS] tenant={t} connected={connected} hasQR={has_qr} session_age={health_info.get('session_age')}")
+            return jsonify(health_info), 200
         
         # If no files, try Baileys API
         r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=15)
-        return jsonify(r.json()), r.status_code
-    except:
-        return jsonify({"connected": False, "hasQR": False}), 200
+        baileys_data = r.json()
+        
+        # Merge Baileys response with our health info
+        health_info.update(baileys_data)
+        
+        log.info(f"[WA_STATUS] tenant={t} baileys_response={baileys_data}")
+        return jsonify(health_info), r.status_code
+    except Exception as e:
+        log.error(f"[WA_STATUS] Error: {e}")
+        return jsonify({
+            "connected": False,
+            "hasQR": False,
+            "qr_required": False,
+            "error": str(e)
+        }), 200
 
 @whatsapp_bp.route('/qr', methods=['GET'])
 @csrf.exempt  # GET requests don't need CSRF
@@ -1676,6 +1730,7 @@ def get_broadcasts():
 def create_broadcast():
     """
     Create a new WhatsApp broadcast campaign
+    ✅ FIX: Enhanced validation and logging per problem statement requirements
     """
     try:
         from server.routes_crm import get_business_id
@@ -1685,6 +1740,11 @@ def create_broadcast():
         business_id = get_business_id()
         user = session.get('al_user') or session.get('user', {})
         user_id = user.get('id')
+        
+        # ✅ FIX: Log incoming request for debugging
+        log.info(f"[WA_BROADCAST] Incoming request from business_id={business_id}, user={user_id}")
+        log.info(f"[WA_BROADCAST] Form keys: {list(request.form.keys())}")
+        log.info(f"[WA_BROADCAST] Files: {list(request.files.keys())}")
         
         # Parse form data
         provider = request.form.get('provider', 'meta')
@@ -1696,6 +1756,17 @@ def create_broadcast():
         statuses_json = request.form.get('statuses', '[]')
         lead_ids_json = request.form.get('lead_ids', '[]')  # NEW: Direct lead IDs
         import_list_id = request.form.get('import_list_id')  # NEW: Import list ID
+        
+        # ✅ FIX: Support multiple field names for backwards compatibility (recipients, lead_ids, phones)
+        # Frontend might send different field names
+        if not lead_ids_json or lead_ids_json == '[]':
+            lead_ids_json = request.form.get('recipients', '[]')
+        if not lead_ids_json or lead_ids_json == '[]':
+            lead_ids_json = request.form.get('phones', '[]')
+        
+        log.info(f"[WA_BROADCAST] audience_source={audience_source}, provider={provider}, message_type={message_type}")
+        log.info(f"[WA_BROADCAST] lead_ids_json={lead_ids_json[:100]}...")
+        log.info(f"[WA_BROADCAST] statuses_json={statuses_json}")
         
         # Parse JSON parameters
         try:
@@ -1711,13 +1782,25 @@ def create_broadcast():
         # Get recipients based on audience source
         recipients = []
         
+        # ✅ FIX: Track diagnostics for better error messages
+        diagnostics = {
+            'audience_source': audience_source,
+            'lead_ids_count': len(lead_ids),
+            'statuses_count': len(statuses),
+            'has_csv': 'csv_file' in request.files,
+            'import_list_id': import_list_id
+        }
+        
         # NEW: Direct lead selection from system
         if audience_source == 'leads' and lead_ids:
+            log.info(f"[WA_BROADCAST] Loading {len(lead_ids)} leads from system")
             leads = Lead.query.filter(
                 Lead.tenant_id == business_id,
                 Lead.id.in_(lead_ids),
                 Lead.phone_e164.isnot(None)
             ).all()
+            
+            log.info(f"[WA_BROADCAST] Found {len(leads)} leads with phone numbers")
             
             for lead in leads:
                 if lead.phone_e164:
@@ -1728,11 +1811,14 @@ def create_broadcast():
         
         # NEW: Import list selection
         elif audience_source == 'import-list' and import_list_id:
+            log.info(f"[WA_BROADCAST] Loading leads from import_list_id={import_list_id}")
             leads = Lead.query.filter(
                 Lead.tenant_id == business_id,
                 Lead.outbound_list_id == int(import_list_id),
                 Lead.phone_e164.isnot(None)
             ).all()
+            
+            log.info(f"[WA_BROADCAST] Found {len(leads)} leads in import list")
             
             for lead in leads:
                 if lead.phone_e164:
@@ -1745,11 +1831,14 @@ def create_broadcast():
         elif audience_source == 'csv' or (not audience_source or audience_source == 'legacy'):
             # Legacy: From CRM filters (statuses) - backward compatibility
             if statuses:
+                log.info(f"[WA_BROADCAST] Loading leads with statuses: {statuses}")
                 leads = Lead.query.filter(
                     Lead.tenant_id == business_id,
                     Lead.status.in_(statuses),
                     Lead.phone_e164.isnot(None)
                 ).all()
+                
+                log.info(f"[WA_BROADCAST] Found {len(leads)} leads with statuses {statuses}")
                 
                 for lead in leads:
                     if lead.phone_e164:
@@ -1761,6 +1850,7 @@ def create_broadcast():
             # From CSV file (with validation)
             csv_file = request.files.get('csv_file')
             if csv_file:
+                log.info(f"[WA_BROADCAST] Processing CSV file: {csv_file.filename}")
                 # Validate file size (max 5MB)
                 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
                 csv_file.seek(0, 2)  # Seek to end
@@ -1768,6 +1858,7 @@ def create_broadcast():
                 csv_file.seek(0)  # Seek back to start
                 
                 if file_size > MAX_FILE_SIZE:
+                    log.error(f"[WA_BROADCAST] CSV file too large: {file_size} bytes")
                     return jsonify({
                         'success': False,
                         'message': 'קובץ גדול מדי (מקסימום 5MB)'
@@ -1783,7 +1874,7 @@ def create_broadcast():
                     for row in csv_reader:
                         row_count += 1
                         if row_count > MAX_ROWS:
-                            log.warning(f"CSV row limit exceeded: {row_count} > {MAX_ROWS}")
+                            log.warning(f"[WA_BROADCAST] CSV row limit exceeded: {row_count} > {MAX_ROWS}")
                             break
                         
                         phone = row.get('phone', '').strip()
@@ -1792,26 +1883,81 @@ def create_broadcast():
                                 'phone': phone,
                                 'lead_id': None
                             })
+                    
+                    log.info(f"[WA_BROADCAST] Loaded {len(recipients)} recipients from CSV")
                 except Exception as csv_err:
-                    log.error(f"CSV parsing error: {csv_err}")
+                    log.error(f"[WA_BROADCAST] CSV parsing error: {csv_err}")
                     return jsonify({
                         'success': False,
                         'message': 'שגיאה בקריאת קובץ CSV'
                     }), 400
         
+        # ✅ FIX: Enhanced error message with diagnostics
         if len(recipients) == 0:
+            error_details = {
+                'missing_field': None,
+                'selection_count': 0,
+                'business_id': business_id,
+                'diagnostics': diagnostics
+            }
+            
+            # Determine what's missing
+            if audience_source == 'leads':
+                error_details['missing_field'] = 'lead_ids'
+                error_details['selection_count'] = len(lead_ids)
+                error_msg = f'לא נמצאו נמענים. בחרת {len(lead_ids)} לידים אבל לא נמצאו מספרי טלפון תקינים.'
+            elif audience_source == 'import-list':
+                error_details['missing_field'] = 'import_list_id'
+                error_msg = 'לא נמצאו נמענים ברשימת הייבוא. ייתכן שהרשימה ריקה או שאין מספרי טלפון.'
+            elif audience_source == 'csv':
+                error_details['missing_field'] = 'csv_file'
+                error_msg = 'לא נמצאו נמענים בקובץ ה-CSV. וודא שיש עמודת "phone" עם מספרים תקינים.'
+            else:
+                error_details['missing_field'] = 'statuses or csv_file'
+                error_msg = 'לא נמצאו נמענים. יש לבחור סטטוסים, רשימת ייבוא או להעלות קובץ CSV.'
+            
+            log.error(f"[WA_BROADCAST] No recipients found: {error_details}")
+            
             return jsonify({
                 'success': False,
-                'message': 'לא נמצאו נמענים'
+                'message': 'לא נמצאו נמענים',
+                'error': error_msg,
+                'details': error_details
             }), 400
         
         # Limit total recipients
         MAX_RECIPIENTS = 10000
         if len(recipients) > MAX_RECIPIENTS:
+            log.error(f"[WA_BROADCAST] Too many recipients: {len(recipients)} > {MAX_RECIPIENTS}")
             return jsonify({
                 'success': False,
                 'message': f'יותר מדי נמענים (מקסימום {MAX_RECIPIENTS})'
             }), 400
+        
+        log.info(f"[WA_BROADCAST] Creating broadcast with {len(recipients)} recipients")
+        
+        # ✅ FIX: Normalize phone numbers to E.164 format
+        import re
+        normalized_recipients = []
+        for recipient in recipients:
+            phone = recipient['phone']
+            # Remove all non-digits
+            phone_digits = re.sub(r'\D', '', phone)
+            # Ensure it starts with +
+            if not phone.startswith('+'):
+                # Assume Israeli number if doesn't start with country code
+                if phone_digits.startswith('972'):
+                    phone = '+' + phone_digits
+                elif phone_digits.startswith('0'):
+                    phone = '+972' + phone_digits[1:]
+                else:
+                    phone = '+' + phone_digits
+            normalized_recipients.append({
+                'phone': phone,
+                'lead_id': recipient.get('lead_id')
+            })
+        
+        log.info(f"[WA_BROADCAST] Normalized {len(normalized_recipients)} phone numbers to E.164")
         
         # Create broadcast campaign
         broadcast = WhatsAppBroadcast()
@@ -1822,15 +1968,17 @@ def create_broadcast():
         broadcast.template_name = template_name
         broadcast.message_text = message_text
         broadcast.audience_filter = {'statuses': statuses}
-        broadcast.total_recipients = len(recipients)
+        broadcast.total_recipients = len(normalized_recipients)
         broadcast.created_by = user_id
         broadcast.status = 'pending'
         
         db.session.add(broadcast)
         db.session.flush()  # Get the ID
         
+        log.info(f"[WA_BROADCAST] Created broadcast campaign {broadcast.id}")
+        
         # Create recipient records
-        for recipient in recipients:
+        for recipient in normalized_recipients:
             br = WhatsAppBroadcastRecipient()
             br.broadcast_id = broadcast.id
             br.business_id = business_id
@@ -1841,7 +1989,7 @@ def create_broadcast():
         
         db.session.commit()
         
-        log.info(f"✅ Created broadcast campaign {broadcast.id} with {len(recipients)} recipients")
+        log.info(f"✅ [WA_BROADCAST] broadcast_id={broadcast.id} total={len(normalized_recipients)} queued={len(normalized_recipients)}")
         
         # Trigger background worker to process the broadcast
         try:
@@ -1855,15 +2003,20 @@ def create_broadcast():
                 daemon=True
             )
             thread.start()
-            log.info(f"🚀 Started broadcast worker for campaign {broadcast.id}")
+            log.info(f"🚀 [WA_BROADCAST] Started worker thread for broadcast_id={broadcast.id}")
         except Exception as worker_err:
-            log.error(f"Failed to start broadcast worker: {worker_err}")
+            log.error(f"❌ [WA_BROADCAST] Failed to start worker: {worker_err}")
             # Don't fail the request - campaign is created, worker can be triggered manually
         
+        # ✅ FIX: Return proof of queuing (never return success without queued_count > 0)
         return jsonify({
             'success': True,
             'broadcast_id': broadcast.id,
-            'message': f'תפוצה נוצרה עם {len(recipients)} נמענים'
+            'queued_count': len(normalized_recipients),
+            'total_recipients': len(normalized_recipients),
+            'sent_count': 0,  # Will be updated as broadcast progresses
+            'job_id': f"broadcast_{broadcast.id}",  # For tracking
+            'message': f'תפוצה נוצרה עם {len(normalized_recipients)} נמענים'
         }), 201
         
     except Exception as e:
