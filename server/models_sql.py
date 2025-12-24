@@ -902,10 +902,14 @@ class WhatsAppBroadcast(db.Model):
     audience_filter = db.Column(db.JSON)  # Statuses, tags, etc.
     
     # Status and progress
-    status = db.Column(db.String(32), default="pending", index=True)  # pending|running|completed|failed|paused
+    # ✅ ENHANCEMENT 1: Clear status progression: accepted → queued → running → completed/failed/partial
+    status = db.Column(db.String(32), default="accepted", index=True)  # accepted|queued|running|completed|failed|paused|partial
     total_recipients = db.Column(db.Integer, default=0)
     sent_count = db.Column(db.Integer, default=0)
     failed_count = db.Column(db.Integer, default=0)
+    
+    # ✅ ENHANCEMENT 3: Idempotency key to prevent duplicates
+    idempotency_key = db.Column(db.String(64), index=True)
     
     # Metadata
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -931,7 +935,8 @@ class WhatsAppBroadcastRecipient(db.Model):
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True)
     
     # Status
-    status = db.Column(db.String(32), default="queued", index=True)  # queued|sent|failed
+    # ✅ ENHANCEMENT 1: Clear status progression: queued → sent → delivered/failed
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|sent|delivered|failed
     error_message = db.Column(db.Text)
     
     # Message details
@@ -940,6 +945,7 @@ class WhatsAppBroadcastRecipient(db.Model):
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     sent_at = db.Column(db.DateTime)
+    delivered_at = db.Column(db.DateTime)  # ✅ ENHANCEMENT 1: Track delivery if available
     
     # Relationships
     broadcast = db.relationship("WhatsAppBroadcast", backref="recipients")

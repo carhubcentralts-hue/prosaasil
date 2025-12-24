@@ -1934,15 +1934,21 @@ def create_broadcast():
                 'message': f'יותר מדי נמענים (מקסימום {MAX_RECIPIENTS})'
             }), 400
         
-        log.info(f"[WA_BROADCAST] Creating broadcast with {len(recipients)} recipients")
-        
-        # ✅ FIX: Normalize phone numbers to E.164 format
+        # ✅ FIX: Normalize phone numbers to E.164 format with validation
         import re
         normalized_recipients = []
+        invalid_phones = []
+        
         for recipient in recipients:
             phone = recipient['phone']
             # Remove all non-digits
             phone_digits = re.sub(r'\D', '', phone)
+            
+            # Validate minimum length
+            if len(phone_digits) < 9:
+                invalid_phones.append({'phone': phone, 'reason': 'too_short'})
+                continue
+            
             # Ensure it starts with +
             if not phone.startswith('+'):
                 # Assume Israeli number if doesn't start with country code
@@ -1951,13 +1957,38 @@ def create_broadcast():
                 elif phone_digits.startswith('0'):
                     phone = '+972' + phone_digits[1:]
                 else:
-                    phone = '+' + phone_digits
+                    # If no country code and doesn't start with 0, assume Israeli mobile
+                    phone = '+972' + phone_digits
+            else:
+                phone = '+' + phone_digits
+            
+            # Final E.164 validation (must start with + and have 10-15 digits)
+            if not re.match(r'^\+\d{10,15}$', phone):
+                invalid_phones.append({'phone': recipient['phone'], 'reason': 'invalid_format'})
+                continue
+            
             normalized_recipients.append({
                 'phone': phone,
                 'lead_id': recipient.get('lead_id')
             })
         
-        log.info(f"[WA_BROADCAST] Normalized {len(normalized_recipients)} phone numbers to E.164")
+        log.info(f"[WA_BROADCAST] Normalized {len(normalized_recipients)} phones, invalid={len(invalid_phones)}")
+        
+        # ✅ ENHANCEMENT 5: Report invalid recipients count
+        if invalid_phones:
+            log.warning(f"[WA_BROADCAST] Invalid phones: {invalid_phones[:5]}...")  # Log first 5
+        
+        # If all phones are invalid, return error with details
+        if len(normalized_recipients) == 0 and len(invalid_phones) > 0:
+            return jsonify({
+                'success': False,
+                'message': 'כל המספרים שנבחרו לא תקינים',
+                'error': f'נמצאו {len(invalid_phones)} מספרים לא תקינים',
+                'invalid_recipients_count': len(invalid_phones),
+                'details': {
+                    'invalid_phones': invalid_phones[:10]  # Return first 10 for debugging
+                }
+            }), 400
         
         # Create broadcast campaign
         broadcast = WhatsAppBroadcast()
