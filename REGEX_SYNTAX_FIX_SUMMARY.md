@@ -39,9 +39,9 @@ bye_patterns = [
 ```
 
 **Changes:**
-- Replaced smart quotes `""` with regular escaped `\"`
-- Replaced smart single quotes `''` with regular `'`
-- Added support for ellipsis `…` explicitly
+- Replaced smart quotes `""''` with escaped ASCII quotes `\"'`
+- Added explicit ellipsis `…` support
+- Made all three patterns consistent
 - Kept Hebrew quote marks `׳״` as they are valid and needed
 
 ### 2. Added Verification Script (verify_python_compile.py)
