@@ -1072,10 +1072,37 @@ def _close_session(call_sid: str):
             if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
 def _register_handler(call_sid: str, handler):
-    """Register MediaStreamHandler for webhook-triggered close (thread-safe)"""
+    """
+    Register MediaStreamHandler for webhook-triggered close (thread-safe)
+    
+    🔥 SHADOW HANDLER PROTECTION: If handler already exists for call_sid,
+    close it first to prevent duplicate handlers causing weird behavior.
+    """
     with _handler_registry_lock:
+        # Check if handler already exists (shadow handler from previous instance)
+        existing_handler = _handler_registry.get(call_sid)
+        if existing_handler:
+            _orig_print(
+                f"⚠️ [REGISTRY_REPLACED] Found existing handler for {call_sid[:8]}... - closing shadow handler",
+                flush=True
+            )
+            # Close the existing handler outside the lock to prevent deadlock
+            # Store it to close after releasing lock
+            shadow_handler = existing_handler
+        else:
+            shadow_handler = None
+        
+        # Register new handler
         _handler_registry[call_sid] = handler
         _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
+    
+    # Close shadow handler if found (outside lock to prevent deadlock)
+    if shadow_handler:
+        try:
+            _orig_print(f"🧹 [REGISTRY_REPLACED] Closing shadow handler for {call_sid[:8]}...", flush=True)
+            shadow_handler.close_session("replaced_by_new_handler")
+        except Exception as e:
+            _orig_print(f"⚠️ [REGISTRY_REPLACED] Error closing shadow handler: {e}", flush=True)
 
 def _get_handler(call_sid: str):
     """Get MediaStreamHandler for a call (thread-safe)"""
@@ -2035,6 +2062,7 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
+        self._last_response_create_ts = 0  # Track timing for double-create detection
         
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
@@ -3750,7 +3778,49 @@ class MediaStreamHandler:
             # For forced greeting, make sure we don't inherit a stale pending lock.
             if force and is_greeting and self.response_pending_event.is_set():
                 self.response_pending_event.clear()
+            
+            # 🔥 NEW: DOUBLE CREATE TELEMETRY - Detect rapid response.create without completion
+            # This prevents "weird speech" / audio overlap from concurrent responses
+            prev_active_id = getattr(self, 'active_response_id', None)
+            prev_status = getattr(self, 'active_response_status', None)
+            last_create_ts = getattr(self, '_last_response_create_ts', 0)
+            now = time.time()
+            time_since_last = (now - last_create_ts) * 1000  # milliseconds
+            
+            # Warn if creating response while previous still active
+            if prev_active_id and prev_status == "in_progress":
+                _orig_print(
+                    f"⚠️ [DOUBLE_CREATE_RISK] Creating new response while prev active | "
+                    f"reason={reason}, prev_id={prev_active_id[:8]}, "
+                    f"prev_status={prev_status}, time_since_last={time_since_last:.0f}ms",
+                    flush=True
+                )
+            
+            # Warn if creating response too quickly (< 500ms since last)
+            if time_since_last < 500 and time_since_last > 0:
+                _orig_print(
+                    f"⚠️ [RAPID_CREATE] response.create very fast | "
+                    f"reason={reason}, interval={time_since_last:.0f}ms (<500ms)",
+                    flush=True
+                )
+            
+            self._last_response_create_ts = now
+            
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+            
+            # Log with full context for debugging
+            tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+            out_q_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+            is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
+            
+            _orig_print(
+                f"🎯 [RESPONSE_CREATE] reason={reason}, "
+                f"prev_active={prev_active_id[:8] if prev_active_id else 'none'}, "
+                f"is_ai_speaking={is_speaking}, "
+                f"tx_q={tx_q_size}, out_q={out_q_size}",
+                flush=True
+            )
+            
             await _client.send_event({"type": "response.create"})
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
