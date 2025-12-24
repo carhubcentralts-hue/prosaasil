@@ -2086,6 +2086,8 @@ class MediaStreamHandler:
         # 🎯 Polite hangup fallback (prevents stuck pending state)
         self._pending_hangup_set_mono = None
         self._pending_hangup_fallback_task = None
+        # 🎯 FIX: Race condition tracking - audio.done arriving before transcript.done
+        self.audio_done_by_response_id = {}  # Tracks which response_ids have completed audio
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
@@ -5068,6 +5070,13 @@ class MediaStreamHandler:
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # 🎯 FIX: Track audio.done per response_id (for race condition handling)
+                    if event_type == "response.audio.done":
+                        done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        if done_resp_id:
+                            self.audio_done_by_response_id[done_resp_id] = True
+                            _orig_print(f"✅ [RACE_FIX] audio.done tracked for response_id={done_resp_id[:20]}...", flush=True)
+                    
                     # 🔴 GREETING_LOCK: Release ONLY after greeting audio is done (not on response.done).
                     # Prefer strict response_id match. If we failed to bind earlier, bind from this event and release.
                     if event_type == "response.audio.done" and getattr(self, "greeting_lock_active", False):
@@ -5318,15 +5327,49 @@ class MediaStreamHandler:
                             has_goodbye = any(re.search(pattern, last_sentence_norm) for pattern in bye_patterns)
                             
                             if has_goodbye:
-                                force_print(f"[BOT_BYE_DETECTED] pending_hangup=true text='{_t_raw[:80]}...' response_id={event.get('response_id')}")
-                                logger.info(f"[BOT_BYE_DETECTED] pending_hangup=true text='{_t_raw[:80]}...' response_id={event.get('response_id')}")
+                                resp_id = event.get('response_id')
+                                force_print(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
+                                logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
                                 
+                                # 🎯 FIX: Check if audio.done already happened (race condition)
+                                audio_already_done = self.audio_done_by_response_id.get(resp_id, False)
+                                
+                                if audio_already_done:
+                                    # Race condition detected: audio.done arrived before transcript.done
+                                    # Check if queues are empty and hangup immediately
+                                    tx_empty = not hasattr(self, 'tx_q') or self.tx_q.empty()
+                                    out_q_empty = not hasattr(self, 'realtime_audio_out_queue') or self.realtime_audio_out_queue.empty()
+                                    
+                                    if tx_empty and out_q_empty and not self.hangup_triggered:
+                                        force_print(f"[POLITE_HANGUP] via=transcript.done_racefix resp_id={resp_id} (audio.done already happened)")
+                                        logger.info(f"[POLITE_HANGUP] via=transcript.done_racefix resp_id={resp_id}")
+                                        
+                                        # Execute hangup immediately - no need to wait
+                                        self.hangup_triggered = True
+                                        self.call_state = CallState.ENDED
+                                        self.pending_hangup = False
+                                        
+                                        call_sid = getattr(self, "call_sid", None)
+                                        if call_sid:
+                                            try:
+                                                from server.services.twilio_call_control import hangup_call
+                                                await asyncio.to_thread(hangup_call, call_sid)
+                                                force_print(f"[HANGUP] executed reason=bot_goodbye_bye_only_racefix call_sid={call_sid}")
+                                            except Exception as e:
+                                                force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+                                                logger.exception("[HANGUP] error call_sid=%s", call_sid)
+                                        continue
+                                    else:
+                                        # Queues not empty yet - set pending_hangup to let normal flow handle it
+                                        force_print(f"[BOT_BYE_DETECTED] audio.done happened but queues not empty yet - using normal flow (tx_empty={tx_empty}, out_q_empty={out_q_empty})")
+                                
+                                # Normal flow: audio.done will trigger hangup
                                 await self.request_hangup(
                                     "bot_goodbye_bye_only",  # 🔥 NEW REASON: Explicit bye-only
                                     "response.audio_transcript.done",
                                     _t_raw,
                                     "bot",
-                                    response_id=event.get("response_id"),
+                                    response_id=resp_id,
                                 )
                                 continue
                         except Exception as e:
