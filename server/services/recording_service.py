@@ -76,7 +76,9 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         log.error(f"[RECORDING_SERVICE] No recording_url for call {call_sid}")
         return None
     
-    log.info(f"[RECORDING_SERVICE] Downloading recording from Twilio for {call_sid}")
+    log.warning(f"[RECORDING_SERVICE] ⚠️  Cache miss - downloading from Twilio for {call_sid} (this may take time and cause 502 if slow)")
+    import time
+    download_start = time.time()
     
     # Get Twilio credentials
     try:
@@ -112,7 +114,12 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         with open(local_path, "wb") as f:
             f.write(recording_content)
         
-        log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes)")
+        download_time = time.time() - download_start
+        log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes) - took {download_time:.2f}s")
+        
+        if download_time > 10:
+            log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
+        
         return local_path
         
     except Exception as e:

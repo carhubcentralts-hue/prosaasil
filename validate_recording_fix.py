@@ -40,6 +40,21 @@ def check_nginx_config():
             print(f"  ❌ Missing: {description} ({setting})")
             all_ok = False
     
+    # Check for problematic WebSocket upgrade in /api/ location
+    # Extract /api/ location block
+    api_location_start = content.find('location /api/ {')
+    if api_location_start != -1:
+        api_location_end = content.find('}', api_location_start)
+        api_block = content[api_location_start:api_location_end]
+        
+        if 'Upgrade' in api_block or 'connection_upgrade' in api_block:
+            print(f"  ⚠️  WARNING: WebSocket upgrade headers found in /api/ location")
+            print(f"     This can break keepalive/streaming for audio downloads")
+            print(f"     WebSocket should only be in dedicated location blocks (e.g., /ws/)")
+            all_ok = False
+        else:
+            print(f"  ✅ No WebSocket upgrade in /api/ location (correct!)")
+    
     return all_ok
 
 

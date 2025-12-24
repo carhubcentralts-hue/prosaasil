@@ -276,9 +276,19 @@ def download_recording(call_sid):
         
         if range_header:
             # Parse Range header (format: "bytes=start-end")
+            # Supports: bytes=0-999, bytes=0-, bytes=-500 (last 500 bytes)
             byte_range = range_header.replace('bytes=', '').split('-')
-            start = int(byte_range[0]) if byte_range[0] else 0
-            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+            
+            # Handle suffix-byte-range-spec: bytes=-500 (last N bytes)
+            if not byte_range[0] and byte_range[1]:
+                # Request for last N bytes
+                suffix_length = int(byte_range[1])
+                start = max(0, file_size - suffix_length)
+                end = file_size - 1
+            else:
+                # Normal range or open-ended range
+                start = int(byte_range[0]) if byte_range[0] else 0
+                end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
             
             # Ensure valid range
             if start >= file_size:
