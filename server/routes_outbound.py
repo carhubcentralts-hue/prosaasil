@@ -1887,6 +1887,11 @@ def process_bulk_call_run(run_id: int):
                                 db.session.commit()
                                 continue
                             
+                            # 🔒 ATOMIC LOCKING: Generate unique lock token for this job
+                            import uuid
+                            from sqlalchemy import text
+                            lock_token = str(uuid.uuid4())
+                            
                             # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
                             result = db.session.execute(text("""
                                 UPDATE outbound_call_jobs 
