@@ -25,6 +25,77 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 VALIDATION: Ensure business prompts are properly configured
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def validate_business_prompts(business_id: int) -> Dict[str, Any]:
+    """
+    Validate that business has properly configured prompts.
+    
+    Returns:
+        Dict with validation results:
+        {
+            "valid": bool,
+            "has_inbound_prompt": bool,
+            "has_outbound_prompt": bool,
+            "has_greeting": bool,
+            "warnings": List[str],
+            "errors": List[str]
+        }
+    """
+    from server.models_sql import Business, BusinessSettings
+    
+    result = {
+        "valid": True,
+        "has_inbound_prompt": False,
+        "has_outbound_prompt": False,
+        "has_greeting": False,
+        "warnings": [],
+        "errors": []
+    }
+    
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            result["valid"] = False
+            result["errors"].append(f"Business {business_id} not found")
+            return result
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        # Check inbound prompt
+        if settings and settings.ai_prompt and settings.ai_prompt.strip():
+            result["has_inbound_prompt"] = True
+        else:
+            result["warnings"].append("No inbound prompt (ai_prompt) configured")
+            
+        # Check outbound prompt
+        if settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
+            result["has_outbound_prompt"] = True
+        else:
+            result["warnings"].append("No outbound prompt (outbound_ai_prompt) configured")
+        
+        # Check greeting
+        if business.greeting_message and business.greeting_message.strip():
+            result["has_greeting"] = True
+        else:
+            result["warnings"].append("No greeting message configured")
+        
+        # Validate at least one prompt exists
+        if not result["has_inbound_prompt"] and not result["has_outbound_prompt"]:
+            if business.system_prompt and business.system_prompt.strip():
+                result["warnings"].append("Using legacy system_prompt as fallback")
+            else:
+                result["valid"] = False
+                result["errors"].append("No prompts configured - business cannot handle calls")
+        
+    except Exception as e:
+        result["valid"] = False
+        result["errors"].append(f"Validation error: {str(e)}")
+    
+    return result
+
 _EMOJI_RE = re.compile(
     "["
     "\U0001F300-\U0001FAFF"  # emoji/pictographs/symbols
@@ -137,19 +208,19 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- Avoid artificial or overly formal phrasing.\n"
         "\n"
         "Customer Name Usage:\n"
-        "- CRITICAL: When a customer name exists, it will be provided explicitly as a real value in the conversation context (e.g., 'Customer name: דוד'). This is REAL DATA, not a placeholder or concept.\n"
+        "- CRITICAL: When a customer name exists, it will be provided explicitly as a real value in the conversation context (e.g., 'Customer name: David'). This is REAL DATA, not a placeholder or concept.\n"
         "- Never read CRM/system context aloud. Treat CRM context messages as private metadata.\n"
         "- Use the customer's name ONLY if the Business Prompt requests name usage.\n"
         "- If name usage is requested AND a customer name is available in conversation context:\n"
         "  Use the ACTUAL name value naturally throughout the entire conversation.\n"
         "- Integrate the name in speech freely and humanly:\n"
         "  in greeting, explanations, and summaries - without fixed patterns and without excessive repetition.\n"
-        "- Do NOT say words like 'Customer name', 'שם הלקוח', 'CRM Context', or similar labels - use the ACTUAL name only.\n"
+        "- Do NOT read system labels aloud (like 'Customer name', 'CRM Context', etc.) - use the ACTUAL name only.\n"
         "- Do NOT ask what the name is and do NOT invent a name.\n"
         "- If no name is available - continue the conversation normally, without mentioning a name.\n"
         "\n"
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
-        "Truth: the transcript is the single source of truth; never invent details; if unclear, say exactly: \"לא שמעתי ברור, תוכל לחזור על זה?\" "
+        "Truth: the transcript is the single source of truth; never invent details; if unclear, politely ask the customer to repeat. "
         "Style: warm, calm, concise (1-2 sentences). Ask one question at a time. "
         "Follow the Business Prompt for the business-specific script and flow."
     )
@@ -249,8 +320,22 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
 
     business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=ai_prompt_raw)
     if not business_prompt_text.strip():
-        logger.warning(f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}")
-        return ""
+        logger.error(f"[PROMPT ERROR] Missing business prompt for business_id={business_id} direction={call_direction}")
+        # Try to get a fallback from the alternate direction or system_prompt
+        if call_direction == "outbound" and settings and settings.ai_prompt:
+            logger.warning(f"[PROMPT FALLBACK] Using inbound prompt as fallback for outbound business_id={business_id}")
+            business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.ai_prompt)
+        elif call_direction == "inbound" and settings and settings.outbound_ai_prompt:
+            logger.warning(f"[PROMPT FALLBACK] Using outbound prompt as fallback for inbound business_id={business_id}")
+            business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.outbound_ai_prompt)
+        elif business.system_prompt:
+            logger.warning(f"[PROMPT FALLBACK] Using system_prompt as fallback for business_id={business_id}")
+            business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=business.system_prompt)
+        
+        # If still no prompt, return empty (caller should handle this)
+        if not business_prompt_text.strip():
+            logger.error(f"[PROMPT ERROR] No prompts available for business_id={business_id} - configuration required")
+            return ""
 
     # Keep the full text (do not sanitize for length here). Downstream callers may sanitize for TTS if needed.
     return (
@@ -329,8 +414,22 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=ai_prompt_raw)
 
         if not ai_prompt_text.strip():
-            logger.warning(f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}")
-            return ""
+            logger.error(f"[PROMPT ERROR] Missing compact prompt business_id={business_id} direction={call_direction}")
+            # Try to get a fallback from the alternate direction or system_prompt
+            if call_direction == "outbound" and settings and settings.ai_prompt:
+                logger.warning(f"[PROMPT FALLBACK] Using inbound prompt for compact outbound business_id={business_id}")
+                ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.ai_prompt)
+            elif call_direction == "inbound" and settings and settings.outbound_ai_prompt:
+                logger.warning(f"[PROMPT FALLBACK] Using outbound prompt for compact inbound business_id={business_id}")
+                ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.outbound_ai_prompt)
+            elif business.system_prompt:
+                logger.warning(f"[PROMPT FALLBACK] Using system_prompt for compact business_id={business_id}")
+                ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=business.system_prompt)
+            
+            # If still no prompt, return empty
+            if not ai_prompt_text.strip():
+                logger.error(f"[PROMPT ERROR] No prompts available for compact business_id={business_id}")
+                return ""
 
         # ✅ COMPACT = BUSINESS-ONLY excerpt (no global/system rules, no direction metadata)
         final_prompt = build_compact_business_instructions(ai_prompt_text)
@@ -488,29 +587,41 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
 
 
 def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
-    """Minimal fallback prompt - tries to use business settings first"""
+    """
+    Minimal fallback prompt - tries to use business settings first.
+    This should RARELY be called in production.
+    """
     try:
         if business_id:
             from server.models_sql import Business, BusinessSettings
             business = Business.query.get(business_id)
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
             
-            # Try to get prompt from settings
+            # Try to get prompt from settings (highest priority)
             if settings and settings.ai_prompt and settings.ai_prompt.strip():
+                logger.warning(f"[FALLBACK] Using ai_prompt from BusinessSettings for business {business_id}")
                 return settings.ai_prompt
+            
+            # Try outbound prompt as fallback
+            if settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
+                logger.warning(f"[FALLBACK] Using outbound_ai_prompt from BusinessSettings for business {business_id}")
+                return settings.outbound_ai_prompt
             
             # Try business.system_prompt
             if business and business.system_prompt and business.system_prompt.strip():
+                logger.warning(f"[FALLBACK] Using system_prompt from Business for business {business_id}")
                 return business.system_prompt
             
-            # 🔥 BUILD 324: English fallback with business name
+            # Last resort: minimal prompt with business name
             if business and business.name:
-                return f"You are a rep for {business.name}. SPEAK HEBREW to customer. Be brief and helpful."
-    except:
-        pass
+                logger.error(f"[FALLBACK] No prompts found in DB for business {business_id} - using minimal fallback")
+                return f"You are a professional representative for {business.name}. Speak Hebrew to customers. Be helpful and collect their information."
+    except Exception as e:
+        logger.error(f"[FALLBACK] Error getting fallback prompt: {e}")
     
-    # 🔥 BUILD 324: Absolute minimal English fallback
-    return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
+    # Absolute last resort (should never happen in production)
+    logger.critical("[FALLBACK] Using absolute minimal fallback - this indicates a serious configuration issue")
+    return "You are a professional service representative. Speak Hebrew to customers. Be helpful and collect their information."
 
 
 def _build_hours_description(policy) -> str:
@@ -553,51 +664,14 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
     🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
     logger.warning("[PROMPT_DEBUG] Legacy prompt builder _build_critical_rules_compact() was called! This should not happen.")
-    direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
     
-    # Greeting line
-    if greeting_text and greeting_text.strip():
-        greeting_line = f'- Use this greeting once at the start: "{greeting_text.strip()}"'
-    else:
-        greeting_line = "- Greet warmly and introduce yourself as the business rep"
-    
-    # 🔥 BUILD 340: CLEAR SCHEDULING RULES with STRICT FIELD ORDER
-    if enable_calendar_scheduling:
-        scheduling_section = """
-APPOINTMENT BOOKING (STRICT ORDER!):
-1. FIRST ask for NAME: "מה השם שלך?" - get name before anything else
-2. THEN ask for DATE/TIME: "לאיזה יום ושעה?" - get preferred date and time
-3. WAIT for system to check availability (don't promise!)
-4. ONLY AFTER slot is confirmed → ask for PHONE: "מה הטלפון שלך לאישור?"
-- Phone is collected LAST, only after appointment time is locked!
-- Only say "התור נקבע" AFTER system confirms booking success
-- If slot taken: offer alternatives (system will provide)
-- NEVER ask for phone before confirming date/time availability!"""
-    else:
-        scheduling_section = """
-NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
-    
-    # 🔥 BUILD 336: COMPACT + CLEAR SYSTEM RULES
-    return f"""AI Rep for "{business_name}" | {direction_context} call | {weekday_name} {today_date}
+    # This legacy function should not be called in production.
+    # Return minimal instructions and log warning.
+    return f"""You are a professional representative for {business_name}. 
+LANGUAGE: Speak Hebrew to the customer. All instructions are in English.
+Follow the business prompt for specific flow and guidelines.
+Be brief, natural, and helpful."""
 
-LANGUAGE: All instructions are in English. SPEAK HEBREW to customer.
-
-STT IS TRUTH: Trust transcription 100%. NEVER change, substitute, or "correct" any word.
-
-CALL FLOW:
-1. GREET: {greeting_line} Ask ONE open question about their need.
-2. COLLECT: One question at a time. Mirror their EXACT words.
-3. CLOSE: Once you have the service and location, say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות." Then stay quiet.
-{scheduling_section}
-
-STRICT RULES:
-- Hebrew speech only
-- BE PATIENT: Wait for customer to respond. Don't rush or repeat questions too quickly.
-- No loops, no repeating questions unless answer was unclear
-- NO confirmations or summaries - just collect info and close naturally
-- After customer says goodbye → one farewell and stay quiet
-- Don't ask for multiple pieces of information at once - ONE question at a time!
-"""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -663,11 +737,10 @@ def build_inbound_system_prompt(
                 f"Slot size: {policy.slot_size_min}min. "
                 "Never skip steps. Required before booking: (1) customer name, (2) full date (must include weekday), (3) time. "
                 "If anything is missing, ask ONLY for the missing field (one question at a time). "
-                "Understanding time/date: the customer may say 'היום/מחר/ראשון/שני' and a time like 'שלוש' - do NOT repeat 'היום/מחר' to the customer. "
-                "Always restate as a weekday + full date + HH:MM confirmation question. "
+                "Understanding time/date: the customer may say relative time references (today/tomorrow) - always restate as a weekday + full date + HH:MM confirmation question. "
                 "Availability: you MUST call check_availability before claiming a slot is available. "
                 "Booking: ONLY call schedule_appointment after availability indicates the requested time is available. "
-                "Never say 'קבעתי/נקבע' unless schedule_appointment returned success=true AND includes appointment_id. "
+                "Never claim an appointment is scheduled unless schedule_appointment returned success=true AND includes appointment_id. "
                 "If not available, propose up to 2 alternative times provided by the server."
             )
         
@@ -691,9 +764,13 @@ def build_inbound_system_prompt(
         if business_prompt:
             business_prompt = business_prompt.replace("{{business_name}}", business_name)
             business_prompt = business_prompt.replace("{{BUSINESS_NAME}}", business_name)
-        else:
-            # Minimal fallback (should never happen in production)
+        
+        # Validate business prompt is not empty
+        if not business_prompt or not business_prompt.strip():
+            # Try to use fallback
+            logger.error(f"[PROMPT ERROR] No business prompt available for inbound business_id={business_id}")
             business_prompt = f"You are a professional service representative for {business_name}. Be helpful and collect customer information."
+            logger.warning(f"[PROMPT FALLBACK] Using minimal generic prompt for business_id={business_id}")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 COMBINE ALL LAYERS
@@ -784,13 +861,18 @@ def build_outbound_system_prompt(
             outbound_prompt = outbound_prompt_raw.strip()
             logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ({len(outbound_prompt)} chars)")
         else:
-            # Minimal fallback (should never happen in production)
+            logger.error(f"[PROMPT ERROR] No outbound_ai_prompt for business_id={business_id}")
             outbound_prompt = f"You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
-            logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt - using fallback")
+            logger.warning(f"[PROMPT FALLBACK] Using minimal generic outbound prompt for business_id={business_id}")
         
         # Replace placeholders
         outbound_prompt = outbound_prompt.replace("{{business_name}}", business_name)
         outbound_prompt = outbound_prompt.replace("{{BUSINESS_NAME}}", business_name)
+        
+        # Validate outbound prompt is not empty
+        if not outbound_prompt or not outbound_prompt.strip():
+            logger.critical(f"[PROMPT ERROR] Outbound prompt is empty after processing for business_id={business_id}")
+            outbound_prompt = f"You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 COMBINE ALL LAYERS
