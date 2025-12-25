@@ -25,15 +25,14 @@ def test_hebrew_naturalness():
     # Test inbound
     inbound_prompt = _build_universal_system_prompt(call_direction="inbound")
     
-    # Check for key Hebrew rules
+    # Check for key Hebrew rules (NEW format from problem statement)
     checks = {
-        "Hebrew Language Rules": "Hebrew Language Rules:" in inbound_prompt,
-        "Native Israeli Hebrew": "native Israeli Hebrew" in inbound_prompt,
-        "No translation": "Do NOT translate from English" in inbound_prompt,
-        "Avoid formal Hebrew": "Do NOT use book-style, academic, or formal Hebrew" in inbound_prompt,
-        "Internal rewrite": "internally rewrite" in inbound_prompt,
-        "Avoid high-register words": "לרבות, לפיכך" in inbound_prompt,
-        "Natural phrasing": "natural Israeli phrasing" in inbound_prompt,
+        "Language section header": "שפה ודקדוק:" in inbound_prompt,
+        "Natural Israeli Hebrew": "עברית ישראלית טבעית" in inbound_prompt,
+        "Don't translate": "אל תתרגם מאנגלית" in inbound_prompt,
+        "Native speaker quality": "דובר ילידי ברמה גבוהה" in inbound_prompt,
+        "Short flowing sentences": "משפטים קצרים, זורמים" in inbound_prompt,
+        "Avoid artificial phrasing": "הימנע מניסוחים מלאכותיים" in inbound_prompt,
     }
     
     print("\n✅ HEBREW NATURALNESS CHECKS:")
@@ -59,16 +58,15 @@ def test_customer_name_rules():
     # Test outbound
     outbound_prompt = _build_universal_system_prompt(call_direction="outbound")
     
-    # Check for key name rules
+    # Check for key name rules (NEW format from problem statement)
     checks = {
-        "Customer name usage": "Customer name usage (strict):" in outbound_prompt,
-        "MUST NOT mention": "MUST NOT mention or use customer's name" in outbound_prompt,
-        "NO default behavior": "NO default behavior" in outbound_prompt,
-        "Business prompt explicitly": "unless BUSINESS PROMPT explicitly instructs" in outbound_prompt,
-        "Valid name check": "valid (not empty/null/'unknown'/'test'/'-')" in outbound_prompt,
-        "customer_name field": "customer_name field" in outbound_prompt,
-        "MUST follow exactly": "MUST follow business prompt exactly" in outbound_prompt,
-        "If not mentioned": "doesn't mention name usage" in outbound_prompt,
+        "Name usage section": "שימוש בשם הלקוח:" in outbound_prompt,
+        "Only if prompt requests": "אם הפרומפט של העסק מבקש שימוש בשם" in outbound_prompt,
+        "Natural usage": "השתמש בשם בצורה טבעית במהלך השיחה כולה" in outbound_prompt,
+        "Free and human integration": "באופן חופשי ואנושי" in outbound_prompt,
+        "No theoretical phrasing": "אל תאמר מילים כמו \"שם הלקוח\"" in outbound_prompt,
+        "Don't ask for name": "אל תשאל מה השם ואל תמציא שם" in outbound_prompt,
+        "Continue without name": "אם אין שם זמין – המשך את השיחה כרגיל" in outbound_prompt,
     }
     
     print("\n✅ CUSTOMER NAME HANDLING CHECKS:")
