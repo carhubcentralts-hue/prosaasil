@@ -56,7 +56,7 @@ def test_name_usage_behavior():
         "Free and human": "freely and humanly" in prompt,
         "No theoretical terms": "Do NOT say words like 'customer name'" in prompt,
         "Fallback behavior": "If no name is available - continue the conversation normally" in prompt,
-        "No placeholders": "{" not in prompt or "customer_name" not in prompt,  # No template variables
+        "No placeholders": "{" not in prompt and "customer_name" not in prompt,  # No template variables
         "No hardcoded examples": not any(name in prompt for name in ["דני", "אבי", "יוסי", "משה"]),
     }
     
