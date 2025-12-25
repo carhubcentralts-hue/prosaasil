@@ -25,12 +25,14 @@ def get_auth_dir(tenant_id: str) -> tuple:
 
 def mask_secret_for_logging(secret: str) -> str:
     """
-    Mask a secret for secure logging
-    Shows first 8 characters if secret is longer than 8, otherwise shows ***
+    Mask a secret for secure logging using SHA256 hash
+    Returns first 6 characters of SHA256 hash for identification without exposing the secret
     """
     if not secret:
         return "***"
-    return secret[:8] + "..." if len(secret) > 8 else "***"
+    import hashlib
+    secret_hash = hashlib.sha256(secret.encode('utf-8')).hexdigest()
+    return secret_hash[:6]  # First 6 chars of hash for log identification
 
 def tenant_id_from_ctx():
     """

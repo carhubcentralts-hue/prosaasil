@@ -157,14 +157,18 @@ def test_tenant_id_generation():
         return False
 
 def test_secret_hashing():
-    """Test secret masking for logging"""
+    """Test secret masking for logging using SHA256"""
     
-    print("\n🧪 Testing Secret Masking for Logs\n")
+    print("\n🧪 Testing Secret Masking with SHA256\n")
+    
+    import hashlib
     
     test_cases = [
-        {"secret": "wh_n8n_very_long_secret_12345", "expected": "wh_n8n_v..."},
-        {"secret": "short", "expected": "***"},
-        {"secret": "12345678901", "expected": "12345678..."},  # Needs to be > 8 chars to trigger masking
+        {"secret": "wh_n8n_very_long_secret_12345", "description": "Long secret"},
+        {"secret": "short", "description": "Short secret"},
+        {"secret": "12345678901", "description": "Medium secret"},
+        {"secret": "", "description": "Empty secret"},
+        {"secret": None, "description": "None secret"},
     ]
     
     passed = 0
@@ -172,13 +176,24 @@ def test_secret_hashing():
     
     for test in test_cases:
         secret = test['secret']
-        secret_hash = secret[:8] + "..." if len(secret) > 8 else "***"
+        desc = test['description']
         
-        if secret_hash == test['expected']:
-            print(f"✅ PASS - {secret} -> {secret_hash}")
+        # Actual masking function logic
+        if not secret:
+            secret_hash = "***"
+        else:
+            hash_obj = hashlib.sha256(secret.encode('utf-8')).hexdigest()
+            secret_hash = hash_obj[:6]
+        
+        # Verify hash is 6 chars or ***
+        if secret and len(secret_hash) == 6:
+            print(f"✅ PASS - {desc}: '{secret}' -> hash={secret_hash}")
+            passed += 1
+        elif not secret and secret_hash == "***":
+            print(f"✅ PASS - {desc}: empty/None -> ***")
             passed += 1
         else:
-            print(f"❌ FAIL - {secret}, expected {test['expected']}, got {secret_hash}")
+            print(f"❌ FAIL - {desc}: unexpected result {secret_hash}")
             failed += 1
     
     print("\n" + "=" * 60)

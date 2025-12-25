@@ -47,8 +47,18 @@ def run_migration():
             db.session.commit()
             
             print("✅ Migration completed successfully")
-            print("ℹ️  To set webhook secret for a business, run:")
-            print("   UPDATE business SET webhook_secret='wh_n8n_your_random_string' WHERE id=<business_id>;")
+            print("")
+            print("ℹ️  IMPORTANT: Generate secure webhook secrets (≥32 characters)")
+            print("   Use: python -c \"import secrets; print('wh_n8n_' + secrets.token_hex(16))\"")
+            print("")
+            print("   Then set for each business:")
+            print("   UPDATE business SET webhook_secret='wh_n8n_<generated_hex>' WHERE id=<business_id>;")
+            print("")
+            print("   Example:")
+            print("   UPDATE business SET webhook_secret='wh_n8n_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6' WHERE id=6;")
+            print("")
+            print("⚠️  Each business MUST have a unique secret!")
+
             
         except Exception as e:
             print(f"❌ Migration failed: {e}")

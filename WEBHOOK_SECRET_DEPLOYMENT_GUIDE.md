@@ -39,19 +39,42 @@ Expected output:
 
 ### Step 2: Generate Webhook Secrets for Each Business
 
+**CRITICAL:** Secrets must be ≥32 characters, random, and unique per business!
+
 For each business that needs WhatsApp integration with n8n:
 
-1. Generate a random secret (use `openssl rand -hex 32` or similar)
-2. Update the business record:
+1. **Generate a secure random secret** (recommended method):
+
+```bash
+# Best practice: Use Python secrets module (cryptographically secure)
+python -c "import secrets; print('wh_n8n_' + secrets.token_hex(16))"
+
+# Alternative: Use OpenSSL
+openssl rand -hex 16 | awk '{print "wh_n8n_" $1}'
+
+# Example output: wh_n8n_a1b2c3d4e5f6789012345678abcdef01
+```
+
+2. **Update the business record:**
 
 ```sql
 -- Example for business ID 6 (the one actually connected to WhatsApp)
 UPDATE business 
-SET webhook_secret = 'wh_n8n_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6' 
+SET webhook_secret = 'wh_n8n_a1b2c3d4e5f6789012345678abcdef01' 
 WHERE id = 6;
+
+-- Example for business ID 10
+UPDATE business 
+SET webhook_secret = 'wh_n8n_9f8e7d6c5b4a3210fedcba9876543210'
+WHERE id = 10;
 ```
 
-**IMPORTANT:** Use different secrets for each business!
+**IMPORTANT:** 
+- ✅ Each business MUST have a unique secret
+- ✅ Minimum 32 characters (wh_n8n_ prefix + 32 hex chars = 39 total)
+- ✅ Use cryptographically secure random generator
+- ❌ Never reuse secrets across businesses
+- ❌ Never use predictable patterns (sequential numbers, dates, etc.)
 
 ### Step 3: Update n8n Workflow
 
@@ -105,16 +128,80 @@ Expected response (success):
 
 ### Step 5: Check Logs
 
-In the backend logs, you should now see:
+In the backend logs, you should now see (with SHA256 hash masking):
 
 ```
-[WA_WEBHOOK] secret_hash=wh_n8n_a..., resolved_business_id=6, resolved_business_name=My Business, provider=baileys
+[WA_WEBHOOK] secret_hash=4ea862, resolved_business_id=6, resolved_business_name=My Business, provider=baileys
 [WA_WEBHOOK] Using base_url=http://baileys:3300, tenant_id=business_6
 [WA_WEBHOOK] Checking connection status: http://baileys:3300/whatsapp/business_6/status
 [WA_WEBHOOK] Connection status: connected=True, active_phone=+9725XXXXXXXX, hasQR=False, last_seen=...
 [WA_WEBHOOK] Sending message to +9725XXXXXXXX@s.whatsapp.net via baileys
 [WA_WEBHOOK] ✅ Message sent successfully: db_id=123, provider_msg_id=3EB0...
 ```
+
+**Note:** `secret_hash` is the first 6 characters of SHA256 hash for identification without exposing the actual secret.
+
+## 🎯 Acceptance Checklist
+
+Before marking the deployment as complete, verify ALL of these:
+
+### Critical Success Criteria:
+
+- [ ] **Migration ran successfully** - `webhook_secret` column exists in `business` table
+- [ ] **Secrets are set** - Each business has a unique webhook_secret (≥32 chars)
+- [ ] **n8n is updated** - Workflows use business-specific secrets in headers
+- [ ] **business_id removed** - No `business_id` field in n8n request body
+
+### Log Verification (MUST SEE):
+
+- [ ] `resolved_business_id=<correct_id>` (NOT 1 unless that's the actual business)
+- [ ] `resolved_business_name=<actual_business_name>`
+- [ ] `tenant_id=business_<correct_id>`
+- [ ] `status check: .../whatsapp/business_<correct_id>/status`
+- [ ] `connected=True` (if business is actually connected)
+- [ ] `✅ Message sent successfully`
+
+### Negative Tests (MUST FAIL CORRECTLY):
+
+- [ ] Invalid secret returns `401` with `"error_code": "invalid_webhook_secret"`
+- [ ] Missing secret returns `401` with `"error_code": "missing_webhook_secret"`
+- [ ] Empty secret returns `401`
+
+### End-to-End Verification:
+
+- [ ] Test message via curl succeeds
+- [ ] Test message via n8n workflow succeeds
+- [ ] **WhatsApp message is actually received by the end user** ⭐
+- [ ] Message is saved in DB with correct business_id
+- [ ] Logs show NO references to business_1 (unless that's the intended business)
+
+### Security Verification:
+
+- [ ] Secrets are NOT visible in logs (only 6-char SHA256 hash shown)
+- [ ] Each business has a unique secret (no duplicates)
+- [ ] Secrets are ≥32 characters
+- [ ] No hardcoded secrets in code or configs
+
+## 🚨 FAILURE MODES - If You See These, Fix Is NOT Working:
+
+```
+❌ [WA_WEBHOOK] business_id=1 ... resolved_business_id=1
+   → Secret not resolving correctly, still using default
+
+❌ status check: .../whatsapp/business_1/status
+   → Using wrong business for status check
+
+❌ connected=False (when business IS connected)
+   → Checking wrong business's connection
+
+❌ Full secret visible in logs
+   → Secret masking not working
+
+❌ {"ok": false, "error_code": "wa_not_connected"}
+   → Wrong business or actually not connected
+```
+
+If you see ANY of these after deployment, the fix is NOT complete!
 
 ## Troubleshooting
 
