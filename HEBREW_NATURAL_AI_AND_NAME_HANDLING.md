@@ -4,7 +4,7 @@
 
 Two system prompt enhancements:
 1. **Hebrew Natural Language**: Native Israeli Hebrew (not translated)
-2. **Customer Name Handling**: Prompt-driven name usage
+2. **Customer Name Handling**: Strict prompt-driven (NO default behavior)
 
 ## Implementation
 
@@ -21,53 +21,78 @@ Two system prompt enhancements:
 "Before responding, internally rewrite the sentence to sound like spoken Israeli Hebrew..."
 ```
 
-### Customer Name Rules
+### Customer Name Rules (STRICT)
 
 ```python
-"Customer Name Usage (Prompt-Driven): "
-"You may receive lead context with customer_name field. "
-"Default behavior: do NOT use the customer's name unless the business prompt explicitly instructs to use it. "
-"If instructed to use the name: use it only if customer_name exists and is valid (not 'unknown', 'test', '-', or empty). "
-"Never invent a name. If no valid name exists, continue naturally without mentioning a name. "
-"Never ask for the customer's name unless the business prompt explicitly instructs you to ask. "
-"When using the name: use it sparingly, typically once in greeting."
+"Customer name usage (strict): "
+"MUST NOT mention or use customer's name unless BUSINESS PROMPT explicitly instructs. "
+"NO default behavior. Do NOT use name in greeting or anywhere unless business prompt requests it. "
+"If instructed: use ONLY customer_name field value if valid (not empty/null/'unknown'/'test'/'-'). "
+"Never guess or generate names. If missing/invalid, continue without mentioning name. "
+"Frequency and placement MUST follow business prompt exactly. Do NOT apply politeness rules or defaults. "
+"If business prompt doesn't mention name usage: behave as if name doesn't exist, even if field present."
 ```
+
+## Key Principle
+
+**NO DEFAULT BEHAVIOR**
+- Name is NEVER used unless business prompt explicitly instructs
+- Not in greeting, not anywhere
+- No "politeness defaults", no "typically once"
+- AI executes, doesn't decide
 
 ## Lead Context Structure
 
-The AI receives customer name via `crm_context.customer_name` field.
+**Field:** `customer_name` (from CRM context)
+**Source:** Lead model (`first_name`, `last_name`) or extracted from conversation
+**Validation:** Reject if: `null`, `""`, `"unknown"`, `"test"`, `"-"`
 
-**Source:** Lead model fields (`first_name`, `last_name`) or extracted from conversation.
+## Business Prompt Examples
 
-**Validation:**
-- Reject if value is: `null`, `""`, `"unknown"`, `"test"`, `"-"`
-- Extract first word if full name (e.g., "דני לוי" → "דני")
+### Example 1: NO name usage (default)
 
-## Business Prompt Control
-
-**Enable name usage:**
 ```
-אם יש שם לקוח בליד, פנה אליו בשמו פעם אחת בברכה.
+אתה נציג שירות מקצועי.
+נהל את השיחה בצורה עניינית וברורה.
 ```
 
-**Disable name usage:**
-(Don't mention name in business prompt)
+**Result:** Name is NEVER mentioned, even if `customer_name="דני"` exists
+
+### Example 2: WITH name usage
+
+```
+אם קיים שם לקוח, פנה אליו בשמו בברכה הראשונית בלבד.
+```
+
+**Result:** 
+- If valid name exists → uses it in greeting only
+- If no name → continues without name
+- No deviation from instruction
+
+### Example 3: Specific control
+
+```
+השתמש בשם הלקוח רק לאחר שהשיחה התחילה, ולא בברכה.
+השתמש בשם פעם אחת בלבד.
+```
+
+**Result:** Exactly as instructed - not in greeting, only once later
 
 ## Decision Matrix
 
-| Has Valid Name | Business Instructs | Behavior |
-|----------------|-------------------|----------|
-| Yes | Yes | Uses name |
-| Yes | No | Ignores name |
+| Valid Name | Business Instructs | Behavior |
+|------------|-------------------|----------|
+| Yes | Yes | Uses name per instruction |
+| Yes | No | NEVER uses name |
 | No | Yes | No name available |
 | No | No | No name available |
 
 ## Technical Details
 
-- **Prompt Length:** ~1850 chars (inbound), ~1844 chars (outbound)
-- **Max Limit:** 2000 chars
+- **Prompt Length:** ~1904 chars (inbound), ~1898 chars (outbound)
+- **Max Limit:** 2,000 chars
 - **Architecture:** System prompt = behavior only, Business prompt = content
-- **Backward Compatible:** Yes (default = no name usage)
+- **Default:** NO name usage (strict)
 
 ## Code Changes
 
