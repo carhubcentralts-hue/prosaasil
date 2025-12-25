@@ -27,6 +27,8 @@ class Business(db.Model):
     # Support settings for admin tenant management
     working_hours = db.Column(db.String(50), default="08:00-18:00")  # Support working hours
     voice_message = db.Column(db.Text)  # Custom voice message for support calls
+    # WhatsApp webhook secret for n8n integration (unique per business)
+    webhook_secret = db.Column(db.String(128), unique=True, nullable=True)  # Format: wh_n8n_<random_hex>
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

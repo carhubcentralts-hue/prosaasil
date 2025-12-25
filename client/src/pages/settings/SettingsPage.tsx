@@ -118,6 +118,13 @@ export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
+  // WhatsApp Webhook Secret state
+  const [webhookSecretMasked, setWebhookSecretMasked] = useState<string | null>(null);
+  const [webhookSecretFull, setWebhookSecretFull] = useState<string | null>(null);
+  const [hasWebhookSecret, setHasWebhookSecret] = useState(false);
+  const [showRotateModal, setShowRotateModal] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+  
   // ✅ BUILD 130: AI tab restricted to system_admin, owner, admin (not agent)
   const canEditAIPrompts = user?.role && ['system_admin', 'owner', 'admin'].includes(user.role);
   
@@ -229,6 +236,54 @@ export function SettingsPage() {
     queryKey: ['/api/business/current'],
     refetchOnMount: true
   });
+  
+  // Webhook Secret query
+  const { data: webhookSecretData, refetch: refetchWebhookSecret } = useQuery<{
+    ok: boolean;
+    webhook_secret_masked: string | null;
+    has_secret: boolean;
+  }>({
+    queryKey: ['/api/business/settings/webhook-secret'],
+    enabled: activeTab === 'integrations',
+    refetchOnMount: true
+  });
+  
+  // Update webhook secret state when data changes
+  useEffect(() => {
+    if (webhookSecretData) {
+      setWebhookSecretMasked(webhookSecretData.webhook_secret_masked);
+      setHasWebhookSecret(webhookSecretData.has_secret);
+    }
+  }, [webhookSecretData]);
+  
+  // Rotate webhook secret function
+  const handleRotateWebhookSecret = async () => {
+    setIsRotating(true);
+    try {
+      const response = await apiRequest('/api/business/settings/webhook-secret/rotate', {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        setWebhookSecretFull(response.webhook_secret);
+        setWebhookSecretMasked(response.webhook_secret_masked);
+        setHasWebhookSecret(true);
+        refetchWebhookSecret();
+        alert('✅ Webhook Secret נוצר בהצלחה! העתק אותו עכשיו - לא תוכל לראות אותו שוב.');
+      }
+    } catch (error) {
+      alert('❌ שגיאה ביצירת Webhook Secret');
+    } finally {
+      setIsRotating(false);
+      setShowRotateModal(false);
+    }
+  };
+  
+  // Copy to clipboard function
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert('✅ הועתק ללוח');
+  };
 
   // Update state when businessData changes
   useEffect(() => {
@@ -1043,6 +1098,121 @@ export function SettingsPage() {
                 </div>
               </div>
             </Card>
+            
+            {/* WhatsApp Webhook Secret - NEW */}
+            <Card className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Key className="w-6 h-6 text-indigo-600" />
+                <h3 className="text-lg font-semibold text-gray-900">WhatsApp Webhook Secret</h3>
+                <Badge variant={hasWebhookSecret ? 'success' : 'default'}>
+                  {hasWebhookSecret ? 'מוגדר' : 'לא מוגדר'}
+                </Badge>
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-4">
+                מפתח אבטחה לאימות webhook requests מ-n8n או שירותים חיצוניים אחרים.
+                השתמש בערך הזה בכותרת X-Webhook-Secret בבקשות ה-HTTP שלך.
+              </p>
+              
+              <div className="space-y-4">
+                {/* Secret Display */}
+                <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                  <label className="block text-sm font-medium text-indigo-800 mb-2">
+                    🔐 Webhook Secret
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={webhookSecretFull || webhookSecretMasked || 'לא מוגדר'}
+                      readOnly
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 font-mono text-sm"
+                      dir="ltr"
+                      data-testid="input-webhook-secret"
+                    />
+                    {webhookSecretFull && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard(webhookSecretFull)}
+                        data-testid="button-copy-secret"
+                      >
+                        Copy
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-indigo-600 mt-2">
+                    💡 הדבק ערך זה בכותרת: <code className="bg-white px-1 py-0.5 rounded font-mono">X-Webhook-Secret</code> ב-n8n HTTP Request
+                  </p>
+                </div>
+                
+                {/* Generate/Rotate Button */}
+                <div className="flex gap-2">
+                  <Button
+                    variant={hasWebhookSecret ? "outline" : "default"}
+                    onClick={() => setShowRotateModal(true)}
+                    disabled={isRotating}
+                    className="flex-1 justify-center"
+                    data-testid="button-generate-rotate-secret"
+                  >
+                    <Key className="w-4 h-4 mr-2" />
+                    {hasWebhookSecret ? 'סובב Secret' : 'צור Secret'}
+                  </Button>
+                </div>
+                
+                {webhookSecretFull && (
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                    <p className="text-sm text-yellow-800 font-medium">
+                      ⚠️ זוהי התצוגה היחידה של ה-Secret המלא!
+                    </p>
+                    <p className="text-xs text-yellow-700 mt-1">
+                      העתק אותו עכשיו. לאחר רענון הדף, תוכל לראות רק גרסה מוסתרת.
+                    </p>
+                  </div>
+                )}
+                
+                <div className="mt-4 p-3 bg-indigo-50 rounded-md text-sm">
+                  <h4 className="font-medium text-indigo-800 mb-2">📖 איך להשתמש ב-n8n:</h4>
+                  <ol className="text-indigo-700 space-y-1 list-decimal list-inside">
+                    <li>צור HTTP Request node ב-n8n workflow</li>
+                    <li>הוסף Header: <code className="bg-white px-1 rounded font-mono text-xs">X-Webhook-Secret</code></li>
+                    <li>הדבק את ה-Secret המלא כ-Value</li>
+                    <li>השתמש בכתובת ה-Webhook שהגדרת למעלה</li>
+                  </ol>
+                </div>
+              </div>
+            </Card>
+            
+            {/* Rotation Confirmation Modal */}
+            {showRotateModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowRotateModal(false)}>
+                <div className="bg-white rounded-lg p-6 max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                    {hasWebhookSecret ? 'סובב Webhook Secret?' : 'צור Webhook Secret?'}
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {hasWebhookSecret 
+                      ? 'פעולה זו תשבור workflows קיימים ב-n8n עד שתעדכן אותם עם ה-Secret החדש.'
+                      : 'Secret חדש ייווצר. תוכל להעתיק אותו מיד לאחר היצירה.'}
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowRotateModal(false)}
+                      disabled={isRotating}
+                    >
+                      ביטול
+                    </Button>
+                    <Button
+                      onClick={handleRotateWebhookSecret}
+                      disabled={isRotating}
+                      data-testid="button-confirm-rotate"
+                    >
+                      {isRotating ? 'מייצר...' : hasWebhookSecret ? 'סובב' : 'צור'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

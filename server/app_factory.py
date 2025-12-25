@@ -419,6 +419,11 @@ def create_app():
         app.register_blueprint(internal_whatsapp_bp)
         app.logger.info("✅ WhatsApp blueprints registered")
         
+        # Webhook Secret Management - /api/business/settings/webhook-secret
+        from server.routes_webhook_secret import webhook_secret_bp
+        app.register_blueprint(webhook_secret_bp)
+        app.logger.info("✅ Webhook Secret Management blueprint registered")
+        
     except Exception as e:
         app.logger.error(f"❌ CRITICAL: Failed to register essential API blueprints: {e}")
         import traceback
