@@ -295,11 +295,68 @@ export function CallsPage() {
     // Skip if already loaded or currently loading (check ref for source of truth)
     if (recordingUrlsRef.current[callSid] || loadingRecording === callSid) return;
     
-    const MAX_RETRIES = 10; // Max 10 retries (up to 20 seconds)
-    const RETRY_DELAY = 2000; // 2 seconds between retries
+    const MAX_RETRIES = 10; // Max 10 retries (up to ~60 seconds with exponential backoff)
+    const BASE_DELAY = 2000; // Start with 2 seconds
     
     setLoadingRecording(callSid);
-    try {
+    try:
+      // First, check status without downloading
+      const statusResponse = await fetch(`/api/recordings/${callSid}/status`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        
+        // If ready, fetch the actual file
+        if (statusData.status === 'ready') {
+          const response = await fetch(`/api/recordings/${callSid}/stream`, {
+            method: 'GET',
+            credentials: 'include'
+          });
+          
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            recordingUrlsRef.current[callSid] = url;
+            setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
+            setLoadingRecording(null);
+            return;
+          }
+        }
+        
+        // If queued/downloading/missing, retry with exponential backoff
+        if (statusData.status === 'queued' || statusData.status === 'downloading' || statusData.status === 'missing') {
+          if (retryCount < MAX_RETRIES) {
+            const retryAfter = statusData.retry_after || (BASE_DELAY * Math.pow(1.5, retryCount)) / 1000;
+            const delayMs = retryAfter * 1000;
+            
+            console.log(`Recording ${statusData.status} for ${callSid}, retrying in ${retryAfter}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+            
+            // Retry after delay
+            setTimeout(() => {
+              setLoadingRecording(null); // Clear loading state before retry
+              loadRecordingBlob(callSid, retryCount + 1);
+            }, delayMs);
+            return; // Keep loading state active
+          } else {
+            throw new Error('Recording preparation timed out. Please try again later.');
+          }
+        }
+        
+        // If failed, show error
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.message || 'Recording download failed');
+        }
+        
+        // If expired, show error
+        if (statusData.status === 'expired') {
+          throw new Error('Recording has expired (older than 7 days)');
+        }
+      }
+      
+      // Fallback: Try streaming endpoint directly (legacy behavior)
       const response = await fetch(`/api/recordings/${callSid}/stream`, {
         method: 'GET',
         credentials: 'include'
@@ -308,13 +365,17 @@ export function CallsPage() {
       // Handle 202 Accepted - recording is being prepared
       if (response.status === 202) {
         if (retryCount < MAX_RETRIES) {
-          console.log(`Recording is being prepared for ${callSid}, retrying in ${RETRY_DELAY/1000}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          const data = await response.json().catch(() => ({}));
+          const retryAfter = data.retry_after || (BASE_DELAY * Math.pow(1.5, retryCount)) / 1000;
+          const delayMs = retryAfter * 1000;
+          
+          console.log(`Recording is being prepared for ${callSid}, retrying in ${retryAfter}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
           
           // Retry after delay
           setTimeout(() => {
             setLoadingRecording(null); // Clear loading state before retry
             loadRecordingBlob(callSid, retryCount + 1);
-          }, RETRY_DELAY);
+          }, delayMs);
           return; // Keep loading state active
         } else {
           throw new Error('Recording preparation timed out. Please try again later.');
@@ -337,6 +398,7 @@ export function CallsPage() {
       const url = window.URL.createObjectURL(blob);
       recordingUrlsRef.current[callSid] = url;  // Track in ref for cleanup
       setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
+      setLoadingRecording(null);
     } catch (error) {
       console.error('Error loading recording:', error);
       alert('שגיאה בטעינת ההקלטה: ' + (error as Error).message);

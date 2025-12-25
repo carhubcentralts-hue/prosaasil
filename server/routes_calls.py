@@ -570,17 +570,37 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - check if download is in progress or enqueue
-            from server.services.recording_service import is_download_in_progress
+            # File doesn't exist locally - check DB status
+            status = call.recording_download_status or 'missing'
             
-            if is_download_in_progress(call_sid):
-                # Download already in progress - tell client to retry
-                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
+            # Check if already queued or downloading
+            if status in ('queued', 'downloading'):
+                # Download already queued/in progress - tell client to retry
+                log.debug(f"Stream recording: Download {status} for call_sid={call_sid}, returning 202")
+                retry_after = 2 if status == 'queued' else 5
                 return jsonify({
                     "success": True,
                     "status": "processing",
-                    "message": "Recording is being prepared, please retry in a few seconds"
+                    "message": f"Recording is being {status}, please retry in a few seconds",
+                    "retry_after": retry_after
                 }), 202
+            
+            # Check if failed with retry time
+            if status == 'failed' and call.recording_next_retry_at:
+                from datetime import timezone
+                next_retry = call.recording_next_retry_at
+                if next_retry.tzinfo is None:
+                    next_retry = next_retry.replace(tzinfo=timezone.utc)
+                
+                wait_seconds = max(0, int((next_retry - datetime.now(timezone.utc)).total_seconds()))
+                if wait_seconds > 0:
+                    log.debug(f"Stream recording: Failed download in backoff for call_sid={call_sid}, retry in {wait_seconds}s")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": f"Recording download failed, retrying in {wait_seconds}s",
+                        "retry_after": wait_seconds
+                    }), 202
             
             # Not in progress and not cached - enqueue PRIORITY download job
             log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
@@ -600,7 +620,8 @@ def stream_recording(call_sid):
             return jsonify({
                 "success": True,
                 "status": "processing",
-                "message": "Recording is being prepared, please retry in a few seconds"
+                "message": "Recording is being prepared, please retry in a few seconds",
+                "retry_after": 2
             }), 202
         
     except Exception as e:
