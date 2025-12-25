@@ -4241,7 +4241,6 @@ class MediaStreamHandler:
                                         print(f"ℹ️ [CRM_CONTEXT] Customer name already injected, skipping: '{customer_name_value}'")
                                         self._pending_crm_context_inject = None  # Clear flag
                                 
-                            except Exception as upgrade_err:                                
                             except Exception as upgrade_err:
                                 logger.error(f"❌ [PROMPT UPGRADE] Failed to expand prompt: {upgrade_err}")
                                 import traceback
