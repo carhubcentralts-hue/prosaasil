@@ -1,3 +1,4 @@
+
 """
 Realtime Prompt Builder - REFACTORED FOR PERFECT LAYER SEPARATION
 =================================================================
@@ -102,10 +103,8 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     - Business isolation rules (ZERO cross-contamination)
     - Call isolation rules (each call independent)
     - Language rules (Hebrew default, auto-switch)
-    - Hebrew naturalness rules (native Israeli Hebrew)
     - Truth & safety rules (transcription is truth)
     - Conversation rules (short, clear responses)
-    - Customer name handling rules (prompt-driven)
     
     ❌ MUST NOT CONTAIN:
     - Flow logic (comes from Business Prompt)
@@ -120,35 +119,16 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     Written in English for optimal AI understanding.
     """
     # Keep this SHORT and purely operational for Realtime.
-    # Target: <= ~1200 chars, no markdown, no separators, no icons.
+    # Target: <= ~900 chars, no markdown, no separators, no icons.
     # Keep it clean for Hebrew voice calls:
     # - short
     # - no formatting
     # - no business content
-    # - no "meta" explanations that could leak to caller
+    # - no “meta” explanations that could leak to caller
     base = (
         "You are a professional phone agent for the currently active business only. "
         "Isolation: treat each call as independent; never use details/style from other businesses or prior calls. "
-        
-        # 🔥 HEBREW NATURALNESS: Think and speak in native Israeli Hebrew
-        "Hebrew Language Rules: "
-        "You think, reason, and formulate responses ONLY in native Israeli Hebrew. "
-        "Do NOT translate from English. Do NOT use book-style, academic, or formal Hebrew. "
-        "Do NOT use unnatural sentence order or foreign phrasing. "
-        "Your Hebrew must sound like a native Israeli, born and raised in Israel, everyday spoken Hebrew. "
-        "Prefer short, clear sentences. Use natural Israeli phrasing. "
-        "Avoid high-register words like לרבות, לפיכך, בנוסף לכך, בהתאם לכך. "
-        "Before responding, internally rewrite the sentence to sound like spoken Israeli Hebrew, without changing meaning, intent, or logic. "
-        "If a sentence sounds translated or unnatural, rewrite it. "
-        
-        # 🔥 CUSTOMER NAME HANDLING: Strict prompt-driven only
-        "Customer name usage (strict): "
-        "MUST NOT mention or use customer's name unless BUSINESS PROMPT explicitly instructs. "
-        "NO default behavior. Do NOT use name in greeting or anywhere unless business prompt requests it. "
-        "If instructed: use ONLY customer_name field value if valid (not empty/null/'unknown'/'test'/'-'). Never guess or generate names. If missing/invalid, continue without mentioning name. "
-        "Frequency and placement MUST follow business prompt exactly. Do NOT apply politeness rules or defaults. "
-        "If business prompt doesn't mention name usage: behave as if name doesn't exist, even if field present. "
-        
+        "Language: speak natural Hebrew (Israel) to the caller by default; switch only if the caller explicitly asks. "
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
         "Truth: the transcript is the single source of truth; never invent details; if unclear, say exactly: \"לא שמעתי ברור, תוכל לחזור על זה?\" "
         "Style: warm, calm, concise (1-2 sentences). Ask one question at a time. "
@@ -179,7 +159,7 @@ def build_global_system_prompt(call_direction: Optional[str] = None) -> str:
     - This must be injected separately (e.g., as a conversation system message),
       NOT mixed into COMPACT and NOT sent inside session.update.instructions.
     """
-    return sanitize_realtime_instructions(_build_universal_system_prompt(call_direction=call_direction), max_chars=2000)
+    return sanitize_realtime_instructions(_build_universal_system_prompt(call_direction=call_direction), max_chars=1200)
 
 
 def _extract_business_prompt_text(
