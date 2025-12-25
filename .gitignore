@@ -117,3 +117,4 @@ certs/
 *.bak
 *.backup
 vite.config.ts.*
+test_media_ws_ai_import.py
