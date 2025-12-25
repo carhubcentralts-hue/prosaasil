@@ -14108,6 +14108,20 @@ class MediaStreamHandler:
             if lead_info:
                 customer_name = lead_info.get('customer_name')
             
+            # 🔥 CRITICAL FIX: Also check crm_context for customer name
+            if not customer_name:
+                crm_context = getattr(self, 'crm_context', None)
+                if crm_context and hasattr(crm_context, 'customer_name'):
+                    customer_name = crm_context.customer_name
+                # Also check pending_customer_name cache
+                if not customer_name and hasattr(self, 'pending_customer_name'):
+                    customer_name = self.pending_customer_name
+            
+            # 🔥 CRITICAL FIX: Add customer_name to context so it reaches the AI!
+            if customer_name:
+                context["customer_name"] = customer_name
+                print(f"✅ [AI CONTEXT] Added customer_name to context: '{customer_name}'")
+            
             # ⚡ CRITICAL: Measure AI response time
             ai_start = time.time()
             
