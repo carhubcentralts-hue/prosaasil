@@ -25,14 +25,28 @@ def get_auth_dir(tenant_id: str) -> tuple:
 
 def mask_secret_for_logging(secret: str) -> str:
     """
-    Mask a secret for secure logging using SHA256 hash
-    Returns first 6 characters of SHA256 hash for identification without exposing the secret
+    Mask a secret for secure logging using first 7 + last 2 characters
+    
+    Examples:
+        'wh_n8n_business_six_secret_12345' -> 'wh_n8n_...45'
+        'short' -> 'sho...'
+        'abc' -> '***'
+        '' -> '***'
+    
+    This allows debugging without exposing the full secret.
     """
     if not secret:
         return "***"
-    import hashlib
-    secret_hash = hashlib.sha256(secret.encode('utf-8')).hexdigest()
-    return secret_hash[:6]  # First 6 chars of hash for log identification
+    
+    # For secrets longer than 9 chars: first 7 + last 2
+    if len(secret) > 9:
+        return secret[:7] + "..." + secret[-2:]
+    # For secrets 4-9 chars: first 3 + ...
+    elif len(secret) > 3:
+        return secret[:3] + "..."
+    # For very short secrets: just ***
+    else:
+        return "***"
 
 def tenant_id_from_ctx():
     """
@@ -1049,17 +1063,17 @@ def send_manual_message():
 @csrf.exempt
 def send_via_webhook():
     """
-    ✅ FIX BUILD 200+: Reliable webhook endpoint for external services (n8n)
+    ✅ FIX BUILD 200+: Bulletproof webhook endpoint for external services (n8n)
     
     This endpoint allows external services to send WhatsApp messages without
     session authentication, using a webhook secret instead.
     
     Key Requirements:
     1. Resolve business_id from X-Webhook-Secret header (NO defaults!)
-    2. Webhook must NOT use provider="auto" - explicit baileys only
-    3. Internal base URL must be http://baileys:3300 (Docker network)
-    4. Pre-send health check: GET {BAILEYS_BASE_URL}/status
-    5. Return proof response with provider/message_id
+    2. Support multiple header variants (X-Webhook-Secret, x-webhook-secret, X_WEBHOOK_SECRET)
+    3. Normalize secret values (strip whitespace, quotes)
+    4. Enhanced diagnostic logging (masked secrets, lengths, DB info)
+    5. Fail-fast query (no defaults, no fallback)
     
     Usage:
         POST /api/whatsapp/webhook/send
@@ -1079,36 +1093,91 @@ def send_via_webhook():
     """
     from server.models_sql import WhatsAppMessage, Business
     
-    # ✅ 1) Get and validate webhook secret from header (case-insensitive)
-    webhook_secret = request.headers.get('X-Webhook-Secret')
-    if not webhook_secret:
-        webhook_secret = request.headers.get('x-webhook-secret')
+    # ✅ 1) Get webhook secret from multiple header variants (case-insensitive, underscore support)
+    # Support: X-Webhook-Secret, x-webhook-secret, X_WEBHOOK_SECRET
+    raw_secret = (
+        request.headers.get('X-Webhook-Secret') or
+        request.headers.get('x-webhook-secret') or
+        request.headers.get('X_WEBHOOK_SECRET') or
+        ""
+    )
     
-    if not webhook_secret:
-        log.error(f"[WA_WEBHOOK] Missing X-Webhook-Secret header from {request.remote_addr}")
+    # ✅ 2) Track which headers are present for diagnostics
+    headers_seen = {
+        'X-Webhook-Secret': 'X-Webhook-Secret' in request.headers,
+        'x-webhook-secret': 'x-webhook-secret' in request.headers,
+        'X_WEBHOOK_SECRET': 'X_WEBHOOK_SECRET' in request.headers
+    }
+    
+    has_header = bool(raw_secret)
+    raw_len = len(raw_secret) if raw_secret else 0
+    
+    if not has_header:
+        log.error(f"[WA_WEBHOOK] Missing webhook secret header from {request.remote_addr}")
+        log.error(f"[WA_WEBHOOK] headers_seen={headers_seen}, has_header={has_header}")
         return jsonify({
             "ok": False, 
             "error_code": "missing_webhook_secret",
-            "message": "X-Webhook-Secret header is required"
+            "message": "X-Webhook-Secret header is required",
+            "headers_seen": headers_seen
         }), 401
     
-    # ✅ 2) Resolve business from webhook secret (NO DEFAULT FALLBACK!)
-    business = Business.query.filter_by(webhook_secret=webhook_secret).first()
+    # ✅ 3) Normalize secret value - strip whitespace and quotes
+    # Remove leading/trailing: whitespace, newlines, single quotes, double quotes
+    webhook_secret = raw_secret.strip().strip('"').strip("'").strip()
+    clean_len = len(webhook_secret)
+    
+    # ✅ 4) Enhanced diagnostic logging (without exposing full secret)
+    masked_secret = mask_secret_for_logging(webhook_secret)
+    
+    log.info(f"[WA_WEBHOOK] has_header={has_header}, raw_len={raw_len}, clean_len={clean_len}, masked_secret={masked_secret}")
+    log.info(f"[WA_WEBHOOK] headers_seen={headers_seen}")
+    
+    # ✅ 5) Get DB connection info for diagnostics (without exposing password)
+    try:
+        from server.db import db
+        db_url = str(db.engine.url)
+        # Extract just the host (hide password)
+        db_host = db.engine.url.host if hasattr(db.engine.url, 'host') else 'unknown'
+        db_name = db.engine.url.database if hasattr(db.engine.url, 'database') else 'unknown'
+        log.info(f"[WA_WEBHOOK] db_host={db_host}, db_name={db_name}")
+        
+        # Count businesses with webhook_secret set
+        business_count_with_secret = Business.query.filter(Business.webhook_secret.isnot(None)).count()
+        log.info(f"[WA_WEBHOOK] business_count_with_secret={business_count_with_secret}")
+    except Exception as db_info_err:
+        log.warning(f"[WA_WEBHOOK] Could not get DB info: {db_info_err}")
+    
+    # ✅ 6) Fail-fast query - NO DEFAULT FALLBACK
+    business = Business.query.filter(Business.webhook_secret == webhook_secret).first()
     
     if not business:
-        secret_hash = mask_secret_for_logging(webhook_secret)
-        log.error(f"[WA_WEBHOOK] Invalid webhook secret: secret_hash={secret_hash}, ip={request.remote_addr}")
+        # Log failure with diagnostics
+        log.error(f"[WA_WEBHOOK] Invalid webhook secret")
+        log.error(f"[WA_WEBHOOK] has_header={has_header}, raw_len={raw_len}, clean_len={clean_len}")
+        log.error(f"[WA_WEBHOOK] masked_secret={masked_secret}, ip={request.remote_addr}")
+        log.error(f"[WA_WEBHOOK] headers_seen={headers_seen}")
+        
         return jsonify({
             "ok": False, 
             "error_code": "invalid_webhook_secret",
-            "message": "Invalid webhook secret - no matching business found"
+            "message": "Invalid webhook secret - no matching business found",
+            "diagnostics": {
+                "has_header": has_header,
+                "raw_len": raw_len,
+                "clean_len": clean_len,
+                "headers_seen": headers_seen
+            }
         }), 401
     
     business_id = business.id
     
-    # ✅ 3) Enhanced logging - prove business resolution
-    secret_hash = mask_secret_for_logging(webhook_secret)
-    log.info(f"[WA_WEBHOOK] secret_hash={secret_hash}, resolved_business_id={business_id}, resolved_business_name={business.name}, provider={business.whatsapp_provider}")
+    # ✅ 7) Enhanced logging - prove business resolution with masked secrets
+    # Mask the secret from DB too for comparison
+    masked_db_secret = mask_secret_for_logging(business.webhook_secret or "")
+    
+    log.info(f"[WA_WEBHOOK] ✅ MATCHED: masked_request={masked_secret}, masked_db={masked_db_secret}")
+    log.info(f"[WA_WEBHOOK] resolved_business_id={business_id}, resolved_business_name={business.name}, provider={business.whatsapp_provider}")
     
     # ✅ 4) Get data
     try:
