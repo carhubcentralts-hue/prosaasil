@@ -5197,8 +5197,11 @@ class MediaStreamHandler:
                             
                             # Wait for audio to drain, then try to execute hangup
                             async def delayed_hangup():
-                                # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
-                                for i in range(50):  # 50 * 100ms = 5 seconds max
+                                # 🔥 FIX: Increased timeouts to handle LONG goodbye sentences
+                                # Must wait for ALL audio to complete, regardless of sentence length!
+                                
+                                # STEP 1: Wait for OpenAI queue to drain (max 30 seconds for long sentences)
+                                for i in range(300):  # 300 * 100ms = 30 seconds max (was 5s)
                                     q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                                     if q1_size == 0:
                                         if DEBUG:
@@ -5206,19 +5209,19 @@ class MediaStreamHandler:
                                         break
                                     await asyncio.sleep(0.1)
                                 
-                                # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
+                                # STEP 2: Wait for Twilio TX queue to drain (max 60 seconds for long sentences)
                                 last_tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                 stuck_iterations = 0
-                                STUCK_THRESHOLD = 5  # 500ms without progress (5 * 100ms)
+                                STUCK_THRESHOLD = 10  # 1000ms without progress (10 * 100ms) - increased from 500ms
                                 
-                                for i in range(100):  # 100 * 100ms = 10 seconds max
+                                for i in range(600):  # 600 * 100ms = 60 seconds max (was 10s)
                                     tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                     if tx_size == 0:
                                         if DEBUG:
                                             _orig_print(f"✅ [POLITE HANGUP] TX queue empty after {i*100}ms", flush=True)
                                         break
                                     
-                                    # Detect stuck queue (500ms without progress)
+                                    # Detect stuck queue (1000ms without progress)
                                     if tx_size == last_tx_size:
                                         stuck_iterations += 1
                                         if stuck_iterations >= STUCK_THRESHOLD:
@@ -5234,8 +5237,8 @@ class MediaStreamHandler:
                                     last_tx_size = tx_size
                                     await asyncio.sleep(0.1)
                                 
-                                # STEP 3: Extra buffer for network latency
-                                await asyncio.sleep(2.0)
+                                # STEP 3: Extra buffer for network latency (increased for long sentences)
+                                await asyncio.sleep(3.0)  # 3 seconds (was 2s)
                                 
                                 # Now try to execute hangup via single source of truth
                                 await self.maybe_execute_hangup(via="audio.done", response_id=done_resp_id)
