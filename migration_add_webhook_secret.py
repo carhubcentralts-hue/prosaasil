@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from server.app_factory import get_process_app
 from server.db import db
+from sqlalchemy import text
 
 def run_migration():
     """Add webhook_secret column to business table"""
@@ -23,7 +24,7 @@ def run_migration():
         
         try:
             # Add webhook_secret column if it doesn't exist
-            db.engine.execute("""
+            db.session.execute(text("""
                 DO $$ 
                 BEGIN
                     IF NOT EXISTS (
@@ -42,7 +43,8 @@ def run_migration():
                         RAISE NOTICE 'webhook_secret column already exists';
                     END IF;
                 END $$;
-            """)
+            """))
+            db.session.commit()
             
             print("✅ Migration completed successfully")
             print("ℹ️  To set webhook secret for a business, run:")

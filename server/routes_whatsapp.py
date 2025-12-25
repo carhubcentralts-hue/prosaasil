@@ -23,6 +23,15 @@ def get_auth_dir(tenant_id: str) -> tuple:
     os.makedirs(auth_dir, exist_ok=True)  # Ensure directory exists
     return auth_dir, qr_txt, creds
 
+def mask_secret_for_logging(secret: str) -> str:
+    """
+    Mask a secret for secure logging
+    Shows first 8 characters if secret is longer than 8, otherwise shows ***
+    """
+    if not secret:
+        return "***"
+    return secret[:8] + "..." if len(secret) > 8 else "***"
+
 def tenant_id_from_ctx():
     """
     BUILD 136: SECURE tenant resolution - only from session/auth, NO query params
@@ -1069,7 +1078,9 @@ def send_via_webhook():
     from server.models_sql import WhatsAppMessage, Business
     
     # ✅ 1) Get and validate webhook secret from header (case-insensitive)
-    webhook_secret = request.headers.get('X-Webhook-Secret') or request.headers.get('x-webhook-secret')
+    webhook_secret = request.headers.get('X-Webhook-Secret')
+    if not webhook_secret:
+        webhook_secret = request.headers.get('x-webhook-secret')
     
     if not webhook_secret:
         log.error(f"[WA_WEBHOOK] Missing X-Webhook-Secret header from {request.remote_addr}")
@@ -1083,8 +1094,7 @@ def send_via_webhook():
     business = Business.query.filter_by(webhook_secret=webhook_secret).first()
     
     if not business:
-        # Mask the secret in logs for security
-        secret_hash = webhook_secret[:8] + "..." if len(webhook_secret) > 8 else "***"
+        secret_hash = mask_secret_for_logging(webhook_secret)
         log.error(f"[WA_WEBHOOK] Invalid webhook secret: secret_hash={secret_hash}, ip={request.remote_addr}")
         return jsonify({
             "ok": False, 
@@ -1095,7 +1105,7 @@ def send_via_webhook():
     business_id = business.id
     
     # ✅ 3) Enhanced logging - prove business resolution
-    secret_hash = webhook_secret[:8] + "..." if len(webhook_secret) > 8 else "***"
+    secret_hash = mask_secret_for_logging(webhook_secret)
     log.info(f"[WA_WEBHOOK] secret_hash={secret_hash}, resolved_business_id={business_id}, resolved_business_name={business.name}, provider={business.whatsapp_provider}")
     
     # ✅ 4) Get data
@@ -1233,9 +1243,7 @@ def send_via_webhook():
             send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
             log.info(f"[WA_WEBHOOK] Send result: {send_result}")
         except Exception as e:
-            log.error(f"[WA_WEBHOOK] Send failed: {e}")
-            import traceback
-            log.error(f"[WA_WEBHOOK] Traceback: {traceback.format_exc()}")
+            log.error(f"[WA_WEBHOOK] Send failed: {type(e).__name__}: {str(e)}")
             return jsonify({
                 "ok": False, 
                 "error_code": "send_failed",
