@@ -25,14 +25,14 @@ def test_hebrew_naturalness():
     # Test inbound
     inbound_prompt = _build_universal_system_prompt(call_direction="inbound")
     
-    # Check for key Hebrew rules (NEW format from problem statement)
+    # Check for key Hebrew rules (English instructions, Hebrew output)
     checks = {
-        "Language section header": "שפה ודקדוק:" in inbound_prompt,
-        "Natural Israeli Hebrew": "עברית ישראלית טבעית" in inbound_prompt,
-        "Don't translate": "אל תתרגם מאנגלית" in inbound_prompt,
-        "Native speaker quality": "דובר ילידי ברמה גבוהה" in inbound_prompt,
-        "Short flowing sentences": "משפטים קצרים, זורמים" in inbound_prompt,
-        "Avoid artificial phrasing": "הימנע מניסוחים מלאכותיים" in inbound_prompt,
+        "Language section header": "Language and Grammar:" in inbound_prompt,
+        "Natural Israeli Hebrew": "natural, fluent, daily Israeli Hebrew" in inbound_prompt,
+        "Don't translate": "Do NOT translate from English" in inbound_prompt,
+        "Native speaker quality": "high-level native speaker" in inbound_prompt,
+        "Short flowing sentences": "short, flowing sentences" in inbound_prompt,
+        "Avoid artificial phrasing": "Avoid artificial or overly formal phrasing" in inbound_prompt,
     }
     
     print("\n✅ HEBREW NATURALNESS CHECKS:")
@@ -58,15 +58,15 @@ def test_customer_name_rules():
     # Test outbound
     outbound_prompt = _build_universal_system_prompt(call_direction="outbound")
     
-    # Check for key name rules (NEW format from problem statement)
+    # Check for key name rules (English instructions)
     checks = {
-        "Name usage section": "שימוש בשם הלקוח:" in outbound_prompt,
-        "Only if prompt requests": "אם הפרומפט של העסק מבקש שימוש בשם" in outbound_prompt,
-        "Natural usage": "השתמש בשם בצורה טבעית במהלך השיחה כולה" in outbound_prompt,
-        "Free and human integration": "באופן חופשי ואנושי" in outbound_prompt,
-        "No theoretical phrasing": "אל תאמר מילים כמו \"שם הלקוח\"" in outbound_prompt,
-        "Don't ask for name": "אל תשאל מה השם ואל תמציא שם" in outbound_prompt,
-        "Continue without name": "אם אין שם זמין – המשך את השיחה כרגיל" in outbound_prompt,
+        "Name usage section": "Customer Name Usage:" in outbound_prompt,
+        "Only if prompt requests": "ONLY if the Business Prompt requests name usage" in outbound_prompt,
+        "Natural usage": "Use the name naturally throughout the entire conversation" in outbound_prompt,
+        "Free and human integration": "freely and humanly" in outbound_prompt,
+        "No theoretical phrasing": "Do NOT say words like 'customer name'" in outbound_prompt,
+        "Don't ask for name": "Do NOT ask what the name is and do NOT invent a name" in outbound_prompt,
+        "Continue without name": "If no name is available - continue the conversation normally" in outbound_prompt,
     }
     
     print("\n✅ CUSTOMER NAME HANDLING CHECKS:")
@@ -125,11 +125,11 @@ def test_both_directions():
     inbound = _build_universal_system_prompt(call_direction="inbound")
     outbound = _build_universal_system_prompt(call_direction="outbound")
     
-    # Both should have the core rules
-    inbound_has_hebrew = "Hebrew Language Rules:" in inbound
-    inbound_has_name = "Customer name usage (strict):" in inbound
-    outbound_has_hebrew = "Hebrew Language Rules:" in outbound
-    outbound_has_name = "Customer name usage (strict):" in outbound
+    # Both should have the core rules (English instructions)
+    inbound_has_hebrew = "Language and Grammar:" in inbound
+    inbound_has_name = "Customer Name Usage:" in inbound
+    outbound_has_hebrew = "Language and Grammar:" in outbound
+    outbound_has_name = "Customer Name Usage:" in outbound
     
     print("\n✅ RULES IN BOTH DIRECTIONS:")
     print(f"  {'✅' if inbound_has_hebrew else '❌'} Inbound has Hebrew rules")
