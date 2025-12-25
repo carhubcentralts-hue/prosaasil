@@ -5251,7 +5251,7 @@ class MediaStreamHandler:
                         # CRITICAL RULES (SIMPLIFIED):
                         # 1. Only BOT saying bye (not user) - checked by event type (response.audio_transcript.done)
                         # 2. Must match ביי OR להתראות (word boundary, anywhere in text)
-                        # 3. Actual hangup happens AFTER response.audio.done + queue drain
+                        # 3. Mark for hangup but DON'T execute until response.audio.done + queue drain
                         # 4. No complex logic - just simple keyword matching
                         try:
                             _t_raw = (transcript or "").strip()
@@ -5267,7 +5267,8 @@ class MediaStreamHandler:
                                 force_print(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
                                 logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
                                 
-                                # Set pending_hangup first (request_hangup sets all the state)
+                                # 🔥 FIX: Only MARK for hangup, don't execute until audio.done
+                                # This ensures AI finishes saying the entire goodbye sentence
                                 await self.request_hangup(
                                     "bot_goodbye_bye_only",  # 🔥 NEW REASON: Explicit bye-only
                                     "response.audio_transcript.done",
@@ -5275,15 +5276,11 @@ class MediaStreamHandler:
                                     "bot",
                                     response_id=resp_id,
                                 )
+                                force_print(f"[BOT_BYE] Marked for hangup - will execute after audio completes (response.audio.done)")
                                 
-                                # 🎯 FIX: Check if audio.done already happened (race condition)
-                                audio_already_done = self.audio_done_by_response_id.get(resp_id, False)
-                                
-                                if audio_already_done:
-                                    # Race condition: audio.done came before transcript.done
-                                    # Try to execute hangup immediately via single source of truth
-                                    await self.maybe_execute_hangup(via="transcript.done_racefix", response_id=resp_id)
-                                # else: Normal flow - audio.done will call maybe_execute_hangup later
+                                # ⚠️ REMOVED: Don't check audio_already_done here
+                                # Let the response.audio.done handler do the hangup AFTER audio completes
+                                # This ensures the AI finishes speaking the entire sentence
                                 
                                 continue
                         except Exception as e:
