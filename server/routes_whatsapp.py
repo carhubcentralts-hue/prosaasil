@@ -1,4 +1,4 @@
-import os, requests, logging, csv, io
+import os, requests, logging, csv, io, json
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
@@ -2116,6 +2116,171 @@ def get_broadcasts():
         }), 200
 
 
+def normalize_phone(phone_str) -> str:
+    """
+    Normalize phone number to E.164 format (or cleaned format)
+    Returns None if invalid
+    
+    Examples:
+        '972-52-1234567' -> '972521234567'
+        '052 123 4567' -> '0521234567'
+        'invalid' -> None
+    """
+    if not phone_str:
+        return None
+    
+    # Convert to string and strip whitespace
+    phone = str(phone_str).strip()
+    
+    # Remove common separators
+    phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    
+    # Basic validation: must be at least 8 digits and only contain digits (and optional leading +)
+    if phone.startswith('+'):
+        phone = phone[1:]
+    
+    if not phone.isdigit() or len(phone) < 8:
+        return None
+    
+    return phone
+
+
+def parse_csv_phones(csv_file) -> list:
+    """
+    Parse phone numbers from CSV file
+    Returns list of normalized phone numbers
+    """
+    phones = []
+    try:
+        # Read CSV content
+        content = csv_file.read()
+        if isinstance(content, bytes):
+            content = content.decode('utf-8')
+        
+        # Parse CSV
+        csv_file.seek(0)  # Reset file pointer
+        reader = csv.DictReader(io.StringIO(content))
+        
+        for row in reader:
+            # Try to find phone field (case insensitive)
+            phone = None
+            for key in row.keys():
+                if key.lower() in ['phone', 'telephone', 'mobile', 'number', 'tel', 'טלפון']:
+                    phone = row[key]
+                    break
+            
+            # If no phone column found, try first column
+            if not phone and row:
+                phone = list(row.values())[0]
+            
+            normalized = normalize_phone(phone)
+            if normalized:
+                phones.append(normalized)
+    except Exception as e:
+        log.error(f"[parse_csv_phones] Error: {e}")
+    
+    return phones
+
+
+def extract_phones_bulletproof(payload, files, business_id):
+    """
+    🔥 BULLETPROOF recipient resolution per expert feedback
+    
+    Extract phone numbers from multiple sources with priority:
+    1. Direct phones (phones/recipients/selected_phones - array or CSV string)
+    2. lead_ids → fetch phones from DB
+    3. csv_file → parse phones
+    4. statuses → query leads by status
+    
+    Returns list of normalized phone numbers (deduplicated)
+    """
+    phones = []
+    
+    # 1) Direct phones - support multiple field names and formats
+    raw_phones = payload.get('phones') or payload.get('recipients') or payload.get('selected_phones')
+    if raw_phones:
+        if isinstance(raw_phones, str):
+            # Could be JSON string or CSV string
+            try:
+                # Try JSON first
+                raw_phones = json.loads(raw_phones)
+            except:
+                # Fall back to CSV split
+                raw_phones = [x.strip() for x in raw_phones.split(',') if x.strip()]
+        
+        if isinstance(raw_phones, list):
+            for p in raw_phones:
+                normalized = normalize_phone(p)
+                if normalized:
+                    phones.append(normalized)
+            
+            if phones:
+                log.info(f"[extract_phones] Found {len(phones)} direct phones")
+    
+    # 2) lead_ids - fetch from DB
+    lead_ids = payload.get('lead_ids') or payload.get('leadIds')
+    if lead_ids:
+        if isinstance(lead_ids, str):
+            try:
+                lead_ids = json.loads(lead_ids)
+            except:
+                lead_ids = []
+        
+        if isinstance(lead_ids, list) and lead_ids:
+            from server.models_sql import Lead
+            db_phones = (
+                Lead.query
+                .with_entities(Lead.phone_e164)
+                .filter(Lead.tenant_id == business_id, Lead.id.in_(lead_ids))
+                .all()
+            )
+            for p_tuple in db_phones:
+                normalized = normalize_phone(p_tuple[0])
+                if normalized:
+                    phones.append(normalized)
+            
+            if db_phones:
+                log.info(f"[extract_phones] Found {len(db_phones)} phones from lead_ids")
+    
+    # 3) csv_file - parse phones
+    if 'csv_file' in files:
+        csv_phones = parse_csv_phones(files['csv_file'])
+        phones.extend(csv_phones)
+        if csv_phones:
+            log.info(f"[extract_phones] Found {len(csv_phones)} phones from CSV")
+    
+    # 4) statuses - query by status
+    statuses = payload.get('statuses')
+    if statuses:
+        if isinstance(statuses, str):
+            try:
+                statuses = json.loads(statuses)
+            except:
+                statuses = []
+        
+        if isinstance(statuses, list) and statuses:
+            from server.models_sql import Lead
+            db_phones = (
+                Lead.query
+                .with_entities(Lead.phone_e164)
+                .filter(Lead.tenant_id == business_id, Lead.status.in_(statuses))
+                .all()
+            )
+            for p_tuple in db_phones:
+                normalized = normalize_phone(p_tuple[0])
+                if normalized:
+                    phones.append(normalized)
+            
+            if db_phones:
+                log.info(f"[extract_phones] Found {len(db_phones)} phones from statuses")
+    
+    # Deduplicate and sort
+    phones = sorted(set(p for p in phones if p))
+    
+    log.info(f"[extract_phones] Total unique phones: {len(phones)}")
+    return phones
+
+
 @whatsapp_bp.route('/broadcasts', methods=['POST'])
 @csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin'])
@@ -2176,158 +2341,42 @@ def create_broadcast():
         incoming_keys = list(request.form.keys())
         log.info(f"[WA_BROADCAST] incoming_keys={incoming_keys}")
         
-        # Get recipients based on audience source
-        recipients = []
+        # 🔥 BULLETPROOF RECIPIENT RESOLUTION per expert feedback
+        # Use unified resolver that handles all possible input sources with priority
+        log.info(f"[WA_BROADCAST] Using bulletproof recipient resolver")
         
-        # ✅ FIX: Track diagnostics for better error messages
-        diagnostics = {
-            'audience_source': audience_source,
-            'lead_ids_count': len(lead_ids),
-            'statuses_count': len(statuses),
-            'has_csv': 'csv_file' in request.files,
-            'import_list_id': import_list_id,
-            'incoming_keys': incoming_keys
-        }
+        # Build payload dict from request.form for the resolver
+        payload_dict = dict(request.form)
         
-        # NEW: Direct lead selection from system
-        if audience_source == 'leads' and lead_ids:
-            log.info(f"[WA_BROADCAST] Loading {len(lead_ids)} leads from system")
-            leads = Lead.query.filter(
-                Lead.tenant_id == business_id,
-                Lead.id.in_(lead_ids),
-                Lead.phone_e164.isnot(None)
-            ).all()
-            
-            log.info(f"[WA_BROADCAST] Found {len(leads)} leads with phone numbers")
-            
-            for lead in leads:
-                if lead.phone_e164:
-                    recipients.append({
-                        'phone': lead.phone_e164,
-                        'lead_id': lead.id
-                    })
+        # Extract phones using bulletproof resolver
+        phones = extract_phones_bulletproof(payload_dict, request.files, business_id)
         
-        # NEW: Import list selection
-        elif audience_source == 'import-list' and import_list_id:
-            log.info(f"[WA_BROADCAST] Loading leads from import_list_id={import_list_id}")
-            leads = Lead.query.filter(
-                Lead.tenant_id == business_id,
-                Lead.outbound_list_id == int(import_list_id),
-                Lead.phone_e164.isnot(None)
-            ).all()
-            
-            log.info(f"[WA_BROADCAST] Found {len(leads)} leads in import list")
-            
-            for lead in leads:
-                if lead.phone_e164:
-                    recipients.append({
-                        'phone': lead.phone_e164,
-                        'lead_id': lead.id
-                    })
+        # Convert phones to recipient objects
+        recipients = [{'phone': phone, 'lead_id': None} for phone in phones]
         
-        # CSV file upload
-        elif audience_source == 'csv' or (not audience_source or audience_source == 'legacy'):
-            # Legacy: From CRM filters (statuses) - backward compatibility
-            if statuses:
-                log.info(f"[WA_BROADCAST] Loading leads with statuses: {statuses}")
-                leads = Lead.query.filter(
-                    Lead.tenant_id == business_id,
-                    Lead.status.in_(statuses),
-                    Lead.phone_e164.isnot(None)
-                ).all()
-                
-                log.info(f"[WA_BROADCAST] Found {len(leads)} leads with statuses {statuses}")
-                
-                for lead in leads:
-                    if lead.phone_e164:
-                        recipients.append({
-                            'phone': lead.phone_e164,
-                            'lead_id': lead.id
-                        })
-            
-            # From CSV file (with validation)
-            csv_file = request.files.get('csv_file')
-            if csv_file:
-                log.info(f"[WA_BROADCAST] Processing CSV file: {csv_file.filename}")
-                # Validate file size (max 5MB)
-                MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
-                csv_file.seek(0, 2)  # Seek to end
-                file_size = csv_file.tell()
-                csv_file.seek(0)  # Seek back to start
-                
-                if file_size > MAX_FILE_SIZE:
-                    log.error(f"[WA_BROADCAST] CSV file too large: {file_size} bytes")
-                    return jsonify({
-                        'success': False,
-                        'message': 'קובץ גדול מדי (מקסימום 5MB)'
-                    }), 400
-                
-                # Read and parse CSV with row limit
-                MAX_ROWS = 10000  # Max 10,000 recipients
-                try:
-                    stream = io.StringIO(csv_file.stream.read().decode("UTF8"), newline=None)
-                    csv_reader = csv.DictReader(stream)
-                    
-                    row_count = 0
-                    for row in csv_reader:
-                        row_count += 1
-                        if row_count > MAX_ROWS:
-                            log.warning(f"[WA_BROADCAST] CSV row limit exceeded: {row_count} > {MAX_ROWS}")
-                            break
-                        
-                        phone = row.get('phone', '').strip()
-                        if phone:
-                            recipients.append({
-                                'phone': phone,
-                                'lead_id': None
-                            })
-                    
-                    log.info(f"[WA_BROADCAST] Loaded {len(recipients)} recipients from CSV")
-                except Exception as csv_err:
-                    log.error(f"[WA_BROADCAST] CSV parsing error: {csv_err}")
-                    return jsonify({
-                        'success': False,
-                        'message': 'שגיאה בקריאת קובץ CSV'
-                    }), 400
-        
-        # ✅ FIX BUILD 200+: Log recipient counts BEFORE normalization
-        log.info(f"[WA_BROADCAST] recipients_count={len(recipients)}, lead_ids_count={len(lead_ids) if lead_ids else 0}, phones_count={len([r for r in recipients if r.get('phone')])}")
+        log.info(f"[WA_BROADCAST] Resolved {len(recipients)} unique recipients")
         
         # ✅ FIX: Enhanced error message with diagnostics
         if len(recipients) == 0:
             error_details = {
-                'missing_field': None,
+                'missing_field': 'recipients',
                 'selection_count': 0,
                 'business_id': business_id,
-                'diagnostics': diagnostics
+                'form_keys': list(request.form.keys()),
+                'files_keys': list(request.files.keys())
             }
-            
-            # Determine what's missing
-            if audience_source == 'leads':
-                error_details['missing_field'] = 'lead_ids'
-                error_details['selection_count'] = len(lead_ids)
-                error_msg = f'לא נמצאו נמענים. בחרת {len(lead_ids)} לידים אבל לא נמצאו מספרי טלפון תקינים.'
-            elif audience_source == 'import-list':
-                error_details['missing_field'] = 'import_list_id'
-                error_msg = 'לא נמצאו נמענים ברשימת הייבוא. ייתכן שהרשימה ריקה או שאין מספרי טלפון.'
-            elif audience_source == 'csv':
-                error_details['missing_field'] = 'csv_file'
-                error_msg = 'לא נמצאו נמענים בקובץ ה-CSV. וודא שיש עמודת "phone" עם מספרים תקינים.'
-            else:
-                error_details['missing_field'] = 'statuses or csv_file'
-                error_msg = 'לא נמצאו נמענים. יש לבחור סטטוסים, רשימת ייבוא או להעלות קובץ CSV.'
             
             log.error(f"[WA_BROADCAST] No recipients found: {error_details}")
             
-            # ✅ FIX BUILD 200+: Return clear error with expected_one_of format
+            # 🔥 IMPROVED ERROR MESSAGE per expert feedback
+            error_msg = 'לא נמצאו נמענים. סמן לידים בטבלה, הדבק מספרים ידנית, או העלה קובץ CSV.'
+            
             return jsonify({
                 'ok': False,
-                'error_code': 'missing_recipients',
-                'expected_one_of': ['recipients', 'phones', 'lead_ids'],
-                'got_keys': incoming_keys,
+                'error_code': 'NO_RECIPIENTS',
                 'message': error_msg,
                 'details': error_details
-            }), 400
+            }), 422
         
         # Limit total recipients
         MAX_RECIPIENTS = 10000
