@@ -25,14 +25,28 @@ def get_auth_dir(tenant_id: str) -> tuple:
 
 def mask_secret_for_logging(secret: str) -> str:
     """
-    Mask a secret for secure logging using SHA256 hash
-    Returns first 6 characters of SHA256 hash for identification without exposing the secret
+    Mask a secret for secure logging using first 7 + last 2 characters
+    
+    Examples:
+        'wh_n8n_business_six_secret_12345' -> 'wh_n8n_...45'
+        'short' -> 'sho...'
+        'abc' -> '***'
+        '' -> '***'
+    
+    This allows debugging without exposing the full secret.
     """
     if not secret:
         return "***"
-    import hashlib
-    secret_hash = hashlib.sha256(secret.encode('utf-8')).hexdigest()
-    return secret_hash[:6]  # First 6 chars of hash for log identification
+    
+    # For secrets longer than 9 chars: first 7 + last 2
+    if len(secret) > 9:
+        return secret[:7] + "..." + secret[-2:]
+    # For secrets 4-9 chars: first 3 + ...
+    elif len(secret) > 3:
+        return secret[:3] + "..."
+    # For very short secrets: just ***
+    else:
+        return "***"
 
 def tenant_id_from_ctx():
     """
@@ -1114,17 +1128,10 @@ def send_via_webhook():
     clean_len = len(webhook_secret)
     
     # ✅ 4) Enhanced diagnostic logging (without exposing full secret)
-    # Mask secret for logging (first 7 + last 2 chars)
-    if len(webhook_secret) > 9:
-        masked_secret = webhook_secret[:7] + "..." + webhook_secret[-2:]
-    elif len(webhook_secret) > 0:
-        masked_secret = webhook_secret[:3] + "..." if len(webhook_secret) > 3 else "***"
-    else:
-        masked_secret = "***"
+    masked_secret = mask_secret_for_logging(webhook_secret)
     
     log.info(f"[WA_WEBHOOK] has_header={has_header}, raw_len={raw_len}, clean_len={clean_len}, masked_secret={masked_secret}")
     log.info(f"[WA_WEBHOOK] headers_seen={headers_seen}")
-    log.info(f"[WA_WEBHOOK] secret_repr={repr(webhook_secret[:20])}")  # Show first 20 chars with escape sequences
     
     # ✅ 5) Get DB connection info for diagnostics (without exposing password)
     try:
@@ -1167,13 +1174,7 @@ def send_via_webhook():
     
     # ✅ 7) Enhanced logging - prove business resolution with masked secrets
     # Mask the secret from DB too for comparison
-    db_secret = business.webhook_secret or ""
-    if len(db_secret) > 9:
-        masked_db_secret = db_secret[:7] + "..." + db_secret[-2:]
-    elif len(db_secret) > 0:
-        masked_db_secret = db_secret[:3] + "..." if len(db_secret) > 3 else "***"
-    else:
-        masked_db_secret = "***"
+    masked_db_secret = mask_secret_for_logging(business.webhook_secret or "")
     
     log.info(f"[WA_WEBHOOK] ✅ MATCHED: masked_request={masked_secret}, masked_db={masked_db_secret}")
     log.info(f"[WA_WEBHOOK] resolved_business_id={business_id}, resolved_business_name={business.name}, provider={business.whatsapp_provider}")

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Test script for bulletproof webhook secret resolver
 Tests header normalization, secret cleaning, and fail-fast behavior
