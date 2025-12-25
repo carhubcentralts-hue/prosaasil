@@ -2982,6 +2982,58 @@ class MediaStreamHandler:
                     # Do not fail call if this injection fails; COMPACT still provides business script.
                     logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
             
+            # 🔥 CRM CONTEXT INJECTION: Inject customer name as real data (not placeholder)
+            # This ensures the AI knows the customer name is REAL DATA available for use
+            try:
+                # Get customer name from available sources
+                customer_name_to_inject = None
+                
+                # Source 1: outbound_lead_name (for outbound calls)
+                if outbound_lead_name and str(outbound_lead_name).strip():
+                    customer_name_to_inject = str(outbound_lead_name).strip()
+                    print(f"📝 [CRM_CONTEXT] Found customer name from outbound_lead_name: {customer_name_to_inject}")
+                
+                # Source 2: crm_context (if already available)
+                if not customer_name_to_inject and hasattr(self, 'crm_context') and self.crm_context:
+                    if hasattr(self.crm_context, 'customer_name') and self.crm_context.customer_name:
+                        customer_name_to_inject = str(self.crm_context.customer_name).strip()
+                        print(f"📝 [CRM_CONTEXT] Found customer name from crm_context: {customer_name_to_inject}")
+                
+                # Source 3: pending_customer_name (if stored)
+                if not customer_name_to_inject and hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    customer_name_to_inject = str(self.pending_customer_name).strip()
+                    print(f"📝 [CRM_CONTEXT] Found customer name from pending_customer_name: {customer_name_to_inject}")
+                
+                # Inject if name is available
+                if customer_name_to_inject:
+                    # 🔥 CRITICAL FIX: Format explicitly as REAL DATA (per problem statement)
+                    # The AI needs to understand this is an actual value, not a placeholder/concept
+                    crm_context_text = f"CRM Context (REAL DATA):\nשם הלקוח: {customer_name_to_inject}\n\nThis is the ACTUAL customer name value. Use it when the Business Prompt requests name usage."
+                    
+                    await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": crm_context_text,
+                                    }
+                                ],
+                            },
+                        }
+                    )
+                    print(f"✅ [CRM_CONTEXT] Injected customer name as REAL DATA: '{customer_name_to_inject}'")
+                    logger.info(f"[CRM_CONTEXT] Injected customer_name='{customer_name_to_inject}' as conversation item")
+                    _orig_print(f"[CRM_CONTEXT] customer_name=injected", flush=True)
+                else:
+                    print(f"ℹ️ [CRM_CONTEXT] No customer name available yet - will inject later if available")
+            except Exception as e:
+                # Do not fail call if CRM context injection fails
+                logger.error(f"[CRM_CONTEXT] Failed to inject CRM context: {e}")
+            
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
             prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
@@ -3190,6 +3242,42 @@ class MediaStreamHandler:
                             if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
+                            
+                            # 🔥 CRM CONTEXT INJECTION: Inject customer name into Realtime session if available
+                            # This ensures the AI receives the name as REAL DATA during the conversation
+                            if self.crm_context.customer_name and str(self.crm_context.customer_name).strip():
+                                customer_name_value = str(self.crm_context.customer_name).strip()
+                                try:
+                                    # Create async task to inject into Realtime session
+                                    async def _inject_crm_context():
+                                        try:
+                                            # 🔥 CRITICAL FIX: Format explicitly as REAL DATA
+                                            crm_context_text = f"CRM Context Update (REAL DATA):\nשם הלקוח: {customer_name_value}\n\nThis is the ACTUAL customer name value. Use it when the Business Prompt requests name usage."
+                                            
+                                            await client.send_event(
+                                                {
+                                                    "type": "conversation.item.create",
+                                                    "item": {
+                                                        "type": "message",
+                                                        "role": "system",
+                                                        "content": [
+                                                            {
+                                                                "type": "input_text",
+                                                                "text": crm_context_text,
+                                                            }
+                                                        ],
+                                                    },
+                                                }
+                                            )
+                                            print(f"✅ [CRM_CONTEXT] Injected customer name update: '{customer_name_value}'")
+                                            logger.info(f"[CRM_CONTEXT] Injected customer_name='{customer_name_value}' into active session")
+                                        except Exception as inject_err:
+                                            logger.error(f"[CRM_CONTEXT] Failed to inject name into session: {inject_err}")
+                                    
+                                    # Schedule injection on event loop
+                                    asyncio.create_task(_inject_crm_context())
+                                except Exception as e:
+                                    logger.error(f"[CRM_CONTEXT] Failed to schedule name injection: {e}")
                             
                             # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
                             # 🔒 CRITICAL: This ensures ALL updates (recording/transcript/summary) use call_sid -> lead_id mapping
