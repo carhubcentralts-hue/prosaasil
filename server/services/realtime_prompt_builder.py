@@ -26,6 +26,16 @@ import re
 logger = logging.getLogger(__name__)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 CONSTANTS: Fallback prompt templates (English only, no hardcoded content)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Fallback templates - used only when DB configuration is missing
+FALLBACK_GENERIC_PROMPT = "You are a professional service representative. Speak Hebrew to customers. Be helpful and collect their information."
+FALLBACK_BUSINESS_PROMPT_TEMPLATE = "You are a professional representative for {business_name}. Speak Hebrew to customers. Be helpful and collect customer information."
+FALLBACK_INBOUND_PROMPT_TEMPLATE = "You are a professional service representative for {business_name}. Be helpful and collect customer information."
+FALLBACK_OUTBOUND_PROMPT_TEMPLATE = "You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 VALIDATION: Ensure business prompts are properly configured
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -95,6 +105,66 @@ def validate_business_prompts(business_id: int) -> Dict[str, Any]:
         result["errors"].append(f"Validation error: {str(e)}")
     
     return result
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 HELPER: 3-tier fallback strategy for missing prompts
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _get_prompt_with_fallback(
+    business_id: int,
+    business_name: str,
+    primary_prompt: Optional[str],
+    call_direction: str,
+    settings,
+    business
+) -> str:
+    """
+    3-tier fallback strategy for missing prompts.
+    
+    Tier 1: Primary prompt (ai_prompt or outbound_ai_prompt)
+    Tier 2: Alternate direction prompt
+    Tier 3: Legacy system_prompt
+    Tier 4: Minimal template (ERROR logged)
+    
+    Args:
+        business_id: Business ID
+        business_name: Business name
+        primary_prompt: Primary prompt to try first
+        call_direction: 'inbound' or 'outbound'
+        settings: BusinessSettings object
+        business: Business object
+    
+    Returns:
+        Prompt text (never empty)
+    """
+    # Tier 1: Primary prompt
+    if primary_prompt and primary_prompt.strip():
+        return primary_prompt.strip()
+    
+    logger.error(f"[PROMPT ERROR] Missing {call_direction} prompt for business_id={business_id}")
+    
+    # Tier 2: Try alternate direction
+    if call_direction == "outbound" and settings and settings.ai_prompt:
+        logger.warning(f"[PROMPT FALLBACK] Using inbound prompt for {call_direction} business_id={business_id}")
+        return settings.ai_prompt
+    elif call_direction == "inbound" and settings and settings.outbound_ai_prompt:
+        logger.warning(f"[PROMPT FALLBACK] Using outbound prompt for {call_direction} business_id={business_id}")
+        return settings.outbound_ai_prompt
+    
+    # Tier 3: Try legacy system_prompt
+    if business and business.system_prompt:
+        logger.warning(f"[PROMPT FALLBACK] Using system_prompt for {call_direction} business_id={business_id}")
+        return business.system_prompt
+    
+    # Tier 4: Minimal template (should NEVER happen in production)
+    logger.error(f"[PROMPT ERROR] No prompts available for {call_direction} business_id={business_id}")
+    
+    if call_direction == "outbound":
+        return FALLBACK_OUTBOUND_PROMPT_TEMPLATE.format(business_name=business_name)
+    else:
+        return FALLBACK_INBOUND_PROMPT_TEMPLATE.format(business_name=business_name)
+
 
 _EMOJI_RE = re.compile(
     "["
@@ -208,7 +278,7 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- Avoid artificial or overly formal phrasing.\n"
         "\n"
         "Customer Name Usage:\n"
-        "- CRITICAL: When a customer name exists, it will be provided explicitly as a real value in the conversation context (e.g., 'Customer name: David'). This is REAL DATA, not a placeholder or concept.\n"
+        "- CRITICAL: When a customer name exists, it will be provided explicitly as a real value in the conversation context (e.g., 'Customer name: <actual_name>'). This is REAL DATA, not a placeholder or concept.\n"
         "- Never read CRM/system context aloud. Treat CRM context messages as private metadata.\n"
         "- Use the customer's name ONLY if the Business Prompt requests name usage.\n"
         "- If name usage is requested AND a customer name is available in conversation context:\n"
@@ -615,13 +685,13 @@ def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
             # Last resort: minimal prompt with business name
             if business and business.name:
                 logger.error(f"[FALLBACK] No prompts found in DB for business {business_id} - using minimal fallback")
-                return f"You are a professional representative for {business.name}. Speak Hebrew to customers. Be helpful and collect their information."
+                return FALLBACK_BUSINESS_PROMPT_TEMPLATE.format(business_name=business.name)
     except Exception as e:
         logger.error(f"[FALLBACK] Error getting fallback prompt: {e}")
     
     # Absolute last resort (should never happen in production)
     logger.critical("[FALLBACK] Using absolute minimal fallback - this indicates a serious configuration issue")
-    return "You are a professional service representative. Speak Hebrew to customers. Be helpful and collect their information."
+    return FALLBACK_GENERIC_PROMPT
 
 
 def _build_hours_description(policy) -> str:
@@ -769,7 +839,7 @@ def build_inbound_system_prompt(
         if not business_prompt or not business_prompt.strip():
             # Try to use fallback
             logger.error(f"[PROMPT ERROR] No business prompt available for inbound business_id={business_id}")
-            business_prompt = f"You are a professional service representative for {business_name}. Be helpful and collect customer information."
+            business_prompt = FALLBACK_INBOUND_PROMPT_TEMPLATE.format(business_name=business_name)
             logger.warning(f"[PROMPT FALLBACK] Using minimal generic prompt for business_id={business_id}")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -812,7 +882,8 @@ def build_inbound_system_prompt(
         logger.error(f"❌ [INBOUND] Error: {e}")
         import traceback
         traceback.print_exc()
-        return f"You are a professional assistant for {business_settings.get('name', 'the business')}. Speak Hebrew. Be helpful."
+        # Use fallback template for error case
+        return FALLBACK_INBOUND_PROMPT_TEMPLATE.format(business_name=business_settings.get('name', 'the business'))
 
 
 def build_outbound_system_prompt(
@@ -862,7 +933,7 @@ def build_outbound_system_prompt(
             logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ({len(outbound_prompt)} chars)")
         else:
             logger.error(f"[PROMPT ERROR] No outbound_ai_prompt for business_id={business_id}")
-            outbound_prompt = f"You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
+            outbound_prompt = FALLBACK_OUTBOUND_PROMPT_TEMPLATE.format(business_name=business_name)
             logger.warning(f"[PROMPT FALLBACK] Using minimal generic outbound prompt for business_id={business_id}")
         
         # Replace placeholders
@@ -872,7 +943,7 @@ def build_outbound_system_prompt(
         # Validate outbound prompt is not empty
         if not outbound_prompt or not outbound_prompt.strip():
             logger.critical(f"[PROMPT ERROR] Outbound prompt is empty after processing for business_id={business_id}")
-            outbound_prompt = f"You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
+            outbound_prompt = FALLBACK_OUTBOUND_PROMPT_TEMPLATE.format(business_name=business_name)
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 COMBINE ALL LAYERS
@@ -914,4 +985,5 @@ def build_outbound_system_prompt(
         logger.error(f"❌ [OUTBOUND] Error: {e}")
         import traceback
         traceback.print_exc()
-        return f"You are a professional representative for {business_settings.get('name', 'the business')}. Speak Hebrew. Be helpful."
+        # Use fallback template for error case
+        return FALLBACK_OUTBOUND_PROMPT_TEMPLATE.format(business_name=business_settings.get('name', 'the business'))
