@@ -62,11 +62,13 @@ def test_customer_name_rules():
     checks = {
         "Name usage section": "Customer Name Usage:" in outbound_prompt,
         "Only if prompt requests": "ONLY if the Business Prompt requests name usage" in outbound_prompt,
-        "Natural usage": "Use the name naturally throughout the entire conversation" in outbound_prompt,
+        "Natural usage": "Use the ACTUAL name value naturally" in outbound_prompt,
         "Free and human integration": "freely and humanly" in outbound_prompt,
-        "No theoretical phrasing": "Do NOT say words like 'customer name'" in outbound_prompt,
+        "No theoretical phrasing": "Do NOT say words like 'Customer name', 'שם הלקוח', 'CRM Context'" in outbound_prompt,
         "Don't ask for name": "Do NOT ask what the name is and do NOT invent a name" in outbound_prompt,
         "Continue without name": "If no name is available - continue the conversation normally" in outbound_prompt,
+        "Real data clarification": "This is REAL DATA, not a placeholder or concept" in outbound_prompt,
+        "Never read context aloud": "Never read CRM/system context aloud" in outbound_prompt,
     }
     
     print("\n✅ CUSTOMER NAME HANDLING CHECKS:")

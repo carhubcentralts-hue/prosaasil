@@ -2982,6 +2982,67 @@ class MediaStreamHandler:
                     # Do not fail call if this injection fails; COMPACT still provides business script.
                     logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
             
+            # 🔥 CRM CONTEXT INJECTION: Inject customer name as real data (not placeholder)
+            # This ensures the AI knows the customer name is REAL DATA available for use
+            
+            def _format_crm_context_message(customer_name: str) -> str:
+                """Format CRM context message for Realtime API injection.
+                Keep it simple and short to avoid being read aloud."""
+                return f"Customer name: {customer_name}"
+            
+            def _extract_customer_name() -> str:
+                """Extract customer name from available sources."""
+                # Source 1: outbound_lead_name (for outbound calls)
+                if outbound_lead_name and str(outbound_lead_name).strip():
+                    return str(outbound_lead_name).strip()
+                
+                # Source 2: crm_context (if already available)
+                if hasattr(self, 'crm_context') and self.crm_context:
+                    if hasattr(self.crm_context, 'customer_name') and self.crm_context.customer_name:
+                        return str(self.crm_context.customer_name).strip()
+                
+                # Source 3: pending_customer_name (if stored)
+                if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    return str(self.pending_customer_name).strip()
+                
+                return None
+            
+            try:
+                customer_name_to_inject = _extract_customer_name()
+                
+                # 🔥 IDEMPOTENT INJECTION: Only inject if not already injected
+                if customer_name_to_inject and not hasattr(self, '_customer_name_injected'):
+                    print(f"📝 [CRM_CONTEXT] Found customer name: {customer_name_to_inject}")
+                    crm_context_text = _format_crm_context_message(customer_name_to_inject)
+                    
+                    await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": crm_context_text,
+                                    }
+                                ],
+                            },
+                        }
+                    )
+                    # 🔥 Mark as injected to prevent duplicates
+                    self._customer_name_injected = customer_name_to_inject
+                    print(f"✅ [CRM_CONTEXT] Injected customer name: '{customer_name_to_inject}'")
+                    logger.info(f"[CRM_CONTEXT] Injected customer_name='{customer_name_to_inject}' as conversation item")
+                    _orig_print(f"[CRM_CONTEXT] customer_name=injected", flush=True)
+                elif customer_name_to_inject and hasattr(self, '_customer_name_injected'):
+                    print(f"ℹ️ [CRM_CONTEXT] Customer name already injected: '{self._customer_name_injected}'")
+                else:
+                    print(f"ℹ️ [CRM_CONTEXT] No customer name available yet - will inject later if available")
+            except Exception as e:
+                # Do not fail call if CRM context injection fails
+                logger.error(f"[CRM_CONTEXT] Failed to inject CRM context: {e}")
+            
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
             prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
@@ -3190,6 +3251,20 @@ class MediaStreamHandler:
                             if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
+                            
+                            # 🔥 CRM CONTEXT INJECTION: Mark customer name for injection if not already injected
+                            # This ensures the AI receives the name as REAL DATA during the conversation
+                            if self.crm_context.customer_name and str(self.crm_context.customer_name).strip():
+                                customer_name_value = str(self.crm_context.customer_name).strip()
+                                
+                                # 🔥 IDEMPOTENT: Only mark for injection if not already injected
+                                if not hasattr(self, '_customer_name_injected') or self._customer_name_injected != customer_name_value:
+                                    # Store name for later injection (this is in a background thread, can't await here)
+                                    # The main async loop will check and inject when it gets a chance
+                                    self._pending_crm_context_inject = customer_name_value
+                                    print(f"📝 [CRM_CONTEXT] Marked customer name for injection: '{customer_name_value}'")
+                                else:
+                                    print(f"ℹ️ [CRM_CONTEXT] Customer name already injected, skipping: '{customer_name_value}'")
                             
                             # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
                             # 🔒 CRITICAL: This ensures ALL updates (recording/transcript/summary) use call_sid -> lead_id mapping
@@ -4123,6 +4198,50 @@ class MediaStreamHandler:
                                 _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
                                 logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms")
                                 
+                                # 🔥 CRM CONTEXT INJECTION: Check for pending customer name injection
+                                # This handles the case where CRM context was created in background thread
+                                # 🔥 IDEMPOTENT: Only inject if not already injected
+                                if hasattr(self, '_pending_crm_context_inject') and self._pending_crm_context_inject:
+                                    customer_name_value = self._pending_crm_context_inject
+                                    
+                                    # Check if already injected
+                                    if not hasattr(self, '_customer_name_injected') or self._customer_name_injected != customer_name_value:
+                                        self._pending_crm_context_inject = None  # Clear to avoid re-injection
+                                        
+                                        try:
+                                            # Use simple format (no long labels)
+                                            def _format_crm_context_message(customer_name: str) -> str:
+                                                """Format CRM context message for Realtime API injection."""
+                                                return f"Customer name: {customer_name}"
+                                            
+                                            crm_context_text = _format_crm_context_message(customer_name_value)
+                                            
+                                            await client.send_event(
+                                                {
+                                                    "type": "conversation.item.create",
+                                                    "item": {
+                                                        "type": "message",
+                                                        "role": "system",
+                                                        "content": [
+                                                            {
+                                                                "type": "input_text",
+                                                                "text": crm_context_text,
+                                                            }
+                                                        ],
+                                                    },
+                                                }
+                                            )
+                                            # 🔥 Mark as injected to prevent duplicates
+                                            self._customer_name_injected = customer_name_value
+                                            print(f"✅ [CRM_CONTEXT] Injected pending customer name: '{customer_name_value}'")
+                                            logger.info(f"[CRM_CONTEXT] Injected pending customer_name='{customer_name_value}'")
+                                        except Exception as inject_err:
+                                            logger.error(f"[CRM_CONTEXT] Failed to inject pending name: {inject_err}")
+                                    else:
+                                        print(f"ℹ️ [CRM_CONTEXT] Customer name already injected, skipping: '{customer_name_value}'")
+                                        self._pending_crm_context_inject = None  # Clear flag
+                                
+                            except Exception as upgrade_err:                                
                             except Exception as upgrade_err:
                                 logger.error(f"❌ [PROMPT UPGRADE] Failed to expand prompt: {upgrade_err}")
                                 import traceback
