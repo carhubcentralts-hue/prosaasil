@@ -105,9 +105,6 @@ export function CallsPage() {
   const [directionFilter, setDirectionFilter] = useState('all');
   const [callDetails, setCallDetails] = useState<CallDetails | null>(null);
   const [downloadingRecording, setDownloadingRecording] = useState<string | null>(null);
-  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
-  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
-  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState('');
   const [deletingCall, setDeletingCall] = useState<string | null>(null);
@@ -216,11 +213,6 @@ export function CallsPage() {
       setSelectedCall(call);
       setShowDetails(true);
       
-      // 🔥 FIX: Load recording blob for audio playback
-      if (call.hasRecording && call.sid) {
-        loadRecordingBlob(call.sid);
-      }
-      
       const response = await http.get(`/api/calls/${call.sid}/details`);
       
       if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
@@ -290,141 +282,8 @@ export function CallsPage() {
     }
   };
 
-  // 🔥 FIX 502: Load recording with retry logic for async downloads
-  const loadRecordingBlob = async (callSid: string, retryCount = 0) => {
-    // Skip if already loaded or currently loading (check ref for source of truth)
-    if (recordingUrlsRef.current[callSid] || loadingRecording === callSid) return;
-    
-    const MAX_RETRIES = 10; // Max 10 retries (up to ~60 seconds with exponential backoff)
-    const BASE_DELAY = 2000; // Start with 2 seconds
-    
-    setLoadingRecording(callSid);
-    try:
-      // First, check status without downloading
-      const statusResponse = await fetch(`/api/recordings/${callSid}/status`, {
-        method: 'GET',
-        credentials: 'include'
-      });
-      
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        
-        // If ready, fetch the actual file
-        if (statusData.status === 'ready') {
-          const response = await fetch(`/api/recordings/${callSid}/stream`, {
-            method: 'GET',
-            credentials: 'include'
-          });
-          
-          if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            recordingUrlsRef.current[callSid] = url;
-            setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
-            setLoadingRecording(null);
-            return;
-          }
-        }
-        
-        // If queued/downloading/missing, retry with exponential backoff
-        if (statusData.status === 'queued' || statusData.status === 'downloading' || statusData.status === 'missing') {
-          if (retryCount < MAX_RETRIES) {
-            const retryAfter = statusData.retry_after || (BASE_DELAY * Math.pow(1.5, retryCount)) / 1000;
-            const delayMs = retryAfter * 1000;
-            
-            console.log(`Recording ${statusData.status} for ${callSid}, retrying in ${retryAfter}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-            
-            // Retry after delay
-            setTimeout(() => {
-              setLoadingRecording(null); // Clear loading state before retry
-              loadRecordingBlob(callSid, retryCount + 1);
-            }, delayMs);
-            return; // Keep loading state active
-          } else {
-            throw new Error('Recording preparation timed out. Please try again later.');
-          }
-        }
-        
-        // If failed, show error
-        if (statusData.status === 'failed') {
-          throw new Error(statusData.message || 'Recording download failed');
-        }
-        
-        // If expired, show error
-        if (statusData.status === 'expired') {
-          throw new Error('Recording has expired (older than 7 days)');
-        }
-      }
-      
-      // Fallback: Try streaming endpoint directly (legacy behavior)
-      const response = await fetch(`/api/recordings/${callSid}/stream`, {
-        method: 'GET',
-        credentials: 'include'
-      });
-      
-      // Handle 202 Accepted - recording is being prepared
-      if (response.status === 202) {
-        if (retryCount < MAX_RETRIES) {
-          const data = await response.json().catch(() => ({}));
-          const retryAfter = data.retry_after || (BASE_DELAY * Math.pow(1.5, retryCount)) / 1000;
-          const delayMs = retryAfter * 1000;
-          
-          console.log(`Recording is being prepared for ${callSid}, retrying in ${retryAfter}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-          
-          // Retry after delay
-          setTimeout(() => {
-            setLoadingRecording(null); // Clear loading state before retry
-            loadRecordingBlob(callSid, retryCount + 1);
-          }, delayMs);
-          return; // Keep loading state active
-        } else {
-          throw new Error('Recording preparation timed out. Please try again later.');
-        }
-      }
-      
-      // Handle 410 Gone - recording expired
-      if (response.status === 410) {
-        throw new Error('Recording has expired (older than 7 days)');
-      }
-      
-      // Handle other errors
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to load recording');
-      }
-      
-      // Success - load the blob
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      recordingUrlsRef.current[callSid] = url;  // Track in ref for cleanup
-      setRecordingUrls(prev => ({ ...prev, [callSid]: url }));
-      setLoadingRecording(null);
-    } catch (error) {
-      console.error('Error loading recording:', error);
-      alert('שגיאה בטעינת ההקלטה: ' + (error as Error).message);
-      // Don't set URL in ref on error - allow retry
-      setLoadingRecording(null);
-    }
-  };
-
-  // 🔥 FIX: Cleanup blob URLs when component unmounts
-  useEffect(() => {
-    return () => {
-      // Revoke all blob URLs to prevent memory leaks
-      Object.values(recordingUrlsRef.current).forEach(url => {
-        window.URL.revokeObjectURL(url);
-      });
-    };
-  }, []); // Only run on mount/unmount
-
-  // 🎯 FIX: Removed playRecording - replaced with inline audio player using authenticated download endpoint
-  // Audio is now played directly in the table using AudioPlayer component (same as LeadDetailPage)
-
-  // 🎯 REMOVED: Use centralized formatDuration from utils
-  // const formatDuration = (seconds: number) => { ... }
-
-  // 🎯 REMOVED: Use centralized formatDate from utils with timezone fix
-  // const formatDate = (dateString: string) => { ... }
+  // 🎯 Audio is played directly using AudioPlayer component with stream URL (same as OutboundCallsPage)
+  // The AudioPlayer handles authentication, retries, and error handling internally
 
   const getDaysUntilExpiry = (expiresAt?: string) => {
     if (!expiresAt) return null;
@@ -1022,22 +881,8 @@ export function CallsPage() {
                         הורד
                       </Button>
                     </div>
-                    {/* 🔥 FIX: Use AudioPlayer with authenticated blob URL */}
-                    {recordingUrls[selectedCall.sid] ? (
-                      <AudioPlayer
-                        src={recordingUrls[selectedCall.sid]}
-                        loading={loadingRecording === selectedCall.sid}
-                      />
-                    ) : loadingRecording === selectedCall.sid ? (
-                      <div className="flex items-center justify-center py-4">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                        <span className="text-sm text-slate-500 mr-2">טוען הקלטה...</span>
-                      </div>
-                    ) : (
-                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
-                      </div>
-                    )}
+                    {/* 🎯 Use AudioPlayer with stream URL (same as OutboundCallsPage) */}
+                    <AudioPlayer src={`/api/recordings/${selectedCall.sid}/stream`} />
                   </div>
                 )}
                 <div className="flex gap-3 pt-2 border-t">
