@@ -61,14 +61,14 @@ def test_customer_name_rules():
     
     # Check for key name rules
     checks = {
-        "Customer Name Rules": "Customer Name Rules:" in outbound_prompt,
-        "Prompt-driven only": "ONLY if explicitly instructed in the business prompt" in outbound_prompt,
-        "Don't use without instruction": "If the business prompt does NOT instruct" in outbound_prompt,
-        "Never ask for name": "never ask for it" in outbound_prompt,
-        "Never fabricate": "never fabricate it" in outbound_prompt,
+        "Customer Name Usage": "Customer Name Usage" in outbound_prompt,
+        "Prompt-driven only": "Prompt-Driven" in outbound_prompt,
+        "Don't use without instruction": "unless the business prompt explicitly instructs" in outbound_prompt,
+        "Never ask for name": "Never ask for the customer's name unless" in outbound_prompt,
+        "Never fabricate": "Never invent a name" in outbound_prompt,
         "Sparing usage": "sparingly" in outbound_prompt,
-        "Typically once in greeting": "typically once in greeting" in outbound_prompt,
-        "If no name, speak normally": "If no name exists, speak normally without mentioning it" in outbound_prompt,
+        "Valid name check": "valid (not 'unknown', 'test', '-', or empty)" in outbound_prompt,
+        "customer_name field": "customer_name field" in outbound_prompt,
     }
     
     print("\n✅ CUSTOMER NAME HANDLING CHECKS:")
@@ -129,9 +129,9 @@ def test_both_directions():
     
     # Both should have the core rules
     inbound_has_hebrew = "Hebrew Language Rules:" in inbound
-    inbound_has_name = "Customer Name Rules:" in inbound
+    inbound_has_name = "Customer Name Usage" in inbound
     outbound_has_hebrew = "Hebrew Language Rules:" in outbound
-    outbound_has_name = "Customer Name Rules:" in outbound
+    outbound_has_name = "Customer Name Usage" in outbound
     
     print("\n✅ RULES IN BOTH DIRECTIONS:")
     print(f"  {'✅' if inbound_has_hebrew else '❌'} Inbound has Hebrew rules")

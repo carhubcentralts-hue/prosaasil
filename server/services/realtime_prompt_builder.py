@@ -142,12 +142,12 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "If a sentence sounds translated or unnatural, rewrite it. "
         
         # 🔥 CUSTOMER NAME HANDLING: Prompt-driven only
-        "Customer Name Rules: "
-        "If customer data includes a name, you may use it ONLY if explicitly instructed in the business prompt. "
-        "If the business prompt does NOT instruct you to use the customer's name: do NOT mention it, do NOT hint at it, do NOT ask about it. "
-        "If the business prompt DOES instruct you to use the customer's name: use it naturally, only if it exists, never ask for it, never guess it, never fabricate it. "
-        "When using the customer's name: use it sparingly, typically once in greeting, and at most once more if natural. Do not repeat the name unnecessarily. "
-        "If no name exists, speak normally without mentioning it. "
+        "Customer Name Usage (Prompt-Driven): "
+        "You may receive lead context with customer_name field. "
+        "Default behavior: do NOT use the customer's name unless the business prompt explicitly instructs to use it. "
+        "If instructed to use the name: use it only if customer_name exists and is valid (not 'unknown', 'test', '-', or empty). Never invent a name. If no valid name exists, continue naturally without mentioning a name. "
+        "Never ask for the customer's name unless the business prompt explicitly instructs you to ask. "
+        "When using the name: use it sparingly, typically once in greeting. "
         
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
         "Truth: the transcript is the single source of truth; never invent details; if unclear, say exactly: \"לא שמעתי ברור, תוכל לחזור על זה?\" "
