@@ -5217,8 +5217,20 @@ class MediaStreamHandler:
                             
                             # Wait for audio to drain, then try to execute hangup
                             async def delayed_hangup():
-                                # 🔥 FIX: Increased timeouts to handle LONG goodbye sentences
-                                # Must wait for ALL audio to complete, regardless of sentence length!
+                                # 🔥 FIX: TRUE AUDIO DRAIN - Calculate exact time needed for remaining frames
+                                # Per expert feedback: Must wait for frames to actually PLAY, not just transmit
+                                
+                                # Capture initial queue sizes at audio.done moment
+                                initial_q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                                initial_tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                                total_frames_remaining = initial_q1_size + initial_tx_size
+                                
+                                if total_frames_remaining > 0:
+                                    # Calculate time needed: each frame = 20ms, plus 400ms buffer for Twilio playback
+                                    remaining_ms = total_frames_remaining * 20
+                                    buffer_ms = 400
+                                    total_wait_ms = remaining_ms + buffer_ms
+                                    _orig_print(f"⏳ [AUDIO DRAIN] {total_frames_remaining} frames remaining (q1={initial_q1_size}, tx={initial_tx_size}) → waiting {total_wait_ms}ms", flush=True)
                                 
                                 # STEP 1: Wait for OpenAI queue to drain (max 30 seconds for long sentences)
                                 for i in range(300):  # 300 * 100ms = 30 seconds max (was 5s)
@@ -5257,8 +5269,11 @@ class MediaStreamHandler:
                                     last_tx_size = tx_size
                                     await asyncio.sleep(0.1)
                                 
-                                # STEP 3: Extra buffer for network latency (increased for long sentences)
-                                await asyncio.sleep(3.0)  # 3 seconds (was 2s)
+                                # STEP 3: Extra buffer for Twilio/network to actually PLAY the last frames
+                                # This is critical - Twilio needs time to play frames even after we send them
+                                playback_buffer_seconds = 0.5  # 500ms buffer for Twilio playback latency
+                                _orig_print(f"⏳ [AUDIO DRAIN] Queues empty, waiting {playback_buffer_seconds}s for Twilio playback", flush=True)
+                                await asyncio.sleep(playback_buffer_seconds)
                                 
                                 # Now try to execute hangup via single source of truth
                                 await self.maybe_execute_hangup(via="audio.done", response_id=done_resp_id)
@@ -11959,7 +11974,8 @@ class MediaStreamHandler:
                 self.pending_hangup_set_at = time.time()
 
             # Fallback: if we never get response.audio.done for this response_id (mismatch/cancel/missed event),
-            # don't get stuck pending forever. Fire after >=6s (and do not cut bot audio if still playing).
+            # don't get stuck pending forever. Fire after >=8s (and do not cut bot audio if still playing).
+            # 🔥 FIX: Increased from 6s to 8s per expert feedback for safer audio drain
             try:
                 # Cancel previous fallback timer (if any)
                 prev = getattr(self, "_pending_hangup_fallback_task", None)
@@ -11975,7 +11991,7 @@ class MediaStreamHandler:
 
             async def _polite_hangup_fallback_timer(expected_response_id: Optional[str], expected_call_sid: Optional[str]):
                 try:
-                    await asyncio.sleep(6.0)
+                    await asyncio.sleep(8.0)  # 🔥 FIX: Increased from 6s to 8s for safer audio drain
                     # Only fire if still pending and still for the same response_id (one-shot)
                     if getattr(self, "hangup_triggered", False):
                         return
@@ -11984,9 +12000,10 @@ class MediaStreamHandler:
                     if expected_response_id and getattr(self, "pending_hangup_response_id", None) != expected_response_id:
                         return
 
-                    # Never cut bot audio: if AI is still speaking or queues are still draining, wait a bit longer.
+                    # Never cut bot audio: if AI is still speaking or queues are still draining, wait longer.
+                    # 🔥 FIX: Increased grace window from 6s to 8s for safer audio drain
                     try:
-                        extra_deadline = time.monotonic() + 6.0  # additional grace window
+                        extra_deadline = time.monotonic() + 8.0  # additional grace window (was 6.0)
                         while time.monotonic() < extra_deadline:
                             ai_speaking = False
                             try:
