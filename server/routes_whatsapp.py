@@ -1136,7 +1136,6 @@ def send_via_webhook():
     # ✅ 5) Get DB connection info for diagnostics (without exposing password)
     try:
         from server.db import db
-        db_url = str(db.engine.url)
         # Extract just the host (hide password)
         db_host = db.engine.url.host if hasattr(db.engine.url, 'host') else 'unknown'
         db_name = db.engine.url.database if hasattr(db.engine.url, 'database') else 'unknown'

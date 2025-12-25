@@ -56,7 +56,6 @@ When a request comes in, the following is logged (without exposing the full secr
 ```python
 log.info(f"[WA_WEBHOOK] has_header={has_header}, raw_len={raw_len}, clean_len={clean_len}, masked_secret={masked_secret}")
 log.info(f"[WA_WEBHOOK] headers_seen={headers_seen}")
-log.info(f"[WA_WEBHOOK] secret_repr={repr(webhook_secret[:20])}")  # Shows escape sequences
 log.info(f"[WA_WEBHOOK] db_host={db_host}, db_name={db_name}")
 log.info(f"[WA_WEBHOOK] business_count_with_secret={business_count_with_secret}")
 ```
@@ -67,7 +66,6 @@ log.info(f"[WA_WEBHOOK] business_count_with_secret={business_count_with_secret}"
 - `clean_len`: Length after normalization
 - `masked_secret`: First 7 + last 2 characters (e.g., `wh_n8n_...45`)
 - `headers_seen`: Dict showing which header variants were present
-- `secret_repr`: Shows first 20 chars with escape sequences visible
 - `db_host`, `db_name`: Current database connection info
 - `business_count_with_secret`: Total businesses with webhook_secret set
 
@@ -181,7 +179,6 @@ curl -X POST http://localhost:5000/api/whatsapp/webhook/send \
 ```
 [WA_WEBHOOK] has_header=True, raw_len=20, clean_len=20, masked_secret=wh_n8n_...45
 [WA_WEBHOOK] headers_seen={'X-Webhook-Secret': True, 'x-webhook-secret': False, 'X_WEBHOOK_SECRET': False}
-[WA_WEBHOOK] secret_repr='wh_n8n_business_six_'
 [WA_WEBHOOK] db_host=localhost, db_name=prosaasil_db
 [WA_WEBHOOK] business_count_with_secret=3
 [WA_WEBHOOK] ✅ MATCHED: masked_request=wh_n8n_...45, masked_db=wh_n8n_...45
@@ -192,7 +189,6 @@ curl -X POST http://localhost:5000/api/whatsapp/webhook/send \
 ```
 [WA_WEBHOOK] has_header=True, raw_len=18, clean_len=18, masked_secret=invalid...yz
 [WA_WEBHOOK] headers_seen={'X-Webhook-Secret': True, 'x-webhook-secret': False, 'X_WEBHOOK_SECRET': False}
-[WA_WEBHOOK] secret_repr='invalid_secret_xyz'
 [WA_WEBHOOK] db_host=localhost, db_name=prosaasil_db
 [WA_WEBHOOK] business_count_with_secret=3
 [WA_WEBHOOK] Invalid webhook secret
@@ -240,18 +236,19 @@ If `db_host` is unexpected, you're connecting to the wrong database.
 
 ### Issue 3: Works sometimes, fails others
 
-**Check:**
+**Check the length difference:**
 ```
-secret_repr='...'
+raw_len=23, clean_len=20
 ```
 
-This shows escape sequences. Look for:
+If `raw_len > clean_len`, there were hidden characters that got cleaned. Common culprits:
 - `\n` - newline
 - `\r` - carriage return
 - `\t` - tab
-- `\"` - escaped quote
+- Leading/trailing spaces
+- Quotes
 
-These are now automatically cleaned, but this helps identify the source.
+These are now automatically cleaned by the normalization.
 
 ### Issue 4: Proxy changing headers
 
