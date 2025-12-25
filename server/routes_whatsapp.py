@@ -1044,7 +1044,7 @@ def send_via_webhook():
     session authentication, using a webhook secret instead.
     
     Key Requirements:
-    1. Distinguish between "connected in UI" vs "webhook sees different provider"
+    1. Resolve business_id from X-Webhook-Secret header (NO defaults!)
     2. Webhook must NOT use provider="auto" - explicit baileys only
     3. Internal base URL must be http://baileys:3300 (Docker network)
     4. Pre-send health check: GET {BAILEYS_BASE_URL}/status
@@ -1054,38 +1054,51 @@ def send_via_webhook():
         POST /api/whatsapp/webhook/send
         Headers:
             Content-Type: application/json
-            X-Webhook-Secret: <your-secret-from-env>
+            X-Webhook-Secret: <business-specific-secret-from-db>
         Body:
             {
                 "to": "+972501234567",
-                "message": "Hello World",
-                "business_id": 1  (optional, defaults to 1)
+                "message": "Hello World"
             }
     
     Setup:
-        1. Set WHATSAPP_WEBHOOK_SECRET in .env file
-        2. Configure n8n to use this endpoint with the secret
+        1. Set webhook_secret in Business table for each business
+        2. Configure n8n to use this endpoint with the business-specific secret
         3. Set BAILEYS_BASE_URL=http://baileys:3300 (Docker network)
     """
-    from server.models_sql import WhatsAppMessage
+    from server.models_sql import WhatsAppMessage, Business
     
-    # ✅ 1) Verify webhook secret
-    webhook_secret = request.headers.get('X-Webhook-Secret')
-    expected_secret = os.getenv('WHATSAPP_WEBHOOK_SECRET')
+    # ✅ 1) Get and validate webhook secret from header (case-insensitive)
+    webhook_secret = request.headers.get('X-Webhook-Secret') or request.headers.get('x-webhook-secret')
     
-    if not expected_secret:
-        log.error("[WA_WEBHOOK] WHATSAPP_WEBHOOK_SECRET not configured in environment")
+    if not webhook_secret:
+        log.error(f"[WA_WEBHOOK] Missing X-Webhook-Secret header from {request.remote_addr}")
         return jsonify({
             "ok": False, 
-            "error_code": "webhook_not_configured",
-            "message": "Administrator must set WHATSAPP_WEBHOOK_SECRET in environment"
-        }), 500
+            "error_code": "missing_webhook_secret",
+            "message": "X-Webhook-Secret header is required"
+        }), 401
     
-    if not webhook_secret or webhook_secret != expected_secret:
-        log.error(f"[WA_WEBHOOK] Unauthorized access attempt from {request.remote_addr}")
-        return jsonify({"ok": False, "error_code": "unauthorized"}), 401
+    # ✅ 2) Resolve business from webhook secret (NO DEFAULT FALLBACK!)
+    business = Business.query.filter_by(webhook_secret=webhook_secret).first()
     
-    # ✅ 2) Get data
+    if not business:
+        # Mask the secret in logs for security
+        secret_hash = webhook_secret[:8] + "..." if len(webhook_secret) > 8 else "***"
+        log.error(f"[WA_WEBHOOK] Invalid webhook secret: secret_hash={secret_hash}, ip={request.remote_addr}")
+        return jsonify({
+            "ok": False, 
+            "error_code": "invalid_webhook_secret",
+            "message": "Invalid webhook secret - no matching business found"
+        }), 401
+    
+    business_id = business.id
+    
+    # ✅ 3) Enhanced logging - prove business resolution
+    secret_hash = webhook_secret[:8] + "..." if len(webhook_secret) > 8 else "***"
+    log.info(f"[WA_WEBHOOK] secret_hash={secret_hash}, resolved_business_id={business_id}, resolved_business_name={business.name}, provider={business.whatsapp_provider}")
+    
+    # ✅ 4) Get data
     try:
         data = request.get_json(force=True)
     except Exception as e:
@@ -1098,9 +1111,8 @@ def send_via_webhook():
     
     to_number = data.get('to')
     message = data.get('message')
-    business_id = data.get('business_id', 1)  # Default to business 1
     
-    # ✅ 3) Validate required fields
+    # ✅ 5) Validate required fields
     if not to_number:
         return jsonify({
             "ok": False, 
@@ -1115,21 +1127,12 @@ def send_via_webhook():
             "message": "Field 'message' is required"
         }), 400
     
-    # ✅ 4) Resolve provider - webhook ALWAYS uses baileys (no "auto")
-    # If the system sends via Baileys, webhook must send via Baileys too
-    env_provider = os.getenv('WHATSAPP_PROVIDER', 'baileys').lower()
-    if env_provider == 'auto':
-        # For webhook, resolve to baileys explicitly (no auto)
-        provider_resolved = 'baileys'
-    else:
-        provider_resolved = env_provider if env_provider in ['baileys', 'meta'] else 'baileys'
+    # ✅ 6) Resolve provider from business (use business.whatsapp_provider, default to baileys)
+    provider_resolved = business.whatsapp_provider if business.whatsapp_provider in ['baileys', 'meta'] else 'baileys'
     
     tenant_id = f"business_{business_id}"
     
-    # ✅ 5) Enhanced diagnostic logging
-    log.info(f"[WA_WEBHOOK] business_id={business_id}, provider_requested={env_provider}, provider_resolved={provider_resolved}, secret_ok=True")
-    
-    # ✅ 6) Verify base URL is internal (Docker network) - NOT external domain
+    # ✅ 7) Verify base URL is internal (Docker network) - NOT external domain
     baileys_base = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
     if baileys_base.startswith('https://prosaas.pro') or 'prosaas.pro' in baileys_base:
         log.error(f"[WA_WEBHOOK] ERROR: BAILEYS_BASE_URL contains external domain: {baileys_base}")
@@ -1140,16 +1143,16 @@ def send_via_webhook():
             "message": "BAILEYS_BASE_URL must be internal Docker URL (http://baileys:3300), not external domain"
         }), 500
     
-    log.info(f"[WA_WEBHOOK] Using base_url={baileys_base}")
+    log.info(f"[WA_WEBHOOK] Using base_url={baileys_base}, tenant_id={tenant_id}")
     
-    # ✅ 7) Pre-send health check - verify WhatsApp is actually connected
+    # ✅ 8) Pre-send health check - verify WhatsApp is actually connected
     try:
         import requests
         headers = {'X-Internal-Secret': os.getenv('INTERNAL_SECRET', '')}
         
         # Check tenant-specific status (not just service health)
         status_url = f"{baileys_base}/whatsapp/{tenant_id}/status"
-        log.info(f"[WA_WEBHOOK] Checking status: {status_url}")
+        log.info(f"[WA_WEBHOOK] Checking connection status: {status_url}")
         
         status_resp = requests.get(status_url, headers=headers, timeout=3)
         
@@ -1160,7 +1163,7 @@ def send_via_webhook():
             active_phone = status_data.get('active_phone')
             last_seen = status_data.get('last_message_ts')
             
-            log.info(f"[WA_WEBHOOK] status_from_provider connected={connected}, active_phone={active_phone}, hasQR={has_qr}, last_seen={last_seen}")
+            log.info(f"[WA_WEBHOOK] Connection status: connected={connected}, active_phone={active_phone}, hasQR={has_qr}, last_seen={last_seen}")
             
             if not connected or has_qr:
                 # Not actually connected - return 503 (not 500!)
@@ -1203,7 +1206,7 @@ def send_via_webhook():
             "message": f"WhatsApp health check failed: {str(health_err)}"
         }), 503
     
-    # ✅ 8) Send message using WhatsApp provider
+    # ✅ 9) Send message using WhatsApp provider (SYNCHRONOUS for debugging)
     try:
         from server.whatsapp_provider import get_whatsapp_service
         
@@ -1223,11 +1226,16 @@ def send_via_webhook():
         if '@' not in formatted_number:
             formatted_number = f"{to_number}@s.whatsapp.net"
         
-        # Send message
+        log.info(f"[WA_WEBHOOK] Sending message to {formatted_number} via {provider_resolved}")
+        
+        # Send message (SYNCHRONOUS - no queue for debugging)
         try:
             send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
+            log.info(f"[WA_WEBHOOK] Send result: {send_result}")
         except Exception as e:
             log.error(f"[WA_WEBHOOK] Send failed: {e}")
+            import traceback
+            log.error(f"[WA_WEBHOOK] Traceback: {traceback.format_exc()}")
             return jsonify({
                 "ok": False, 
                 "error_code": "send_failed",
@@ -1255,6 +1263,8 @@ def send_via_webhook():
             db_status = provider_status if provider_status in success_statuses else 'sent'
             
             message_db_id = None
+            provider_message_id = send_result.get('sid') or send_result.get('message_id')
+            
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
@@ -1263,26 +1273,27 @@ def send_via_webhook():
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'out'
                 wa_msg.provider = send_result.get('provider', provider_resolved)
-                wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
+                wa_msg.provider_message_id = provider_message_id
                 wa_msg.status = db_status
                 
                 db.session.add(wa_msg)
                 db.session.commit()
                 
                 message_db_id = wa_msg.id
-                log.info(f"[WA_WEBHOOK] ✅ Message sent successfully: id={message_db_id}")
+                log.info(f"[WA_WEBHOOK] ✅ Message sent successfully: db_id={message_db_id}, provider_msg_id={provider_message_id}")
                 
             except Exception as db_error:
                 log.error(f"[WA_WEBHOOK] DB save failed: {db_error}")
                 db.session.rollback()
                 # Message was sent even if DB failed
             
-            # ✅ 9) Return proof response
+            # ✅ 10) Return proof response with full details
             return jsonify({
                 "ok": True,
                 "provider": send_result.get('provider', provider_resolved),
-                "message_id": message_db_id,
-                "queued": True,
+                "message_id": provider_message_id,
+                "db_id": message_db_id,
+                "delivered": True,
                 "status": db_status
             }), 200
         else:
