@@ -481,7 +481,7 @@ def stream_recording(call_sid):
             
             if is_download_in_progress(call_sid):
                 # Download already in progress - tell client to retry
-                log.info(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
+                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
                 return jsonify({
                     "success": True,
                     "status": "processing",
@@ -489,7 +489,7 @@ def stream_recording(call_sid):
                 }), 202
             
             # Not in progress and not cached - enqueue PRIORITY download job
-            log.info(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
+            log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
             
             # 🔥 FIX: Use download_only job for UI requests (fast!)
             # This skips transcription and only downloads the file

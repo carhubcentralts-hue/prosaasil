@@ -23,6 +23,10 @@ LOCK_POLL_INTERVAL = 0.5   # Check lock availability every 0.5 seconds
 _download_in_progress: Set[str] = set()
 _download_in_progress_lock = threading.Lock()
 
+# 🔥 Track when each download started (for stale cleanup)
+_download_start_time: dict = {}
+DOWNLOAD_STALE_TIMEOUT = 300  # 5 minutes - consider download stale if not finished
+
 def _get_recordings_dir() -> str:
     """
     ✅ מחזיר נתיב מוחלט לתיקיית הקלטות
@@ -367,8 +371,21 @@ def is_download_in_progress(call_sid: str) -> bool:
     """
     🔥 FIX: Check if a download is currently in progress for this call_sid.
     Thread-safe check to prevent duplicate downloads.
+    Also cleans up stale entries (downloads that started but never finished).
     """
     with _download_in_progress_lock:
+        # Clean up stale entries
+        current_time = time.time()
+        stale_sids = []
+        for sid, start_time in _download_start_time.items():
+            if current_time - start_time > DOWNLOAD_STALE_TIMEOUT:
+                stale_sids.append(sid)
+        
+        for sid in stale_sids:
+            log.warning(f"[RECORDING_SERVICE] Cleaning up stale download entry for {sid} (started {int(current_time - _download_start_time[sid])}s ago)")
+            _download_in_progress.discard(sid)
+            _download_start_time.pop(sid, None)
+        
         return call_sid in _download_in_progress
 
 
@@ -381,6 +398,7 @@ def mark_download_started(call_sid: str) -> bool:
         if call_sid in _download_in_progress:
             return False  # Already downloading
         _download_in_progress.add(call_sid)
+        _download_start_time[call_sid] = time.time()
         return True
 
 
@@ -390,3 +408,4 @@ def mark_download_finished(call_sid: str):
     """
     with _download_in_progress_lock:
         _download_in_progress.discard(call_sid)
+        _download_start_time.pop(call_sid, None)
