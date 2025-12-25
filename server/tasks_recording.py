@@ -76,8 +76,11 @@ def _should_enqueue_download(call_sid: str) -> tuple[bool, str]:
     🔥 DEDUPLICATION: Check if we should enqueue a download for this call_sid.
     
     Prevents duplicate downloads by:
-    1. Checking if already in progress (via recording_service)
-    2. Checking if recently enqueued (cooldown period)
+    1. Checking if file already cached locally
+    2. Checking if download already in progress (via recording_service)
+    3. Checking DB-backed status (queued, downloading, ready)
+    4. Checking cooldown period to prevent spam
+    5. Checking exponential backoff for failed downloads
     
     Args:
         call_sid: The call SID to check
@@ -86,28 +89,113 @@ def _should_enqueue_download(call_sid: str) -> tuple[bool, str]:
         tuple: (should_enqueue: bool, reason: str)
     """
     import time
+    from datetime import datetime, timezone
     from server.services.recording_service import is_download_in_progress, check_local_recording_exists
+    from server.app_factory import get_process_app
+    from server.models_sql import CallLog
+    from server.db import db
     
     # Check 1: File already cached locally
     if check_local_recording_exists(call_sid):
         return False, "already_cached"
     
-    # Check 2: Download already in progress
+    # Check 2: Download already in progress (in-memory check)
     if is_download_in_progress(call_sid):
         return False, "download_in_progress"
     
-    # Check 3: Recently enqueued (cooldown)
-    with _enqueue_lock:
-        last_time = _last_enqueue_time.get(call_sid)
-        if last_time:
-            elapsed = time.time() - last_time
-            if elapsed < ENQUEUE_COOLDOWN_SECONDS:
-                return False, f"cooldown_active ({int(ENQUEUE_COOLDOWN_SECONDS - elapsed)}s remaining)"
+    # Check 3: DB-backed status check
+    try:
+        app = get_process_app()
+        with app.app_context():
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            
+            if not call_log:
+                # Call doesn't exist in DB yet - allow enqueue
+                return True, "ok_no_call_log"
+            
+            # Check status
+            status = call_log.recording_download_status
+            
+            # Don't enqueue if already queued or downloading
+            if status in ('queued', 'downloading'):
+                return False, f"status_{status}"
+            
+            # Don't enqueue if ready
+            if status == 'ready':
+                return False, "status_ready"
+            
+            # Check cooldown period
+            if call_log.recording_last_enqueue_at:
+                last_enqueue = call_log.recording_last_enqueue_at
+                if last_enqueue.tzinfo is None:
+                    last_enqueue = last_enqueue.replace(tzinfo=timezone.utc)
+                
+                elapsed = (datetime.now(timezone.utc) - last_enqueue).total_seconds()
+                if elapsed < ENQUEUE_COOLDOWN_SECONDS:
+                    return False, f"cooldown_active ({int(ENQUEUE_COOLDOWN_SECONDS - elapsed)}s remaining)"
+            
+            # Check exponential backoff for failed downloads
+            if status == 'failed' and call_log.recording_next_retry_at:
+                next_retry = call_log.recording_next_retry_at
+                if next_retry.tzinfo is None:
+                    next_retry = next_retry.replace(tzinfo=timezone.utc)
+                
+                if datetime.now(timezone.utc) < next_retry:
+                    wait_seconds = (next_retry - datetime.now(timezone.utc)).total_seconds()
+                    return False, f"backoff_active ({int(wait_seconds)}s remaining, attempt {call_log.recording_fail_count})"
+            
+            return True, "ok"
+            
+    except Exception as e:
+        log.warning(f"Error checking DB status for {call_sid}: {e}")
+        # Fall back to in-memory check on DB error
+        with _enqueue_lock:
+            last_time = _last_enqueue_time.get(call_sid)
+            if last_time:
+                elapsed = time.time() - last_time
+                if elapsed < ENQUEUE_COOLDOWN_SECONDS:
+                    return False, f"cooldown_active ({int(ENQUEUE_COOLDOWN_SECONDS - elapsed)}s remaining)"
+            
+            # Mark as enqueued now
+            _last_enqueue_time[call_sid] = time.time()
         
-        # Mark as enqueued now
-        _last_enqueue_time[call_sid] = time.time()
+        return True, "ok_fallback"
+
+def _update_download_status(call_sid: str, status: str, fail_count: int = None, next_retry_at: datetime = None):
+    """
+    Update download status in DB to prevent duplicate jobs
     
-    return True, "ok"
+    Args:
+        call_sid: Call SID to update
+        status: New status (missing|queued|downloading|ready|failed)
+        fail_count: Optional failure count
+        next_retry_at: Optional next retry time
+    """
+    try:
+        from server.app_factory import get_process_app
+        from server.models_sql import CallLog
+        from server.db import db
+        from datetime import datetime, timezone
+        
+        app = get_process_app()
+        with app.app_context():
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            if call_log:
+                call_log.recording_download_status = status
+                call_log.recording_last_enqueue_at = datetime.now(timezone.utc)
+                
+                if fail_count is not None:
+                    call_log.recording_fail_count = fail_count
+                
+                if next_retry_at is not None:
+                    call_log.recording_next_retry_at = next_retry_at
+                
+                db.session.commit()
+                log.debug(f"[DOWNLOAD_STATUS] Updated {call_sid}: status={status}, fail_count={fail_count}")
+    except Exception as e:
+        log.warning(f"[DOWNLOAD_STATUS] Failed to update status for {call_sid}: {e}")
+        # Don't fail the download if DB update fails
+
 
 def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
     """Enqueue recording job for background processing
@@ -131,11 +219,13 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
             log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} - skipping enqueue")
         elif reason == "download_in_progress":
             log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
-        elif reason.startswith("cooldown_active"):
-            log.debug(f"[OFFLINE_STT] ⏭️  Cooldown active for {call_sid} - skipping enqueue ({reason})")
+        elif reason.startswith("cooldown_active") or reason.startswith("backoff_active") or reason.startswith("status_"):
+            log.debug(f"[OFFLINE_STT] ⏭️  Skipping enqueue for {call_sid}: {reason}")
         return  # Don't enqueue
     
-    # Passed deduplication checks - safe to enqueue
+    # Passed deduplication checks - update status to 'queued' and enqueue
+    _update_download_status(call_sid, 'queued')
+    
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
@@ -172,11 +262,13 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
             log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} - skipping enqueue")
         elif reason == "download_in_progress":
             log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
-        elif reason.startswith("cooldown_active"):
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Cooldown active for {call_sid} - skipping enqueue ({reason})")
+        elif reason.startswith("cooldown_active") or reason.startswith("backoff_active") or reason.startswith("status_"):
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Skipping enqueue for {call_sid}: {reason}")
         return  # Don't enqueue
     
-    # Passed deduplication checks - safe to enqueue
+    # Passed deduplication checks - update status to 'queued' and enqueue
+    _update_download_status(call_sid, 'queued')
+    
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
@@ -255,21 +347,31 @@ def start_recording_worker(app):
                     print(f"⚡ [DOWNLOAD_ONLY] Processing priority download for {call_sid}")
                     log.info(f"[DOWNLOAD_ONLY] Processing priority download: {call_sid}")
                     
+                    # Update status to 'downloading'
+                    _update_download_status(call_sid, 'downloading')
+                    
                     # Just download the file, don't transcribe
                     success = download_recording_only(call_sid, recording_url)
                     
                     if success:
                         print(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
                         log.info(f"[DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
+                        # Update status to 'ready'
+                        _update_download_status(call_sid, 'ready', fail_count=0)
                     else:
                         # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
                         if retry_count < 2:
                             import time
                             import threading
+                            from datetime import datetime, timedelta, timezone
                             
                             delay = 5  # Short delay for download retries
                             print(f"⚠️ [DOWNLOAD_ONLY] Download failed for {call_sid}, retrying in {delay}s")
                             log.warning(f"[DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
+                            
+                            # Update status to 'failed' with retry time
+                            next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
+                            _update_download_status(call_sid, 'failed', fail_count=retry_count + 1, next_retry_at=next_retry)
                             
                             def delayed_retry():
                                 time.sleep(delay)
@@ -287,6 +389,8 @@ def start_recording_worker(app):
                         else:
                             print(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                             log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                            # Mark as permanently failed
+                            _update_download_status(call_sid, 'failed', fail_count=retry_count + 1)
                     
                     # Always mark as done
                     RECORDING_QUEUE.task_done()
@@ -295,6 +399,9 @@ def start_recording_worker(app):
                 # Normal full processing (download + transcribe)
                 print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
                 log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
+                
+                # Update status to 'downloading'
+                _update_download_status(call_sid, 'downloading')
                 
                 # Build form_data for legacy processing function
                 form_data = {
@@ -313,10 +420,15 @@ def start_recording_worker(app):
                     # Recording not ready yet - schedule retry with backoff
                     import time
                     import threading
+                    from datetime import datetime, timedelta, timezone
                     
                     delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
                     print(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
                     log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
+                    
+                    # Update status to 'failed' with retry time
+                    next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
+                    _update_download_status(call_sid, 'failed', fail_count=retry_count + 1, next_retry_at=next_retry)
                     
                     # Schedule retry in background thread
                     def delayed_retry():
@@ -335,9 +447,13 @@ def start_recording_worker(app):
                 elif retry_count >= MAX_RETRIES and not success:
                     print(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
                     log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
+                    # Mark as permanently failed
+                    _update_download_status(call_sid, 'failed', fail_count=retry_count + 1)
                 else:
                     print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
                     log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
+                    # Update status to 'ready'
+                    _update_download_status(call_sid, 'ready', fail_count=0)
                 
             except (OperationalError, DisconnectionError) as e:
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
