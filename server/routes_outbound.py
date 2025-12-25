@@ -10,9 +10,11 @@ Endpoints:
 import os
 import re
 import logging
+import uuid
 from datetime import datetime
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from sqlalchemy import func
+from sqlalchemy import text
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
 from server.auth_api import require_api_auth
@@ -1676,9 +1678,7 @@ def fill_queue_slots_for_job(job_id: int):
                     
                     # 🔒 ATOMIC LOCKING: Acquire lock before dialing
                     # This prevents duplicate calls from retry/concurrency/timeout scenarios
-                    import uuid
                     lock_token = str(uuid.uuid4())
-                    from sqlalchemy import text
                     
                     # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
                     result = db.session.execute(text("""
@@ -1886,6 +1886,9 @@ def process_bulk_call_run(run_id: int):
                                 run.queued_count -= 1
                                 db.session.commit()
                                 continue
+                            
+                            # 🔒 ATOMIC LOCKING: Generate unique lock token for this call
+                            lock_token = str(uuid.uuid4())
                             
                             # Atomic UPDATE: Only proceed if status='queued' AND twilio_call_sid IS NULL AND dial_lock_token IS NULL
                             result = db.session.execute(text("""
