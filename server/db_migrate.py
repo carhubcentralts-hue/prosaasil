@@ -1455,6 +1455,24 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 47: WhatsApp Webhook Secret - Add webhook_secret column to business table
+        # 🔒 IDEMPOTENT: Safe column addition for n8n integration security
+        checkpoint("Migration 47: WhatsApp Webhook Secret for n8n integration")
+        if check_table_exists('business') and not check_column_exists('business', 'webhook_secret'):
+            try:
+                from sqlalchemy import text
+                # Add webhook_secret column with unique constraint
+                db.session.execute(text("""
+                    ALTER TABLE business 
+                    ADD COLUMN webhook_secret VARCHAR(128) UNIQUE NULL
+                """))
+                migrations_applied.append('add_business_webhook_secret')
+                log.info("✅ Added webhook_secret column to business table for n8n webhook authentication")
+            except Exception as e:
+                log.error(f"❌ Migration 47 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
