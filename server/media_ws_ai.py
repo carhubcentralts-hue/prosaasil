@@ -1961,6 +1961,9 @@ class MediaStreamHandler:
         self.greeting_lock_active = False
         self._greeting_lock_response_id = None
         
+        # 🔥 FIX: CLOSING STATE TRACKING - Block audio input when call is closing
+        self._closing_block_logged = False  # Track if we've logged the closing state message
+        
         # 🎯 STT GUARD: Track utterance metadata for validation
         # Prevents hallucinated transcriptions during silence from triggering barge-in
         self._candidate_user_speaking = False  # Set on speech_started, validated on transcription.completed
@@ -3388,6 +3391,17 @@ class MediaStreamHandler:
                     print("✅ [GREETING_LOCK] Greeting done - resuming live audio to OpenAI")
                     _greeting_resumed_logged = True
                 
+                # 🔥 FIX: CLOSING STATE - Block audio input when call is closing
+                # Once BOT_BYE_DETECTED, we enter CLOSING state and must NOT send any more audio to OpenAI
+                # This prevents VAD/STT from triggering new END_OF_UTTERANCE events during goodbye audio drain
+                if self.call_state == CallState.CLOSING:
+                    if not hasattr(self, '_closing_block_logged') or not self._closing_block_logged:
+                        print("🚫 [CLOSING] Call in CLOSING state - ignoring all user audio input")
+                        self._closing_block_logged = True
+                    self._stats_audio_blocked += 1
+                    _frames_dropped += 1
+                    continue
+                
                 # ✅ NO FPS LIMITING - All frames pass through
                 # TX loop maintains strict 20ms pacing, no artificial throttling here
                 
@@ -3751,10 +3765,16 @@ class MediaStreamHandler:
             print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
-        # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
+        # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending or call is closing
         # Don't let AI start new conversation loops after call should end
         if getattr(self, 'pending_hangup', False):
             print(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
+            return False
+        
+        # 🔥 FIX: Block response.create when call is in CLOSING state
+        # Once BOT_BYE_DETECTED, no more AI responses should be created
+        if self.call_state == CallState.CLOSING:
+            print(f"🚫 [RESPONSE GUARD] Call in CLOSING state - blocking new responses ({reason})")
             return False
         
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
@@ -5267,8 +5287,9 @@ class MediaStreamHandler:
                             
                             if has_goodbye:
                                 resp_id = event.get('response_id')
-                                force_print(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
-                                logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw[:80]}...'")
+                                # 🔥 FIX: Log full text without truncation to see complete goodbye sentence
+                                force_print(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw}'")
+                                logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw}'")
                                 
                                 # 🔥 FIX: Only MARK for hangup, don't execute until audio.done
                                 # This ensures AI finishes saying the entire goodbye sentence
