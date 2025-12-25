@@ -10,6 +10,7 @@ import queue
 import wave
 import contextlib
 from threading import Thread
+import threading
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
@@ -31,6 +32,14 @@ RECORDING_QUEUE = queue.Queue()
 # DEBUG=1 → Production (minimal logs)
 # DEBUG=0 → Development (full logs)
 DEBUG = os.getenv("DEBUG", "1") == "1"
+
+# 🔥 DEDUPLICATION: Track last enqueue time per call_sid to prevent spam
+# Key: call_sid, Value: timestamp of last enqueue
+_last_enqueue_time: dict = {}
+_enqueue_lock = threading.Lock()
+
+# Cooldown period in seconds - don't enqueue same call_sid more than once per minute
+ENQUEUE_COOLDOWN_SECONDS = 60
 
 
 def normalize_call_direction(twilio_direction):
@@ -61,6 +70,45 @@ def normalize_call_direction(twilio_direction):
     else:
         return "unknown"
 
+
+def _should_enqueue_download(call_sid: str) -> tuple[bool, str]:
+    """
+    🔥 DEDUPLICATION: Check if we should enqueue a download for this call_sid.
+    
+    Prevents duplicate downloads by:
+    1. Checking if already in progress (via recording_service)
+    2. Checking if recently enqueued (cooldown period)
+    
+    Args:
+        call_sid: The call SID to check
+        
+    Returns:
+        tuple: (should_enqueue: bool, reason: str)
+    """
+    import time
+    from server.services.recording_service import is_download_in_progress, check_local_recording_exists
+    
+    # Check 1: File already cached locally
+    if check_local_recording_exists(call_sid):
+        return False, "already_cached"
+    
+    # Check 2: Download already in progress
+    if is_download_in_progress(call_sid):
+        return False, "download_in_progress"
+    
+    # Check 3: Recently enqueued (cooldown)
+    with _enqueue_lock:
+        last_time = _last_enqueue_time.get(call_sid)
+        if last_time:
+            elapsed = time.time() - last_time
+            if elapsed < ENQUEUE_COOLDOWN_SECONDS:
+                return False, f"cooldown_active ({int(ENQUEUE_COOLDOWN_SECONDS - elapsed)}s remaining)"
+        
+        # Mark as enqueued now
+        _last_enqueue_time[call_sid] = time.time()
+    
+    return True, "ok"
+
 def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
     """Enqueue recording job for background processing
     
@@ -71,7 +119,23 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         from_number: Caller phone number
         to_number: Called phone number
         retry_count: Current retry attempt (0-2 allowed, max 3 attempts total)
+    
+    🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
+    # 🔥 DEDUPLICATION: Check if we should enqueue this job
+    should_enqueue, reason = _should_enqueue_download(call_sid)
+    
+    if not should_enqueue:
+        # Don't enqueue - log at DEBUG level to reduce noise
+        if reason == "already_cached":
+            log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} - skipping enqueue")
+        elif reason == "download_in_progress":
+            log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
+        elif reason.startswith("cooldown_active"):
+            log.debug(f"[OFFLINE_STT] ⏭️  Cooldown active for {call_sid} - skipping enqueue ({reason})")
+        return  # Don't enqueue
+    
+    # Passed deduplication checks - safe to enqueue
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
@@ -82,7 +146,7 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         "type": "full"  # Default: full processing (download + transcribe)
     })
     if retry_count == 0:
-        print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
+        print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid} (dedup key acquired)")
         log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
     else:
         print(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
@@ -96,7 +160,23 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     
     This creates a high-priority job that only downloads the file, skipping transcription.
     Transcription will happen later via the normal webhook flow.
+    
+    🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
+    # 🔥 DEDUPLICATION: Check if we should enqueue this download
+    should_enqueue, reason = _should_enqueue_download(call_sid)
+    
+    if not should_enqueue:
+        # Don't enqueue - log at DEBUG level to reduce noise
+        if reason == "already_cached":
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} - skipping enqueue")
+        elif reason == "download_in_progress":
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
+        elif reason.startswith("cooldown_active"):
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Cooldown active for {call_sid} - skipping enqueue ({reason})")
+        return  # Don't enqueue
+    
+    # Passed deduplication checks - safe to enqueue
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
@@ -107,7 +187,7 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         "type": "download_only"  # 🔥 NEW: Just download, skip transcription
     })
     if retry_count == 0:
-        print(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid}")
+        print(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid} (dedup key acquired)")
         log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: {call_sid}")
     else:
         print(f"🔁 [DOWNLOAD_ONLY] Retry {retry_count} enqueued for {call_sid}")
