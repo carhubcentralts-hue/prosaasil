@@ -4727,9 +4727,9 @@ class MediaStreamHandler:
                     # ═══════════════════════════════════════════════════════════════════════
                     
                     # 🔥 BARGE-IN FIX: Always allow manual cancellation for responsive interruption
-                    # Previously skipped when auto_create_response=True, but this prevented barge-in
-                    # from working. OpenAI's server_vad does NOT automatically cancel active responses
-                    # when user speaks - we must do it manually for proper barge-in behavior.
+                    # The previous code skipped manual cancellation assuming server_vad would handle it,
+                    # but testing showed that active responses are NOT automatically cancelled when the
+                    # user speaks. We must manually cancel responses for proper barge-in behavior.
                     
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))

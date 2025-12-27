@@ -333,8 +333,8 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             raise ValueError("שם הלקוח חייב להכיל לפחות 2 תווים")
         
         # Note: We trust the AI to collect proper names. Generic names like "לקוח" are
-        # accepted if that's what the AI collected - the business owner will strengthen
-        # their prompt to encourage full names if needed.
+        # accepted if that's what the AI collected. The system prompt (in realtime_prompt_builder.py)
+        # has been strengthened to encourage full names.
         
         # 🔥 POLICY CHECK: Require phone before booking (Sect 3 from instructions)
         from server.policy.business_policy import get_business_policy
