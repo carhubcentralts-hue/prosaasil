@@ -1473,6 +1473,47 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 48: Add call_transcript column to appointments table
+        # 🔒 IDEMPOTENT: Safe column addition for storing full conversation transcripts
+        checkpoint("Migration 48: Add call_transcript to appointments")
+        if check_table_exists('appointments') and not check_column_exists('appointments', 'call_transcript'):
+            try:
+                from sqlalchemy import text
+                # Add call_transcript column to store full transcripts
+                db.session.execute(text("""
+                    ALTER TABLE appointments 
+                    ADD COLUMN call_transcript TEXT
+                """))
+                migrations_applied.append('add_appointments_call_transcript')
+                log.info("✅ Added call_transcript column to appointments table for full conversation transcripts")
+            except Exception as e:
+                log.error(f"❌ Migration 48 failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Migration 49: Add idempotency_key column to whatsapp_broadcasts table
+        # 🔒 IDEMPOTENT: Safe column addition for preventing duplicate broadcasts
+        checkpoint("Migration 49: Add idempotency_key to whatsapp_broadcasts")
+        if check_table_exists('whatsapp_broadcasts') and not check_column_exists('whatsapp_broadcasts', 'idempotency_key'):
+            try:
+                from sqlalchemy import text
+                # Add idempotency_key column with index for duplicate prevention
+                db.session.execute(text("""
+                    ALTER TABLE whatsapp_broadcasts 
+                    ADD COLUMN idempotency_key VARCHAR(64)
+                """))
+                # Create index for efficient lookup
+                db.session.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_wa_broadcast_idempotency 
+                    ON whatsapp_broadcasts(idempotency_key)
+                """))
+                migrations_applied.append('add_whatsapp_broadcasts_idempotency_key')
+                log.info("✅ Added idempotency_key column to whatsapp_broadcasts table for duplicate prevention")
+            except Exception as e:
+                log.error(f"❌ Migration 49 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
