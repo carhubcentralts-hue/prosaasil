@@ -464,7 +464,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if not phone and context:
             caller_number = context.get('caller_number') or context.get('from_number')
             if caller_number:
-                from server.services.phone_validator import normalize_il_phone
+                # Use normalize_il_phone already imported at top of file (line 11)
                 phone = normalize_il_phone(caller_number)
                 if phone:
                     print(f"   📞 Extracted phone from call metadata: {phone}")
@@ -569,9 +569,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 logger.warning("⚠️ No phone - skipping lead creation")
         except Exception as lead_error:
             # Don't fail appointment if lead creation fails
-            logger.error(f"❌ Lead upsert failed: {lead_error}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"❌ Lead upsert failed: {lead_error}")
         
         # STEP 2: whatsapp_send (send confirmation with graceful fallback)
         agent_context = context or {}
@@ -665,9 +663,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         print(f"❌ ROLLING BACK SESSION...")
         db.session.rollback()
         print(f"❌ ROLLBACK COMPLETE")
-        logger.error(f"Error creating appointment: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Error creating appointment: {e}")
         return {
             "ok": False,
             "error": "appointment_error",
