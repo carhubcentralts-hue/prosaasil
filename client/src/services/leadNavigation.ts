@@ -257,7 +257,7 @@ export async function getPrevNextLeads(
                 params.set('page_size', '1000');  // Fetch all to build navigation list
                 // Remove direction param - endpoint already filters to outbound
                 params.delete('direction');
-                // Remove page+pageSize params for consistency
+                // Note: pageSize is for /api/leads, page_size is for /api/outbound/recent-calls
                 params.delete('pageSize');
                 break;
             }
