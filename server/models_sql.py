@@ -109,6 +109,12 @@ class CallLog(db.Model):
     audio_duration_sec = db.Column(db.Float, nullable=True)  # Recording duration in seconds from metadata
     transcript_source = db.Column(db.String(32), nullable=True)  # "recording"/"realtime" - source of final_transcript
     
+    # 🔥 RECORDING DOWNLOAD STATUS: Track download state to prevent duplicate jobs
+    recording_download_status = db.Column(db.String(32), nullable=True, default=None)  # missing|queued|downloading|ready|failed
+    recording_last_enqueue_at = db.Column(db.DateTime, nullable=True)  # Last time download was enqueued
+    recording_fail_count = db.Column(db.Integer, default=0)  # Number of failed download attempts
+    recording_next_retry_at = db.Column(db.DateTime, nullable=True)  # When to retry after failure
+    
     # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
     detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
     detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)

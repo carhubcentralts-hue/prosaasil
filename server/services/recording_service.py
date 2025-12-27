@@ -174,9 +174,9 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                 log.info(f"[RECORDING_SERVICE] ✅ File already exists (created by another process): {local_path}")
                 return local_path
             
-            # 🔥 FIX: Changed to INFO level - this is expected on first playback, not an error
+            # 🔥 FIX: Changed to DEBUG level - this is expected on first playback, not an error
             # The offline worker should populate cache, but first playback will always trigger this
-            log.info(f"[RECORDING_SERVICE] Cache miss - downloading from Twilio for {call_sid} (async download in progress, client may need to retry)")
+            log.debug(f"[RECORDING_SERVICE] Cache miss - downloading from Twilio for {call_sid} (async download in progress, client may need to retry)")
             download_start = time.time()
             
             # Get Twilio credentials
@@ -220,6 +220,23 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                     log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
                 
                 download_success = True  # 🔥 FIX: Mark successful download
+                
+                # 🔥 Update status in DB to 'ready'
+                try:
+                    from server.app_factory import get_process_app
+                    from server.models_sql import CallLog
+                    from server.db import db
+                    app = get_process_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                        if call_log:
+                            call_log.recording_download_status = 'ready'
+                            call_log.recording_fail_count = 0
+                            db.session.commit()
+                            log.debug(f"[RECORDING_SERVICE] Updated status to 'ready' for {call_sid}")
+                except Exception as status_err:
+                    log.warning(f"[RECORDING_SERVICE] Could not update status: {status_err}")
+                
                 return local_path
                 
             except Exception as e:

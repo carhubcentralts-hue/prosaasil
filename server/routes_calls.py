@@ -354,6 +354,100 @@ def download_recording(call_sid):
         log.error(f"Error downloading recording: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@calls_bp.route("/api/recordings/<call_sid>/status", methods=["GET"])
+@require_api_auth()
+def get_recording_status(call_sid):
+    """
+    🔥 NEW: Get recording download status without triggering download
+    
+    Returns current status of recording download for UI polling.
+    Does NOT trigger download - use /stream endpoint for that.
+    
+    Returns:
+    - 200 + JSON with status info
+      {
+        "status": "ready|queued|downloading|missing|failed",
+        "url": "/api/recordings/{call_sid}/stream",  // only if ready
+        "retry_after": 5,  // seconds to wait before retry (if queued/downloading)
+        "message": "Processing recording"  // human-readable status
+      }
+    - 403 Forbidden if call doesn't belong to user's tenant
+    - 404 Not Found if call doesn't exist
+    - 410 Gone if recording expired (>7 days)
+    """
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            log.warning(f"Recording status: No business_id for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "Business ID required"}), 400
+        
+        # Check if call exists and belongs to this business (tenant validation)
+        call = Call.query.filter(
+            Call.call_sid == call_sid,
+            Call.business_id == business_id
+        ).first()
+        
+        if not call:
+            log.warning(f"Recording status: Call not found or access denied call_sid={call_sid}, business_id={business_id}")
+            return jsonify({"success": False, "error": "Recording not found"}), 404
+        
+        # Check if recording is expired (7 days)
+        if call.created_at and (datetime.now(timezone.utc).replace(tzinfo=None) - call.created_at).days > 7:
+            log.info(f"Recording status: Recording expired for call_sid={call_sid}")
+            return jsonify({
+                "success": True,
+                "status": "expired",
+                "message": "Recording expired (older than 7 days)"
+            }), 410
+        
+        # Check if recording_url exists
+        if not call.recording_url:
+            log.warning(f"Recording status: No recording_url for call_sid={call_sid}")
+            return jsonify({
+                "success": True,
+                "status": "missing",
+                "message": "No recording available"
+            }), 200
+        
+        # Get download status from DB
+        status = call.recording_download_status or 'missing'
+        
+        # Build response based on status
+        response = {
+            "success": True,
+            "status": status
+        }
+        
+        if status == 'ready':
+            response["url"] = f"/api/recordings/{call_sid}/stream"
+            response["message"] = "Recording ready to play"
+        elif status == 'queued':
+            response["retry_after"] = 2
+            response["message"] = "Recording queued for download"
+        elif status == 'downloading':
+            response["retry_after"] = 5
+            response["message"] = "Recording is being downloaded"
+        elif status == 'failed':
+            fail_count = call.recording_fail_count or 0
+            if call.recording_next_retry_at:
+                next_retry = call.recording_next_retry_at
+                if next_retry.tzinfo is None:
+                    next_retry = next_retry.replace(tzinfo=timezone.utc)
+                wait_seconds = max(0, int((next_retry - datetime.now(timezone.utc)).total_seconds()))
+                response["retry_after"] = wait_seconds
+                response["message"] = f"Download failed (attempt {fail_count}), retrying in {wait_seconds}s"
+            else:
+                response["message"] = f"Download failed after {fail_count} attempts"
+        else:  # missing
+            response["message"] = "Recording not yet downloaded"
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        log.error(f"Error checking recording status for {call_sid}: {e}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+
+
 @calls_bp.route("/api/recordings/<call_sid>/stream", methods=["GET"])
 @require_api_auth()
 def stream_recording(call_sid):
@@ -476,17 +570,37 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - check if download is in progress or enqueue
-            from server.services.recording_service import is_download_in_progress
+            # File doesn't exist locally - check DB status
+            status = call.recording_download_status or 'missing'
             
-            if is_download_in_progress(call_sid):
-                # Download already in progress - tell client to retry
-                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
+            # Check if already queued or downloading
+            if status in ('queued', 'downloading'):
+                # Download already queued/in progress - tell client to retry
+                log.debug(f"Stream recording: Download {status} for call_sid={call_sid}, returning 202")
+                retry_after = 2 if status == 'queued' else 5
                 return jsonify({
                     "success": True,
                     "status": "processing",
-                    "message": "Recording is being prepared, please retry in a few seconds"
+                    "message": f"Recording is being {status}, please retry in a few seconds",
+                    "retry_after": retry_after
                 }), 202
+            
+            # Check if failed with retry time
+            if status == 'failed' and call.recording_next_retry_at:
+                from datetime import timezone
+                next_retry = call.recording_next_retry_at
+                if next_retry.tzinfo is None:
+                    next_retry = next_retry.replace(tzinfo=timezone.utc)
+                
+                wait_seconds = max(0, int((next_retry - datetime.now(timezone.utc)).total_seconds()))
+                if wait_seconds > 0:
+                    log.debug(f"Stream recording: Failed download in backoff for call_sid={call_sid}, retry in {wait_seconds}s")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": f"Recording download failed, retrying in {wait_seconds}s",
+                        "retry_after": wait_seconds
+                    }), 202
             
             # Not in progress and not cached - enqueue PRIORITY download job
             log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
@@ -506,7 +620,8 @@ def stream_recording(call_sid):
             return jsonify({
                 "success": True,
                 "status": "processing",
-                "message": "Recording is being prepared, please retry in a few seconds"
+                "message": "Recording is being prepared, please retry in a few seconds",
+                "retry_after": 2
             }), 202
         
     except Exception as e:
