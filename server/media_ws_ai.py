@@ -5136,14 +5136,7 @@ class MediaStreamHandler:
                                 print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
                                 self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
-                            # Track AI speaking state for barge-in
-                            # 🔥 STATE FIX: Set is_ai_speaking ONLY when actual audio arrives
-                            # This prevents race condition where is_ai_speaking=True before audio actually starts
-                            if not self.is_ai_speaking_event.is_set():
-                                self.ai_speaking_start_ts = now
-                                self.speaking_start_ts = now
-                                print(f"🔊 [STATE] AI started speaking (first audio.delta for greeting) - is_ai_speaking=True")
-                            self.is_ai_speaking_event.set()
+                            # Note: is_ai_speaking already set above at start of audio.delta handler
                             self.is_playing_greeting = True
                             # 🔥 VERIFICATION #3: Block enqueue if closed
                             if not self.closed:
@@ -5203,8 +5196,8 @@ class MediaStreamHandler:
                                     print("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
                         
-                        # Note: is_ai_speaking already set above (before guards) for proper barge-in detection
-                        # Don't reset timestamps on subsequent chunks!
+                        # Note: is_ai_speaking was already set at the beginning of audio.delta handler (before all guards)
+                        # This ensures proper barge-in detection even when audio is blocked by guards
                         
                         # 💰 COST TRACKING: Count AI audio chunks
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
@@ -13316,10 +13309,12 @@ class MediaStreamHandler:
                             transcription_parts = []
                             for turn in conversation_history:
                                 if isinstance(turn, dict):
-                                    if turn.get('user'):
-                                        transcription_parts.append(f"לקוח: {turn['user']}")
-                                    if turn.get('bot'):
-                                        transcription_parts.append(f"נציג: {turn['bot']}")
+                                    speaker = turn.get('speaker', '')
+                                    text = turn.get('text', '')
+                                    if speaker == 'user' and text:
+                                        transcription_parts.append(f"לקוח: {text}")
+                                    elif speaker == 'ai' and text:
+                                        transcription_parts.append(f"נציג: {text}")
                             
                             call_transcript = "\n".join(transcription_parts)
                             
