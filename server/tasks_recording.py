@@ -238,6 +238,7 @@ def start_recording_worker(app):
     
     with app.app_context():
         while True:
+            task_done_called = False  # 🔥 FIX: Track if we already called task_done()
             try:
                 # Block until a job is available
                 job = RECORDING_QUEUE.get()
@@ -288,9 +289,9 @@ def start_recording_worker(app):
                             print(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                             log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                     
-                    # ✅ FIX: Skip the finally block's task_done() for download_only
-                    # Mark as done here and continue (skip the normal processing path)
+                    # 🔥 FIX: Mark as done and set flag to prevent double task_done()
                     RECORDING_QUEUE.task_done()
+                    task_done_called = True
                     continue
                 
                 # Normal full processing (download + transcribe)
@@ -366,7 +367,9 @@ def start_recording_worker(app):
                 # Do NOT crash worker - continue with next job
                 
             finally:
-                RECORDING_QUEUE.task_done()
+                # 🔥 FIX: Only call task_done() if we haven't already called it
+                if not task_done_called:
+                    RECORDING_QUEUE.task_done()
 
 
 def download_recording_only(call_sid, recording_url):
