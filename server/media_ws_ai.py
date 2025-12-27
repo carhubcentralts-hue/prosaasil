@@ -9298,14 +9298,17 @@ class MediaStreamHandler:
                     
                     # ✅ לוגים נקיים - רק אירועים חשובים (לא כל frame)  
                     
-                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
-                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
-                    # 🔥 BUILD 165: Only skip for Realtime API (which handles barge-in above)
-                    # Fallback mode needs to continue to process barge-in below
-                    if self.speaking and USE_REALTIME_API:
-                        self.buf.clear()
-                        self.voice_in_row = 0  # Reset barge-in counter
-                        continue  # ← SKIP EVERYTHING - Realtime barge-in handled above
+                    # 🔒 BARGE-IN FIX: Continue sending audio to OpenAI even when AI is speaking
+                    # OpenAI needs to receive user audio to detect speech_started event for barge-in
+                    # The old logic skipped all audio processing when AI was speaking, preventing barge-in!
+                    # 
+                    # OLD BUGGY CODE (removed):
+                    # if self.speaking and USE_REALTIME_API:
+                    #     self.buf.clear()
+                    #     self.voice_in_row = 0
+                    #     continue  # ← This prevented barge-in!
+                    # 
+                    # NEW: Always send audio to OpenAI for VAD detection, even during AI speech
                     
                     # 🔥 BUILD 165: FALLBACK BARGE-IN - ONLY for non-Realtime API mode!
                     # Realtime API has its own barge-in handler above (lines 3010-3065)
