@@ -78,6 +78,8 @@ class CreateAppointmentInput(BaseModel):
     end_iso: str = Field(..., description="End time in ISO format")
     notes: Optional[str] = Field(None, description="Additional notes", max_length=1000)
     source: str = Field("ai_agent", description="Source of appointment")
+    call_summary: Optional[str] = Field(None, description="AI-generated summary from the call")
+    call_transcript: Optional[str] = Field(None, description="Full transcript from the call")
 
 class CreateAppointmentOutput(BaseModel):
     """Appointment creation result"""
@@ -487,7 +489,9 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             contact_phone=phone,  # Can be None! Phone is in call log
             auto_generated=True,
             source=input.source or "phone_call",  # 🔥 FIX: Set source properly!
-            notes=f"נקבע ע״י AI Agent\nשירות: {input.treatment_type}"
+            notes=f"נקבע ע״י AI Agent\nשירות: {input.treatment_type}",
+            call_summary=input.call_summary,  # 🔥 BUILD 144: Save call summary
+            call_transcript=input.call_transcript  # 🔥 BUILD 144: Save call transcript
         )
         
         print(f"   Appointment object created: {appointment}")
