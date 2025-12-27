@@ -216,8 +216,8 @@ export async function getPrevNextLeads(
         case 'recent_calls':
           endpoint = '/api/calls';
           // /api/calls uses limit+offset pagination
-          params.set('limit', '1000');
-          params.set('offset', '0');
+          params.set('limit', '1000');  // Fetch all to build navigation list
+          params.set('offset', '0');     // Always start from beginning to get full list for navigation
           // Don't override direction if it's already set in filters
           if (!context.filters?.direction) {
             // Default: show all calls (inbound and outbound)
@@ -249,13 +249,15 @@ export async function getPrevNextLeads(
                 // Imported leads - no additional filter
                 break;
               case 'recent':
-                // Recent calls from outbound
-                endpoint = '/api/calls';
-                params.set('direction', 'outbound');
-                params.set('limit', '1000');
-                params.set('offset', '0');
-                // Remove page+pageSize params for calls endpoint
-                params.delete('page');
+                // Recent calls from outbound - use the same endpoint as OutboundCallsPage
+                // This ensures consistent results between the page and navigation
+                endpoint = '/api/outbound/recent-calls';
+                // Fetch enough records to cover navigation (page_size instead of limit/offset)
+                params.set('page', '1');
+                params.set('page_size', '1000');  // Fetch all to build navigation list
+                // Remove direction param - endpoint already filters to outbound
+                params.delete('direction');
+                // Remove page+pageSize params for consistency
                 params.delete('pageSize');
                 break;
             }
@@ -282,12 +284,18 @@ export async function getPrevNextLeads(
       const response = await apiClient.get(url);
       
       // Extract lead IDs from response
-      if (context.from === 'recent_calls' || (context.from === 'outbound_calls' && context.tab === 'recent')) {
-        // For calls, extract lead_id from call records
+      if (context.from === 'recent_calls') {
+        // For recent_calls context (CallsPage), use /api/calls response format
         const calls = response?.calls || [];
         leadIds = calls
           .filter((call: any) => call.lead_id)
           .map((call: any) => call.lead_id);
+      } else if (context.from === 'outbound_calls' && context.tab === 'recent') {
+        // For outbound_calls with recent tab, use /api/outbound/recent-calls response format
+        const items = response?.items || [];
+        leadIds = items
+          .filter((item: any) => item.lead_id)
+          .map((item: any) => item.lead_id);
       } else {
         // For leads (handles both direct response and paginated response)
         const leads = response?.leads || response?.items || [];
