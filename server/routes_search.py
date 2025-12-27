@@ -307,10 +307,10 @@ def global_search():
         # Search in Settings (הגדרות)
         if 'settings' in search_types or types_param == 'all' or not types_param:
             SYSTEM_SETTINGS = [
-                {'id': 'webhook', 'title': 'Webhook', 'description': 'הגדרות Webhook ל-Twilio', 'keywords': ['webhook', 'twilio'], 'path': '/app/settings', 'section': 'integrations'},
+                {'id': 'webhook', 'title': 'Webhook', 'description': 'הגדרות Webhook ל-Twilio', 'keywords': ['webhook', 'twilio', 'אינטגרציות', 'integrations'], 'path': '/app/settings?tab=integrations', 'section': 'integrations'},
                 {'id': 'ai-prompts', 'title': 'AI Prompts', 'description': 'הגדרות פרומפטים ל-AI', 'keywords': ['ai', 'prompts', 'פרומפט', 'פרומפטים', 'בינה מלאכותית'], 'path': '/app/admin/prompts', 'section': 'ai'},
-                {'id': 'phone', 'title': 'מספרי טלפון', 'description': 'ניהול מספרי טלפון', 'keywords': ['טלפון', 'phone', 'numbers'], 'path': '/app/settings', 'section': 'phone'},
-                {'id': 'whatsapp-config', 'title': 'הגדרות WhatsApp', 'description': 'Meta Cloud API / Baileys', 'keywords': ['whatsapp', 'meta', 'baileys'], 'path': '/app/settings', 'section': 'whatsapp'},
+                {'id': 'phone', 'title': 'מספרי טלפון', 'description': 'ניהול מספרי טלפון', 'keywords': ['טלפון', 'phone', 'numbers'], 'path': '/app/settings?tab=phone', 'section': 'phone'},
+                {'id': 'whatsapp-config', 'title': 'הגדרות WhatsApp', 'description': 'Meta Cloud API / Baileys', 'keywords': ['whatsapp', 'meta', 'baileys'], 'path': '/app/settings?tab=whatsapp', 'section': 'whatsapp'},
                 {'id': 'statuses', 'title': 'ניהול סטטוסים', 'description': 'ניהול סטטוסים של לידים', 'keywords': ['סטטוסים', 'statuses', 'pipeline'], 'path': '/app/leads', 'action': 'open-status-modal'},
             ]
             
