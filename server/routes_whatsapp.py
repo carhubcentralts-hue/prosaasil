@@ -2217,144 +2217,194 @@ def is_empty_value(value) -> bool:
     return False
 
 
-def extract_phones_bulletproof(payload, files, business_id):
+def extract_phones_simplified(payload, files, business_id):
     """
-    🔥 BULLETPROOF recipient resolution per expert feedback
+    🔥 SIMPLIFIED recipient resolution - accept phones from ANYWHERE!
     
-    Extract phone numbers from multiple sources with priority:
-    1. Direct phones (phones/recipients/selected_phones - array or CSV string)
+    Per requirements: "Don't complicate it! Just make it so that to send a broadcast,
+    all that's needed is to have a phone marked!"
+    
+    Extract phone numbers from ANY source:
+    1. Direct phones (phones/recipients/selected_phones/to - any format)
     2. lead_ids → fetch phones from DB
-    3. csv_file → parse phones
+    3. csv_file → parse phones  
     4. statuses → query leads by status
+    5. message_text → extract phones from text
     
     Returns list of normalized phone numbers (deduplicated)
     """
     phones = []
     
-    log.info(f"[extract_phones] Starting extraction for business_id={business_id}")
-    log.info(f"[extract_phones] Payload keys: {list(payload.keys())}")
-    log.info(f"[extract_phones] Files keys: {list(files.keys())}")
+    log.info(f"[WA_BROADCAST] 🔍 Starting SIMPLIFIED phone extraction for business_id={business_id}")
+    log.info(f"[WA_BROADCAST] Payload keys: {list(payload.keys())}")
+    log.info(f"[WA_BROADCAST] Files keys: {list(files.keys())}")
+    log.info(f"[WA_BROADCAST] Full payload: {str(payload)[:500]}")
     
-    # 1) Direct phones - support multiple field names and formats
-    raw_phones = payload.get('phones') or payload.get('recipients') or payload.get('selected_phones')
-    log.info(f"[extract_phones] raw_phones type={type(raw_phones)}, value={str(raw_phones)[:200] if raw_phones else 'None'}")
+    # 🔥 STRATEGY: Try EVERY possible field name and format
+    # Don't skip anything - if it looks like a phone, accept it!
     
-    if raw_phones:
-        # Skip empty values using helper function
-        if is_empty_value(raw_phones):
-            raw_phones = None
-            
-        if raw_phones:
-            if isinstance(raw_phones, str):
-                # Could be JSON string or CSV string
-                try:
-                    # Try JSON first
-                    raw_phones = json.loads(raw_phones)
-                    log.info(f"[extract_phones] Parsed phones from JSON string: {len(raw_phones) if isinstance(raw_phones, list) else 'not a list'}")
-                except:
-                    # Fall back to CSV split
-                    raw_phones = [x.strip() for x in raw_phones.split(',') if x.strip()]
-                    log.info(f"[extract_phones] Parsed phones from CSV string: {len(raw_phones)}")
-            
-            if isinstance(raw_phones, list):
-                for p in raw_phones:
-                    normalized = normalize_phone(p)
-                    if normalized:
-                        phones.append(normalized)
-                
-                if phones:
-                    log.info(f"[extract_phones] ✅ Found {len(phones)} direct phones")
+    # 1) Try ALL possible direct phone field names
+    phone_field_names = ['phones', 'recipients', 'selected_phones', 'to', 'phone_numbers', 
+                         'numbers', 'contacts', 'phone', 'phoneNumbers']
     
-    # 2) lead_ids - fetch from DB
-    lead_ids = payload.get('lead_ids') or payload.get('leadIds')
-    log.info(f"[extract_phones] lead_ids type={type(lead_ids)}, value={str(lead_ids)[:200] if lead_ids else 'None'}")
+    for field_name in phone_field_names:
+        raw_value = payload.get(field_name)
+        if not raw_value:
+            continue
+            
+        log.info(f"[WA_BROADCAST] Found {field_name}={str(raw_value)[:200]}")
+        
+        # Parse the value - it could be a string, list, or JSON string
+        parsed_phones = []
+        
+        if isinstance(raw_value, str):
+            # Try JSON parse first
+            try:
+                parsed = json.loads(raw_value)
+                if isinstance(parsed, list):
+                    parsed_phones = parsed
+                elif isinstance(parsed, str):
+                    # JSON string containing a single phone
+                    parsed_phones = [parsed]
+            except:
+                # Not JSON - could be CSV or single phone
+                if ',' in raw_value:
+                    # CSV format
+                    parsed_phones = [x.strip() for x in raw_value.split(',') if x.strip()]
+                else:
+                    # Single phone
+                    parsed_phones = [raw_value.strip()] if raw_value.strip() else []
+        
+        elif isinstance(raw_value, list):
+            parsed_phones = raw_value
+        
+        # Normalize and add phones
+        for p in parsed_phones:
+            # Convert to string if needed
+            p_str = str(p).strip() if p else ''
+            if p_str:
+                normalized = normalize_phone(p_str)
+                if normalized:
+                    phones.append(normalized)
+                    log.info(f"[WA_BROADCAST] ✅ Extracted phone: {p_str} → {normalized}")
     
-    if lead_ids:
-        # Skip empty values using helper function
-        if is_empty_value(lead_ids):
-            lead_ids = None
+    log.info(f"[WA_BROADCAST] After direct extraction: {len(phones)} phones")
+    
+    # 2) Try lead_ids - fetch from DB
+    lead_id_field_names = ['lead_ids', 'leadIds', 'leads', 'lead_id']
+    for field_name in lead_id_field_names:
+        lead_ids = payload.get(field_name)
+        if not lead_ids:
+            continue
+        
+        log.info(f"[WA_BROADCAST] Found {field_name}={str(lead_ids)[:200]}")
+        
+        # Parse lead IDs
+        parsed_ids = []
+        if isinstance(lead_ids, str):
+            try:
+                parsed_ids = json.loads(lead_ids)
+            except:
+                # Try CSV
+                parsed_ids = [int(x.strip()) for x in lead_ids.split(',') if x.strip().isdigit()]
+        elif isinstance(lead_ids, list):
+            parsed_ids = [int(x) for x in lead_ids if str(x).isdigit()]
+        
+        if parsed_ids:
+            from server.models_sql import Lead
+            log.info(f"[WA_BROADCAST] Querying DB for {len(parsed_ids)} lead IDs")
             
-        if lead_ids:
-            if isinstance(lead_ids, str):
-                try:
-                    lead_ids = json.loads(lead_ids)
-                    log.info(f"[extract_phones] Parsed lead_ids from JSON string: {len(lead_ids) if isinstance(lead_ids, list) else 'not a list'}")
-                except:
-                    lead_ids = []
-                    log.warning(f"[extract_phones] Failed to parse lead_ids JSON string")
+            db_phones = (
+                Lead.query
+                .with_entities(Lead.phone_e164)
+                .filter(Lead.tenant_id == business_id, Lead.id.in_(parsed_ids))
+                .all()
+            )
             
-            if isinstance(lead_ids, list) and lead_ids:
-                from server.models_sql import Lead
-                log.info(f"[extract_phones] Querying DB for {len(lead_ids)} lead IDs")
-                
-                db_phones = (
-                    Lead.query
-                    .with_entities(Lead.phone_e164)
-                    .filter(Lead.tenant_id == business_id, Lead.id.in_(lead_ids))
-                    .all()
-                )
-                
-                for p_tuple in db_phones:
+            for p_tuple in db_phones:
+                if p_tuple[0]:
                     normalized = normalize_phone(p_tuple[0])
                     if normalized:
                         phones.append(normalized)
-                
-                if db_phones:
-                    log.info(f"[extract_phones] ✅ Found {len(db_phones)} phones from lead_ids")
-                else:
-                    log.warning(f"[extract_phones] ⚠️ No phones found in DB for lead_ids={lead_ids}")
+                        log.info(f"[WA_BROADCAST] ✅ From lead: {p_tuple[0]} → {normalized}")
+            
+            log.info(f"[WA_BROADCAST] Found {len(db_phones)} phones from {len(parsed_ids)} lead_ids")
+            break  # Found lead_ids, no need to check other field names
     
-    # 3) csv_file - parse phones
+    log.info(f"[WA_BROADCAST] After lead_ids: {len(phones)} phones")
+    
+    # 3) Try CSV file upload
     if 'csv_file' in files:
-        log.info(f"[extract_phones] Processing CSV file")
+        log.info(f"[WA_BROADCAST] Processing CSV file")
         csv_phones = parse_csv_phones(files['csv_file'])
         phones.extend(csv_phones)
-        if csv_phones:
-            log.info(f"[extract_phones] ✅ Found {len(csv_phones)} phones from CSV")
+        log.info(f"[WA_BROADCAST] Found {len(csv_phones)} phones from CSV")
     
-    # 4) statuses - query by status
-    statuses = payload.get('statuses')
-    log.info(f"[extract_phones] statuses type={type(statuses)}, value={str(statuses)[:200] if statuses else 'None'}")
+    log.info(f"[WA_BROADCAST] After CSV: {len(phones)} phones")
     
-    if statuses:
-        # Skip empty values using helper function
-        if is_empty_value(statuses):
-            statuses = None
+    # 4) Try statuses - query by status
+    status_field_names = ['statuses', 'status', 'lead_statuses']
+    for field_name in status_field_names:
+        statuses = payload.get(field_name)
+        if not statuses:
+            continue
+        
+        log.info(f"[WA_BROADCAST] Found {field_name}={str(statuses)[:200]}")
+        
+        # Parse statuses
+        parsed_statuses = []
+        if isinstance(statuses, str):
+            try:
+                parsed_statuses = json.loads(statuses)
+            except:
+                # Try CSV
+                parsed_statuses = [x.strip() for x in statuses.split(',') if x.strip()]
+        elif isinstance(statuses, list):
+            parsed_statuses = statuses
+        
+        if parsed_statuses:
+            from server.models_sql import Lead
+            log.info(f"[WA_BROADCAST] Querying DB for statuses={parsed_statuses}")
             
-        if statuses:
-            if isinstance(statuses, str):
-                try:
-                    statuses = json.loads(statuses)
-                    log.info(f"[extract_phones] Parsed statuses from JSON string: {len(statuses) if isinstance(statuses, list) else 'not a list'}")
-                except:
-                    statuses = []
-                    log.warning(f"[extract_phones] Failed to parse statuses JSON string")
+            db_phones = (
+                Lead.query
+                .with_entities(Lead.phone_e164)
+                .filter(Lead.tenant_id == business_id, Lead.status.in_(parsed_statuses))
+                .all()
+            )
             
-            if isinstance(statuses, list) and statuses:
-                from server.models_sql import Lead
-                log.info(f"[extract_phones] Querying DB for statuses={statuses}")
-                
-                db_phones = (
-                    Lead.query
-                    .with_entities(Lead.phone_e164)
-                    .filter(Lead.tenant_id == business_id, Lead.status.in_(statuses))
-                    .all()
-                )
-                
-                for p_tuple in db_phones:
+            for p_tuple in db_phones:
+                if p_tuple[0]:
                     normalized = normalize_phone(p_tuple[0])
                     if normalized:
                         phones.append(normalized)
-                
-                if db_phones:
-                    log.info(f"[extract_phones] ✅ Found {len(db_phones)} phones from statuses")
-                else:
-                    log.warning(f"[extract_phones] ⚠️ No phones found in DB for statuses={statuses}")
+            
+            log.info(f"[WA_BROADCAST] Found {len(db_phones)} phones from statuses")
+            break  # Found statuses, no need to check other field names
+    
+    log.info(f"[WA_BROADCAST] After statuses: {len(phones)} phones")
+    
+    # 5) 🔥 LAST RESORT: Try to extract phones from message_text or any other text field
+    # Look for phone numbers in ANY string field
+    import re
+    phone_pattern = re.compile(r'\+?\d[\d\s\-\(\)]{7,}')  # Match phone-like patterns
+    
+    for key, value in payload.items():
+        if isinstance(value, str) and len(value) < 1000:  # Don't process huge strings
+            matches = phone_pattern.findall(value)
+            for match in matches:
+                normalized = normalize_phone(match)
+                if normalized:
+                    phones.append(normalized)
+                    log.info(f"[WA_BROADCAST] ✅ Extracted from {key}: {match} → {normalized}")
     
     # Deduplicate and sort
     phones = sorted(set(p for p in phones if p))
     
-    log.info(f"[extract_phones] 🏁 Total unique phones: {len(phones)}")
+    log.info(f"[WA_BROADCAST] 🏁 FINAL: {len(phones)} unique phones extracted")
+    if phones:
+        log.info(f"[WA_BROADCAST] Sample phones: {phones[:3]}")
+    
     return phones
 
 
@@ -2382,117 +2432,82 @@ def create_broadcast():
         log.info(f"[WA_BROADCAST] Form keys: {list(request.form.keys())}")
         log.info(f"[WA_BROADCAST] Files: {list(request.files.keys())}")
         
-        # 🔥 FIX: Handle both JSON and form-data submissions
-        # Check if request is JSON or form-data
-        is_json = request.content_type and 'application/json' in request.content_type
+        # 🔥 SIMPLIFIED: Build a unified payload from ALL possible sources
+        # Merge JSON, form, and query params - accept data from ANYWHERE!
+        payload_dict = {}
         
-        if is_json:
-            # JSON request - parse from request.get_json()
-            data = request.get_json() or {}
-            log.info(f"[WA_BROADCAST] Parsing JSON request, keys: {list(data.keys())}")
-            
-            provider = data.get('provider', 'meta')
-            message_type = data.get('message_type', 'template')
-            template_id = data.get('template_id')
-            template_name = data.get('template_name')
-            message_text = data.get('message_text', '')
-            audience_source = data.get('audience_source', 'legacy')
-            statuses_json = data.get('statuses', '[]')
-            lead_ids_json = data.get('lead_ids', '[]')
-            import_list_id = data.get('import_list_id')
-            
-            # Try alternative field names
-            if not lead_ids_json or lead_ids_json == '[]':
-                lead_ids_json = data.get('recipients', '[]')
-            if not lead_ids_json or lead_ids_json == '[]':
-                lead_ids_json = data.get('phones', '[]')
-            
-            # Build payload dict for resolver
-            payload_dict = data
-        else:
-            # Form-data request - parse from request.form
-            log.info(f"[WA_BROADCAST] Parsing form-data request")
-            
-            provider = request.form.get('provider', 'meta')
-            message_type = request.form.get('message_type', 'template')
-            template_id = request.form.get('template_id')
-            template_name = request.form.get('template_name')
-            message_text = request.form.get('message_text', '')
-            audience_source = request.form.get('audience_source', 'legacy')
-            statuses_json = request.form.get('statuses', '[]')
-            lead_ids_json = request.form.get('lead_ids', '[]')
-            import_list_id = request.form.get('import_list_id')
-            
-            # Try alternative field names
-            if not lead_ids_json or lead_ids_json == '[]':
-                lead_ids_json = request.form.get('recipients', '[]')
-            if not lead_ids_json or lead_ids_json == '[]':
-                lead_ids_json = request.form.get('phones', '[]')
-            
-            # Build payload dict for resolver
-            payload_dict = dict(request.form)
-        
-        log.info(f"[WA_BROADCAST] audience_source={audience_source}, provider={provider}, message_type={message_type}")
-        log.info(f"[WA_BROADCAST] lead_ids_count={len(lead_ids_json) if lead_ids_json and isinstance(lead_ids_json, list) else ('present' if lead_ids_json else 'none')}")
-        log.info(f"[WA_BROADCAST] statuses_count={len(statuses_json) if statuses_json and isinstance(statuses_json, list) else ('present' if statuses_json else 'none')}")
-        
-        # Parse JSON parameters (they might be strings or already parsed)
+        # 1) Try JSON body
         try:
-            if isinstance(statuses_json, str):
-                statuses = json.loads(statuses_json)
-            elif isinstance(statuses_json, list):
-                statuses = statuses_json
-            else:
-                statuses = []
+            json_data = request.get_json(silent=True) or {}
+            if json_data:
+                payload_dict.update(json_data)
+                log.info(f"[WA_BROADCAST] Found JSON data with keys: {list(json_data.keys())}")
         except:
-            statuses = []
+            pass
         
-        try:
-            if isinstance(lead_ids_json, str):
-                lead_ids = json.loads(lead_ids_json)
-            elif isinstance(lead_ids_json, list):
-                lead_ids = lead_ids_json
-            else:
-                lead_ids = []
-        except:
-            lead_ids = []
+        # 2) Try form data
+        if request.form:
+            payload_dict.update(dict(request.form))
+            log.info(f"[WA_BROADCAST] Found form data with keys: {list(request.form.keys())}")
         
-        # ✅ FIX BUILD 200+: Enhanced diagnostic logging per requirements
-        log.info(f"[WA_BROADCAST] parsed_lead_ids={lead_ids}, parsed_statuses={statuses}")
+        # 3) Try query parameters
+        if request.args:
+            payload_dict.update(dict(request.args))
+            log.info(f"[WA_BROADCAST] Found query params with keys: {list(request.args.keys())}")
         
-        # 🔥 BULLETPROOF RECIPIENT RESOLUTION per expert feedback
-        # Use unified resolver that handles all possible input sources with priority
-        log.info(f"[WA_BROADCAST] Using bulletproof recipient resolver")
+        # 4) Get metadata fields (with defaults)
+        provider = payload_dict.get('provider', 'meta')
+        message_type = payload_dict.get('message_type', 'text')  # Default to 'text' for simplicity
+        template_id = payload_dict.get('template_id')
+        template_name = payload_dict.get('template_name')
+        message_text = payload_dict.get('message_text', '')
+        audience_source = payload_dict.get('audience_source', 'manual')
         
-        # Extract phones using bulletproof resolver
-        phones = extract_phones_bulletproof(payload_dict, request.files, business_id)
+        log.info(f"[WA_BROADCAST] provider={provider}, message_type={message_type}, audience_source={audience_source}")
+        log.info(f"[WA_BROADCAST] message_text preview: {message_text[:100] if message_text else 'none'}")
+        
+        # 🔥 SIMPLIFIED RECIPIENT RESOLUTION - Accept phones from ANYWHERE!
+        log.info(f"[WA_BROADCAST] Using SIMPLIFIED recipient resolver (accepts phones from ANY source)")
+        
+        # Extract phones using simplified resolver
+        phones = extract_phones_simplified(payload_dict, request.files, business_id)
         
         # Convert phones to recipient objects
         recipients = [{'phone': phone, 'lead_id': None} for phone in phones]
         
         log.info(f"[WA_BROADCAST] Resolved {len(recipients)} unique recipients")
         
-        # ✅ FIX: Enhanced error message with diagnostics
+        # ✅ FIX: Enhanced error message with diagnostics and clearer guidance
         if len(recipients) == 0:
             error_details = {
-                'missing_field': 'recipients',
-                'selection_count': 0,
+                'error_code': 'NO_RECIPIENTS',
                 'business_id': business_id,
+                'payload_keys': list(payload_dict.keys()),
                 'form_keys': list(request.form.keys()),
-                'files_keys': list(request.files.keys())
+                'files_keys': list(request.files.keys()),
+                'args_keys': list(request.args.keys())
             }
             
             log.error(f"[WA_BROADCAST] No recipients found: {error_details}")
             
-            # 🔥 IMPROVED ERROR MESSAGE per expert feedback
-            error_msg = 'לא נמצאו נמענים. סמן לידים בטבלה, הדבק מספרים ידנית, או העלה קובץ CSV.'
+            # 🔥 CLEARER ERROR MESSAGE per requirements
+            error_msg = '''
+לא נמצאו נמענים! אפשר לשלוח תפוצה באחת מהדרכים הבאות:
+1. העבר מספרי טלפון ישירות (phones=[...])
+2. העבר מזהי לידים (lead_ids=[...])  
+3. העלה קובץ CSV עם מספרי טלפון
+4. בחר סטטוסים של לידים (statuses=[...])
+5. הדבק מספרי טלפון בהודעה עצמה
+
+דוגמה: {"phones": ["+972501234567", "+972521234567"], "message_text": "שלום"}
+            '''.strip()
             
             return jsonify({
                 'ok': False,
                 'error_code': 'NO_RECIPIENTS',
                 'message': error_msg,
                 'details': error_details
-            }), 422
+            }), 400  # Use 400 instead of 422 for simpler handling
         
         # Limit total recipients
         MAX_RECIPIENTS = 10000
@@ -2571,7 +2586,8 @@ def create_broadcast():
         broadcast.template_id = template_id
         broadcast.template_name = template_name
         broadcast.message_text = message_text
-        broadcast.audience_filter = {'statuses': statuses}
+        # 🔥 SIMPLIFIED: Store raw payload for debugging
+        broadcast.audience_filter = {'raw_request': dict(payload_dict)} if payload_dict else {}
         broadcast.total_recipients = len(normalized_recipients)
         broadcast.created_by = user_id
         broadcast.status = 'pending'
