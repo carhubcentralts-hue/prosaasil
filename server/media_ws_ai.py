@@ -4720,6 +4720,22 @@ class MediaStreamHandler:
                     # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
                     # ═══════════════════════════════════════════════════════════════════════
                     
+                    # 🔥 SERVER_VAD OPTIMIZATION: Skip manual cancel when OpenAI handles turn-taking
+                    # When auto_create_response=True, server_vad automatically cancels responses
+                    # on turn_detected. Manual cancellation causes race condition and errors.
+                    # Only do manual cancel when server_vad is NOT managing turns (legacy/fallback mode).
+                    manual_response_turns = getattr(self, "_manual_response_turns_enabled", False)
+                    skip_manual_cancel = not manual_response_turns  # Skip when auto_create_response=True
+                    
+                    if skip_manual_cancel:
+                        # server_vad is handling barge-in automatically - no manual cancel needed
+                        logger.debug(f"[BARGE-IN] Skipping manual cancel - server_vad handles turn-taking (auto_create_response=True)")
+                        # Still clear local speaking flags for UI consistency
+                        self.is_ai_speaking_event.clear()
+                        if hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        continue  # Skip manual cancellation logic
+                    
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
