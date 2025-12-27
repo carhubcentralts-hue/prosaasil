@@ -5071,6 +5071,30 @@ class MediaStreamHandler:
                         audio_bytes = base64.b64decode(audio_b64)
                         logger.debug(f"[AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}")
                         
+                        # 🔥 CRITICAL BARGE-IN FIX: Update is_ai_speaking FIRST, before any guards!
+                        # This ensures the system ALWAYS knows the AI is speaking, even if audio is blocked
+                        # This is essential for mid-sentence barge-in detection during long responses
+                        now = time.time()
+                        if not self.is_ai_speaking_event.is_set():
+                            # First audio delta - initialize timestamps
+                            if DEBUG:
+                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
+                            self.ai_speaking_start_ts = now
+                            self.speaking_start_ts = now
+                            self.speaking = True
+                            self._last_ai_audio_start_ts = now
+                            if self._cancelled_response_needs_recovery:
+                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
+                                self._cancelled_response_needs_recovery = False
+                        
+                        # 🔥 CRITICAL: Set flag on EVERY audio.delta to maintain state during long responses
+                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                        self.speaking = True  # Ensure synchronization
+                        self.has_pending_ai_response = True
+                        self.last_ai_audio_ts = now
+                        self._last_ai_audio_ts = now  # For echo detection
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -5179,34 +5203,8 @@ class MediaStreamHandler:
                                     print("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
                         
-                        # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
-                        now = time.time()
-                        
-                        # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
-                        # This guarantees the flag tracks actual audio playback
-                        # 🔥 STATE FIX: This is the CORRECT place to set is_ai_speaking (not on response.created)
-                        if not self.is_ai_speaking_event.is_set():
-                            # 🚫 Production mode: Only log in DEBUG
-                            if DEBUG:
-                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
-                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
-                            self.ai_speaking_start_ts = now
-                            self.speaking_start_ts = now
-                            self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
-                            # 🔥 Track AI audio start time for metrics
-                            self._last_ai_audio_start_ts = now
-                            # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
-                            if self._cancelled_response_needs_recovery:
-                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
-                                self._cancelled_response_needs_recovery = False
-                        
-                        # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
-                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                        # Note: is_ai_speaking already set above (before guards) for proper barge-in detection
                         # Don't reset timestamps on subsequent chunks!
-                        self.has_pending_ai_response = True  # AI is generating response
-                        self.last_ai_audio_ts = now
-                        # 🔥 ECHO_GUARD: Track timestamp for echo detection
-                        self._last_ai_audio_ts = now
                         
                         # 💰 COST TRACKING: Count AI audio chunks
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
@@ -13305,6 +13303,43 @@ class MediaStreamHandler:
                     
                     print(f"📅 [APPOINTMENT] Creating: {date_display_he} {chosen_time} ({requested_dt.isoformat()} -> {end_dt.isoformat()})")
                     
+                    # 🔥 BUILD 144: Generate call summary and transcript
+                    call_summary = None
+                    call_transcript = None
+                    try:
+                        from server.services.summary_service import summarize_conversation
+                        from server.models_sql import Business
+                        
+                        # Build transcript from conversation history
+                        conversation_history = getattr(self, 'conversation_history', [])
+                        if conversation_history:
+                            transcription_parts = []
+                            for turn in conversation_history:
+                                if isinstance(turn, dict):
+                                    if turn.get('user'):
+                                        transcription_parts.append(f"לקוח: {turn['user']}")
+                                    if turn.get('bot'):
+                                        transcription_parts.append(f"נציג: {turn['bot']}")
+                            
+                            call_transcript = "\n".join(transcription_parts)
+                            
+                            if call_transcript:
+                                # Get business info for context
+                                business = Business.query.get(business_id)
+                                business_name = business.name if business else None
+                                
+                                # Generate AI summary
+                                call_sid = getattr(self, 'call_sid', None)
+                                call_summary = summarize_conversation(
+                                    transcription=call_transcript,
+                                    call_sid=call_sid,
+                                    business_name=business_name
+                                )
+                                print(f"✅ [APPOINTMENT] Call summary and transcript generated ({len(call_transcript)} chars)")
+                    except Exception as e:
+                        print(f"⚠️ [APPOINTMENT] Failed to generate call summary: {e}")
+                        # Continue without summary - not critical
+                    
                     # Build context for _calendar_create_appointment_impl
                     # Prefer caller-id/call context phone even if user didn't provide DTMF.
                     caller_id = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None) or None
@@ -13327,7 +13362,9 @@ class MediaStreamHandler:
                             + (f"Caller ID: {caller_id}. " if caller_id else "")
                             + ("Phone not collected (policy optional)." if not phone_for_notes else "")
                         ),
-                        source="realtime_phone"
+                        source="realtime_phone",
+                        call_summary=call_summary,  # 🔥 BUILD 144: Include call summary
+                        call_transcript=call_transcript  # 🔥 BUILD 144: Include call transcript
                     )
                     
                     # Call unified implementation
