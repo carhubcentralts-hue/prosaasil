@@ -808,9 +808,10 @@ def build_inbound_system_prompt(
                 "Never skip steps. Required before booking: (1) customer name, (2) full date (must include weekday), (3) time. "
                 "If anything is missing, ask ONLY for the missing field (one question at a time). "
                 "Understanding time/date: the customer may say relative time references (today/tomorrow) - always restate as a weekday + full date + HH:MM confirmation question. "
-                "Availability: you MUST call check_availability before claiming a slot is available. "
-                "Booking: ONLY call schedule_appointment after availability indicates the requested time is available. "
-                "Never claim an appointment is scheduled unless schedule_appointment returned success=true AND includes appointment_id. "
+                "Availability: you MUST call check_availability before claiming a slot is available. NEVER say a time is available without calling this tool first. "
+                "Booking: you MUST call schedule_appointment to actually create the appointment. NEVER claim an appointment is scheduled without calling this tool. "
+                "CRITICAL: Only say an appointment is confirmed after schedule_appointment returns success=true AND includes appointment_id. "
+                "If the tool returns success=false, the appointment was NOT created - you must handle the error (slot unavailable, missing info, etc). "
                 "If not available, propose up to 2 alternative times provided by the server."
             )
         
