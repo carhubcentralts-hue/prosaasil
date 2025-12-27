@@ -16,7 +16,8 @@ from server.services.hebrew_stt_validator import validate_stt_output, is_gibberi
 # - Server checks availability + schedules (DB) and injects an exact sentence to speak
 # - When enabled for appointment calls, we disable Realtime auto-response creation and manually
 #   trigger response.create after server decisions.
-SERVER_FIRST_SCHEDULING = os.getenv("SERVER_FIRST_SCHEDULING", "1").lower() in ("1", "true", "yes", "on")
+# ⚠️ DISABLED: Causes conflicts with Realtime tools. Use Realtime tools instead.
+SERVER_FIRST_SCHEDULING = os.getenv("SERVER_FIRST_SCHEDULING", "0").lower() in ("1", "true", "yes", "on")
 
 # 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
 DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
@@ -6911,6 +6912,29 @@ class MediaStreamHandler:
                             and getattr(self, "call_goal", "lead_only") == "appointment"
                         )
                         if manual_turn and transcript and len(transcript.strip()) > 0:
+                            # 🔥 FIX: Cancel any active AI response before creating new one
+                            # This prevents "conversation_already_has_active_response" error
+                            if self.active_response_id and self.active_response_status == "in_progress":
+                                if self._should_send_cancel(self.active_response_id):
+                                    try:
+                                        print(f"🛑 [MANUAL_TURN] Cancelling active response {self.active_response_id[:20]}... before creating new one")
+                                        await self.realtime_client.cancel_response(self.active_response_id)
+                                        self._mark_response_cancelled_locally(self.active_response_id, "manual_turn_barge_in")
+                                        
+                                        # Wait for cancellation to complete (up to 500ms)
+                                        # Check for active_response_id to be cleared or status to change
+                                        for _ in range(50):  # 50 * 10ms = 500ms max wait
+                                            if not self.active_response_id or self.active_response_status != "in_progress":
+                                                print(f"✅ [MANUAL_TURN] Cancellation completed, proceeding with new response")
+                                                break
+                                            await asyncio.sleep(0.01)
+                                        else:
+                                            print(f"⚠️ [MANUAL_TURN] Cancellation timeout - proceeding anyway")
+                                    except Exception as cancel_err:
+                                        error_str = str(cancel_err).lower()
+                                        if 'not_active' not in error_str and 'already_cancelled' not in error_str:
+                                            print(f"⚠️ [MANUAL_TURN] Cancel error (continuing): {cancel_err}")
+                            
                             try:
                                 handled = await self._maybe_server_first_schedule_from_transcript(client, transcript)
                                 if not handled:
