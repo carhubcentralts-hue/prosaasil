@@ -16,11 +16,16 @@ import {
   Trash2,
   X,
   Save,
-  Calendar
+  Calendar,
+  ExternalLink,
+  TrendingUp,
+  AlertCircle,
+  CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly, formatLongDate } from '../../shared/utils/format';
+import { useNavigate } from 'react-router-dom';
 
 // Calendar components and types
 interface Appointment {
@@ -36,10 +41,13 @@ interface Appointment {
   contact_name?: string;
   contact_phone?: string;
   customer_id?: number;
+  lead_id?: number;  // ✅ NEW: Link to lead for navigation
   source: 'manual' | 'phone_call' | 'whatsapp' | 'ai_suggested';
   auto_generated: boolean;
   call_summary?: string;  // ✅ BUILD 144: AI-generated summary from source call
   call_transcript?: string;  // 🔥 NEW: Full transcript from source call
+  dynamic_summary?: string;  // 🔥 NEW: Dynamic conversation analysis (JSON string)
+  from_phone?: string;  // 🔥 NEW: Phone number from call
 }
 
 interface AppointmentForm {
@@ -80,6 +88,7 @@ const PRIORITY_TYPES = {
 
 export function CalendarPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<'month' | 'week' | 'day'>('month');
@@ -824,6 +833,112 @@ export function CalendarPage() {
                       )}
                     </div>
                     
+                    {/* 🔥 NEW: Show dynamic conversation summary FIRST (most important) */}
+                    {appointment.dynamic_summary && (() => {
+                      try {
+                        const summaryData = JSON.parse(appointment.dynamic_summary);
+                        return (
+                          <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-5 w-5 text-purple-600" />
+                                <span className="text-sm font-bold text-purple-800">ניתוח שיחה דינמי</span>
+                              </div>
+                              {appointment.lead_id && (
+                                <button
+                                  onClick={() => navigate(`/crm?lead=${appointment.lead_id}`)}
+                                  className="flex items-center gap-1 px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-xs font-medium"
+                                  title="עבור לליד"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span>צפה בליד</span>
+                                </button>
+                              )}
+                            </div>
+                            
+                            {/* Summary */}
+                            {summaryData.summary && (
+                              <div className="mb-3">
+                                <p className="text-slate-800 text-sm font-medium leading-relaxed">
+                                  {summaryData.summary}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* Intent & Action Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+                              {summaryData.intent && (
+                                <div className="flex items-start gap-2 p-2 bg-white/50 rounded">
+                                  <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                                  <div>
+                                    <div className="text-xs text-slate-600 font-medium">כוונה</div>
+                                    <div className="text-sm text-slate-800">{summaryData.intent}</div>
+                                  </div>
+                                </div>
+                              )}
+                              {summaryData.next_action && (
+                                <div className="flex items-start gap-2 p-2 bg-white/50 rounded">
+                                  <AlertCircle className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                                  <div>
+                                    <div className="text-xs text-slate-600 font-medium">פעולה הבאה</div>
+                                    <div className="text-sm text-slate-800">{summaryData.next_action}</div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Sentiment & Urgency */}
+                            {(summaryData.sentiment || summaryData.urgency_level) && (
+                              <div className="flex items-center gap-3 mt-3 pt-2 border-t border-purple-200">
+                                {summaryData.sentiment && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                    רגש: {summaryData.sentiment}
+                                  </span>
+                                )}
+                                {summaryData.urgency_level && (
+                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                    summaryData.urgency_level === 'high' ? 'bg-red-100 text-red-800' :
+                                    summaryData.urgency_level === 'normal' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-green-100 text-green-800'
+                                  }`}>
+                                    דחיפות: {summaryData.urgency_level}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* Extracted info */}
+                            {summaryData.extracted_info && Object.keys(summaryData.extracted_info).length > 0 && (
+                              <div className="mt-3 pt-2 border-t border-purple-200">
+                                <div className="text-xs text-slate-600 font-medium mb-1">מידע שנאסף:</div>
+                                <div className="flex flex-wrap gap-1">
+                                  {Object.entries(summaryData.extracted_info).map(([key, value]) => (
+                                    value && (
+                                      <span key={key} className="inline-flex items-center px-2 py-0.5 rounded bg-white text-xs text-slate-700">
+                                        <span className="font-medium">{key}:</span>&nbsp;{String(value)}
+                                      </span>
+                                    )
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      } catch (e) {
+                        console.error('Failed to parse dynamic_summary:', e);
+                        return null;
+                      }
+                    })()}
+                    
+                    {/* Phone number from call */}
+                    {appointment.from_phone && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+                        <Phone className="h-4 w-4 text-blue-600" />
+                        <span className="font-medium">מספר חייג:</span>
+                        <span className="text-slate-800">{appointment.from_phone}</span>
+                      </div>
+                    )}
+                    
                     {/* ✅ BUILD 144: Show call summary if exists (from phone call) */}
                     {appointment.call_summary && (
                       <div className="mt-2 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
@@ -837,20 +952,24 @@ export function CalendarPage() {
                       </div>
                     )}
                     
-                    {/* 🔥 NEW: Show full transcript if exists */}
+                    {/* 🔥 NEW: Show full transcript if exists (collapsed by default) */}
                     {appointment.call_transcript && (
-                      <div className="mt-2 p-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
-                        <div className="flex items-center gap-2 mb-1">
-                          <MessageCircle className="h-4 w-4 text-emerald-600" />
-                          <span className="text-xs font-semibold text-emerald-700">תמליל מלא</span>
+                      <details className="mt-2 p-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
+                        <summary className="cursor-pointer">
+                          <div className="inline-flex items-center gap-2">
+                            <MessageCircle className="h-4 w-4 text-emerald-600" />
+                            <span className="text-xs font-semibold text-emerald-700">תמליל מלא (לחץ להרחבה)</span>
+                          </div>
+                        </summary>
+                        <div className="mt-2 pt-2 border-t border-emerald-200">
+                          <p className="text-slate-700 text-sm whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+                            {appointment.call_transcript}
+                          </p>
                         </div>
-                        <p className="text-slate-700 text-sm whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
-                          {appointment.call_transcript}
-                        </p>
-                      </div>
+                      </details>
                     )}
                     
-                    {appointment.description && !appointment.call_summary && !appointment.call_transcript && (
+                    {appointment.description && !appointment.call_summary && !appointment.call_transcript && !appointment.dynamic_summary && (
                       <p className="text-slate-600 text-sm line-clamp-2">
                         {appointment.description}
                       </p>
