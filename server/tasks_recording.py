@@ -288,7 +288,8 @@ def start_recording_worker(app):
                             print(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                             log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                     
-                    # Always mark as done
+                    # ✅ FIX: Skip the finally block's task_done() for download_only
+                    # Mark as done here and continue (skip the normal processing path)
                     RECORDING_QUEUE.task_done()
                     continue
                 
