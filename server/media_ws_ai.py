@@ -429,8 +429,11 @@ class AudioState:
                 self.active_response_id = response_id
                 logger.debug(f"[AUDIO_STATE] AI speaking started: response_id={response_id}")
             elif not speaking:
+                # 🔥 CRITICAL FIX: DON'T clear active_response_id when audio stops!
+                # Keep it until response.done arrives so barge-in can still cancel
+                # Old bug: Clearing here prevented barge-in after audio.done but before response.done
                 logger.debug(f"[AUDIO_STATE] AI speaking stopped: response_id={self.active_response_id}")
-                self.active_response_id = None
+                # active_response_id stays set - will be cleared in response.done handler
     
     def set_greeting_playing(self, playing: bool):
         """Set greeting playing state (thread-safe)"""
@@ -4709,6 +4712,19 @@ class MediaStreamHandler:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
                     else:
                         print(f"🎤 [SPEECH_STARTED] User started speaking")
+                    
+                    # 🔥 NEW REQUIREMENT: ECHO PROTECTION - Verify real speech vs background noise
+                    # Check time since last AI audio to avoid canceling on echo
+                    now = time.time()
+                    time_since_ai_audio = (now - self._last_ai_audio_ts) * 1000 if self._last_ai_audio_ts else 999999
+                    
+                    # If speech detected within ECHO_WINDOW after AI audio, be cautious
+                    is_in_echo_window = time_since_ai_audio < ECHO_WINDOW_MS
+                    
+                    if is_in_echo_window:
+                        # Within echo window - this might be echo, not real speech
+                        # Log but continue - we'll verify with transcription
+                        print(f"⚠️ [ECHO_CHECK] Speech {time_since_ai_audio:.0f}ms after AI (within {ECHO_WINDOW_MS}ms window) - verifying...")
 
                     # 🔴 GREETING_LOCK (HARD):
                     # While greeting_lock_active, ignore ALL user speech during greeting.
@@ -4769,24 +4785,30 @@ class MediaStreamHandler:
                     # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 BARGE-IN FIX: Always allow manual cancellation for responsive interruption
-                    # The previous code skipped manual cancellation assuming server_vad would handle it,
-                    # but testing showed that active responses are NOT automatically cancelled when the
-                    # user speaks. We must manually cancel responses for proper barge-in behavior.
+                    # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
+                    # The old code had too many guards that prevented barge-in from working
+                    # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
                     
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
-                    # 🔥 BARGE-IN FIX: Simplified condition - allow barge-in once user has spoken
-                    # Removed requirement for barge_in_enabled_after_greeting flag, which could
-                    # prevent barge-in if greeting doesn't complete properly
-                    barge_in_allowed_now = bool(
-                        ENABLE_BARGE_IN
+                    
+                    # 🔥 SIMPLIFIED BARGE-IN: Only two conditions matter:
+                    # 1. Not during greeting (greeting_lock protects greeting)
+                    # 2. barge_in_enabled flag is True (can be disabled for DTMF, etc.)
+                    barge_in_allowed_now = (
+                        not is_greeting_now
                         and getattr(self, "barge_in_enabled", True)
-                        and not is_greeting_now
                     )
                     
                     # 🔥 IDEMPOTENT CHECK: Only proceed if ALL conditions are met
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
+                        # 🔥 ENHANCED LOGGING: Show why we're attempting cancel
+                        _orig_print(
+                            f"🎙️ [BARGE-IN] User speech detected! active_response={self.active_response_id[:20] if self.active_response_id else 'None'}... "
+                            f"status={self.active_response_status} greeting_lock={is_greeting_now}",
+                            flush=True
+                        )
+                        
                         # Use _should_send_cancel for centralized duplicate protection
                         # This checks: response_id exists, not already sent cancel, not already done
                         if not self._should_send_cancel(self.active_response_id):
@@ -4868,12 +4890,18 @@ class MediaStreamHandler:
                             logger.info(f"[BARGE-IN] ✅ IDEMPOTENT cancel {status_msg} - AI speaking flags cleared (response_id={response_id_to_cancel[:20]}...)")
                             
                             # NOTE: active_response_id and cancel_in_flight will be cleared in response.done/cancelled handler
-                    elif has_active_response and DEBUG:
-                        # This should rarely happen now - we cancel on ANY active_response_id
+                    elif not has_active_response:
+                        # 🔥 DEBUG: Log when no active response to cancel
+                        if DEBUG:
+                            logger.debug(f"[BARGE-IN] No active response to cancel (active_response_id is None)")
+                    elif not barge_in_allowed_now:
+                        # 🔥 CRITICAL DEBUG: Log why barge-in was blocked
                         _orig_print(
-                            f"⚠️ [BARGE-IN] Response exists but barge-in blocked (greeting_lock={is_greeting_now}, enabled={barge_in_allowed_now})",
-                            flush=True,
+                            f"⚠️ [BARGE-IN] BLOCKED: greeting_lock={is_greeting_now}, barge_in_enabled={getattr(self, 'barge_in_enabled', True)}",
+                            flush=True
                         )
+                    elif not self.realtime_client:
+                        _orig_print(f"⚠️ [BARGE-IN] BLOCKED: No realtime_client available", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
