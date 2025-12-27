@@ -429,8 +429,11 @@ class AudioState:
                 self.active_response_id = response_id
                 logger.debug(f"[AUDIO_STATE] AI speaking started: response_id={response_id}")
             elif not speaking:
+                # 🔥 CRITICAL FIX: DON'T clear active_response_id when audio stops!
+                # Keep it until response.done arrives so barge-in can still cancel
+                # Old bug: Clearing here prevented barge-in after audio.done but before response.done
                 logger.debug(f"[AUDIO_STATE] AI speaking stopped: response_id={self.active_response_id}")
-                self.active_response_id = None
+                # active_response_id stays set - will be cleared in response.done handler
     
     def set_greeting_playing(self, playing: bool):
         """Set greeting playing state (thread-safe)"""
@@ -2733,6 +2736,27 @@ class MediaStreamHandler:
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
             _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
+            # 🔥 NEW: Set Flask g.agent_context for Realtime API tool calls
+            # This allows tools like schedule_appointment to access call metadata
+            try:
+                from flask import g
+                caller_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                g.agent_context = {
+                    'business_id': business_id_safe,
+                    'business_name': biz_name,
+                    'caller_number': caller_phone,
+                    'from_number': caller_phone,
+                    'customer_phone': caller_phone,
+                    'channel': 'phone',
+                    'call_sid': self.call_sid,
+                    'call_direction': call_direction,
+                    'business_prompt': None,  # Will be set after prompt is loaded
+                }
+                print(f"✅ [AGENT_CONTEXT] Flask g.agent_context set for Realtime tools: business={business_id_safe}, phone={caller_phone}")
+            except Exception as ctx_err:
+                print(f"⚠️ [AGENT_CONTEXT] Failed to set g.agent_context: {ctx_err}")
+                # Continue - not critical for call to proceed
+            
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
             # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
@@ -2811,6 +2835,15 @@ class MediaStreamHandler:
             # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
             self._full_prompt_for_upgrade = full_prompt
             self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
+            
+            # 🔥 NEW: Update agent_context with business prompt
+            try:
+                from flask import g
+                if hasattr(g, 'agent_context') and isinstance(g.agent_context, dict):
+                    g.agent_context['business_prompt'] = full_prompt
+                    print(f"✅ [AGENT_CONTEXT] Updated with business_prompt ({len(full_prompt)} chars)")
+            except Exception:
+                pass  # Not critical
             
             # 🔥 CRITICAL LOGGING: Verify business isolation
             if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
@@ -4408,7 +4441,20 @@ class MediaStreamHandler:
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
                     error = event.get("error", {})
+                    error_code = error.get("code", "")
+                    
+                    # 🔥 FIX: response_cancel_not_active is expected after successful cancellation
+                    # This occurs when OpenAI processes cancel asynchronously and sends error event
+                    # after the response has already been cancelled. This is NOT a real error.
+                    if error_code == "response_cancel_not_active":
+                        if DEBUG:
+                            logger.debug(f"[REALTIME] response_cancel_not_active (expected after cancel)")
+                        # Silently ignore - this is normal behavior
+                        continue
+                    
+                    # Log all other errors as ERROR level
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
+                    _orig_print(f"❌ [REALTIME] Error event: {error.get('message', 'Unknown error')}", flush=True)
                     
                     # 🔥 CRITICAL: Validate session.update errors
                     # If session.update fails, the session uses default settings which causes:
@@ -4666,6 +4712,19 @@ class MediaStreamHandler:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
                     else:
                         print(f"🎤 [SPEECH_STARTED] User started speaking")
+                    
+                    # 🔥 NEW REQUIREMENT: ECHO PROTECTION - Verify real speech vs background noise
+                    # Check time since last AI audio to avoid canceling on echo
+                    now = time.time()
+                    time_since_ai_audio = (now - self._last_ai_audio_ts) * 1000 if self._last_ai_audio_ts else 999999
+                    
+                    # If speech detected within ECHO_WINDOW after AI audio, be cautious
+                    is_in_echo_window = time_since_ai_audio < ECHO_WINDOW_MS
+                    
+                    if is_in_echo_window:
+                        # Within echo window - this might be echo, not real speech
+                        # Log but continue - we'll verify with transcription
+                        print(f"⚠️ [ECHO_CHECK] Speech {time_since_ai_audio:.0f}ms after AI (within {ECHO_WINDOW_MS}ms window) - verifying...")
 
                     # 🔴 GREETING_LOCK (HARD):
                     # While greeting_lock_active, ignore ALL user speech during greeting.
@@ -4726,24 +4785,30 @@ class MediaStreamHandler:
                     # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 BARGE-IN FIX: Always allow manual cancellation for responsive interruption
-                    # The previous code skipped manual cancellation assuming server_vad would handle it,
-                    # but testing showed that active responses are NOT automatically cancelled when the
-                    # user speaks. We must manually cancel responses for proper barge-in behavior.
+                    # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
+                    # The old code had too many guards that prevented barge-in from working
+                    # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
                     
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
-                    # 🔥 BARGE-IN FIX: Simplified condition - allow barge-in once user has spoken
-                    # Removed requirement for barge_in_enabled_after_greeting flag, which could
-                    # prevent barge-in if greeting doesn't complete properly
-                    barge_in_allowed_now = bool(
-                        ENABLE_BARGE_IN
+                    
+                    # 🔥 SIMPLIFIED BARGE-IN: Only two conditions matter:
+                    # 1. Not during greeting (greeting_lock protects greeting)
+                    # 2. barge_in_enabled flag is True (can be disabled for DTMF, etc.)
+                    barge_in_allowed_now = (
+                        not is_greeting_now
                         and getattr(self, "barge_in_enabled", True)
-                        and not is_greeting_now
                     )
                     
                     # 🔥 IDEMPOTENT CHECK: Only proceed if ALL conditions are met
                     if has_active_response and self.realtime_client and barge_in_allowed_now:
+                        # 🔥 ENHANCED LOGGING: Show why we're attempting cancel
+                        _orig_print(
+                            f"🎙️ [BARGE-IN] User speech detected! active_response={self.active_response_id[:20] if self.active_response_id else 'None'}... "
+                            f"status={self.active_response_status} greeting_lock={is_greeting_now}",
+                            flush=True
+                        )
+                        
                         # Use _should_send_cancel for centralized duplicate protection
                         # This checks: response_id exists, not already sent cancel, not already done
                         if not self._should_send_cancel(self.active_response_id):
@@ -4825,12 +4890,18 @@ class MediaStreamHandler:
                             logger.info(f"[BARGE-IN] ✅ IDEMPOTENT cancel {status_msg} - AI speaking flags cleared (response_id={response_id_to_cancel[:20]}...)")
                             
                             # NOTE: active_response_id and cancel_in_flight will be cleared in response.done/cancelled handler
-                    elif has_active_response and DEBUG:
-                        # This should rarely happen now - we cancel on ANY active_response_id
+                    elif not has_active_response:
+                        # 🔥 DEBUG: Log when no active response to cancel
+                        if DEBUG:
+                            logger.debug(f"[BARGE-IN] No active response to cancel (active_response_id is None)")
+                    elif not barge_in_allowed_now:
+                        # 🔥 CRITICAL DEBUG: Log why barge-in was blocked
                         _orig_print(
-                            f"⚠️ [BARGE-IN] Response exists but barge-in blocked (greeting_lock={is_greeting_now}, enabled={barge_in_allowed_now})",
-                            flush=True,
+                            f"⚠️ [BARGE-IN] BLOCKED: greeting_lock={is_greeting_now}, barge_in_enabled={getattr(self, 'barge_in_enabled', True)}",
+                            flush=True
                         )
+                    elif not self.realtime_client:
+                        _orig_print(f"⚠️ [BARGE-IN] BLOCKED: No realtime_client available", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -14670,6 +14741,35 @@ class MediaStreamHandler:
                             call_log.recording_sid = self._recording_sid
                             if DEBUG:
                                 force_print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
+                        
+                        # 🔥 NEW: Update appointment with transcript and summary
+                        try:
+                            appointment = Appointment.query.filter_by(call_log_id=call_log.id).first()
+                            if appointment:
+                                # Save full transcript
+                                appointment.call_transcript = full_conversation
+                                
+                                # Generate summary if possible
+                                if full_conversation and len(full_conversation) > 50:
+                                    try:
+                                        from server.services.summary_service import summarize_conversation
+                                        business = Business.query.get(call_log.business_id)
+                                        business_name = business.name if business else None
+                                        call_summary = summarize_conversation(
+                                            transcription=full_conversation,
+                                            call_sid=self.call_sid,
+                                            business_name=business_name
+                                        )
+                                        appointment.call_summary = call_summary
+                                        force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript and summary")
+                                    except Exception as sum_err:
+                                        force_print(f"⚠️ [FINALIZE] Failed to generate summary for appointment: {sum_err}")
+                                        # Continue without summary - transcript is saved
+                                else:
+                                    force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript")
+                        except Exception as apt_err:
+                            force_print(f"⚠️ [FINALIZE] Failed to update appointment: {apt_err}")
+                            # Continue - appointment update is not critical
                         
                         db.session.commit()
                         force_print(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
