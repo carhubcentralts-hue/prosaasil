@@ -8,6 +8,7 @@ from sqlalchemy import and_
 import re
 import time
 import pytz
+import json
 
 # 🔥 Israel timezone for converting naive datetimes
 tz = pytz.timezone("Asia/Jerusalem")
@@ -209,6 +210,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         # ✅ BUILD 144: Generate and save call summary for the appointment
         try:
             from server.services.summary_service import summarize_conversation
+            from server.services.customer_intelligence import CustomerIntelligence
             
             # Build transcription from conversation history
             transcription_parts = []
@@ -237,7 +239,19 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                     business_name=business_name
                 )
                 appointment.call_summary = call_summary
-                print(f"✅ AUTO_MEETING: Call summary generated for appointment")
+                
+                # Generate dynamic conversation summary with intent, sentiment, next_action
+                ci = CustomerIntelligence(business_id)
+                dynamic_summary_data = ci.generate_conversation_summary(transcription)
+                # Store as JSON string
+                appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
+                print(f"✅ AUTO_MEETING: Dynamic conversation summary generated")
+                
+                # Link to lead if exists (from call_log)
+                if call_log and call_log.lead_id:
+                    appointment.lead_id = call_log.lead_id
+                    print(f"✅ AUTO_MEETING: Linked appointment to lead {call_log.lead_id}")
+                
         except Exception as e:
             print(f"⚠️ AUTO_MEETING: Failed to generate call summary: {e}")
             # Continue without summary - not critical

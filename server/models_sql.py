@@ -674,6 +674,7 @@ class Appointment(db.Model):
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
     deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # Link to lead if exists
     call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True, index=True)  # Link to call that scheduled this
     whatsapp_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True, index=True)  # Link to WhatsApp message
     
@@ -709,6 +710,7 @@ class Appointment(db.Model):
     # ✅ BUILD 144: Call summary - סיכום השיחה שממנה נוצרה הפגישה
     call_summary = db.Column(db.Text)  # AI-generated summary from the call that created this appointment
     call_transcript = db.Column(db.Text)  # Full transcript from the call that created this appointment
+    dynamic_summary = db.Column(db.Text)  # Dynamic conversation summary with intent, action, sentiment analysis
     
     # Metadata
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)

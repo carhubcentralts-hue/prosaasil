@@ -14815,6 +14815,8 @@ class MediaStreamHandler:
                                 if full_conversation and len(full_conversation) > 50:
                                     try:
                                         from server.services.summary_service import summarize_conversation
+                                        from server.services.customer_intelligence import CustomerIntelligence
+                                        
                                         business = Business.query.get(call_log.business_id)
                                         business_name = business.name if business else None
                                         call_summary = summarize_conversation(
@@ -14823,7 +14825,17 @@ class MediaStreamHandler:
                                             business_name=business_name
                                         )
                                         appointment.call_summary = call_summary
-                                        force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript and summary")
+                                        
+                                        # Generate dynamic conversation summary
+                                        ci = CustomerIntelligence(call_log.business_id)
+                                        dynamic_summary_data = ci.generate_conversation_summary(full_conversation)
+                                        appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
+                                        
+                                        # Link to lead if exists
+                                        if call_log.lead_id and not appointment.lead_id:
+                                            appointment.lead_id = call_log.lead_id
+                                        
+                                        force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript, summary, and dynamic analysis")
                                     except Exception as sum_err:
                                         force_print(f"⚠️ [FINALIZE] Failed to generate summary for appointment: {sum_err}")
                                         # Continue without summary - transcript is saved

@@ -168,6 +168,7 @@ def get_appointments():
                 'business_id': apt.business_id,
                 'customer_id': apt.customer_id,
                 'deal_id': apt.deal_id,
+                'lead_id': apt.lead_id,
                 'call_log_id': apt.call_log_id,
                 'whatsapp_message_id': apt.whatsapp_message_id,
                 'title': apt.title,
@@ -193,10 +194,12 @@ def get_appointments():
                 # ✅ BUILD 144: Include call summary and transcript from source call
                 'call_summary': apt.call_summary,
                 'call_transcript': apt.call_transcript,
+                'dynamic_summary': apt.dynamic_summary,
                 
                 # Related data
                 'business_name': None,
-                'customer_name': None
+                'customer_name': None,
+                'from_phone': None  # Derived from call_log, not stored in appointment
             }
             
             # Add business info for admin/manager views
@@ -210,6 +213,12 @@ def get_appointments():
                 customer = Customer.query.get(apt.customer_id)
                 if customer:
                     appointment_data['customer_name'] = customer.name
+            
+            # Add phone number from call log if available
+            if apt.call_log_id:
+                call_log = CallLog.query.get(apt.call_log_id)
+                if call_log:
+                    appointment_data['from_phone'] = call_log.from_number
             
             appointments_data.append(appointment_data)
         
@@ -370,6 +379,7 @@ def get_appointment(appointment_id):
             'business_id': appointment.business_id,
             'customer_id': appointment.customer_id,
             'deal_id': appointment.deal_id,
+            'lead_id': appointment.lead_id,
             'call_log_id': appointment.call_log_id,
             'whatsapp_message_id': appointment.whatsapp_message_id,
             'title': appointment.title,
@@ -391,6 +401,11 @@ def get_appointment(appointment_id):
             'source': appointment.source,
             'created_at': appointment.created_at.isoformat() if appointment.created_at else None,
             'updated_at': appointment.updated_at.isoformat() if appointment.updated_at else None,
+            
+            # Call summary data
+            'call_summary': appointment.call_summary,
+            'call_transcript': appointment.call_transcript,
+            'dynamic_summary': appointment.dynamic_summary,
             
             # Related data
             'business': {'id': business.id, 'name': business.name} if business else None,
