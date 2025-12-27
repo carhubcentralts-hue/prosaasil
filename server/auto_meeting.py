@@ -8,6 +8,7 @@ from sqlalchemy import and_
 import re
 import time
 import pytz
+import json
 
 # 🔥 Israel timezone for converting naive datetimes
 tz = pytz.timezone("Asia/Jerusalem")
@@ -243,7 +244,6 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 ci = CustomerIntelligence(business_id)
                 dynamic_summary_data = ci.generate_conversation_summary(transcription)
                 # Store as JSON string
-                import json
                 appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
                 print(f"✅ AUTO_MEETING: Dynamic conversation summary generated")
                 

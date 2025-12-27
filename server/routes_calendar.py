@@ -199,7 +199,7 @@ def get_appointments():
                 # Related data
                 'business_name': None,
                 'customer_name': None,
-                'from_phone': None
+                'from_phone': None  # Derived from call_log, not stored in appointment
             }
             
             # Add business info for admin/manager views

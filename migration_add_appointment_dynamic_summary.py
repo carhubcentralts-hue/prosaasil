@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from server.app_factory import get_process_app
 from server.db import db
+from sqlalchemy import text
 
 def run_migration():
     """Add dynamic_summary and lead_id fields to appointments table"""
@@ -24,7 +25,7 @@ def run_migration():
         
         try:
             # Add dynamic_summary column if it doesn't exist
-            db.engine.execute("""
+            db.session.execute(text("""
                 DO $$ 
                 BEGIN
                     IF NOT EXISTS (
@@ -40,10 +41,10 @@ def run_migration():
                         RAISE NOTICE 'dynamic_summary column already exists';
                     END IF;
                 END $$;
-            """)
+            """))
             
             # Add lead_id column with foreign key if it doesn't exist
-            db.engine.execute("""
+            db.session.execute(text("""
                 DO $$ 
                 BEGIN
                     IF NOT EXISTS (
@@ -61,7 +62,9 @@ def run_migration():
                         RAISE NOTICE 'lead_id column already exists';
                     END IF;
                 END $$;
-            """)
+            """))
+            
+            db.session.commit()
             
             print("✅ Migration completed successfully")
             print("📝 Appointments now support:")

@@ -14829,7 +14829,6 @@ class MediaStreamHandler:
                                         # Generate dynamic conversation summary
                                         ci = CustomerIntelligence(call_log.business_id)
                                         dynamic_summary_data = ci.generate_conversation_summary(full_conversation)
-                                        import json
                                         appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
                                         
                                         # Link to lead if exists

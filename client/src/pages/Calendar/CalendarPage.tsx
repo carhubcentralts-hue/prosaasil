@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Plus, 
@@ -84,6 +84,109 @@ const PRIORITY_TYPES = {
   medium: { label: 'בינוני', color: 'bg-amber-100 text-amber-700' },
   high: { label: 'גבוה', color: 'bg-orange-100 text-orange-700' },
   urgent: { label: 'דחוף', color: 'bg-red-100 text-red-700' }
+};
+
+// Helper component to render dynamic summary with memoization
+const DynamicSummaryDisplay: React.FC<{ appointment: Appointment; navigate: any }> = ({ appointment, navigate }) => {
+  const summaryData = useMemo(() => {
+    if (!appointment.dynamic_summary) return null;
+    try {
+      return JSON.parse(appointment.dynamic_summary);
+    } catch (e) {
+      console.error(`Failed to parse dynamic_summary for appointment ${appointment.id}:`, e, appointment.dynamic_summary);
+      return null;
+    }
+  }, [appointment.dynamic_summary, appointment.id]);
+
+  if (!summaryData) return null;
+
+  return (
+    <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-5 w-5 text-purple-600" />
+          <span className="text-sm font-bold text-purple-800">ניתוח שיחה דינמי</span>
+        </div>
+        {appointment.lead_id && (
+          <button
+            onClick={() => navigate(`/crm?lead=${appointment.lead_id}`)}
+            className="flex items-center gap-1 px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-xs font-medium"
+            title="עבור לליד"
+          >
+            <ExternalLink className="h-3 w-3" />
+            <span>צפה בליד</span>
+          </button>
+        )}
+      </div>
+      
+      {/* Summary */}
+      {summaryData.summary && (
+        <div className="mb-3">
+          <p className="text-slate-800 text-sm font-medium leading-relaxed">
+            {summaryData.summary}
+          </p>
+        </div>
+      )}
+      
+      {/* Intent & Action Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+        {summaryData.intent && (
+          <div className="flex items-start gap-2 p-2 bg-white/50 rounded">
+            <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="text-xs text-slate-600 font-medium">כוונה</div>
+              <div className="text-sm text-slate-800">{summaryData.intent}</div>
+            </div>
+          </div>
+        )}
+        {summaryData.next_action && (
+          <div className="flex items-start gap-2 p-2 bg-white/50 rounded">
+            <AlertCircle className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="text-xs text-slate-600 font-medium">פעולה הבאה</div>
+              <div className="text-sm text-slate-800">{summaryData.next_action}</div>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Sentiment & Urgency */}
+      {(summaryData.sentiment || summaryData.urgency_level) && (
+        <div className="flex items-center gap-3 mt-3 pt-2 border-t border-purple-200">
+          {summaryData.sentiment && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              רגש: {summaryData.sentiment}
+            </span>
+          )}
+          {summaryData.urgency_level && (
+            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+              summaryData.urgency_level === 'high' ? 'bg-red-100 text-red-800' :
+              summaryData.urgency_level === 'normal' ? 'bg-yellow-100 text-yellow-800' :
+              'bg-green-100 text-green-800'
+            }`}>
+              דחיפות: {summaryData.urgency_level}
+            </span>
+          )}
+        </div>
+      )}
+      
+      {/* Extracted info */}
+      {summaryData.extracted_info && Object.keys(summaryData.extracted_info).length > 0 && (
+        <div className="mt-3 pt-2 border-t border-purple-200">
+          <div className="text-xs text-slate-600 font-medium mb-1">מידע שנאסף:</div>
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(summaryData.extracted_info).map(([key, value]) => (
+              value && (
+                <span key={key} className="inline-flex items-center px-2 py-0.5 rounded bg-white text-xs text-slate-700">
+                  <span className="font-medium">{key}:</span>&nbsp;{String(value)}
+                </span>
+              )
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export function CalendarPage() {
@@ -834,101 +937,9 @@ export function CalendarPage() {
                     </div>
                     
                     {/* 🔥 NEW: Show dynamic conversation summary FIRST (most important) */}
-                    {appointment.dynamic_summary && (() => {
-                      try {
-                        const summaryData = JSON.parse(appointment.dynamic_summary);
-                        return (
-                          <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <TrendingUp className="h-5 w-5 text-purple-600" />
-                                <span className="text-sm font-bold text-purple-800">ניתוח שיחה דינמי</span>
-                              </div>
-                              {appointment.lead_id && (
-                                <button
-                                  onClick={() => navigate(`/crm?lead=${appointment.lead_id}`)}
-                                  className="flex items-center gap-1 px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-xs font-medium"
-                                  title="עבור לליד"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  <span>צפה בליד</span>
-                                </button>
-                              )}
-                            </div>
-                            
-                            {/* Summary */}
-                            {summaryData.summary && (
-                              <div className="mb-3">
-                                <p className="text-slate-800 text-sm font-medium leading-relaxed">
-                                  {summaryData.summary}
-                                </p>
-                              </div>
-                            )}
-                            
-                            {/* Intent & Action Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
-                              {summaryData.intent && (
-                                <div className="flex items-start gap-2 p-2 bg-white/50 rounded">
-                                  <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                                  <div>
-                                    <div className="text-xs text-slate-600 font-medium">כוונה</div>
-                                    <div className="text-sm text-slate-800">{summaryData.intent}</div>
-                                  </div>
-                                </div>
-                              )}
-                              {summaryData.next_action && (
-                                <div className="flex items-start gap-2 p-2 bg-white/50 rounded">
-                                  <AlertCircle className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                                  <div>
-                                    <div className="text-xs text-slate-600 font-medium">פעולה הבאה</div>
-                                    <div className="text-sm text-slate-800">{summaryData.next_action}</div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                            
-                            {/* Sentiment & Urgency */}
-                            {(summaryData.sentiment || summaryData.urgency_level) && (
-                              <div className="flex items-center gap-3 mt-3 pt-2 border-t border-purple-200">
-                                {summaryData.sentiment && (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                    רגש: {summaryData.sentiment}
-                                  </span>
-                                )}
-                                {summaryData.urgency_level && (
-                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                    summaryData.urgency_level === 'high' ? 'bg-red-100 text-red-800' :
-                                    summaryData.urgency_level === 'normal' ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-green-100 text-green-800'
-                                  }`}>
-                                    דחיפות: {summaryData.urgency_level}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            
-                            {/* Extracted info */}
-                            {summaryData.extracted_info && Object.keys(summaryData.extracted_info).length > 0 && (
-                              <div className="mt-3 pt-2 border-t border-purple-200">
-                                <div className="text-xs text-slate-600 font-medium mb-1">מידע שנאסף:</div>
-                                <div className="flex flex-wrap gap-1">
-                                  {Object.entries(summaryData.extracted_info).map(([key, value]) => (
-                                    value && (
-                                      <span key={key} className="inline-flex items-center px-2 py-0.5 rounded bg-white text-xs text-slate-700">
-                                        <span className="font-medium">{key}:</span>&nbsp;{String(value)}
-                                      </span>
-                                    )
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      } catch (e) {
-                        console.error('Failed to parse dynamic_summary:', e);
-                        return null;
-                      }
-                    })()}
+                    {appointment.dynamic_summary && (
+                      <DynamicSummaryDisplay appointment={appointment} navigate={navigate} />
+                    )}
                     
                     {/* Phone number from call */}
                     {appointment.from_phone && (
