@@ -156,6 +156,8 @@ export function InboundCallsPage() {
     if (selectedStatuses.length > 0) {
       params.set('filterStatuses', selectedStatuses.join(','));
     }
+    // Add page context
+    if (page > 1) params.set('page', page.toString());
     
     navigate(`/app/leads/${leadId}?${params.toString()}`);
   };

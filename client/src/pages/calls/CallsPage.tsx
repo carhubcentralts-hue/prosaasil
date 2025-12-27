@@ -139,6 +139,8 @@ export function CallsPage() {
       if (debouncedSearchQuery) params.set('filterSearch', debouncedSearchQuery);
       if (statusFilter && statusFilter !== 'all') params.set('filterStatus', statusFilter);
       if (directionFilter && directionFilter !== 'all') params.set('filterDirection', directionFilter);
+      // Add page context
+      if (currentPage > 1) params.set('page', currentPage.toString());
       
       navigate(`/app/leads/${call.lead_id}?${params.toString()}`);
       return;
@@ -162,6 +164,7 @@ export function CallsPage() {
           if (debouncedSearchQuery) params.set('filterSearch', debouncedSearchQuery);
           if (statusFilter && statusFilter !== 'all') params.set('filterStatus', statusFilter);
           if (directionFilter && directionFilter !== 'all') params.set('filterDirection', directionFilter);
+          if (currentPage > 1) params.set('page', currentPage.toString());
           
           navigate(`/app/leads/${lead.id}?${params.toString()}`);
           return;
