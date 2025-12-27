@@ -86,7 +86,7 @@ class BaileysProvider(Provider):
                     self._health_status = data.get("connected", False)
                 except (json.JSONDecodeError, ValueError) as json_err:
                     # Empty response or non-JSON content - treat as not connected
-                    logger.debug(f"Baileys health check returned non-JSON response (status={response.status_code}, length={len(response.text)})")
+                    logger.debug(f"Baileys health check returned non-JSON response (status={response.status_code})")
                     self._health_status = False
             else:
                 self._health_status = False

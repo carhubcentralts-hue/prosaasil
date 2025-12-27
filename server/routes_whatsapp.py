@@ -2184,13 +2184,29 @@ def parse_csv_phones(csv_file) -> list:
 
 def is_empty_value(value) -> bool:
     """
-    Check if a value is considered empty for recipient extraction
+    Helper function: Check if a value is considered empty for recipient extraction
+    
+    Args:
+        value: The value to check (can be str, list, or None)
+    
+    Returns:
+        bool: True if value is empty, False otherwise
     
     Returns True for:
     - None
     - Empty string or whitespace-only string
-    - '[]', 'null', 'None' strings
+    - String literals '[]', 'null', 'None'
     - Empty lists
+    
+    Example:
+        >>> is_empty_value(None)
+        True
+        >>> is_empty_value([])
+        True
+        >>> is_empty_value('[]')
+        True
+        >>> is_empty_value([1, 2, 3])
+        False
     """
     if not value:
         return True
@@ -2417,8 +2433,8 @@ def create_broadcast():
             payload_dict = dict(request.form)
         
         log.info(f"[WA_BROADCAST] audience_source={audience_source}, provider={provider}, message_type={message_type}")
-        log.info(f"[WA_BROADCAST] lead_ids_count={len(lead_ids_json) if isinstance(lead_ids_json, list) else 'string'}")
-        log.info(f"[WA_BROADCAST] statuses_count={len(statuses_json) if isinstance(statuses_json, list) else 'string'}")
+        log.info(f"[WA_BROADCAST] lead_ids_count={len(lead_ids_json) if lead_ids_json and isinstance(lead_ids_json, list) else ('present' if lead_ids_json else 'none')}")
+        log.info(f"[WA_BROADCAST] statuses_count={len(statuses_json) if statuses_json and isinstance(statuses_json, list) else ('present' if statuses_json else 'none')}")
         
         # Parse JSON parameters (they might be strings or already parsed)
         try:
