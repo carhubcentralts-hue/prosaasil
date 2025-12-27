@@ -287,8 +287,20 @@ export function WhatsAppBroadcastPage() {
       return;
     }
     
-    // NEW: Validate audience source with better error messages
+    // NEW: Validate audience source with better error messages and debugging
+    console.log('🔍 Validation check:', {
+      audienceSource,
+      selectedLeadIds: selectedLeadIds.length,
+      leads: leads.length,
+      recipientCount
+    });
+    
     if (audienceSource === 'leads' && selectedLeadIds.length === 0) {
+      console.error('❌ No leads selected! Current state:', {
+        selectedLeadIds,
+        leads: leads.slice(0, 3), // First 3 for debugging
+        recipientCount
+      });
       alert(`יש לבחור לפחות ליד אחד לשליחה.\n\nכרגע יש ${leads.length} לידים זמינים, אך לא נבחר אף אחד.\nאנא סמן לידים מהרשימה או לחץ "בחר הכל".`);
       return;
     }
@@ -324,7 +336,9 @@ export function WhatsAppBroadcastPage() {
       
       // NEW: Add audience data based on source
       if (audienceSource === 'leads') {
+        console.log('📋 Adding lead_ids to FormData:', selectedLeadIds);
         formData.append('lead_ids', JSON.stringify(selectedLeadIds));
+        console.log('✅ lead_ids added. Count:', selectedLeadIds.length);
       } else if (audienceSource === 'import-list') {
         formData.append('import_list_id', String(selectedImportListId));
       } else if (audienceSource === 'csv' && csvFile) {
@@ -336,9 +350,8 @@ export function WhatsAppBroadcastPage() {
         formData.append('statuses', JSON.stringify(selectedStatuses));
       }
       
-      if (csvFile) {
-        formData.append('csv_file', csvFile);
-      }
+      // 🔥 FIX: Remove duplicate CSV append (was causing issues)
+      // The CSV is already added above at line 332
       
       // ✅ FIX BUILD 200+: Frontend console logging per requirements
       // Log the payload being sent for debugging
@@ -832,10 +845,19 @@ export function WhatsAppBroadcastPage() {
 
               {/* Recipient Counter */}
               <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium text-blue-900">נמענים נבחרו:</span>
                   <span className="text-lg font-bold text-blue-600">{recipientCount}</span>
                 </div>
+                {audienceSource === 'leads' && (
+                  <div className="text-xs text-blue-700 mt-1">
+                    {selectedLeadIds.length > 0 ? (
+                      <>נבחרו {selectedLeadIds.length} לידים מתוך {leads.length} זמינים</>
+                    ) : (
+                      <span className="text-orange-600 font-medium">⚠️ לא נבחרו לידים - לחץ על תיבות הסימון למעלה</span>
+                    )}
+                  </div>
+                )}
               </div>
             </Card>
           </div>
