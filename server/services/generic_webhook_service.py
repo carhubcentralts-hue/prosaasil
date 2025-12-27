@@ -63,10 +63,13 @@ def send_generic_webhook(
         webhook_url: Optional webhook URL (if not provided, fetches from BusinessSettings)
         direction: Call direction for routing ("inbound" or "outbound")
     
-    🔥 BUILD 183: Webhook Routing Logic:
+    🔥 Webhook Routing Logic:
         - Inbound calls: Use inbound_webhook_url, fallback to generic_webhook_url
-        - Outbound calls: Use outbound_webhook_url ONLY - if not set, NO webhook sent
+        - Outbound calls: Use outbound_webhook_url, fallback to generic_webhook_url
         - Non-call events: Use generic_webhook_url
+        
+    This ensures all calls (inbound and outbound) can send webhooks even if specific
+    URLs are not configured, falling back to the generic webhook URL.
     
     Returns:
         True if successful, False otherwise
@@ -89,14 +92,27 @@ def send_generic_webhook(
             
             # 🔥 BUILD 183: Route webhook by call direction
             if direction == "outbound":
-                # Outbound calls: ONLY use outbound_webhook_url - no fallback
-                webhook_url = getattr(settings, 'outbound_webhook_url', None)
+                # Outbound calls: Use outbound_webhook_url, fallback to generic
+                outbound_url = getattr(settings, 'outbound_webhook_url', None)
+                generic_url = settings.generic_webhook_url
+                
+                # 🔥 CRITICAL LOGGING: Show what URLs we found
+                print(f"🔍 [WEBHOOK] Checking outbound webhook URLs for business {business_id}:")
+                print(f"   - outbound_webhook_url: {outbound_url[:50] + '...' if outbound_url else 'NOT SET'}")
+                print(f"   - generic_webhook_url: {generic_url[:50] + '...' if generic_url else 'NOT SET'}")
+                
+                webhook_url = outbound_url or generic_url
                 if not webhook_url:
-                    logger.warning(f"[WEBHOOK] No outbound webhook URL configured for business {business_id} - skipping webhook send (direction={direction}, event={event_type})")
-                    print(f"⚠️ [WEBHOOK] No outbound_webhook_url configured for business {business_id}")
+                    logger.warning(f"[WEBHOOK] No outbound/generic webhook URL configured for business {business_id} - skipping webhook send (direction={direction}, event={event_type})")
+                    print(f"❌ [WEBHOOK] No outbound/generic webhook URL configured for business {business_id}")
                     return False
-                logger.info(f"[WEBHOOK] Using outbound_webhook_url for business {business_id}: {webhook_url[:50]}...")
-                print(f"✅ [WEBHOOK] Using outbound_webhook_url for business {business_id}")
+                
+                if outbound_url:
+                    logger.info(f"[WEBHOOK] Using outbound_webhook_url for business {business_id}: {webhook_url[:50]}...")
+                    print(f"✅ [WEBHOOK] Using outbound_webhook_url: {webhook_url}")
+                else:
+                    logger.info(f"[WEBHOOK] Using generic_webhook_url (fallback) for business {business_id}: {webhook_url[:50]}...")
+                    print(f"✅ [WEBHOOK] Using generic_webhook_url (fallback) for outbound: {webhook_url}")
             elif direction == "inbound":
                 # Inbound calls: Use inbound_webhook_url, fallback to generic
                 inbound_url = getattr(settings, 'inbound_webhook_url', None)

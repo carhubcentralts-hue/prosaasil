@@ -164,10 +164,10 @@ class BusinessSettings(db.Model):
     require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182/183: Use Caller ID by default, ask verbally if enabled (NO DTMF)
     
     # 🔥 BUILD 177: Generic Webhook for external integrations (n8n, Zapier, etc.)
-    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts (fallback)
-    # 🔥 BUILD 183: Separate webhooks for inbound/outbound calls
-    inbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for inbound calls only
-    outbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for outbound calls only (if not set, outbound calls don't send webhooks)
+    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts (fallback for both inbound and outbound)
+    # 🔥 BUILD 183: Separate webhooks for inbound/outbound calls with generic fallback
+    inbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for inbound calls (fallback to generic_webhook_url if not set)
+    outbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for outbound calls (fallback to generic_webhook_url if not set)
     # 🔥 UI SPRINT: Status change webhook - sends lead status changes to external integrations
     status_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook URL for lead status changes
     
