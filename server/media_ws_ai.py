@@ -12673,7 +12673,10 @@ class MediaStreamHandler:
                         preferred_time=preferred_time if preferred_time else None
                     )
                     
-                    result = _calendar_find_slots_impl(input_data)
+                    # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        result = _calendar_find_slots_impl(input_data)
                     
                     # Format response
                     if result.slots and len(result.slots) > 0:
@@ -13119,14 +13122,17 @@ class MediaStreamHandler:
                         # Lightweight refresh: run find_slots once so the model stays anchored to server state.
                         try:
                             preferred_for_refresh = time_res.candidates_hhmm[0] if time_res.candidates_hhmm else None
-                            slots_result = _calendar_find_slots_impl(
-                                FindSlotsInput(
-                                    business_id=business_id,
-                                    date_iso=normalized_date_iso,
-                                    duration_min=policy.slot_size_min,
-                                    preferred_time=preferred_for_refresh,
+                            # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                            app = _get_flask_app()
+                            with app.app_context():
+                                slots_result = _calendar_find_slots_impl(
+                                    FindSlotsInput(
+                                        business_id=business_id,
+                                        date_iso=normalized_date_iso,
+                                        duration_min=policy.slot_size_min,
+                                        preferred_time=preferred_for_refresh,
+                                    )
                                 )
-                            )
                             refreshed_slots = [s.start_display for s in (slots_result.slots or [])][:3]
                             self._last_availability = {
                                 "date_iso": normalized_date_iso,
@@ -13144,16 +13150,19 @@ class MediaStreamHandler:
                     duration_min = policy.slot_size_min
                     chosen_time = None
                     alternatives: list[str] = []
+                    # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    app = _get_flask_app()
                     for cand in time_res.candidates_hhmm:
                         try:
-                            slots_result = _calendar_find_slots_impl(
-                                FindSlotsInput(
-                                    business_id=business_id,
-                                    date_iso=normalized_date_iso,
-                                    duration_min=duration_min,
-                                    preferred_time=cand,
+                            with app.app_context():
+                                slots_result = _calendar_find_slots_impl(
+                                    FindSlotsInput(
+                                        business_id=business_id,
+                                        date_iso=normalized_date_iso,
+                                        duration_min=duration_min,
+                                        preferred_time=cand,
+                                    )
                                 )
-                            )
                             alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
                             if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
                                 chosen_time = cand
@@ -13244,7 +13253,9 @@ class MediaStreamHandler:
                     )
                     
                     # Call unified implementation
-                    result = _calendar_create_appointment_impl(input_data, context=context, session=self)
+                    # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    with app.app_context():
+                        result = _calendar_create_appointment_impl(input_data, context=context, session=self)
                     
                     # Handle result
                     if hasattr(result, 'appointment_id'):
