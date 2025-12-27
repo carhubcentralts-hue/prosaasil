@@ -2196,88 +2196,136 @@ def extract_phones_bulletproof(payload, files, business_id):
     """
     phones = []
     
+    log.info(f"[extract_phones] Starting extraction for business_id={business_id}")
+    log.info(f"[extract_phones] Payload keys: {list(payload.keys())}")
+    log.info(f"[extract_phones] Files keys: {list(files.keys())}")
+    
     # 1) Direct phones - support multiple field names and formats
     raw_phones = payload.get('phones') or payload.get('recipients') or payload.get('selected_phones')
+    log.info(f"[extract_phones] raw_phones type={type(raw_phones)}, value={str(raw_phones)[:200] if raw_phones else 'None'}")
+    
     if raw_phones:
-        if isinstance(raw_phones, str):
-            # Could be JSON string or CSV string
-            try:
-                # Try JSON first
-                raw_phones = json.loads(raw_phones)
-            except:
-                # Fall back to CSV split
-                raw_phones = [x.strip() for x in raw_phones.split(',') if x.strip()]
-        
-        if isinstance(raw_phones, list):
-            for p in raw_phones:
-                normalized = normalize_phone(p)
-                if normalized:
-                    phones.append(normalized)
+        # Skip empty strings/lists
+        if isinstance(raw_phones, str) and raw_phones.strip() in ['', '[]', 'null']:
+            raw_phones = None
+        elif isinstance(raw_phones, list) and len(raw_phones) == 0:
+            raw_phones = None
             
-            if phones:
-                log.info(f"[extract_phones] Found {len(phones)} direct phones")
+        if raw_phones:
+            if isinstance(raw_phones, str):
+                # Could be JSON string or CSV string
+                try:
+                    # Try JSON first
+                    raw_phones = json.loads(raw_phones)
+                    log.info(f"[extract_phones] Parsed phones from JSON string: {len(raw_phones) if isinstance(raw_phones, list) else 'not a list'}")
+                except:
+                    # Fall back to CSV split
+                    raw_phones = [x.strip() for x in raw_phones.split(',') if x.strip()]
+                    log.info(f"[extract_phones] Parsed phones from CSV string: {len(raw_phones)}")
+            
+            if isinstance(raw_phones, list):
+                for p in raw_phones:
+                    normalized = normalize_phone(p)
+                    if normalized:
+                        phones.append(normalized)
+                
+                if phones:
+                    log.info(f"[extract_phones] ✅ Found {len(phones)} direct phones")
     
     # 2) lead_ids - fetch from DB
     lead_ids = payload.get('lead_ids') or payload.get('leadIds')
+    log.info(f"[extract_phones] lead_ids type={type(lead_ids)}, value={str(lead_ids)[:200] if lead_ids else 'None'}")
+    
     if lead_ids:
-        if isinstance(lead_ids, str):
-            try:
-                lead_ids = json.loads(lead_ids)
-            except:
-                lead_ids = []
-        
-        if isinstance(lead_ids, list) and lead_ids:
-            from server.models_sql import Lead
-            db_phones = (
-                Lead.query
-                .with_entities(Lead.phone_e164)
-                .filter(Lead.tenant_id == business_id, Lead.id.in_(lead_ids))
-                .all()
-            )
-            for p_tuple in db_phones:
-                normalized = normalize_phone(p_tuple[0])
-                if normalized:
-                    phones.append(normalized)
+        # Skip empty strings/lists
+        if isinstance(lead_ids, str) and lead_ids.strip() in ['', '[]', 'null']:
+            lead_ids = None
+        elif isinstance(lead_ids, list) and len(lead_ids) == 0:
+            lead_ids = None
             
-            if db_phones:
-                log.info(f"[extract_phones] Found {len(db_phones)} phones from lead_ids")
+        if lead_ids:
+            if isinstance(lead_ids, str):
+                try:
+                    lead_ids = json.loads(lead_ids)
+                    log.info(f"[extract_phones] Parsed lead_ids from JSON string: {len(lead_ids) if isinstance(lead_ids, list) else 'not a list'}")
+                except:
+                    lead_ids = []
+                    log.warning(f"[extract_phones] Failed to parse lead_ids JSON string")
+            
+            if isinstance(lead_ids, list) and lead_ids:
+                from server.models_sql import Lead
+                log.info(f"[extract_phones] Querying DB for {len(lead_ids)} lead IDs")
+                
+                db_phones = (
+                    Lead.query
+                    .with_entities(Lead.phone_e164)
+                    .filter(Lead.tenant_id == business_id, Lead.id.in_(lead_ids))
+                    .all()
+                )
+                
+                for p_tuple in db_phones:
+                    normalized = normalize_phone(p_tuple[0])
+                    if normalized:
+                        phones.append(normalized)
+                
+                if db_phones:
+                    log.info(f"[extract_phones] ✅ Found {len(db_phones)} phones from lead_ids")
+                else:
+                    log.warning(f"[extract_phones] ⚠️ No phones found in DB for lead_ids={lead_ids}")
     
     # 3) csv_file - parse phones
     if 'csv_file' in files:
+        log.info(f"[extract_phones] Processing CSV file")
         csv_phones = parse_csv_phones(files['csv_file'])
         phones.extend(csv_phones)
         if csv_phones:
-            log.info(f"[extract_phones] Found {len(csv_phones)} phones from CSV")
+            log.info(f"[extract_phones] ✅ Found {len(csv_phones)} phones from CSV")
     
     # 4) statuses - query by status
     statuses = payload.get('statuses')
+    log.info(f"[extract_phones] statuses type={type(statuses)}, value={str(statuses)[:200] if statuses else 'None'}")
+    
     if statuses:
-        if isinstance(statuses, str):
-            try:
-                statuses = json.loads(statuses)
-            except:
-                statuses = []
-        
-        if isinstance(statuses, list) and statuses:
-            from server.models_sql import Lead
-            db_phones = (
-                Lead.query
-                .with_entities(Lead.phone_e164)
-                .filter(Lead.tenant_id == business_id, Lead.status.in_(statuses))
-                .all()
-            )
-            for p_tuple in db_phones:
-                normalized = normalize_phone(p_tuple[0])
-                if normalized:
-                    phones.append(normalized)
+        # Skip empty strings/lists
+        if isinstance(statuses, str) and statuses.strip() in ['', '[]', 'null']:
+            statuses = None
+        elif isinstance(statuses, list) and len(statuses) == 0:
+            statuses = None
             
-            if db_phones:
-                log.info(f"[extract_phones] Found {len(db_phones)} phones from statuses")
+        if statuses:
+            if isinstance(statuses, str):
+                try:
+                    statuses = json.loads(statuses)
+                    log.info(f"[extract_phones] Parsed statuses from JSON string: {len(statuses) if isinstance(statuses, list) else 'not a list'}")
+                except:
+                    statuses = []
+                    log.warning(f"[extract_phones] Failed to parse statuses JSON string")
+            
+            if isinstance(statuses, list) and statuses:
+                from server.models_sql import Lead
+                log.info(f"[extract_phones] Querying DB for statuses={statuses}")
+                
+                db_phones = (
+                    Lead.query
+                    .with_entities(Lead.phone_e164)
+                    .filter(Lead.tenant_id == business_id, Lead.status.in_(statuses))
+                    .all()
+                )
+                
+                for p_tuple in db_phones:
+                    normalized = normalize_phone(p_tuple[0])
+                    if normalized:
+                        phones.append(normalized)
+                
+                if db_phones:
+                    log.info(f"[extract_phones] ✅ Found {len(db_phones)} phones from statuses")
+                else:
+                    log.warning(f"[extract_phones] ⚠️ No phones found in DB for statuses={statuses}")
     
     # Deduplicate and sort
     phones = sorted(set(p for p in phones if p))
     
-    log.info(f"[extract_phones] Total unique phones: {len(phones)}")
+    log.info(f"[extract_phones] 🏁 Total unique phones: {len(phones)}")
     return phones
 
 
@@ -2288,6 +2336,7 @@ def create_broadcast():
     """
     Create a new WhatsApp broadcast campaign
     ✅ FIX: Enhanced validation and logging per problem statement requirements
+    🔥 FIX: Handle both JSON and form-data requests
     """
     try:
         from server.routes_crm import get_business_id
@@ -2300,53 +2349,91 @@ def create_broadcast():
         
         # ✅ FIX: Log incoming request for debugging
         log.info(f"[WA_BROADCAST] Incoming request from business_id={business_id}, user={user_id}")
+        log.info(f"[WA_BROADCAST] Content-Type: {request.content_type}")
         log.info(f"[WA_BROADCAST] Form keys: {list(request.form.keys())}")
         log.info(f"[WA_BROADCAST] Files: {list(request.files.keys())}")
         
-        # Parse form data
-        provider = request.form.get('provider', 'meta')
-        message_type = request.form.get('message_type', 'template')
-        template_id = request.form.get('template_id')
-        template_name = request.form.get('template_name')
-        message_text = request.form.get('message_text', '')
-        audience_source = request.form.get('audience_source', 'legacy')  # NEW: leads, import-list, csv, or legacy
-        statuses_json = request.form.get('statuses', '[]')
-        lead_ids_json = request.form.get('lead_ids', '[]')  # NEW: Direct lead IDs
-        import_list_id = request.form.get('import_list_id')  # NEW: Import list ID
+        # 🔥 FIX: Handle both JSON and form-data submissions
+        # Check if request is JSON or form-data
+        is_json = request.content_type and 'application/json' in request.content_type
         
-        # ✅ FIX: Support multiple field names for backwards compatibility (recipients, lead_ids, phones)
-        # Frontend might send different field names
-        if not lead_ids_json or lead_ids_json == '[]':
-            lead_ids_json = request.form.get('recipients', '[]')
-        if not lead_ids_json or lead_ids_json == '[]':
-            lead_ids_json = request.form.get('phones', '[]')
+        if is_json:
+            # JSON request - parse from request.get_json()
+            data = request.get_json() or {}
+            log.info(f"[WA_BROADCAST] Parsing JSON request, keys: {list(data.keys())}")
+            
+            provider = data.get('provider', 'meta')
+            message_type = data.get('message_type', 'template')
+            template_id = data.get('template_id')
+            template_name = data.get('template_name')
+            message_text = data.get('message_text', '')
+            audience_source = data.get('audience_source', 'legacy')
+            statuses_json = data.get('statuses', '[]')
+            lead_ids_json = data.get('lead_ids', '[]')
+            import_list_id = data.get('import_list_id')
+            
+            # Try alternative field names
+            if not lead_ids_json or lead_ids_json == '[]':
+                lead_ids_json = data.get('recipients', '[]')
+            if not lead_ids_json or lead_ids_json == '[]':
+                lead_ids_json = data.get('phones', '[]')
+            
+            # Build payload dict for resolver
+            payload_dict = data
+        else:
+            # Form-data request - parse from request.form
+            log.info(f"[WA_BROADCAST] Parsing form-data request")
+            
+            provider = request.form.get('provider', 'meta')
+            message_type = request.form.get('message_type', 'template')
+            template_id = request.form.get('template_id')
+            template_name = request.form.get('template_name')
+            message_text = request.form.get('message_text', '')
+            audience_source = request.form.get('audience_source', 'legacy')
+            statuses_json = request.form.get('statuses', '[]')
+            lead_ids_json = request.form.get('lead_ids', '[]')
+            import_list_id = request.form.get('import_list_id')
+            
+            # Try alternative field names
+            if not lead_ids_json or lead_ids_json == '[]':
+                lead_ids_json = request.form.get('recipients', '[]')
+            if not lead_ids_json or lead_ids_json == '[]':
+                lead_ids_json = request.form.get('phones', '[]')
+            
+            # Build payload dict for resolver
+            payload_dict = dict(request.form)
         
         log.info(f"[WA_BROADCAST] audience_source={audience_source}, provider={provider}, message_type={message_type}")
-        log.info(f"[WA_BROADCAST] lead_ids_json={lead_ids_json[:100]}...")
+        log.info(f"[WA_BROADCAST] lead_ids_json={lead_ids_json[:100] if lead_ids_json else 'None'}...")
         log.info(f"[WA_BROADCAST] statuses_json={statuses_json}")
         
-        # Parse JSON parameters
+        # Parse JSON parameters (they might be strings or already parsed)
         try:
-            statuses = json.loads(statuses_json)
+            if isinstance(statuses_json, str):
+                statuses = json.loads(statuses_json)
+            elif isinstance(statuses_json, list):
+                statuses = statuses_json
+            else:
+                statuses = []
         except:
             statuses = []
         
         try:
-            lead_ids = json.loads(lead_ids_json)
+            if isinstance(lead_ids_json, str):
+                lead_ids = json.loads(lead_ids_json)
+            elif isinstance(lead_ids_json, list):
+                lead_ids = lead_ids_json
+            else:
+                lead_ids = []
         except:
             lead_ids = []
         
         # ✅ FIX BUILD 200+: Enhanced diagnostic logging per requirements
-        # Log incoming keys to understand what frontend sends
-        incoming_keys = list(request.form.keys())
-        log.info(f"[WA_BROADCAST] incoming_keys={incoming_keys}")
+        log.info(f"[WA_BROADCAST] parsed_lead_ids={lead_ids}, parsed_statuses={statuses}")
         
         # 🔥 BULLETPROOF RECIPIENT RESOLUTION per expert feedback
         # Use unified resolver that handles all possible input sources with priority
         log.info(f"[WA_BROADCAST] Using bulletproof recipient resolver")
-        
-        # Build payload dict from request.form for the resolver
-        payload_dict = dict(request.form)
         
         # Extract phones using bulletproof resolver
         phones = extract_phones_bulletproof(payload_dict, request.files, business_id)
