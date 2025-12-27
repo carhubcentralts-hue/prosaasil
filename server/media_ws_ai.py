@@ -16,8 +16,14 @@ from server.services.hebrew_stt_validator import validate_stt_output, is_gibberi
 # - Server checks availability + schedules (DB) and injects an exact sentence to speak
 # - When enabled for appointment calls, we disable Realtime auto-response creation and manually
 #   trigger response.create after server decisions.
-# ⚠️ DISABLED: Causes conflicts with Realtime tools. Use Realtime tools instead.
-SERVER_FIRST_SCHEDULING = os.getenv("SERVER_FIRST_SCHEDULING", "0").lower() in ("1", "true", "yes", "on")
+# 
+# ⚠️⚠️⚠️ PERMANENTLY DISABLED ⚠️⚠️⚠️
+# DO NOT ENABLE! Causes conflicts with Realtime tools.
+# Appointments MUST use Realtime tools (check_availability, schedule_appointment).
+# This flag exists only for backward compatibility and will be removed.
+# 
+# CORRECT WAY: Use OpenAI Realtime API tools for appointment scheduling
+SERVER_FIRST_SCHEDULING = False  # HARDCODED FALSE - DO NOT USE ENV VAR
 
 # 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
 DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
