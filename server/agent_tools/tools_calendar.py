@@ -165,7 +165,7 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
             """Check if a slot at given minute offset is available"""
             hour = minute_offset // 60
             minute = minute_offset % 60
-            if hour >= 24:
+            if hour < 0 or hour >= 24:
                 return None
                 
             slot_start = date.replace(hour=hour, minute=minute, second=0, microsecond=0)
