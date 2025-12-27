@@ -4812,14 +4812,44 @@ class MediaStreamHandler:
                         # Use _should_send_cancel for centralized duplicate protection
                         # This checks: response_id exists, not already sent cancel, not already done
                         if not self._should_send_cancel(self.active_response_id):
-                            # Already sent cancel or response already done - skip
-                            logger.debug(f"[BARGE-IN] Skipping cancel - duplicate guard triggered for {self.active_response_id[:20] if self.active_response_id else 'None'}...")
+                            # Already sent cancel or response already done - skip CANCEL but still flush audio
+                            _orig_print(f"⏭️ [BARGE-IN] Skipping cancel - duplicate guard triggered for {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
+                            # 🔥 CRITICAL FIX: Even if we can't cancel, flush audio queues if AI is speaking
+                            if self.is_ai_speaking_event.is_set():
+                                _orig_print(f"🪓 [BARGE-IN] AI still speaking - flushing audio queues anyway", flush=True)
+                                self._flush_tx_queue()
+                                if self.stream_sid:
+                                    try:
+                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                        self._ws_send(json.dumps(clear_event))
+                                    except Exception as e:
+                                        pass
                         # Condition 2: Response must be in_progress (not done/cancelled)
                         elif self.active_response_status != "in_progress":
-                            logger.debug(f"[BARGE-IN] Skipping cancel - response status={self.active_response_status} (not in_progress)")
+                            _orig_print(f"⏭️ [BARGE-IN] Skipping cancel - response status={self.active_response_status} (not in_progress)", flush=True)
+                            # 🔥 CRITICAL FIX: Even if status is not in_progress, flush audio if AI is speaking
+                            if self.is_ai_speaking_event.is_set():
+                                _orig_print(f"🪓 [BARGE-IN] AI still speaking - flushing audio queues anyway", flush=True)
+                                self._flush_tx_queue()
+                                if self.stream_sid:
+                                    try:
+                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                        self._ws_send(json.dumps(clear_event))
+                                    except Exception as e:
+                                        pass
                         # Condition 3: No cancel already in flight
                         elif self.cancel_in_flight:
-                            logger.debug(f"[BARGE-IN] Skipping cancel - cancel already in flight for {self.active_response_id[:20]}...")
+                            _orig_print(f"⏭️ [BARGE-IN] Skipping cancel - cancel already in flight for {self.active_response_id[:20]}...", flush=True)
+                            # 🔥 CRITICAL FIX: Even if cancel in flight, flush audio if AI is speaking
+                            if self.is_ai_speaking_event.is_set():
+                                _orig_print(f"🪓 [BARGE-IN] AI still speaking - flushing audio queues anyway", flush=True)
+                                self._flush_tx_queue()
+                                if self.stream_sid:
+                                    try:
+                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                        self._ws_send(json.dumps(clear_event))
+                                    except Exception as e:
+                                        pass
                         else:
                             # All conditions met - proceed with IDEMPOTENT cancel
                             response_id_to_cancel = self.active_response_id
@@ -4892,8 +4922,7 @@ class MediaStreamHandler:
                             # NOTE: active_response_id and cancel_in_flight will be cleared in response.done/cancelled handler
                     elif not has_active_response:
                         # 🔥 DEBUG: Log when no active response to cancel
-                        if DEBUG:
-                            logger.debug(f"[BARGE-IN] No active response to cancel (active_response_id is None)")
+                        _orig_print(f"⏭️ [BARGE-IN] No active response to cancel (active_response_id is None)", flush=True)
                     elif not barge_in_allowed_now:
                         # 🔥 CRITICAL DEBUG: Log why barge-in was blocked
                         _orig_print(
@@ -12202,7 +12231,7 @@ class MediaStreamHandler:
 
             async def _polite_hangup_fallback_timer(expected_response_id: Optional[str], expected_call_sid: Optional[str]):
                 try:
-                    await asyncio.sleep(8.0)  # 🔥 FIX: Increased from 6s to 8s for safer audio drain
+                    await asyncio.sleep(15.0)  # 🔥 FIX: Increased from 8s to 15s to allow proper audio drain
                     # Only fire if still pending and still for the same response_id (one-shot)
                     if getattr(self, "hangup_triggered", False):
                         return
@@ -12212,9 +12241,9 @@ class MediaStreamHandler:
                         return
 
                     # Never cut bot audio: if AI is still speaking or queues are still draining, wait longer.
-                    # 🔥 FIX: Increased grace window from 6s to 8s for safer audio drain
+                    # 🔥 FIX: Increased grace window from 8s to 15s for safer audio drain
                     try:
-                        extra_deadline = time.monotonic() + 8.0  # additional grace window (was 6.0)
+                        extra_deadline = time.monotonic() + 15.0  # additional grace window (was 8.0)
                         while time.monotonic() < extra_deadline:
                             ai_speaking = False
                             try:
@@ -12239,14 +12268,15 @@ class MediaStreamHandler:
                                 tx_q = 0
 
                             if ai_speaking or oai_q > 0 or tx_q > 0:
+                                _orig_print(f"⏳ [POLITE_HANGUP] Waiting for audio: ai_speaking={ai_speaking}, oai_q={oai_q}, tx_q={tx_q}", flush=True)
                                 await asyncio.sleep(0.5)
                                 continue
                             break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.exception("[POLITE_HANGUP] Error in grace period check")
 
-                    logger.info("[POLITE_HANGUP] fallback timer fired")
-                    print("[POLITE_HANGUP] fallback timer fired")
+                    logger.info("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
+                    print("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
 
                     call_sid_local = expected_call_sid or getattr(self, "call_sid", None)
                     if not call_sid_local:
