@@ -16,8 +16,14 @@ from server.services.hebrew_stt_validator import validate_stt_output, is_gibberi
 # - Server checks availability + schedules (DB) and injects an exact sentence to speak
 # - When enabled for appointment calls, we disable Realtime auto-response creation and manually
 #   trigger response.create after server decisions.
-# ⚠️ DISABLED: Causes conflicts with Realtime tools. Use Realtime tools instead.
-SERVER_FIRST_SCHEDULING = os.getenv("SERVER_FIRST_SCHEDULING", "0").lower() in ("1", "true", "yes", "on")
+# 
+# ⚠️⚠️⚠️ PERMANENTLY DISABLED ⚠️⚠️⚠️
+# DO NOT ENABLE! Causes conflicts with Realtime tools.
+# Appointments MUST use Realtime tools (check_availability, schedule_appointment).
+# This flag exists only for backward compatibility and will be removed.
+# 
+# CORRECT WAY: Use OpenAI Realtime API tools for appointment scheduling
+SERVER_FIRST_SCHEDULING = False  # HARDCODED FALSE - DO NOT USE ENV VAR
 
 # 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
 DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
@@ -4720,6 +4726,22 @@ class MediaStreamHandler:
                     # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
                     # ═══════════════════════════════════════════════════════════════════════
                     
+                    # 🔥 SERVER_VAD OPTIMIZATION: Skip manual cancel when OpenAI handles turn-taking
+                    # When auto_create_response=True, server_vad automatically cancels responses
+                    # on turn_detected. Manual cancellation causes race condition and errors.
+                    # Only do manual cancel when server_vad is NOT managing turns (legacy/fallback mode).
+                    manual_response_turns = getattr(self, "_manual_response_turns_enabled", False)
+                    skip_manual_cancel = not manual_response_turns  # Skip when auto_create_response=True
+                    
+                    if skip_manual_cancel:
+                        # server_vad is handling barge-in automatically - no manual cancel needed
+                        logger.debug(f"[BARGE-IN] Skipping manual cancel - server_vad handles turn-taking (auto_create_response=True)")
+                        # Still clear local speaking flags for UI consistency
+                        self.is_ai_speaking_event.clear()
+                        if hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        continue  # Skip manual cancellation logic
+                    
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
@@ -9298,14 +9320,8 @@ class MediaStreamHandler:
                     
                     # ✅ לוגים נקיים - רק אירועים חשובים (לא כל frame)  
                     
-                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
-                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
-                    # 🔥 BUILD 165: Only skip for Realtime API (which handles barge-in above)
-                    # Fallback mode needs to continue to process barge-in below
-                    if self.speaking and USE_REALTIME_API:
-                        self.buf.clear()
-                        self.voice_in_row = 0  # Reset barge-in counter
-                        continue  # ← SKIP EVERYTHING - Realtime barge-in handled above
+                    # 🔒 BARGE-IN FIX: Audio now flows continuously to OpenAI for speech detection
+                    # OpenAI's server_vad detects user speech and handles barge-in automatically
                     
                     # 🔥 BUILD 165: FALLBACK BARGE-IN - ONLY for non-Realtime API mode!
                     # Realtime API has its own barge-in handler above (lines 3010-3065)
@@ -12673,7 +12689,10 @@ class MediaStreamHandler:
                         preferred_time=preferred_time if preferred_time else None
                     )
                     
-                    result = _calendar_find_slots_impl(input_data)
+                    # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        result = _calendar_find_slots_impl(input_data)
                     
                     # Format response
                     if result.slots and len(result.slots) > 0:
@@ -13119,14 +13138,17 @@ class MediaStreamHandler:
                         # Lightweight refresh: run find_slots once so the model stays anchored to server state.
                         try:
                             preferred_for_refresh = time_res.candidates_hhmm[0] if time_res.candidates_hhmm else None
-                            slots_result = _calendar_find_slots_impl(
-                                FindSlotsInput(
-                                    business_id=business_id,
-                                    date_iso=normalized_date_iso,
-                                    duration_min=policy.slot_size_min,
-                                    preferred_time=preferred_for_refresh,
+                            # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                            app = _get_flask_app()
+                            with app.app_context():
+                                slots_result = _calendar_find_slots_impl(
+                                    FindSlotsInput(
+                                        business_id=business_id,
+                                        date_iso=normalized_date_iso,
+                                        duration_min=policy.slot_size_min,
+                                        preferred_time=preferred_for_refresh,
+                                    )
                                 )
-                            )
                             refreshed_slots = [s.start_display for s in (slots_result.slots or [])][:3]
                             self._last_availability = {
                                 "date_iso": normalized_date_iso,
@@ -13144,22 +13166,25 @@ class MediaStreamHandler:
                     duration_min = policy.slot_size_min
                     chosen_time = None
                     alternatives: list[str] = []
-                    for cand in time_res.candidates_hhmm:
-                        try:
-                            slots_result = _calendar_find_slots_impl(
-                                FindSlotsInput(
-                                    business_id=business_id,
-                                    date_iso=normalized_date_iso,
-                                    duration_min=duration_min,
-                                    preferred_time=cand,
+                    # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        for cand in time_res.candidates_hhmm:
+                            try:
+                                slots_result = _calendar_find_slots_impl(
+                                    FindSlotsInput(
+                                        business_id=business_id,
+                                        date_iso=normalized_date_iso,
+                                        duration_min=duration_min,
+                                        preferred_time=cand,
+                                    )
                                 )
-                            )
-                            alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
-                            if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
-                                chosen_time = cand
-                                break
-                        except Exception:
-                            continue
+                                alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
+                                if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
+                                    chosen_time = cand
+                                    break
+                            except Exception:
+                                continue
                     
                     if not chosen_time:
                         print(f"⚠️ [APPOINTMENT] Slot not available: date={normalized_date_iso} time_candidates={time_res.candidates_hhmm} alternatives={alternatives}")
@@ -13244,7 +13269,10 @@ class MediaStreamHandler:
                     )
                     
                     # Call unified implementation
-                    result = _calendar_create_appointment_impl(input_data, context=context, session=self)
+                    # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        result = _calendar_create_appointment_impl(input_data, context=context, session=self)
                     
                     # Handle result
                     if hasattr(result, 'appointment_id'):
