@@ -214,7 +214,7 @@ def test_empty_payload_handling():
         
         # Handle both string and list
         if isinstance(lead_ids_json, str):
-            if lead_ids_json.strip() in ['', '[]', 'null']:
+            if lead_ids_json.strip() in ['', '[]', 'null', 'None']:
                 lead_ids = []
             else:
                 lead_ids = json.loads(lead_ids_json)

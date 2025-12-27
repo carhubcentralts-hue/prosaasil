@@ -2182,6 +2182,25 @@ def parse_csv_phones(csv_file) -> list:
     return phones
 
 
+def is_empty_value(value) -> bool:
+    """
+    Check if a value is considered empty for recipient extraction
+    
+    Returns True for:
+    - None
+    - Empty string or whitespace-only string
+    - '[]', 'null', 'None' strings
+    - Empty lists
+    """
+    if not value:
+        return True
+    if isinstance(value, str) and value.strip() in ['', '[]', 'null', 'None']:
+        return True
+    if isinstance(value, list) and len(value) == 0:
+        return True
+    return False
+
+
 def extract_phones_bulletproof(payload, files, business_id):
     """
     🔥 BULLETPROOF recipient resolution per expert feedback
@@ -2205,10 +2224,8 @@ def extract_phones_bulletproof(payload, files, business_id):
     log.info(f"[extract_phones] raw_phones type={type(raw_phones)}, value={str(raw_phones)[:200] if raw_phones else 'None'}")
     
     if raw_phones:
-        # Skip empty strings/lists
-        if isinstance(raw_phones, str) and raw_phones.strip() in ['', '[]', 'null']:
-            raw_phones = None
-        elif isinstance(raw_phones, list) and len(raw_phones) == 0:
+        # Skip empty values using helper function
+        if is_empty_value(raw_phones):
             raw_phones = None
             
         if raw_phones:
@@ -2237,10 +2254,8 @@ def extract_phones_bulletproof(payload, files, business_id):
     log.info(f"[extract_phones] lead_ids type={type(lead_ids)}, value={str(lead_ids)[:200] if lead_ids else 'None'}")
     
     if lead_ids:
-        # Skip empty strings/lists
-        if isinstance(lead_ids, str) and lead_ids.strip() in ['', '[]', 'null']:
-            lead_ids = None
-        elif isinstance(lead_ids, list) and len(lead_ids) == 0:
+        # Skip empty values using helper function
+        if is_empty_value(lead_ids):
             lead_ids = None
             
         if lead_ids:
@@ -2286,10 +2301,8 @@ def extract_phones_bulletproof(payload, files, business_id):
     log.info(f"[extract_phones] statuses type={type(statuses)}, value={str(statuses)[:200] if statuses else 'None'}")
     
     if statuses:
-        # Skip empty strings/lists
-        if isinstance(statuses, str) and statuses.strip() in ['', '[]', 'null']:
-            statuses = None
-        elif isinstance(statuses, list) and len(statuses) == 0:
+        # Skip empty values using helper function
+        if is_empty_value(statuses):
             statuses = None
             
         if statuses:
@@ -2404,8 +2417,8 @@ def create_broadcast():
             payload_dict = dict(request.form)
         
         log.info(f"[WA_BROADCAST] audience_source={audience_source}, provider={provider}, message_type={message_type}")
-        log.info(f"[WA_BROADCAST] lead_ids_json={lead_ids_json[:100] if lead_ids_json else 'None'}...")
-        log.info(f"[WA_BROADCAST] statuses_json={statuses_json}")
+        log.info(f"[WA_BROADCAST] lead_ids_count={len(lead_ids_json) if isinstance(lead_ids_json, list) else 'string'}")
+        log.info(f"[WA_BROADCAST] statuses_count={len(statuses_json) if isinstance(statuses_json, list) else 'string'}")
         
         # Parse JSON parameters (they might be strings or already parsed)
         try:
