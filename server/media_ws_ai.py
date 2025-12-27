@@ -12231,7 +12231,7 @@ class MediaStreamHandler:
 
             async def _polite_hangup_fallback_timer(expected_response_id: Optional[str], expected_call_sid: Optional[str]):
                 try:
-                    await asyncio.sleep(8.0)  # 🔥 FIX: Increased from 6s to 8s for safer audio drain
+                    await asyncio.sleep(15.0)  # 🔥 FIX: Increased from 8s to 15s to allow proper audio drain
                     # Only fire if still pending and still for the same response_id (one-shot)
                     if getattr(self, "hangup_triggered", False):
                         return
@@ -12241,9 +12241,9 @@ class MediaStreamHandler:
                         return
 
                     # Never cut bot audio: if AI is still speaking or queues are still draining, wait longer.
-                    # 🔥 FIX: Increased grace window from 6s to 8s for safer audio drain
+                    # 🔥 FIX: Increased grace window from 8s to 15s for safer audio drain
                     try:
-                        extra_deadline = time.monotonic() + 8.0  # additional grace window (was 6.0)
+                        extra_deadline = time.monotonic() + 15.0  # additional grace window (was 8.0)
                         while time.monotonic() < extra_deadline:
                             ai_speaking = False
                             try:
@@ -12268,14 +12268,15 @@ class MediaStreamHandler:
                                 tx_q = 0
 
                             if ai_speaking or oai_q > 0 or tx_q > 0:
+                                _orig_print(f"⏳ [POLITE_HANGUP] Waiting for audio: ai_speaking={ai_speaking}, oai_q={oai_q}, tx_q={tx_q}", flush=True)
                                 await asyncio.sleep(0.5)
                                 continue
                             break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.exception("[POLITE_HANGUP] Error in grace period check")
 
-                    logger.info("[POLITE_HANGUP] fallback timer fired")
-                    print("[POLITE_HANGUP] fallback timer fired")
+                    logger.info("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
+                    print("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
 
                     call_sid_local = expected_call_sid or getattr(self, "call_sid", None)
                     if not call_sid_local:
