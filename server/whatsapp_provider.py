@@ -79,16 +79,35 @@ class BaileysProvider(Provider):
             )
             
             if response.status_code == 200:
-                data = response.json()
-                # Check if actually connected to WhatsApp, not just service running
-                self._health_status = data.get("connected", False)
+                # 🔥 FIX: Handle empty or non-JSON responses gracefully
+                try:
+                    data = response.json()
+                    # Check if actually connected to WhatsApp, not just service running
+                    self._health_status = data.get("connected", False)
+                except (json.JSONDecodeError, ValueError) as json_err:
+                    # Empty response or non-JSON content - treat as not connected
+                    logger.debug(f"Baileys health check returned non-JSON response: {response.text[:100]}")
+                    self._health_status = False
             else:
                 self._health_status = False
                 
             self._last_health_check = now
             return self._health_status
+        except requests.exceptions.Timeout:
+            # Don't log timeout as warning - it's expected when service is starting
+            logger.debug("Baileys health check timeout (service may be starting)")
+            self._health_status = False
+            self._last_health_check = now
+            return False
+        except requests.exceptions.ConnectionError:
+            # Don't log connection errors as warning - service may be down/restarting
+            logger.debug("Baileys health check connection error (service may be down)")
+            self._health_status = False
+            self._last_health_check = now
+            return False
         except Exception as e:
-            logger.warning(f"Baileys health check failed: {e}")
+            # Only log unexpected errors as warnings
+            logger.warning(f"Baileys health check unexpected error: {e}")
             self._health_status = False
             self._last_health_check = now
             return False
