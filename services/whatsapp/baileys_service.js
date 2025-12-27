@@ -11,12 +11,12 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const keepAliveAgent = new http.Agent({ 
   keepAlive: true, 
   maxSockets: 100,
-  timeout: 10000  // ⚡ FIXED: 10s timeout for WhatsApp operations
+  timeout: 30000  // 🔧 Increased from 10s to 30s for WhatsApp operations
 });
 
 // ⚡ PERFORMANCE: Configure axios globally with keep-alive
 axios.defaults.httpAgent = keepAliveAgent;
-axios.defaults.timeout = 10000;  // ⚡ FIXED: 10s timeout for Flask webhooks
+axios.defaults.timeout = 30000;  // 🔧 Increased from 10s to 30s for Flask webhooks
 
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const HOST = process.env.BAILEYS_HOST || '0.0.0.0';  // ✅ Listen on all interfaces for Docker networking
@@ -64,11 +64,12 @@ app.get('/', (req, res) => res.status(200).send('ok'));
 const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts }
 
 // 🔧 HARDENING 1.1: Exponential backoff configuration for reconnection
+// 🔥 FIX: Increased resilience for slow/unstable connections
 const RECONNECT_CONFIG = {
   baseDelay: 5000,    // 5 seconds
-  maxDelay: 60000,    // 60 seconds max
-  multiplier: 2,      // Double each time
-  maxAttempts: 10     // Give up after 10 failed attempts
+  maxDelay: 120000,   // 🔧 Increased from 60s to 120s (2 minutes max)
+  multiplier: 1.5,    // 🔧 Reduced from 2 to 1.5 for gentler backoff
+  maxAttempts: 20     // 🔧 Increased from 10 to 20 attempts - don't give up easily!
 };
 
 function getReconnectDelay(attempts) {
@@ -116,7 +117,26 @@ app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
 });
 app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
   const s = sessions.get(req.params.tenantId);
-  return res.json({ connected: !!s?.connected, pushName: s?.pushName || '', hasQR: !!s?.qrDataUrl });
+  const hasSession = !!s;
+  const hasSocket = !!s?.sock;
+  const isConnected = !!s?.connected;
+  const hasQR = !!s?.qrDataUrl;
+  const reconnectAttempts = s?.reconnectAttempts || 0;
+  
+  // 🔧 ENHANCED: Return detailed diagnostic info
+  const diagnostics = {
+    connected: isConnected,
+    pushName: s?.pushName || '',
+    hasQR: hasQR,
+    hasSession,
+    hasSocket,
+    reconnectAttempts,
+    sessionState: hasSession ? (isConnected ? 'connected' : (hasQR ? 'waiting_qr' : 'connecting')) : 'not_started',
+    timestamp: new Date().toISOString()
+  };
+  
+  console.log(`[WA] Status check for ${req.params.tenantId}:`, diagnostics);
+  return res.json(diagnostics);
 });
 app.get('/whatsapp/:tenantId/qr', requireSecret, (req, res) => {
   const s = sessions.get(req.params.tenantId);
@@ -143,6 +163,51 @@ app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
     console.error('[disconnect] error', e); 
     return res.status(500).json({ error: 'disconnect_failed' }); 
   }
+});
+
+// 🔧 NEW: Comprehensive diagnostics endpoint for troubleshooting
+app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
+  const tenantId = req.params.tenantId;
+  const s = sessions.get(tenantId);
+  const authPath = authDir(tenantId);
+  const qrFile = path.join(authPath, 'qr_code.txt');
+  const credsFile = path.join(authPath, 'creds.json');
+  
+  const diagnostics = {
+    tenant_id: tenantId,
+    timestamp: new Date().toISOString(),
+    session: {
+      exists: !!s,
+      connected: !!s?.connected,
+      has_socket: !!s?.sock,
+      has_qr_data: !!s?.qrDataUrl,
+      starting: !!s?.starting,
+      push_name: s?.pushName || null,
+      reconnect_attempts: s?.reconnectAttempts || 0
+    },
+    filesystem: {
+      auth_path: authPath,
+      auth_path_exists: fs.existsSync(authPath),
+      qr_file_exists: fs.existsSync(qrFile),
+      creds_file_exists: fs.existsSync(credsFile)
+    },
+    config: {
+      max_reconnect_attempts: RECONNECT_CONFIG.maxAttempts,
+      base_delay_ms: RECONNECT_CONFIG.baseDelay,
+      max_delay_ms: RECONNECT_CONFIG.maxDelay,
+      connect_timeout_ms: 30000,
+      query_timeout_ms: 20000
+    },
+    server: {
+      port: PORT,
+      host: HOST,
+      total_sessions: sessions.size,
+      uptime_seconds: Math.floor(process.uptime())
+    }
+  };
+  
+  console.log(`[WA] Diagnostics requested for ${tenantId}:`, JSON.stringify(diagnostics, null, 2));
+  return res.json(diagnostics);
 });
 
 // ⚡ FAST typing indicator endpoint - MULTI-TENANT SUPPORT
@@ -240,7 +305,7 @@ async function startSession(tenantId) {
   const { version } = await fetchLatestBaileysVersion();
   console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
   
-  // ⚡ OPTIMIZED Baileys socket for maximum speed
+  // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
   const sock = makeWASocket({
     version,
     auth: state,
@@ -250,8 +315,11 @@ async function startSession(tenantId) {
     syncFullHistory: false,  // ⚡ Don't sync history - CRITICAL for speed
     shouldSyncHistoryMessage: false,  // ⚡ No message history sync
     getMessage: async () => undefined,  // ⚡ Don't fetch old messages - saves time
-    defaultQueryTimeoutMs: 7000,  // ⚡ Fast timeout
-    connectTimeoutMs: 7000  // ⚡ Fast connection timeout
+    defaultQueryTimeoutMs: 20000,  // 🔧 Increased from 7s to 20s for slow connections
+    connectTimeoutMs: 30000,  // 🔧 Increased from 7s to 30s for reliable connection
+    retryRequestDelayMs: 500,  // 🔧 Added: Delay between retry attempts
+    maxMsgRetryCount: 5,  // 🔧 Added: Max retries for failed messages
+    keepAliveIntervalMs: 30000  // 🔧 Added: Keep connection alive
   });
 
   const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '', starting: false };
@@ -267,17 +335,24 @@ async function startSession(tenantId) {
       const reason = lastDisconnect?.error?.output?.statusCode;
       const reasonMessage = lastDisconnect?.error?.message || String(reason || '');
       
-      // 🔧 HARDENING 1.1: Clear structured logging with states
-      console.log(`[WA] connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, hasQR=${!!qr}`);
+      // 🔧 ENHANCED: More detailed logging for connection diagnostics
+      const timestamp = new Date().toISOString();
+      console.log(`[WA] ${timestamp} connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, reasonMsg=${reasonMessage || 'none'}, hasQR=${!!qr}`);
       
       // B2) לוגיקת QR יציבה בNode עם qr_code.txt
       const qrFile = path.join(authPath, 'qr_code.txt');
       
       if (qr) {
+        // 🔧 ENHANCED: Add QR generation timing
+        const qrStartTime = Date.now();
         s.qrDataUrl = await QRCode.toDataURL(qr);
-        console.log(`[WA] ${tenantId}: QR generated successfully`);
+        const qrDuration = Date.now() - qrStartTime;
+        console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms`);
+        console.log(`[WA] ${tenantId}: QR length=${qr.length}, dataUrl length=${s.qrDataUrl.length}`);
+        
         try { 
-          fs.writeFileSync(qrFile, qr); 
+          fs.writeFileSync(qrFile, qr);
+          console.log(`[WA] ${tenantId}: QR saved to file: ${qrFile}`);
         } catch(e) { 
           console.error(`[WA-ERROR] ${tenantId}: QR file write error:`, e); 
         }
@@ -288,12 +363,15 @@ async function startSession(tenantId) {
         s.qrDataUrl = '';
         s.pushName = sock?.user?.name || sock?.user?.id || '';
         s.reconnectAttempts = 0;  // 🔧 HARDENING 1.1: Reset reconnect counter on success
-        console.log(`[WA] ${tenantId}: ✅ Connected! pushName=${s.pushName}`);
+        const phoneNumber = sock?.user?.id || 'unknown';
+        console.log(`[WA] ${tenantId}: ✅ Connected! pushName=${s.pushName}, phone=${phoneNumber}`);
+        console.log(`[WA] ${tenantId}: Session info - id=${sock?.user?.id}, name=${sock?.user?.name}`);
         
         // מחיקת QR כשמתחברים
         try { 
           if (fs.existsSync(qrFile)) {
-            fs.unlinkSync(qrFile); 
+            fs.unlinkSync(qrFile);
+            console.log(`[WA] ${tenantId}: QR file deleted after connection`);
           }
         } catch(e) { 
           console.error(`[WA-ERROR] ${tenantId}: QR file delete error:`, e); 
@@ -306,6 +384,7 @@ async function startSession(tenantId) {
       if (connection === 'close') {
         s.connected = false;
         console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}`);
+        console.log(`[WA] ${tenantId}: Disconnect details - reasonCode=${reason}, lastError=${JSON.stringify(lastDisconnect?.error || {})}`);
         
         // 🔥 CRITICAL: Always clean up socket before reconnect
         try {
@@ -319,7 +398,7 @@ async function startSession(tenantId) {
         
         // CASE 1: Logged out - clear everything and notify backend
         if (reason === DisconnectReason.loggedOut) {
-          console.log(`[WA] ${tenantId}: loggedOut - clearing auth files and notifying backend`);
+          console.log(`[WA] ${tenantId}: 🔴 LOGGED_OUT - User logged out on phone, clearing auth files`);
           
           // 🔔 BUILD 151: Notify backend about permanent disconnect
           notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
@@ -333,14 +412,16 @@ async function startSession(tenantId) {
             console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
           }
           sessions.delete(tenantId);
+          console.log(`[WA] ${tenantId}: Will restart session in 5 seconds...`);
           setTimeout(() => startSession(tenantId), 5000);
           return;
         }
         
         // CASE 2: restartRequired (515) - keep credentials, just restart
         if (reason === DisconnectReason.restartRequired) {
-          console.log(`[WA] ${tenantId}: restartRequired (515) - will retry with saved credentials`);
+          console.log(`[WA] ${tenantId}: 🔄 RESTART_REQUIRED (515) - WhatsApp server requested restart`);
           sessions.delete(tenantId);
+          console.log(`[WA] ${tenantId}: Will retry connection in 5 seconds...`);
           setTimeout(() => startSession(tenantId), 5000);
           return;
         }
@@ -350,7 +431,8 @@ async function startSession(tenantId) {
         const attempts = (s.reconnectAttempts || 0) + 1;
         
         if (attempts > RECONNECT_CONFIG.maxAttempts) {
-          console.error(`[WA-ERROR] ${tenantId}: Max reconnect attempts (${RECONNECT_CONFIG.maxAttempts}) reached. Giving up.`);
+          console.error(`[WA-ERROR] ${tenantId}: 🔴 Max reconnect attempts (${RECONNECT_CONFIG.maxAttempts}) reached`);
+          console.error(`[WA-ERROR] ${tenantId}: Giving up after ${attempts} attempts. Manual intervention required.`);
           // 🔔 Notify backend about repeated failure
           notifyBackendWhatsappStatus(tenantId, 'disconnected', 'max_attempts_exceeded');
           sessions.delete(tenantId);
@@ -359,12 +441,14 @@ async function startSession(tenantId) {
         
         const delay = getReconnectDelay(attempts - 1);
         console.log(`[WA] ${tenantId}: 🔄 Auto-reconnecting in ${delay/1000}s (attempt ${attempts}/${RECONNECT_CONFIG.maxAttempts}, reason=${reason || 'unknown'})`);
+        console.log(`[WA] ${tenantId}: Reconnection strategy - next delay will be ${getReconnectDelay(attempts)/1000}s`);
         
         // Store attempts count before deleting session
         const reconnectAttempts = attempts;
         sessions.delete(tenantId);
         
         setTimeout(async () => {
+          console.log(`[WA] ${tenantId}: ⏰ Starting reconnection attempt ${reconnectAttempts}...`);
           try {
             const newSession = await startSession(tenantId);
             if (newSession) {
