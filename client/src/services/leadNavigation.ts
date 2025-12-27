@@ -10,6 +10,7 @@ export interface NavigationContext {
   tab?: string;
   filters?: {
     status?: string;
+    statuses?: string; // Multi-status filter (comma-separated)
     source?: string;
     direction?: string;
     outbound_list_id?: string;
@@ -19,6 +20,7 @@ export interface NavigationContext {
   };
   listId?: string; // For tracking position in paginated list
   currentIndex?: number; // Current position in list
+  page?: number; // Current page number
 }
 
 export interface LeadNavigationResult {
@@ -46,12 +48,14 @@ function getCacheKey(context: NavigationContext): string {
     context.from,
     context.tab || '',
     context.filters?.status || '',
+    context.filters?.statuses || '',
     context.filters?.source || '',
     context.filters?.direction || '',
     context.filters?.outbound_list_id || '',
     context.filters?.search || '',
     context.filters?.dateFrom || '',
     context.filters?.dateTo || '',
+    context.page || '',
   ];
   return parts.join('|');
 }
@@ -71,6 +75,7 @@ export function parseNavigationContext(searchParams: URLSearchParams): Navigatio
   const tab = searchParams.get('tab') || undefined;
   const listId = searchParams.get('listId') || undefined;
   const currentIndex = searchParams.get('index');
+  const page = searchParams.get('page');
   
   if (!from) {
     return null;
@@ -79,6 +84,7 @@ export function parseNavigationContext(searchParams: URLSearchParams): Navigatio
   // Parse filters from URL
   const filters: NavigationContext['filters'] = {};
   const status = searchParams.get('filterStatus');
+  const statuses = searchParams.get('filterStatuses');
   const source = searchParams.get('filterSource');
   const direction = searchParams.get('filterDirection');
   const outbound_list_id = searchParams.get('filterOutboundList');
@@ -87,6 +93,7 @@ export function parseNavigationContext(searchParams: URLSearchParams): Navigatio
   const dateTo = searchParams.get('filterDateTo');
   
   if (status) filters.status = status;
+  if (statuses) filters.statuses = statuses;
   if (source) filters.source = source;
   if (direction) filters.direction = direction;
   if (outbound_list_id) filters.outbound_list_id = outbound_list_id;
@@ -100,6 +107,7 @@ export function parseNavigationContext(searchParams: URLSearchParams): Navigatio
     filters: Object.keys(filters).length > 0 ? filters : undefined,
     listId,
     currentIndex: currentIndex ? parseInt(currentIndex, 10) : undefined,
+    page: page ? parseInt(page, 10) : undefined,
   };
 }
 
@@ -123,9 +131,14 @@ export function encodeNavigationContext(context: NavigationContext): URLSearchPa
     params.set('index', context.currentIndex.toString());
   }
   
+  if (context.page !== undefined) {
+    params.set('page', context.page.toString());
+  }
+  
   // Encode filters
   if (context.filters) {
     if (context.filters.status) params.set('filterStatus', context.filters.status);
+    if (context.filters.statuses) params.set('filterStatuses', context.filters.statuses);
     if (context.filters.source) params.set('filterSource', context.filters.source);
     if (context.filters.direction) params.set('filterDirection', context.filters.direction);
     if (context.filters.outbound_list_id) params.set('filterOutboundList', context.filters.outbound_list_id);
@@ -170,9 +183,17 @@ export async function getPrevNextLeads(
       let endpoint = '/api/leads';
       const params = new URLSearchParams();
       
+      // IMPORTANT: Fetch ALL leads for navigation (no pagination limit)
+      params.set('limit', '1000'); // High limit to get all leads
+      
       // Apply filters from context
       if (context.filters) {
         if (context.filters.status) params.set('status', context.filters.status);
+        if (context.filters.statuses) {
+          // Handle multi-status filter (comma-separated)
+          const statusArray = context.filters.statuses.split(',').filter(Boolean);
+          statusArray.forEach(status => params.append('statuses[]', status));
+        }
         if (context.filters.source) params.set('source', context.filters.source);
         if (context.filters.direction) params.set('direction', context.filters.direction);
         if (context.filters.outbound_list_id) params.set('outbound_list_id', context.filters.outbound_list_id);
@@ -185,14 +206,37 @@ export async function getPrevNextLeads(
       switch (context.from) {
         case 'recent_calls':
           endpoint = '/api/calls';
+          // Don't override direction if it's already set in filters
+          if (!context.filters?.direction) {
+            // Default: show all calls (inbound and outbound)
+          }
           break;
         case 'inbound_calls':
-          endpoint = '/api/calls';
+          // Use leads endpoint with inbound direction filter
           params.set('direction', 'inbound');
           break;
         case 'outbound_calls':
-          endpoint = '/api/calls';
+          // Use leads endpoint with outbound direction filter
           params.set('direction', 'outbound');
+          // If tab is specified, handle different tabs
+          if (context.tab) {
+            switch (context.tab) {
+              case 'system':
+                // System leads - no additional filter
+                break;
+              case 'active':
+                // Active leads - no additional filter
+                break;
+              case 'imported':
+                // Imported leads - no additional filter
+                break;
+              case 'recent':
+                // Recent calls from outbound
+                endpoint = '/api/calls';
+                params.set('direction', 'outbound');
+                break;
+            }
+          }
           break;
         case 'whatsapp':
           // WhatsApp leads might have a different filter
@@ -206,19 +250,19 @@ export async function getPrevNextLeads(
       const response = await apiClient.get(url);
       
       // Extract lead IDs from response
-      if (context.from === 'recent_calls' || context.from === 'inbound_calls' || context.from === 'outbound_calls') {
+      if (context.from === 'recent_calls' || (context.from === 'outbound_calls' && context.tab === 'recent')) {
         // For calls, extract lead_id from call records
         const calls = response?.calls || [];
         leadIds = calls
           .filter((call: any) => call.lead_id)
           .map((call: any) => call.lead_id);
       } else {
-        // For leads
-        const leads = response?.leads || [];
+        // For leads (handles both direct response and paginated response)
+        const leads = response?.leads || response?.items || [];
         leadIds = leads.map((lead: any) => lead.id);
       }
       
-      // Remove duplicates
+      // Remove duplicates while preserving order
       leadIds = Array.from(new Set(leadIds));
       
       // Cache the result

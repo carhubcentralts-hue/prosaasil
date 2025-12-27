@@ -817,6 +817,10 @@ export function OutboundCallsPage() {
     if (selectedStatuses.length > 0) {
       params.set('filterStatuses', selectedStatuses.join(','));
     }
+    // Add page context for imported tab
+    if (activeTab === 'imported' && currentPage > 1) {
+      params.set('page', currentPage.toString());
+    }
     
     navigate(`/app/leads/${leadId}?${params.toString()}`);
   };
