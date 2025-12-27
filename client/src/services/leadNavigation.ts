@@ -184,7 +184,8 @@ export async function getPrevNextLeads(
       const params = new URLSearchParams();
       
       // IMPORTANT: Fetch ALL leads for navigation (no pagination limit)
-      params.set('limit', '1000'); // High limit to get all leads
+      // Different endpoints use different pagination parameters
+      // /api/calls uses limit+offset, /api/leads uses page+pageSize
       
       // Apply filters from context
       if (context.filters) {
@@ -197,7 +198,15 @@ export async function getPrevNextLeads(
         if (context.filters.source) params.set('source', context.filters.source);
         if (context.filters.direction) params.set('direction', context.filters.direction);
         if (context.filters.outbound_list_id) params.set('outbound_list_id', context.filters.outbound_list_id);
-        if (context.filters.search) params.set('search', context.filters.search);
+        // Note: Different endpoints use different search param names
+        // /api/calls uses 'search', /api/leads uses 'q'
+        if (context.filters.search) {
+          if (context.from === 'recent_calls' || (context.from === 'outbound_calls' && context.tab === 'recent')) {
+            params.set('search', context.filters.search);
+          } else {
+            params.set('q', context.filters.search);
+          }
+        }
         if (context.filters.dateFrom) params.set('from', context.filters.dateFrom);
         if (context.filters.dateTo) params.set('to', context.filters.dateTo);
       }
@@ -206,6 +215,9 @@ export async function getPrevNextLeads(
       switch (context.from) {
         case 'recent_calls':
           endpoint = '/api/calls';
+          // /api/calls uses limit+offset pagination
+          params.set('limit', '1000');
+          params.set('offset', '0');
           // Don't override direction if it's already set in filters
           if (!context.filters?.direction) {
             // Default: show all calls (inbound and outbound)
@@ -214,10 +226,16 @@ export async function getPrevNextLeads(
         case 'inbound_calls':
           // Use leads endpoint with inbound direction filter
           params.set('direction', 'inbound');
+          // /api/leads uses page+pageSize pagination
+          params.set('page', '1');
+          params.set('pageSize', '1000');
           break;
         case 'outbound_calls':
           // Use leads endpoint with outbound direction filter
           params.set('direction', 'outbound');
+          // /api/leads uses page+pageSize pagination
+          params.set('page', '1');
+          params.set('pageSize', '1000');
           // If tab is specified, handle different tabs
           if (context.tab) {
             switch (context.tab) {
@@ -234,6 +252,11 @@ export async function getPrevNextLeads(
                 // Recent calls from outbound
                 endpoint = '/api/calls';
                 params.set('direction', 'outbound');
+                params.set('limit', '1000');
+                params.set('offset', '0');
+                // Remove page+pageSize params for calls endpoint
+                params.delete('page');
+                params.delete('pageSize');
                 break;
             }
           }
@@ -241,6 +264,15 @@ export async function getPrevNextLeads(
         case 'whatsapp':
           // WhatsApp leads might have a different filter
           params.set('source', 'whatsapp');
+          // /api/leads uses page+pageSize pagination
+          params.set('page', '1');
+          params.set('pageSize', '1000');
+          break;
+        case 'leads':
+          // Regular leads page
+          // /api/leads uses page+pageSize pagination
+          params.set('page', '1');
+          params.set('pageSize', '1000');
           break;
       }
       
