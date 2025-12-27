@@ -805,7 +805,8 @@ def build_inbound_system_prompt(
             appointment_instructions = (
                 f"\n\nAPPOINTMENT SCHEDULING (STRICT, technical): Today is {weekday_name} {today_date}. "
                 f"Slot size: {policy.slot_size_min}min. "
-                "Never skip steps. Required before booking: (1) customer name, (2) full date (must include weekday), (3) time. "
+                "Never skip steps. Required before booking: (1) customer's FULL NAME (first and last name - not just 'לקוח' or generic terms), (2) full date (must include weekday), (3) time. "
+                "CRITICAL: Always ask for the customer's full name before booking. Examples: 'על איזה שם לרשום את הפגישה?', 'מה השם המלא שלך?'. "
                 "If anything is missing, ask ONLY for the missing field (one question at a time). "
                 "Understanding time/date: the customer may say relative time references (today/tomorrow) - always restate as a weekday + full date + HH:MM confirmation question. "
                 "Availability: you MUST call check_availability before claiming a slot is available. NEVER say a time is available without calling this tool first. "

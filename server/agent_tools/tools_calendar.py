@@ -324,18 +324,17 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if duration_min < 15 or duration_min > 240:
             raise ValueError(f"משך הפגישה חייב להיות בין 15-240 דקות (קיבלתי: {duration_min:.0f} דקות)")
         
-        # ⚡ Validate customer name (MUST be clear and specific!)
+        # ⚡ Validate customer name - encourage full names but don't block
         if not input.customer_name or input.customer_name.strip() == "":
-            raise ValueError("חובה לציין שם לקוח מלא. אנא שאל: 'על איזה שם לרשום?'")
-        
-        # Don't allow generic names
-        generic_names = ["לקוח", "customer", "client", "unknown", "לא ידוע"]
-        if input.customer_name.strip().lower() in generic_names:
-            raise ValueError(f"שם הלקוח '{input.customer_name}' אינו ספציפי מספיק. אנא בקש שם מלא.")
+            raise ValueError("חובה לציין שם לקוח. אנא שאל: 'על איזה שם לרשום?'")
         
         # Name must be at least 2 characters
         if len(input.customer_name.strip()) < 2:
             raise ValueError("שם הלקוח חייב להכיל לפחות 2 תווים")
+        
+        # Note: We trust the AI to collect proper names. Generic names like "לקוח" are
+        # accepted if that's what the AI collected - the business owner will strengthen
+        # their prompt to encourage full names if needed.
         
         # 🔥 POLICY CHECK: Require phone before booking (Sect 3 from instructions)
         from server.policy.business_policy import get_business_policy
