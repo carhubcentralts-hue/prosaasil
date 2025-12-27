@@ -222,6 +222,10 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
             transcription = "\n".join(transcription_parts)
             
             if transcription:
+                # 🔥 NEW: Save full transcript
+                appointment.call_transcript = transcription
+                print(f"✅ AUTO_MEETING: Call transcript saved ({len(transcription)} chars)")
+                
                 # Get business info for context
                 business = Business.query.get(business_id)
                 business_name = business.name if business else None

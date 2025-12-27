@@ -39,6 +39,7 @@ interface Appointment {
   source: 'manual' | 'phone_call' | 'whatsapp' | 'ai_suggested';
   auto_generated: boolean;
   call_summary?: string;  // ✅ BUILD 144: AI-generated summary from source call
+  call_transcript?: string;  // 🔥 NEW: Full transcript from source call
 }
 
 interface AppointmentForm {
@@ -836,7 +837,20 @@ export function CalendarPage() {
                       </div>
                     )}
                     
-                    {appointment.description && !appointment.call_summary && (
+                    {/* 🔥 NEW: Show full transcript if exists */}
+                    {appointment.call_transcript && (
+                      <div className="mt-2 p-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <MessageCircle className="h-4 w-4 text-emerald-600" />
+                          <span className="text-xs font-semibold text-emerald-700">תמליל מלא</span>
+                        </div>
+                        <p className="text-slate-700 text-sm whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
+                          {appointment.call_transcript}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {appointment.description && !appointment.call_summary && !appointment.call_transcript && (
                       <p className="text-slate-600 text-sm line-clamp-2">
                         {appointment.description}
                       </p>

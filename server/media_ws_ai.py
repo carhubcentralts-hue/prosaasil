@@ -4408,7 +4408,20 @@ class MediaStreamHandler:
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
                     error = event.get("error", {})
+                    error_code = error.get("code", "")
+                    
+                    # 🔥 FIX: response_cancel_not_active is expected after successful cancellation
+                    # This occurs when OpenAI processes cancel asynchronously and sends error event
+                    # after the response has already been cancelled. This is NOT a real error.
+                    if error_code == "response_cancel_not_active":
+                        if DEBUG:
+                            logger.debug(f"[REALTIME] response_cancel_not_active (expected after cancel)")
+                        # Silently ignore - this is normal behavior
+                        continue
+                    
+                    # Log all other errors as ERROR level
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
+                    _orig_print(f"❌ [REALTIME] Error event: {error.get('message', 'Unknown error')}", flush=True)
                     
                     # 🔥 CRITICAL: Validate session.update errors
                     # If session.update fails, the session uses default settings which causes:
@@ -14670,6 +14683,35 @@ class MediaStreamHandler:
                             call_log.recording_sid = self._recording_sid
                             if DEBUG:
                                 force_print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
+                        
+                        # 🔥 NEW: Update appointment with transcript and summary
+                        try:
+                            appointment = Appointment.query.filter_by(call_log_id=call_log.id).first()
+                            if appointment:
+                                # Save full transcript
+                                appointment.call_transcript = full_conversation
+                                
+                                # Generate summary if possible
+                                if full_conversation and len(full_conversation) > 50:
+                                    try:
+                                        from server.services.summary_service import summarize_conversation
+                                        business = Business.query.get(call_log.business_id)
+                                        business_name = business.name if business else None
+                                        call_summary = summarize_conversation(
+                                            transcription=full_conversation,
+                                            call_sid=self.call_sid,
+                                            business_name=business_name
+                                        )
+                                        appointment.call_summary = call_summary
+                                        force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript and summary")
+                                    except Exception as sum_err:
+                                        force_print(f"⚠️ [FINALIZE] Failed to generate summary for appointment: {sum_err}")
+                                        # Continue without summary - transcript is saved
+                                else:
+                                    force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript")
+                        except Exception as apt_err:
+                            force_print(f"⚠️ [FINALIZE] Failed to update appointment: {apt_err}")
+                            # Continue - appointment update is not critical
                         
                         db.session.commit()
                         force_print(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")

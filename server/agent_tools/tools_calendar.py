@@ -457,6 +457,16 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         # Create appointment (phone can be None - that's OK!)
         customer_name = input.customer_name or "לקוח"
         
+        # 🔥 NEW: Extract phone from call context if not provided
+        # Priority: 1. Provided phone, 2. Caller number from context, 3. None
+        if not phone and context:
+            caller_number = context.get('caller_number') or context.get('from_number')
+            if caller_number:
+                from server.services.phone_validator import normalize_il_phone
+                phone = normalize_il_phone(caller_number)
+                if phone:
+                    print(f"   📞 Extracted phone from call metadata: {phone}")
+        
         print(f"\n🔥🔥🔥 CREATING APPOINTMENT IN DATABASE 🔥🔥🔥")
         print(f"   business_id: {input.business_id}")
         print(f"   customer_name: {customer_name}")

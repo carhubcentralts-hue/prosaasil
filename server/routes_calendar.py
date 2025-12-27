@@ -190,8 +190,9 @@ def get_appointments():
                 'created_at': apt.created_at.isoformat() if apt.created_at else None,
                 'updated_at': apt.updated_at.isoformat() if apt.updated_at else None,
                 
-                # ✅ BUILD 144: Include call summary from source call
+                # ✅ BUILD 144: Include call summary and transcript from source call
                 'call_summary': apt.call_summary,
+                'call_transcript': apt.call_transcript,
                 
                 # Related data
                 'business_name': None,

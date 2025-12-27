@@ -295,7 +295,14 @@ class OpenAIRealtimeClient:
                             logger.info(log_msg)
                         
                         elif event_type == "error":
-                            logger.error(f"[REALTIME] error: {event.get('error', {})}")
+                            error = event.get('error', {})
+                            error_code = error.get('code', '')
+                            # 🔥 FIX: response_cancel_not_active is expected after successful cancellation
+                            # This occurs when OpenAI processes cancel asynchronously - NOT a real error
+                            if error_code == "response_cancel_not_active":
+                                logger.debug(f"[REALTIME] response_cancel_not_active (expected after cancel)")
+                            else:
+                                logger.error(f"[REALTIME] error: {error}")
                         
                         elif event_type == "session.updated":
                             logger.info("[REALTIME] session.updated: configuration applied")

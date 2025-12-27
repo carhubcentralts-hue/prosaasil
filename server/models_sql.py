@@ -708,6 +708,7 @@ class Appointment(db.Model):
     
     # ✅ BUILD 144: Call summary - סיכום השיחה שממנה נוצרה הפגישה
     call_summary = db.Column(db.Text)  # AI-generated summary from the call that created this appointment
+    call_transcript = db.Column(db.Text)  # Full transcript from the call that created this appointment
     
     # Metadata
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
