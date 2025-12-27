@@ -2733,6 +2733,27 @@ class MediaStreamHandler:
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
             _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
+            # 🔥 NEW: Set Flask g.agent_context for Realtime API tool calls
+            # This allows tools like schedule_appointment to access call metadata
+            try:
+                from flask import g
+                caller_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                g.agent_context = {
+                    'business_id': business_id_safe,
+                    'business_name': biz_name,
+                    'caller_number': caller_phone,
+                    'from_number': caller_phone,
+                    'customer_phone': caller_phone,
+                    'channel': 'phone',
+                    'call_sid': self.call_sid,
+                    'call_direction': call_direction,
+                    'business_prompt': None,  # Will be set after prompt is loaded
+                }
+                print(f"✅ [AGENT_CONTEXT] Flask g.agent_context set for Realtime tools: business={business_id_safe}, phone={caller_phone}")
+            except Exception as ctx_err:
+                print(f"⚠️ [AGENT_CONTEXT] Failed to set g.agent_context: {ctx_err}")
+                # Continue - not critical for call to proceed
+            
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
             # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
@@ -2811,6 +2832,15 @@ class MediaStreamHandler:
             # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
             self._full_prompt_for_upgrade = full_prompt
             self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
+            
+            # 🔥 NEW: Update agent_context with business prompt
+            try:
+                from flask import g
+                if hasattr(g, 'agent_context') and isinstance(g.agent_context, dict):
+                    g.agent_context['business_prompt'] = full_prompt
+                    print(f"✅ [AGENT_CONTEXT] Updated with business_prompt ({len(full_prompt)} chars)")
+            except Exception:
+                pass  # Not critical
             
             # 🔥 CRITICAL LOGGING: Verify business isolation
             if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
