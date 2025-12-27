@@ -13152,9 +13152,9 @@ class MediaStreamHandler:
                     alternatives: list[str] = []
                     # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
                     app = _get_flask_app()
-                    for cand in time_res.candidates_hhmm:
-                        try:
-                            with app.app_context():
+                    with app.app_context():
+                        for cand in time_res.candidates_hhmm:
+                            try:
                                 slots_result = _calendar_find_slots_impl(
                                     FindSlotsInput(
                                         business_id=business_id,
@@ -13163,12 +13163,12 @@ class MediaStreamHandler:
                                         preferred_time=cand,
                                     )
                                 )
-                            alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
-                            if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
-                                chosen_time = cand
-                                break
-                        except Exception:
-                            continue
+                                alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
+                                if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
+                                    chosen_time = cand
+                                    break
+                            except Exception:
+                                continue
                     
                     if not chosen_time:
                         print(f"⚠️ [APPOINTMENT] Slot not available: date={normalized_date_iso} time_candidates={time_res.candidates_hhmm} alternatives={alternatives}")
@@ -13254,6 +13254,7 @@ class MediaStreamHandler:
                     
                     # Call unified implementation
                     # 🔥 CRITICAL: Database queries need app_context in async/WebSocket context
+                    app = _get_flask_app()
                     with app.app_context():
                         result = _calendar_create_appointment_impl(input_data, context=context, session=self)
                     
