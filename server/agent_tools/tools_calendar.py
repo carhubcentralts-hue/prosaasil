@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import pytz
+import json
 from server.models_sql import db, Appointment, BusinessSettings
 from server.agent_tools.phone_utils import normalize_il_phone
+from server.services.customer_intelligence import CustomerIntelligence
 import logging
 import time
 
@@ -565,11 +567,41 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 lead_result = _leads_upsert_impl(lead_input)
                 lead_id = lead_result.lead_id
                 logger.info(f"✅ Lead {lead_result.action}: #{lead_id}")
+                
+                # 🔥 NEW: Link the appointment to the lead
+                try:
+                    appointment.lead_id = lead_id
+                    db.session.commit()
+                    logger.info(f"✅ Appointment #{appointment.id} linked to lead #{lead_id}")
+                except Exception as link_error:
+                    logger.exception(f"❌ Failed to link appointment to lead: {link_error}")
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass  # Session may already be rolled back
+                    
             else:
                 logger.warning("⚠️ No phone - skipping lead creation")
         except Exception as lead_error:
             # Don't fail appointment if lead creation fails
             logger.exception(f"❌ Lead upsert failed: {lead_error}")
+        
+        # 🔥 NEW: Generate dynamic conversation summary from transcript
+        if input.call_transcript:
+            try:
+                logger.info(f"📊 Generating dynamic conversation summary for appointment #{appointment.id}")
+                
+                ci = CustomerIntelligence(input.business_id)
+                dynamic_summary_data = ci.generate_conversation_summary(input.call_transcript)
+                appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
+                db.session.commit()
+                logger.info(f"✅ Dynamic summary generated for appointment #{appointment.id}")
+            except Exception as summary_error:
+                logger.exception(f"❌ Failed to generate dynamic summary: {summary_error}")
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass  # Session may already be rolled back
         
         # STEP 2: whatsapp_send (send confirmation with graceful fallback)
         agent_context = context or {}

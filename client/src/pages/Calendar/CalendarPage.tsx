@@ -101,22 +101,10 @@ const DynamicSummaryDisplay: React.FC<{ appointment: Appointment; navigate: any 
   if (!summaryData) return null;
 
   return (
-    <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-purple-600" />
-          <span className="text-sm font-bold text-purple-800">ניתוח שיחה דינמי</span>
-        </div>
-        {appointment.lead_id && (
-          <button
-            onClick={() => navigate(`/crm?lead=${appointment.lead_id}`)}
-            className="flex items-center gap-1 px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-xs font-medium"
-            title="עבור לליד"
-          >
-            <ExternalLink className="h-3 w-3" />
-            <span>צפה בליד</span>
-          </button>
-        )}
+    <div className="mt-3 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200 shadow-sm">
+      <div className="flex items-center gap-2 mb-2">
+        <TrendingUp className="h-5 w-5 text-purple-600" />
+        <span className="text-sm font-bold text-purple-800">ניתוח שיחה דינמי</span>
       </div>
       
       {/* Summary */}
@@ -928,34 +916,51 @@ export function CalendarPage() {
                           <span className="truncate">{appointment.contact_name}</span>
                         </div>
                       )}
-                      {appointment.contact_phone && (
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{appointment.contact_phone}</span>
-                        </div>
-                      )}
                     </div>
+                    
+                    {/* 🔥 Show lead navigation button if lead exists (always visible and prominent) */}
+                    {appointment.lead_id && (
+                      <div className="mt-3 mb-2">
+                        <button
+                          onClick={() => navigate(`/crm?lead=${appointment.lead_id}`)}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium shadow-sm"
+                          title="עבור לליד"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          <span>צפה בליד המלא</span>
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* Phone number from call (always visible when available) */}
+                    {appointment.from_phone && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-slate-600 p-2 bg-slate-50 rounded-lg">
+                        <Phone className="h-4 w-4 text-blue-600" />
+                        <span className="font-medium">מספר טלפון:</span>
+                        <span className="text-slate-800 font-semibold">{appointment.from_phone}</span>
+                      </div>
+                    )}
+                    
+                    {/* Contact phone if available and no from_phone */}
+                    {!appointment.from_phone && appointment.contact_phone && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-slate-600 p-2 bg-slate-50 rounded-lg">
+                        <Phone className="h-4 w-4 text-blue-600" />
+                        <span className="font-medium">מספר טלפון:</span>
+                        <span className="text-slate-800 font-semibold">{appointment.contact_phone}</span>
+                      </div>
+                    )}
                     
                     {/* 🔥 NEW: Show dynamic conversation summary FIRST (most important) */}
                     {appointment.dynamic_summary && (
                       <DynamicSummaryDisplay appointment={appointment} navigate={navigate} />
                     )}
                     
-                    {/* Phone number from call */}
-                    {appointment.from_phone && (
-                      <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
-                        <Phone className="h-4 w-4 text-blue-600" />
-                        <span className="font-medium">מספר חייג:</span>
-                        <span className="text-slate-800">{appointment.from_phone}</span>
-                      </div>
-                    )}
-                    
-                    {/* ✅ BUILD 144: Show call summary if exists (from phone call) */}
+                    {/* ✅ Show call summary if exists (from phone call) - Enhanced display */}
                     {appointment.call_summary && (
-                      <div className="mt-2 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                        <div className="flex items-center gap-2 mb-1">
-                          <MessageCircle className="h-4 w-4 text-blue-600" />
-                          <span className="text-xs font-semibold text-blue-700">סיכום השיחה</span>
+                      <div className="mt-3 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 shadow-sm">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MessageCircle className="h-5 w-5 text-blue-600" />
+                          <span className="text-sm font-bold text-blue-800">סיכום השיחה</span>
                         </div>
                         <p className="text-slate-700 text-sm whitespace-pre-wrap leading-relaxed">
                           {appointment.call_summary}
