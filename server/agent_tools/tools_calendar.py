@@ -8,7 +8,8 @@ from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import pytz
 import json
-from server.models_sql import db, Appointment, BusinessSettings
+from flask import g
+from server.models_sql import db, Appointment, BusinessSettings, CallLog
 from server.agent_tools.phone_utils import normalize_il_phone
 from server.services.customer_intelligence import CustomerIntelligence
 import logging
@@ -324,7 +325,6 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
     """
     try:
         # 🔥 FIX: Get context from Flask g if not provided
-        from flask import g
         if context is None and hasattr(g, 'agent_context'):
             context = g.agent_context
             logger.info(f"📞 Using Flask g.agent_context for phone extraction")
@@ -497,7 +497,6 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         call_log_id = None
         if context and context.get('call_sid'):
             try:
-                from server.models_sql import CallLog
                 call_log = CallLog.query.filter_by(call_sid=context['call_sid']).first()
                 if call_log:
                     call_log_id = call_log.id
