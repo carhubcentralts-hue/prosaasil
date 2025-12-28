@@ -13,10 +13,11 @@ import logging
 import uuid
 from datetime import datetime
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
+from threading import Thread
 from sqlalchemy import func
 from sqlalchemy import text
 from flask import Blueprint, jsonify, request, g
-from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
+from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob
 from server.auth_api import require_api_auth
 from server.services.call_limiter import check_call_limits, get_call_counts, MAX_TOTAL_CALLS_PER_BUSINESS, MAX_OUTBOUND_CALLS_PER_BUSINESS
 from twilio.rest import Client
@@ -183,9 +184,6 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
     Creates a run with concurrency=3 and starts background worker
     Returns JSON response with run_id and queued count
     """
-    from server.models_sql import OutboundCallRun, OutboundCallJob, Lead
-    from threading import Thread
-    
     try:
         # Verify all leads belong to this tenant
         leads = Lead.query.filter(

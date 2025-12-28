@@ -43,11 +43,13 @@ class TestCallLimiterConcurrency(unittest.TestCase):
     
     def test_bulk_queue_concurrency_limit(self):
         """Test that bulk queue respects concurrency of 3"""
-        # The constant is defined as 3 in call_limiter.py
+        # NOTE: The constant is defined as 3 in server/services/call_limiter.py
+        # If this value changes, update this test accordingly
         MAX_OUTBOUND_CALLS_PER_BUSINESS = 3
         
         # Verify the concurrency limit is 3
-        self.assertEqual(MAX_OUTBOUND_CALLS_PER_BUSINESS, 3)
+        self.assertEqual(MAX_OUTBOUND_CALLS_PER_BUSINESS, 3,
+                        "Expected concurrency limit of 3. If changed in call_limiter.py, update this test.")
     
     def test_process_bulk_respects_concurrency(self):
         """Test that process_bulk_call_run respects concurrency"""
