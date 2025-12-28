@@ -73,17 +73,6 @@ def normalize_israeli_phone(phone: str) -> str:
 outbound_bp = Blueprint("outbound", __name__)
 
 
-def get_twilio_client():
-    """Get Twilio REST client"""
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-    
-    if not account_sid or not auth_token:
-        raise ValueError("Missing Twilio credentials")
-    
-    return Client(account_sid, auth_token)
-
-
 def get_business_phone(business_id: int) -> str | None:
     """Get the business phone number for outbound calls"""
     business = Business.query.get(business_id)

@@ -19,6 +19,17 @@ def _stdout_log(line: str) -> None:
         pass
 
 
+def get_twilio_client():
+    """Get Twilio REST client"""
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    
+    if not account_sid or not auth_token:
+        raise ValueError("Missing Twilio credentials")
+    
+    return Client(account_sid, auth_token)
+
+
 def hangup_call(call_sid: Optional[str]) -> bool:
     """
     Hang up a Twilio call via REST API.
