@@ -90,6 +90,7 @@ def get_appointments():
         status = request.args.get('status')
         appointment_type = request.args.get('type')
         search = request.args.get('search', '').strip()
+        lead_id = request.args.get('lead_id')  # Filter by lead_id
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 50)), 100)  # Max 100 per page
         
@@ -132,6 +133,14 @@ def get_appointments():
         # Type filter
         if appointment_type and appointment_type != 'all':
             query = query.filter(Appointment.appointment_type == appointment_type)
+        
+        # Lead ID filter - filter appointments linked to a specific lead
+        if lead_id:
+            try:
+                lead_id_int = int(lead_id)
+                query = query.filter(Appointment.lead_id == lead_id_int)
+            except ValueError:
+                return jsonify({'error': 'Invalid lead_id format'}), 400
         
         # Search filter
         if search:
@@ -322,6 +331,7 @@ def create_appointment():
         appointment.business_id = business_id
         appointment.customer_id = data.get('customer_id')
         appointment.deal_id = data.get('deal_id')
+        appointment.lead_id = data.get('lead_id')  # 🔥 FIX: Accept lead_id from request
         appointment.call_log_id = data.get('call_log_id')
         appointment.whatsapp_message_id = data.get('whatsapp_message_id')
         appointment.title = data['title']
@@ -477,7 +487,7 @@ def update_appointment(appointment_id):
         updatable_fields = [
             'title', 'description', 'location', 'status', 'appointment_type', 
             'priority', 'contact_name', 'contact_phone', 'contact_email', 
-            'notes', 'outcome', 'follow_up_needed'
+            'notes', 'outcome', 'follow_up_needed', 'lead_id'  # 🔥 FIX: Allow updating lead_id
         ]
         
         for field in updatable_fields:

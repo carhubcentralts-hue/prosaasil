@@ -135,9 +135,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       
       // Fire calls and appointments fetches independently (each has its own error handling)
       fetchCalls(id);
-      if (response.phone_e164) {
-        fetchAppointments(response.phone_e164);
-      }
+      fetchAppointments(id);
     } catch (err) {
       console.error('Failed to fetch lead:', err);
       setError('שגיאה בטעינת פרטי הליד');
@@ -174,10 +172,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
-  const fetchAppointments = async (phone: string) => {
+  const fetchAppointments = async (leadId: string) => {
     try {
       setLoadingAppointments(true);
-      const response = await http.get<{ appointments: any[] }>(`/api/calendar/appointments?search=${encodeURIComponent(phone)}`);
+      const response = await http.get<{ appointments: any[] }>(`/api/calendar/appointments?lead_id=${leadId}`);
       if (response.appointments) {
         const leadAppointments: LeadAppointment[] = response.appointments.map((appt: any) => ({
           id: appt.id,
@@ -1336,7 +1334,9 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
         location: formData.location,
         contact_name: formData.contact_name || (lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : ''),
         contact_phone: formData.contact_phone || lead?.phone_e164 || '',
-        priority: 'medium'
+        priority: 'medium',
+        // 🔥 FIX: Include lead_id when creating from lead page
+        lead_id: lead?.id
       };
 
       if (editingAppointment) {
