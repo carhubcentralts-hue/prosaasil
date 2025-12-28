@@ -1660,6 +1660,27 @@ def normalize_hebrew_text(text: str) -> str:
     return result
 
 class MediaStreamHandler:
+    """
+    WebSocket handler for Twilio Media Streams + OpenAI Realtime API integration.
+    
+    🎯 SSOT RESPONSIBILITIES:
+    ✅ OWNER: Real-time conversation storage (ConversationTurn)
+    ✅ OWNER: Audio streaming and turn-taking logic
+    ✅ READER: CallLog status (reads only, never updates)
+    ❌ NEVER: Update CallLog.status (webhooks own this)
+    ❌ NEVER: Download recordings (recording_service owns this)
+    
+    This handler manages:
+    - Audio I/O (Twilio <-> OpenAI)
+    - Conversation turns (user/assistant messages)
+    - Barge-in detection and handling
+    - Greeting/hangup logic
+    
+    Does NOT manage:
+    - Call status transitions (webhooks do this)
+    - Recording downloads (recording_service does this)
+    - Post-call transcription (workers do this)
+    """
     def __init__(self, ws):
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI

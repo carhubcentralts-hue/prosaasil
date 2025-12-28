@@ -1178,10 +1178,20 @@ def stream_status():
 @twilio_bp.route("/webhook/call_status", methods=["POST", "GET"])
 @require_twilio_signature
 def call_status():
-    """Handle call status updates - FAST אסינכרוני - BUILD 106
+    """
+    Handle call status updates - FAST אסינכרוני - BUILD 106
+    
+    ✅ SSOT OWNER: Updates CallLog.status field (PRIMARY RESPONSIBILITY)
+    ⚠️ CRITICAL: This is the ONLY place that should update call status
+    ❌ NEVER: Update call status from Realtime or Workers
     
     Now extracts parent_call_sid and original Twilio direction to prevent duplicates
     and correctly classify call direction.
+    
+    Ownership:
+    - Updates: status, duration, direction, twilio_direction, parent_call_sid
+    - Triggers: Recording download, outbound queue processing
+    - Does NOT: Update conversation content, transcription, or metadata
     """
     # BUILD 168.4: Support both POST (form) and GET (args)
     if request.method == "GET":

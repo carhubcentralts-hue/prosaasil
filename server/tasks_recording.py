@@ -420,11 +420,23 @@ def download_recording_only(call_sid, recording_url):
 
 
 def process_recording_async(form_data):
-    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
+    """
+    ✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
+    
+    🎯 SSOT RESPONSIBILITIES:
+    ✅ OWNER: Post-call transcription (final_transcript)
+    ✅ OWNER: Recording metadata (audio_bytes_len, audio_duration_sec, transcript_source)
+    ✅ APPENDER: Adds data to CallLog (never changes status or basic fields)
+    ❌ NEVER: Update CallLog.status (webhooks own this)
+    ❌ NEVER: Update during active calls (only after call ends)
     
     🔥 PRIORITY ORDER (with fallback):
     1. Primary: Transcription from full recording (high quality)
     2. Fallback: Realtime transcript if recording transcription fails/empty
+    
+    🔥 SSOT: Skip logic prevents duplicate transcriptions:
+    - Skips if final_transcript exists AND transcript_source != "failed"
+    - Only re-transcribes if previous attempt failed
     
     Returns:
         bool: True if processing succeeded (audio file existed), False if recording not ready (should retry)
