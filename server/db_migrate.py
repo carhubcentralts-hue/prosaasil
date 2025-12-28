@@ -1520,13 +1520,11 @@ def apply_migrations():
         checkpoint("Migration 50: Adding dynamic_summary and lead_id to appointments")
         if check_table_exists('appointments'):
             try:
-                from sqlalchemy import text
-                
                 # Add lead_id column if missing
                 if not check_column_exists('appointments', 'lead_id'):
                     db.session.execute(text("""
                         ALTER TABLE appointments 
-                        ADD COLUMN lead_id INTEGER REFERENCES leads(id)
+                        ADD COLUMN lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL
                     """))
                     # Create index for performance
                     db.session.execute(text("""

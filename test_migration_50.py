@@ -59,9 +59,12 @@ def check_migration_50():
         print("  ❌ Migration 50 doesn't check lead_id column existence")
         all_ok = False
     
-    # Check for ALTER TABLE with lead_id
+    # Check for ALTER TABLE with lead_id and ON DELETE
     if 'ALTER TABLE appointments' in migration_50_text and 'ADD COLUMN lead_id INTEGER REFERENCES leads(id)' in migration_50_text:
-        print("  ✅ Migration 50 adds lead_id column with foreign key correctly")
+        if 'ON DELETE SET NULL' in migration_50_text:
+            print("  ✅ Migration 50 adds lead_id column with foreign key and ON DELETE SET NULL")
+        else:
+            print("  ⚠️  Migration 50 adds lead_id but consider adding ON DELETE action")
     else:
         print("  ❌ Migration 50 doesn't add lead_id column properly")
         all_ok = False
@@ -125,15 +128,26 @@ def check_models_have_columns():
     
     all_ok = True
     
-    # Check for lead_id in Appointment model (flexible matching)
-    if 'lead_id = db.Column' in content and 'db.ForeignKey("leads.id")' in content:
+    # Find the Appointment model definition - look for class until next class or end of file
+    # More robust pattern that handles end-of-file case
+    appointment_pattern = r'class Appointment\(db\.Model\):.*?(?=\nclass\s+\w+|$)'
+    appointment_match = re.search(appointment_pattern, content, re.DOTALL)
+    
+    if not appointment_match:
+        print("  ❌ Appointment model not found in models_sql.py")
+        return False
+    
+    appointment_model = appointment_match.group(0)
+    
+    # Check for lead_id with more specific pattern
+    if re.search(r'lead_id\s*=\s*db\.Column.*db\.ForeignKey\(["\']leads\.id["\']\)', appointment_model):
         print("  ✅ Appointment model defines lead_id column with foreign key")
     else:
         print("  ❌ Appointment model missing lead_id column")
         all_ok = False
     
-    # Check for dynamic_summary in Appointment model (flexible matching)
-    if 'dynamic_summary = db.Column' in content and 'db.Text' in content:
+    # Check for dynamic_summary with more specific pattern
+    if re.search(r'dynamic_summary\s*=\s*db\.Column\(db\.Text', appointment_model):
         print("  ✅ Appointment model defines dynamic_summary column")
     else:
         print("  ❌ Appointment model missing dynamic_summary column")
