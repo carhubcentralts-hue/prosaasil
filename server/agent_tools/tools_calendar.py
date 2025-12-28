@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import pytz
+import json
 from server.models_sql import db, Appointment, BusinessSettings
 from server.agent_tools.phone_utils import normalize_il_phone
+from server.services.customer_intelligence import CustomerIntelligence
 import logging
 import time
 
@@ -573,7 +575,10 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     logger.info(f"✅ Appointment #{appointment.id} linked to lead #{lead_id}")
                 except Exception as link_error:
                     logger.exception(f"❌ Failed to link appointment to lead: {link_error}")
-                    db.session.rollback()
+                    try:
+                        db.session.rollback()
+                    except:
+                        pass  # Session may already be rolled back
                     
             else:
                 logger.warning("⚠️ No phone - skipping lead creation")
@@ -585,8 +590,6 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if input.call_transcript:
             try:
                 logger.info(f"📊 Generating dynamic conversation summary for appointment #{appointment.id}")
-                from server.services.customer_intelligence import CustomerIntelligence
-                import json
                 
                 ci = CustomerIntelligence(input.business_id)
                 dynamic_summary_data = ci.generate_conversation_summary(input.call_transcript)
@@ -595,7 +598,10 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 logger.info(f"✅ Dynamic summary generated for appointment #{appointment.id}")
             except Exception as summary_error:
                 logger.exception(f"❌ Failed to generate dynamic summary: {summary_error}")
-                db.session.rollback()
+                try:
+                    db.session.rollback()
+                except:
+                    pass  # Session may already be rolled back
         
         # STEP 2: whatsapp_send (send confirmation with graceful fallback)
         agent_context = context or {}
