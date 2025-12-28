@@ -126,7 +126,12 @@ curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" https://web.whatsapp
 ```
 
 3. **Increase Timeout (if needed):**
-Edit `services/whatsapp/baileys_service.js`:
+
+**Note:** Current timeouts are already optimized:
+- `connectTimeoutMs: 30000` (30 seconds)
+- `defaultQueryTimeoutMs: 20000` (20 seconds)
+
+If you need even longer timeouts for extremely slow connections, edit `services/whatsapp/baileys_service.js`:
 ```javascript
 const sock = makeWASocket({
   // ... other config
@@ -134,6 +139,8 @@ const sock = makeWASocket({
   defaultQueryTimeoutMs: 30000  // Increase to 30s
 });
 ```
+
+**Warning:** Increasing timeouts beyond 45s is not recommended as it may cause other issues.
 
 4. **Ask User to Improve Phone Connection:**
 - Connect phone to WiFi instead of mobile data

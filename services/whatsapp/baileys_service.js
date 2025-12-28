@@ -173,6 +173,10 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
   const qrFile = path.join(authPath, 'qr_code.txt');
   const credsFile = path.join(authPath, 'creds.json');
   
+  // 🔧 FIX: Use actual configuration values instead of hardcoded
+  const SOCKET_CONNECT_TIMEOUT = 30000;
+  const SOCKET_QUERY_TIMEOUT = 20000;
+  
   const diagnostics = {
     tenant_id: tenantId,
     timestamp: new Date().toISOString(),
@@ -195,8 +199,8 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
       max_reconnect_attempts: RECONNECT_CONFIG.maxAttempts,
       base_delay_ms: RECONNECT_CONFIG.baseDelay,
       max_delay_ms: RECONNECT_CONFIG.maxDelay,
-      connect_timeout_ms: 30000,
-      query_timeout_ms: 20000
+      connect_timeout_ms: SOCKET_CONNECT_TIMEOUT,
+      query_timeout_ms: SOCKET_QUERY_TIMEOUT
     },
     server: {
       port: PORT,
@@ -206,7 +210,8 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
     }
   };
   
-  console.log(`[WA] Diagnostics requested for ${tenantId}:`, JSON.stringify(diagnostics, null, 2));
+  // 🔧 FIX: Log only summary instead of full object
+  console.log(`[WA] Diagnostics for ${tenantId}: state=${diagnostics.session.connected ? 'connected' : 'disconnected'}, attempts=${diagnostics.session.reconnect_attempts}`);
   return res.json(diagnostics);
 });
 
@@ -347,8 +352,7 @@ async function startSession(tenantId) {
         const qrStartTime = Date.now();
         s.qrDataUrl = await QRCode.toDataURL(qr);
         const qrDuration = Date.now() - qrStartTime;
-        console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms`);
-        console.log(`[WA] ${tenantId}: QR length=${qr.length}, dataUrl length=${s.qrDataUrl.length}`);
+        console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms, qr_length=${qr.length}`);
         
         try { 
           fs.writeFileSync(qrFile, qr);
