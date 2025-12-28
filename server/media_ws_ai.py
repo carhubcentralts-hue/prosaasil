@@ -13396,9 +13396,15 @@ class MediaStreamHandler:
                     # Prefer caller-id/call context phone even if user didn't provide DTMF.
                     caller_id = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None) or None
                     phone_for_notes = customer_phone or caller_id
+                    
+                    # 🔥 FIX: Include ALL phone-related keys that tools_calendar.py checks for
+                    # tools_calendar.py checks: customer_phone, caller_number, from_number, whatsapp_from
                     context = {
                         "customer_phone": phone_for_notes,
-                        "channel": "phone"
+                        "caller_number": phone_for_notes,  # ← Add this key
+                        "from_number": phone_for_notes,    # ← Add this key
+                        "channel": "phone",
+                        "call_sid": getattr(self, 'call_sid', None),  # ← Add call_sid for call_log linking
                     }
                     
                     # Create input
