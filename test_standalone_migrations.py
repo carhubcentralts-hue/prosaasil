@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Test standalone migration files to ensure they use correct SQLAlchemy syntax
 This validates the migration files without requiring a database connection
@@ -45,8 +46,8 @@ def check_migration_file(filename, expected_column, expected_table):
     if 'db.session.commit()' in content:
         print("  ✅ Calls db.session.commit()")
     else:
-        print("  ⚠️  Missing db.session.commit() - changes may not persist")
-        # Not a critical error for DO $$ blocks, but worth noting
+        print("  ❌ Missing db.session.commit() - changes will not persist")
+        all_ok = False
     
     # Check for idempotency (DO $$ BEGIN ... IF NOT EXISTS ...)
     if 'DO $$' in content and 'IF NOT EXISTS' in content:
@@ -62,6 +63,9 @@ def check_migration_file(filename, expected_column, expected_table):
         all_ok = False
     
     # Check for error handling
+    # Note: This checks for the presence of basic exception handling.
+    # The pattern 'except Exception' is intentionally broad to ensure
+    # any form of exception handling exists in the migration code.
     if 'try:' in content and 'except Exception' in content:
         print("  ✅ Has error handling")
     else:
