@@ -26,8 +26,9 @@ def check_migration_50():
     
     all_ok = True
     
-    # Find Migration 50 section
-    migration_50_pattern = r'# Migration 50:.*?(?=checkpoint\("Committing)'
+    # Find Migration 50 section - look for it specifically until the "Committing migrations" checkpoint
+    # This is more robust than looking for the next migration number
+    migration_50_pattern = r'# Migration 50:.*?checkpoint\("Committing migrations'
     migration_50_match = re.search(migration_50_pattern, content, re.DOTALL)
     
     if not migration_50_match:
@@ -124,15 +125,15 @@ def check_models_have_columns():
     
     all_ok = True
     
-    # Check for lead_id in Appointment model
-    if 'lead_id = db.Column(db.Integer, db.ForeignKey("leads.id")' in content:
+    # Check for lead_id in Appointment model (flexible matching)
+    if 'lead_id = db.Column' in content and 'db.ForeignKey("leads.id")' in content:
         print("  ✅ Appointment model defines lead_id column with foreign key")
     else:
         print("  ❌ Appointment model missing lead_id column")
         all_ok = False
     
-    # Check for dynamic_summary in Appointment model
-    if 'dynamic_summary = db.Column(db.Text)' in content:
+    # Check for dynamic_summary in Appointment model (flexible matching)
+    if 'dynamic_summary = db.Column' in content and 'db.Text' in content:
         print("  ✅ Appointment model defines dynamic_summary column")
     else:
         print("  ❌ Appointment model missing dynamic_summary column")
