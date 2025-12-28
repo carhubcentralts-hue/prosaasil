@@ -325,7 +325,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
     """
     try:
         # 🔥 FIX: Get context from Flask g if not provided
-        if context is None and hasattr(g, 'agent_context'):
+        if context is None and hasattr(g, 'agent_context') and g.agent_context:
             context = g.agent_context
             logger.info(f"📞 Using Flask g.agent_context for phone extraction")
         # ⚡ Validate duration (15-240 minutes)
@@ -503,8 +503,12 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     logger.info(f"✅ Found call_log #{call_log_id} for call_sid {context['call_sid']}")
                 else:
                     logger.warning(f"⚠️ No call_log found for call_sid {context['call_sid']}")
+            except db.exc.SQLAlchemyError as db_err:
+                logger.exception(f"❌ Database error looking up call_log: {db_err}")
+                # Continue without call_log_id - appointment can still be created
             except Exception as lookup_err:
-                logger.exception(f"❌ Failed to lookup call_log: {lookup_err}")
+                logger.exception(f"❌ Unexpected error looking up call_log: {lookup_err}")
+                # Continue without call_log_id - appointment can still be created
         
         appointment = Appointment(
             business_id=input.business_id,
