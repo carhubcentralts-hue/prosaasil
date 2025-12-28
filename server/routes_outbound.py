@@ -176,6 +176,68 @@ def get_call_counts_endpoint():
         return jsonify({"error": "שגיאה בטעינת נתונים"}), 500
 
 
+def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
+    """
+    Helper function to start bulk call queue with concurrency control
+    
+    Creates a run with concurrency=3 and starts background worker
+    Returns JSON response with run_id and queued count
+    """
+    from server.models_sql import OutboundCallRun, OutboundCallJob, Lead
+    from threading import Thread
+    
+    try:
+        # Verify all leads belong to this tenant
+        leads = Lead.query.filter(
+            Lead.id.in_(lead_ids),
+            Lead.tenant_id == tenant_id
+        ).all()
+        
+        if len(leads) != len(lead_ids):
+            return jsonify({"error": "לא נמצאו כל הלידים שנבחרו"}), 404
+        
+        # Create run with concurrency=3
+        run = OutboundCallRun()
+        run.business_id = tenant_id
+        run.concurrency = MAX_OUTBOUND_CALLS_PER_BUSINESS  # 3
+        run.total_leads = len(lead_ids)
+        run.queued_count = len(lead_ids)
+        run.status = "running"
+        db.session.add(run)
+        db.session.flush()
+        
+        # Create jobs for each lead
+        for lead_id in lead_ids:
+            job = OutboundCallJob()
+            job.run_id = run.id
+            job.lead_id = lead_id
+            job.status = "queued"
+            db.session.add(job)
+        
+        db.session.commit()
+        
+        log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS}")
+        
+        # Start background worker to process the queue
+        thread = Thread(target=process_bulk_call_run, args=(run.id,), daemon=True)
+        thread.start()
+        
+        return jsonify({
+            "success": True,
+            "message": f"הופעלו {len(lead_ids)} שיחות בתור ({MAX_OUTBOUND_CALLS_PER_BUSINESS} במקביל)",
+            "run_id": run.id,
+            "queued": len(lead_ids),
+            "mode": "bulk_queue"
+        }), 201
+        
+    except Exception as e:
+        log.error(f"Error creating bulk call run: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({"error": f"שגיאה בהפעלת השיחות: {str(e)}"}), 500
+
+
 @outbound_bp.route("/api/outbound_calls/start", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def start_outbound_calls():
@@ -183,18 +245,30 @@ def start_outbound_calls():
     Start outbound AI calls to selected leads.
     Uses outbound_ai_prompt from business settings.
     
+    For 1-3 leads: Starts calls immediately in parallel
+    For >3 leads: Uses bulk queue system with concurrency control (max 3 concurrent)
+    
     Request body:
     {
-        "lead_ids": [123, 456, 789]  // 1-3 leads
+        "lead_ids": [123, 456, 789, ...]  // Any number of leads
     }
     
-    Returns:
+    Returns (for 1-3 leads):
     {
         "success": true,
         "calls": [
             {"lead_id": 123, "call_sid": "CA...", "status": "initiated"},
             ...
         ]
+    }
+    
+    Returns (for >3 leads):
+    {
+        "success": true,
+        "message": "הופעלו 100 שיחות בתור (3 במקביל)",
+        "run_id": 123,
+        "queued": 100,
+        "mode": "bulk_queue"
     }
     """
     from flask import session
@@ -215,9 +289,13 @@ def start_outbound_calls():
     if not lead_ids or not isinstance(lead_ids, list):
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
     
-    # ✅ REMOVED: 3-lead limit restriction. Now supports unlimited selections.
-    # If more than 3 leads, the system automatically uses bulk queue mode.
+    # ✅ FIX: If more than 3 leads, use bulk queue system with concurrency control
+    # This ensures only 3 calls run in parallel, and as each completes, the next one starts
+    if len(lead_ids) > MAX_OUTBOUND_CALLS_PER_BUSINESS:
+        log.info(f"📞 Starting bulk queue for {len(lead_ids)} leads (concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS})")
+        return _start_bulk_queue(tenant_id, lead_ids)
     
+    # For 1-3 leads, use immediate parallel start (original behavior)
     allowed, error_msg = check_call_limits(tenant_id, len(lead_ids))
     if not allowed:
         return jsonify({"error": error_msg}), 429
