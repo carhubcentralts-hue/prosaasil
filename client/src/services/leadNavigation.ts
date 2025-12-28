@@ -40,6 +40,18 @@ interface NavigationCache {
 let navigationCache: NavigationCache | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Navigation configuration constants
+const PAGES_TO_FETCH = 10; // Number of pages to fetch for smooth navigation
+const PAGE_SIZES = {
+  calls: 30,
+  inbound: 25,
+  outbound: 50,
+  imported: 50,
+  recent: 50,
+  whatsapp: 25,
+  leads: 25,
+} as const;
+
 /**
  * Generate cache key from navigation context
  * Cache is based on context and page range (not exact page) to allow reuse
@@ -190,9 +202,7 @@ export async function getPrevNextLeads(
       
       // IMPORTANT: Fetch multiple pages around current page for navigation
       // This ensures navigation works even when user is on page 3, 4, etc.
-      // We'll fetch a range of pages (e.g., if on page 3, fetch pages 1-5)
       const currentPage = context.page || 1;
-      const PAGES_TO_FETCH = 10; // Fetch 10 pages worth of data for smooth navigation
       
       // Apply filters from context
       if (context.filters) {
@@ -224,9 +234,8 @@ export async function getPrevNextLeads(
           endpoint = '/api/calls';
           // /api/calls uses limit+offset pagination
           // Fetch multiple pages worth of data centered around current position
-          const callsPageSize = 30; // typical page size for calls
-          const startOffset = Math.max(0, (currentPage - 1) * callsPageSize - callsPageSize);
-          const fetchLimit = PAGES_TO_FETCH * callsPageSize;
+          const startOffset = Math.max(0, (currentPage - 2) * PAGE_SIZES.calls);
+          const fetchLimit = PAGES_TO_FETCH * PAGE_SIZES.calls;
           params.set('limit', fetchLimit.toString());
           params.set('offset', startOffset.toString());
           // Don't override direction if it's already set in filters
@@ -238,9 +247,7 @@ export async function getPrevNextLeads(
           // Use leads endpoint with inbound direction filter
           params.set('direction', 'inbound');
           // /api/leads uses page+pageSize pagination
-          // Fetch range of pages around current page
-          const inboundPageSize = 25;
-          const inboundFetchSize = PAGES_TO_FETCH * inboundPageSize;
+          const inboundFetchSize = PAGES_TO_FETCH * PAGE_SIZES.inbound;
           params.set('page', '1');
           params.set('pageSize', inboundFetchSize.toString());
           break;
@@ -248,8 +255,7 @@ export async function getPrevNextLeads(
           // Use leads endpoint with outbound direction filter
           params.set('direction', 'outbound');
           // /api/leads uses page+pageSize pagination
-          const outboundPageSize = 50;
-          const outboundFetchSize = PAGES_TO_FETCH * outboundPageSize;
+          const outboundFetchSize = PAGES_TO_FETCH * PAGE_SIZES.outbound;
           params.set('page', '1');
           params.set('pageSize', outboundFetchSize.toString());
           // If tab is specified, handle different tabs
@@ -266,8 +272,7 @@ export async function getPrevNextLeads(
                 // This ensures consistent results between the page and navigation
                 endpoint = '/api/outbound/import-leads';
                 // Fetch enough records to cover navigation
-                const importedPageSize = 50;
-                const importedFetchSize = PAGES_TO_FETCH * importedPageSize;
+                const importedFetchSize = PAGES_TO_FETCH * PAGE_SIZES.imported;
                 params.set('page', '1');
                 params.set('page_size', importedFetchSize.toString());
                 // Remove direction param - endpoint already filters to imported leads
@@ -279,8 +284,7 @@ export async function getPrevNextLeads(
                 // This ensures consistent results between the page and navigation
                 endpoint = '/api/outbound/recent-calls';
                 // Fetch enough records to cover navigation
-                const recentPageSize = 50;
-                const recentFetchSize = PAGES_TO_FETCH * recentPageSize;
+                const recentFetchSize = PAGES_TO_FETCH * PAGE_SIZES.recent;
                 params.set('page', '1');
                 params.set('page_size', recentFetchSize.toString());
                 // Remove direction param - endpoint already filters to outbound
@@ -294,16 +298,14 @@ export async function getPrevNextLeads(
           // WhatsApp leads might have a different filter
           params.set('source', 'whatsapp');
           // /api/leads uses page+pageSize pagination
-          const whatsappPageSize = 25;
-          const whatsappFetchSize = PAGES_TO_FETCH * whatsappPageSize;
+          const whatsappFetchSize = PAGES_TO_FETCH * PAGE_SIZES.whatsapp;
           params.set('page', '1');
           params.set('pageSize', whatsappFetchSize.toString());
           break;
         case 'leads':
           // Regular leads page
           // /api/leads uses page+pageSize pagination
-          const leadsPageSize = 25;
-          const leadsFetchSize = PAGES_TO_FETCH * leadsPageSize;
+          const leadsFetchSize = PAGES_TO_FETCH * PAGE_SIZES.leads;
           params.set('page', '1');
           params.set('pageSize', leadsFetchSize.toString());
           break;
