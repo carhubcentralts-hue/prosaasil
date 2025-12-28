@@ -360,21 +360,21 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             logger.info(f"   - from_number in context: {context.get('from_number')}")
             logger.info(f"   - whatsapp_from in context: {context.get('whatsapp_from')}")
         
-        # Try _choose_phone first
+        # Try _choose_phone first (checks: customer_phone, caller_number, from_number, whatsapp_from)
         phone = _choose_phone(input.customer_phone, context, session)
         logger.info(f"📞 Phone after _choose_phone: {phone}")
         
-        # 🔥 FIX: If _choose_phone returned None, try direct extraction from context
-        # This handles cases where normalize_il_phone might have issues or context format is unexpected
+        # 🔥 ADDITIONAL FALLBACK: If _choose_phone returned None, try direct extraction
+        # This provides extra robustness in case the context format is unexpected or normalization had issues
         if not phone and context:
-            # Try all possible phone keys in context
+            # Try all possible phone keys in context one by one
             for key in ['customer_phone', 'caller_number', 'from_number', 'phone']:
                 candidate = context.get(key)
                 if candidate:
                     normalized = normalize_il_phone(candidate)
                     if normalized:
                         phone = normalized
-                        logger.info(f"📞 Extracted phone from context['{key}']: {phone}")
+                        logger.info(f"📞 Extracted phone via fallback from context['{key}']: {phone}")
                         break
                     else:
                         logger.warning(f"📞 Failed to normalize phone from context['{key}']: {candidate}")
@@ -491,7 +491,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         print(f"      After: start={start_naive} (naive, local Israel time)")
         print(f"      This ensures 14:00 Israel time saves as 14:00 in DB (not 12:00 UTC!)")
         
-        # Create appointment (phone has been extracted above)
+        # Create appointment (phone extracted from call context above at lines 364-383)
         customer_name = input.customer_name or "לקוח"
         
         print(f"\n🔥🔥🔥 CREATING APPOINTMENT IN DATABASE 🔥🔥🔥")
@@ -570,13 +570,17 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             print(f"   ✅ VERIFIED: contact_phone={verify_appt.contact_phone}")
             print(f"   ✅ VERIFIED: call_log_id={verify_appt.call_log_id}")
             
-            # Verify phone from call_log if linked
+            # Verify phone from call_log if linked (with error handling)
             if verify_appt.call_log_id:
-                call_log = CallLog.query.get(verify_appt.call_log_id)
-                if call_log:
-                    print(f"   ✅ VERIFIED: call_log.from_number={call_log.from_number}")
-                else:
-                    print(f"   ⚠️ WARNING: call_log #{verify_appt.call_log_id} not found!")
+                try:
+                    call_log = CallLog.query.get(verify_appt.call_log_id)
+                    if call_log:
+                        print(f"   ✅ VERIFIED: call_log.from_number={call_log.from_number}")
+                    else:
+                        print(f"   ⚠️ WARNING: call_log #{verify_appt.call_log_id} not found!")
+                except Exception as call_log_err:
+                    logger.warning(f"⚠️ Could not verify call_log: {call_log_err}")
+                    print(f"   ⚠️ WARNING: Could not query call_log: {call_log_err}")
             
             logger.info(f"📞 Appointment #{appt_id} phone verification: contact_phone={verify_appt.contact_phone}, call_log_id={verify_appt.call_log_id}")
         else:
