@@ -107,7 +107,7 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
             print(f"✅ [REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
             logger.info(f"[REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
             
-            # Save recording_sid to CallLog immediately
+            # Save recording_sid to CallLog immediately + set recording_mode
             try:
                 from server.app_factory import get_process_app
                 app = get_process_app()
@@ -116,8 +116,12 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
                     call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                     if call_log:
                         call_log.recording_sid = recording.sid
+                        # 🎙️ SSOT: Mark recording mode as RECORDING_API (not TWILIO_CALL_RECORD)
+                        call_log.recording_mode = "RECORDING_API"
+                        # 💰 COST METRIC: Increment recording count
+                        call_log.recording_count = (call_log.recording_count or 0) + 1
                         db.session.commit()
-                        print(f"✅ [REC_START] Saved recording_sid={recording.sid} to CallLog")
+                        print(f"✅ [REC_START] Saved recording_sid={recording.sid}, mode=RECORDING_API, count={call_log.recording_count} to CallLog")
                     else:
                         print(f"⚠️ [REC_START] CallLog not found call_sid={call_sid}")
             except Exception as e:
@@ -1178,10 +1182,20 @@ def stream_status():
 @twilio_bp.route("/webhook/call_status", methods=["POST", "GET"])
 @require_twilio_signature
 def call_status():
-    """Handle call status updates - FAST אסינכרוני - BUILD 106
+    """
+    Handle call status updates - FAST אסינכרוני - BUILD 106
+    
+    ✅ SSOT OWNER: Updates CallLog.status field (PRIMARY RESPONSIBILITY)
+    ⚠️ CRITICAL: This is the ONLY place that should update call status
+    ❌ NEVER: Update call status from Realtime or Workers
     
     Now extracts parent_call_sid and original Twilio direction to prevent duplicates
     and correctly classify call direction.
+    
+    Ownership:
+    - Updates: status, duration, direction, twilio_direction, parent_call_sid
+    - Triggers: Recording download, outbound queue processing
+    - Does NOT: Update conversation content, transcription, or metadata
     """
     # BUILD 168.4: Support both POST (form) and GET (args)
     if request.method == "GET":

@@ -69,6 +69,10 @@ import logging
 # Create logger for this module
 logger = logging.getLogger(__name__)
 
+# 🔥 SSOT: Rate limiter for hot path logging
+from server.logging_setup import RateLimiter
+_event_loop_rate_limiter = RateLimiter()
+
 _now_ms = lambda: int(time.time() * 1000)
 
 def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False, eou_reason="unknown"):
@@ -1656,6 +1660,27 @@ def normalize_hebrew_text(text: str) -> str:
     return result
 
 class MediaStreamHandler:
+    """
+    WebSocket handler for Twilio Media Streams + OpenAI Realtime API integration.
+    
+    🎯 SSOT RESPONSIBILITIES:
+    ✅ OWNER: Real-time conversation storage (ConversationTurn)
+    ✅ OWNER: Audio streaming and turn-taking logic
+    ✅ READER: CallLog status (reads only, never updates)
+    ❌ NEVER: Update CallLog.status (webhooks own this)
+    ❌ NEVER: Download recordings (recording_service owns this)
+    
+    This handler manages:
+    - Audio I/O (Twilio <-> OpenAI)
+    - Conversation turns (user/assistant messages)
+    - Barge-in detection and handling
+    - Greeting/hangup logic
+    
+    Does NOT manage:
+    - Call status transitions (webhooks do this)
+    - Recording downloads (recording_service does this)
+    - Post-call transcription (workers do this)
+    """
     def __init__(self, ws):
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
@@ -4045,8 +4070,9 @@ class MediaStreamHandler:
                 # 🔥 STEP 2: RAW EVENT TRACE - Log ALL events to diagnose missing events
                 # ═══════════════════════════════════════════════════════════════════════
                 # PRODUCTION: Do NOT log raw events (high I/O, hot-path overhead).
-                # Keep these only for DEBUG investigations.
-                if DEBUG:
+                # Keep these only for DEBUG investigations with rate limiting.
+                # 🔥 SSOT: Rate-limited to prevent log spam (max once per 5 seconds)
+                if DEBUG and _event_loop_rate_limiter.every("raw_event_trace", 5.0):
                     error_info = event.get("error")
                     if error_info:
                         error_type = error_info.get("type", "unknown")
@@ -4099,14 +4125,15 @@ class MediaStreamHandler:
                         continue
                 
                 # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
+                # 🔥 SSOT: Rate-limited to prevent log spam
                 if event_type.startswith("response."):
                     # Log all response-related events with details
                     if event_type == "response.audio.delta":
                         delta = event.get("delta", "")
-                        # 🚫 Production mode: Only log in DEBUG
-                        if DEBUG:
+                        # 🚫 Production mode: Only log in DEBUG with rate limiting
+                        if DEBUG and _event_loop_rate_limiter.every("audio_delta", 10.0):
                             logger.debug(f"[REALTIME] response.audio.delta: {len(delta)} bytes")
-                        else:
+                        elif not DEBUG and _event_loop_rate_limiter.every("audio_delta_print", 10.0):
                             _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
                     elif event_type == "response.done":
                         response = event.get("response", {})
@@ -15012,7 +15039,12 @@ class MediaStreamHandler:
                         call_log.call_sid = self.call_sid
                         call_log.from_number = str(self.phone_number or "")
                         call_log.to_number = str(getattr(self, 'to_number', '') or '')
+                        
+                        # 🔥 SSOT: Set initial status ONLY on creation
+                        # ⚠️ CRITICAL: After creation, NEVER update call_status/status
+                        # ✅ OWNER: Webhooks own all status updates after this point
                         call_log.call_status = "in_progress"
+                        
                         db.session.add(call_log)
                         
                         # 🔥 יצירת/טעינת CallSession לdeduplication יציב

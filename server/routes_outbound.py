@@ -281,42 +281,38 @@ def start_outbound_calls():
                 
                 lead_name = lead.full_name or "לקוח"
                 
-                # 🔧 BUILD 177: URL-encode Hebrew characters to prevent Twilio 400 errors
-                webhook_url = f"https://{host}/webhook/outbound_call"
-                webhook_url += f"?call_id={call_log.id}"
-                webhook_url += f"&lead_id={lead.id}"
-                webhook_url += f"&lead_name={quote(lead_name, safe='')}"
-                webhook_url += f"&business_id={tenant_id}"
-                webhook_url += f"&business_name={quote(business_name, safe='')}"
+                # 🔥 SSOT: Use centralized outbound call service (prevents duplicates + saves cost)
+                from server.services.twilio_outbound_service import create_outbound_call
                 
-                client = get_twilio_client()
-                
-                # 🔥 NO AMD: Voice-only outbound gate handles human detection
-                twilio_call = client.calls.create(
-                    to=normalized_phone,  # Use normalized phone
-                    from_=from_phone,
-                    url=webhook_url,
-                    status_callback=f"https://{host}/webhook/call_status",
-                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                    record=True,
-                    recording_status_callback=f"https://{host}/webhook/handle_recording",
-                    recording_status_callback_event=['completed']
+                result = create_outbound_call(
+                    to_phone=normalized_phone,
+                    from_phone=from_phone,
+                    business_id=tenant_id,
+                    lead_id=lead.id,
+                    business_name=business_name
                 )
                 
-                call_log.call_sid = twilio_call.sid
+                call_sid = result["call_sid"]
+                is_duplicate = result.get("is_duplicate", False)
+                
+                if is_duplicate:
+                    log.warning(f"⚠️ [DEDUP] Skipping duplicate call for lead={lead.id}")
+                    continue
+                
+                call_log.call_sid = call_sid
                 call_log.status = "ringing"
                 call_log.call_status = "ringing"
                 db.session.commit()
                 
-                log.info(f"📞 Outbound call started: lead={lead.id}, call_sid={twilio_call.sid}")
+                log.info(f"📞 Outbound call started: lead={lead.id}, call_sid={call_sid}")
                 
                 results.append({
                     "lead_id": lead.id,
                     "lead_name": lead_name,
-                    "call_sid": twilio_call.sid,
+                    "call_sid": call_sid,
                     "status": "initiated"
                 })
-                
+            
             except Exception as e:
                 log.error(f"Failed to start call to lead {lead.id}: {e}")
                 db.session.rollback()
@@ -1723,32 +1719,28 @@ def fill_queue_slots_for_job(job_id: int):
                     next_job.call_log_id = call_log.id
                     db.session.commit()
                     
-                    # Initiate Twilio call
-                    lead_name = lead.full_name or "לקוח"
-                    webhook_url = f"https://{host}/webhook/outbound_call"
-                    webhook_url += f"?call_id={call_log.id}"
-                    webhook_url += f"&lead_id={lead.id}"
-                    webhook_url += f"&lead_name={quote(lead_name, safe='')}"
-                    webhook_url += f"&business_id={run.business_id}"
-                    webhook_url += f"&business_name={quote(business_name, safe='')}"
-                    webhook_url += f"&run_id={run.id}"
-                    webhook_url += f"&job_id={next_job.id}"
+                    # 🔥 SSOT: Use centralized outbound call service
+                    from server.services.twilio_outbound_service import create_outbound_call
                     
-                    client = get_twilio_client()
-                    
-                    # 🔥 NO AMD: Voice-only outbound gate handles human detection
                     try:
-                        twilio_call = client.calls.create(
-                            to=normalized_phone,
-                            from_=from_phone,
-                            url=webhook_url,
-                            status_callback=f"https://{host}/webhook/call_status",
-                            status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                            record=True
+                        result = create_outbound_call(
+                            to_phone=normalized_phone,
+                            from_phone=from_phone,
+                            business_id=run.business_id,
+                            lead_id=lead.id,
+                            job_id=next_job.id,
+                            business_name=business_name
                         )
                         
+                        call_sid = result["call_sid"]
+                        is_duplicate = result.get("is_duplicate", False)
+                        
+                        if is_duplicate:
+                            log.warning(f"[FillSlots] [DEDUP] Duplicate call detected for job {next_job.id}, skipping")
+                            continue
+                        
                         # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
-                        result = db.session.execute(text("""
+                        update_result = db.session.execute(text("""
                             UPDATE outbound_call_jobs 
                             SET twilio_call_sid=:twilio_sid, 
                                 call_sid=:twilio_sid,
@@ -1758,17 +1750,17 @@ def fill_queue_slots_for_job(job_id: int):
                                 AND dial_lock_token=:lock_token
                         """), {
                             "job_id": next_job.id, 
-                            "twilio_sid": twilio_call.sid, 
+                            "twilio_sid": call_sid, 
                             "lock_token": lock_token
                         })
                         
-                        if result.rowcount == 0:
+                        if update_result.rowcount == 0:
                             log.error(f"[FillSlots] Lock token mismatch for job {next_job.id}, call may be duplicate")
                         
-                        call_log.call_sid = twilio_call.sid
+                        call_log.call_sid = call_sid
                         db.session.commit()
                         
-                        log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
+                        log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={call_sid}")
                         active_count += 1
                         
                     except Exception as twilio_error:
@@ -1934,31 +1926,28 @@ def process_bulk_call_run(run_id: int):
                             db.session.commit()
                             
                             # Initiate Twilio call
-                            lead_name = lead.full_name or "לקוח"
-                            webhook_url = f"https://{host}/webhook/outbound_call"
-                            webhook_url += f"?call_id={call_log.id}"
-                            webhook_url += f"&lead_id={lead.id}"
-                            webhook_url += f"&lead_name={quote(lead_name, safe='')}"
-                            webhook_url += f"&business_id={run.business_id}"
-                            webhook_url += f"&business_name={quote(business_name, safe='')}"
-                            webhook_url += f"&run_id={run_id}"
-                            webhook_url += f"&job_id={next_job.id}"
+                            # 🔥 SSOT: Use centralized outbound call service
+                            from server.services.twilio_outbound_service import create_outbound_call
                             
-                            client = get_twilio_client()
-                            
-                            # 🔥 NO AMD: Voice-only outbound gate handles human detection
                             try:
-                                twilio_call = client.calls.create(
-                                    to=normalized_phone,
-                                    from_=from_phone,
-                                    url=webhook_url,
-                                    status_callback=f"https://{host}/webhook/call_status",
-                                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                                    record=True
+                                result = create_outbound_call(
+                                    to_phone=normalized_phone,
+                                    from_phone=from_phone,
+                                    business_id=run.business_id,
+                                    lead_id=lead.id,
+                                    job_id=next_job.id,
+                                    business_name=business_name
                                 )
                                 
+                                call_sid = result["call_sid"]
+                                is_duplicate = result.get("is_duplicate", False)
+                                
+                                if is_duplicate:
+                                    log.warning(f"[BulkCall] [DEDUP] Duplicate call detected for job {next_job.id}, skipping")
+                                    continue
+                                
                                 # 🔒 ATOMIC UPDATE: Update with Twilio call SID only if lock token matches
-                                result = db.session.execute(text("""
+                                update_result = db.session.execute(text("""
                                     UPDATE outbound_call_jobs 
                                     SET twilio_call_sid=:twilio_sid, 
                                         call_sid=:twilio_sid,
@@ -1968,19 +1957,19 @@ def process_bulk_call_run(run_id: int):
                                         AND dial_lock_token=:lock_token
                                 """), {
                                     "job_id": next_job.id, 
-                                    "twilio_sid": twilio_call.sid, 
+                                    "twilio_sid": call_sid, 
                                     "lock_token": lock_token
                                 })
                                 
-                                if result.rowcount == 0:
+                                if update_result.rowcount == 0:
                                     log.error(f"[BulkCall] Lock token mismatch for job {next_job.id}, call may be duplicate")
                                     # Call was created but we lost the lock - log warning but continue
                                     # Twilio will handle the duplicate via their idempotency
                                 
-                                call_log.call_sid = twilio_call.sid
+                                call_log.call_sid = call_sid
                                 db.session.commit()
                                 
-                                log.info(f"[BulkCall] Started call for lead {lead.id}, job {next_job.id}, call_sid={twilio_call.sid}")
+                                log.info(f"[BulkCall] Started call for lead {lead.id}, job {next_job.id}, call_sid={call_sid}")
                                 
                             except Exception as twilio_error:
                                 # 🔒 DEDUPLICATION: Handle Twilio timeout/exception

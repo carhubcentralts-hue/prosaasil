@@ -492,6 +492,23 @@ class AIService:
 ⚠️ **אל תשנה את השעה שהלקוח אמר! אם הוא אמר 16 - תאשר 16, לא 10!**
 
 חשוב: אל תמציא מידע! אם לא יודע משהו - הפנה לנציג אנושי. אם הלקוח עצבני או מתלונן - היה אמפטי והצע דיבור עם מנהל."""
+    
+    def _get_default_hebrew_prompt(self, business_name: str = "העסק שלנו", channel: str = "calls") -> str:
+        """
+        פרומפט ברירת מחדל בעברית - כללי לכל סוג עסק
+        
+        🎯 SSOT: Delegates to shared prompt helpers (single source of truth)
+        ⚠️ DO NOT add prompt logic here - use prompt_helpers.py
+        """
+        from server.services.prompt_helpers import (
+            get_default_hebrew_prompt_for_calls,
+            get_default_hebrew_prompt_for_whatsapp
+        )
+        
+        if channel == "whatsapp":
+            return get_default_hebrew_prompt_for_whatsapp(business_name)
+        else:
+            return get_default_hebrew_prompt_for_calls(business_name)
 
     def generate_response(self, message: str, business_id: int = None, context: Optional[Dict[str, Any]] = None, channel: str = "calls", is_first_turn: bool = False) -> str:
         """יצירת תגובה מפרומפט דינמי + הקשר - לפי ערוץ (calls/whatsapp)"""
