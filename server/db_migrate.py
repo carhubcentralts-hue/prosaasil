@@ -1551,6 +1551,102 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 51: Add Twilio Cost Metrics columns to call_log table
+        # 🔒 CRITICAL FIX: These columns are referenced in code but missing from production DB
+        # Fixes: psycopg2.errors.UndefinedColumn: column call_log.recording_mode does not exist
+        # This migration adds recording_mode and all related cost tracking fields
+        checkpoint("Migration 51: Adding Twilio Cost Metrics columns to call_log")
+        if check_table_exists('call_log'):
+            try:
+                from sqlalchemy import text
+                
+                # Add recording_mode column if missing
+                if not check_column_exists('call_log', 'recording_mode'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN recording_mode VARCHAR(32)
+                    """))
+                    migrations_applied.append('add_call_log_recording_mode')
+                    log.info("✅ Added recording_mode column to call_log table")
+                
+                # Add stream_started_at column if missing
+                if not check_column_exists('call_log', 'stream_started_at'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN stream_started_at TIMESTAMP
+                    """))
+                    migrations_applied.append('add_call_log_stream_started_at')
+                    log.info("✅ Added stream_started_at column to call_log table")
+                
+                # Add stream_ended_at column if missing
+                if not check_column_exists('call_log', 'stream_ended_at'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN stream_ended_at TIMESTAMP
+                    """))
+                    migrations_applied.append('add_call_log_stream_ended_at')
+                    log.info("✅ Added stream_ended_at column to call_log table")
+                
+                # Add stream_duration_sec column if missing
+                if not check_column_exists('call_log', 'stream_duration_sec'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN stream_duration_sec DOUBLE PRECISION
+                    """))
+                    migrations_applied.append('add_call_log_stream_duration_sec')
+                    log.info("✅ Added stream_duration_sec column to call_log table")
+                
+                # Add stream_connect_count column if missing
+                if not check_column_exists('call_log', 'stream_connect_count'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN stream_connect_count INTEGER DEFAULT 0
+                    """))
+                    migrations_applied.append('add_call_log_stream_connect_count')
+                    log.info("✅ Added stream_connect_count column to call_log table")
+                
+                # Add webhook_11205_count column if missing
+                if not check_column_exists('call_log', 'webhook_11205_count'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN webhook_11205_count INTEGER DEFAULT 0
+                    """))
+                    migrations_applied.append('add_call_log_webhook_11205_count')
+                    log.info("✅ Added webhook_11205_count column to call_log table")
+                
+                # Add webhook_retry_count column if missing
+                if not check_column_exists('call_log', 'webhook_retry_count'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN webhook_retry_count INTEGER DEFAULT 0
+                    """))
+                    migrations_applied.append('add_call_log_webhook_retry_count')
+                    log.info("✅ Added webhook_retry_count column to call_log table")
+                
+                # Add recording_count column if missing
+                if not check_column_exists('call_log', 'recording_count'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN recording_count INTEGER DEFAULT 0
+                    """))
+                    migrations_applied.append('add_call_log_recording_count')
+                    log.info("✅ Added recording_count column to call_log table")
+                
+                # Add estimated_cost_bucket column if missing
+                if not check_column_exists('call_log', 'estimated_cost_bucket'):
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN estimated_cost_bucket VARCHAR(16)
+                    """))
+                    migrations_applied.append('add_call_log_estimated_cost_bucket')
+                    log.info("✅ Added estimated_cost_bucket column to call_log table")
+                
+                checkpoint("✅ Migration 51 completed - call_log cost metrics columns added")
+            except Exception as e:
+                log.error(f"❌ Migration 51 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

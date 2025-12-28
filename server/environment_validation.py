@@ -4,9 +4,25 @@ Environment Validation - Production Ready Setup
 """
 import os
 import logging
+import sys
 from typing import List, Dict, Any
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+# Critical columns that MUST exist for the system to function
+CRITICAL_COLUMNS = {
+    'call_log': [
+        'recording_mode',  # Required for recording tracking
+        'recording_sid',   # Required for recording callbacks
+        'audio_bytes_len', # Required for post-call pipeline
+        'audio_duration_sec', # Required for post-call pipeline
+        'transcript_source', # Required for post-call pipeline
+        'stream_started_at', # Required for cost tracking
+        'stream_ended_at',   # Required for cost tracking
+        'recording_count',   # Required for cost tracking
+    ],
+}
 
 def validate_production_environment() -> Dict[str, Any]:
     """
@@ -141,6 +157,84 @@ def log_environment_status():
     
     if validation["missing"]["recommended"]:
         logger.info(f"   ⚠️ Missing Recommended: {', '.join(validation['missing']['recommended'])}")
+
+def check_column_exists(engine, table_name, column_name):
+    """Check if column exists in table"""
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                  AND table_name = :table_name 
+                  AND column_name = :column_name
+            """), {"table_name": table_name, "column_name": column_name})
+            return result.fetchone() is not None
+    except Exception as e:
+        logger.warning(f"Error checking if column {column_name} exists in {table_name}: {e}")
+        return False
+
+def validate_database_schema(db):
+    """
+    Validate that all critical columns exist in the database.
+    If any are missing, fail immediately with a clear error message.
+    
+    This prevents the system from starting in a broken state and cascading errors.
+    """
+    engine = db.engine
+    missing_columns = []
+    
+    logger.info("🔍 Validating database schema...")
+    
+    for table_name, columns in CRITICAL_COLUMNS.items():
+        for column_name in columns:
+            if not check_column_exists(engine, table_name, column_name):
+                missing_columns.append(f"{table_name}.{column_name}")
+                logger.error(f"❌ Missing critical column: {table_name}.{column_name}")
+    
+    if missing_columns:
+        error_msg = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      ❌ DATABASE SCHEMA VALIDATION FAILED ❌                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+The following critical columns are MISSING from the database:
+
+{chr(10).join(f'  • {col}' for col in missing_columns)}
+
+This will cause PostgreSQL errors throughout the system, affecting:
+  - Recording callbacks (REC_CB)
+  - Call status webhooks
+  - Stream ended webhooks
+  - API endpoints (calls_in_range, calls_last7d, etc.)
+  - Background tasks (offline_stt, finalize_in_background)
+
+🛠️  TO FIX THIS ISSUE:
+
+1. Run database migrations to add missing columns:
+   
+   python -m server.db_migrate
+   
+   OR in production with Flask app:
+   
+   from server.db_migrate import apply_migrations
+   with app.app_context():
+       apply_migrations()
+
+2. Restart the application
+
+⚠️  The application will NOT START until this is fixed.
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         PREVENTING SERVER STARTUP                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+        logger.critical(error_msg)
+        print(error_msg, file=sys.stderr)
+        sys.exit(1)
+    
+    logger.info("✅ Database schema validation passed - all critical columns exist")
+    return True
+
 
 if __name__ == "__main__":
     # Quick validation test
