@@ -349,7 +349,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         from server.policy.business_policy import get_business_policy
         policy = get_business_policy(input.business_id, context.get("business_prompt") if context else None)
         
-        # 🔥 USE SMART PHONE SELECTION
+        # 🔥 USE SMART PHONE SELECTION WITH ENHANCED LOGGING
         logger.info(f"📞 Phone extraction starting:")
         logger.info(f"   - input.customer_phone: {input.customer_phone}")
         logger.info(f"   - context: {context}")
@@ -359,7 +359,26 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             logger.info(f"   - caller_number in context: {context.get('caller_number')}")
             logger.info(f"   - from_number in context: {context.get('from_number')}")
             logger.info(f"   - whatsapp_from in context: {context.get('whatsapp_from')}")
+        
+        # Try _choose_phone first (checks: customer_phone, caller_number, from_number, whatsapp_from)
         phone = _choose_phone(input.customer_phone, context, session)
+        logger.info(f"📞 Phone after _choose_phone: {phone}")
+        
+        # 🔥 ADDITIONAL FALLBACK: If _choose_phone returned None, try direct extraction
+        # This provides extra robustness in case the context format is unexpected or normalization had issues
+        if not phone and context:
+            # Try all possible phone keys in context one by one
+            for key in ['customer_phone', 'caller_number', 'from_number', 'phone']:
+                candidate = context.get(key)
+                if candidate:
+                    normalized = normalize_il_phone(candidate)
+                    if normalized:
+                        phone = normalized
+                        logger.info(f"📞 Extracted phone via fallback from context['{key}']: {phone}")
+                        break
+                    else:
+                        logger.warning(f"📞 Failed to normalize phone from context['{key}']: {candidate}")
+        
         logger.info(f"📞 Final phone for appointment: {phone}")
         
         # 🔥 CRITICAL: Guard - phone required before booking (if policy requires it)
@@ -472,26 +491,24 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         print(f"      After: start={start_naive} (naive, local Israel time)")
         print(f"      This ensures 14:00 Israel time saves as 14:00 in DB (not 12:00 UTC!)")
         
-        # Create appointment (phone can be None - that's OK!)
+        # Create appointment (phone extracted from call context above at lines 364-383)
         customer_name = input.customer_name or "לקוח"
-        
-        # 🔥 NEW: Extract phone from call context if not provided
-        # Priority: 1. Provided phone, 2. Caller number from context, 3. None
-        if not phone and context:
-            caller_number = context.get('caller_number') or context.get('from_number')
-            if caller_number:
-                # Use normalize_il_phone already imported at top of file (line 11)
-                phone = normalize_il_phone(caller_number)
-                if phone:
-                    print(f"   📞 Extracted phone from call metadata: {phone}")
         
         print(f"\n🔥🔥🔥 CREATING APPOINTMENT IN DATABASE 🔥🔥🔥")
         print(f"   business_id: {input.business_id}")
         print(f"   customer_name: {customer_name}")
-        print(f"   phone: {phone}")
+        print(f"   📞 contact_phone: {phone}")
         print(f"   treatment_type: {input.treatment_type}")
         print(f"   start_time: {start_naive}")
         print(f"   end_time: {end_naive}")
+        
+        # Log phone extraction result for debugging
+        if phone:
+            logger.info(f"✅ Phone number extracted successfully: {phone}")
+        else:
+            logger.warning(f"⚠️ No phone number extracted - appointment will be created without phone")
+            logger.warning(f"   Context available: {bool(context)}")
+            logger.warning(f"   Call SID: {context.get('call_sid') if context else 'N/A'}")
         
         # 🔥 FIX: Link appointment to call_log using call_sid from context
         call_log_id = None
@@ -520,7 +537,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             status='confirmed',
             appointment_type='appointment',  # Generic - AI agent can specify in notes
             contact_name=customer_name,
-            contact_phone=phone,  # Can be None! Phone is in call log
+            contact_phone=phone,  # 🔥 CRITICAL: Phone from call context
             auto_generated=True,
             source=input.source or "phone_call",  # 🔥 FIX: Set source properly!
             notes=f"נקבע ע״י AI Agent\nשירות: {input.treatment_type}",
@@ -529,6 +546,8 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         )
         
         print(f"   Appointment object created: {appointment}")
+        print(f"   📞 Appointment.contact_phone = {phone}")
+        print(f"   📞 Appointment.call_log_id = {call_log_id}")
         
         db.session.add(appointment)
         print(f"   Added to session")
@@ -548,6 +567,22 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if verify_appt:
             print(f"   ✅ VERIFIED: Appointment #{appt_id} exists in DB!")
             print(f"   ✅ VERIFIED: title={verify_appt.title}, status={verify_appt.status}")
+            print(f"   ✅ VERIFIED: contact_phone={verify_appt.contact_phone}")
+            print(f"   ✅ VERIFIED: call_log_id={verify_appt.call_log_id}")
+            
+            # Verify phone from call_log if linked (with error handling)
+            if verify_appt.call_log_id:
+                try:
+                    call_log = CallLog.query.get(verify_appt.call_log_id)
+                    if call_log:
+                        print(f"   ✅ VERIFIED: call_log.from_number={call_log.from_number}")
+                    else:
+                        print(f"   ⚠️ WARNING: call_log #{verify_appt.call_log_id} not found!")
+                except Exception as call_log_err:
+                    logger.warning(f"⚠️ Could not verify call_log: {call_log_err}")
+                    print(f"   ⚠️ WARNING: Could not query call_log: {call_log_err}")
+            
+            logger.info(f"📞 Appointment #{appt_id} phone verification: contact_phone={verify_appt.contact_phone}, call_log_id={verify_appt.call_log_id}")
         else:
             print(f"   ❌ CRITICAL ERROR: Appointment #{appt_id} NOT FOUND after commit!")
             
@@ -578,6 +613,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         try:
             if phone:
                 logger.info(f"📋 Creating/updating lead for {input.customer_name} ({phone})")
+                print(f"   📋 Creating/updating lead with phone: {phone}")
                 from server.agent_tools.tools_leads import UpsertLeadInput, _leads_upsert_impl
                 
                 # Split name into first/last
@@ -599,14 +635,17 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 lead_result = _leads_upsert_impl(lead_input)
                 lead_id = lead_result.lead_id
                 logger.info(f"✅ Lead {lead_result.action}: #{lead_id}")
+                print(f"   ✅ Lead {lead_result.action}: #{lead_id}")
                 
                 # 🔥 NEW: Link the appointment to the lead
                 try:
                     appointment.lead_id = lead_id
                     db.session.commit()
                     logger.info(f"✅ Appointment #{appointment.id} linked to lead #{lead_id}")
+                    print(f"   ✅ Appointment #{appointment.id} linked to lead #{lead_id}")
                 except Exception as link_error:
                     logger.exception(f"❌ Failed to link appointment to lead: {link_error}")
+                    print(f"   ❌ Failed to link appointment to lead: {link_error}")
                     try:
                         db.session.rollback()
                     except Exception:
@@ -614,9 +653,12 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     
             else:
                 logger.warning("⚠️ No phone - skipping lead creation")
+                print(f"   ⚠️ No phone - skipping lead creation")
+                print(f"   ⚠️ Context was: {context}")
         except Exception as lead_error:
             # Don't fail appointment if lead creation fails
             logger.exception(f"❌ Lead upsert failed: {lead_error}")
+            print(f"   ❌ Lead upsert failed: {lead_error}")
         
         # 🔥 NEW: Generate dynamic conversation summary from transcript
         if input.call_transcript:
