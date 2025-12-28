@@ -15039,7 +15039,12 @@ class MediaStreamHandler:
                         call_log.call_sid = self.call_sid
                         call_log.from_number = str(self.phone_number or "")
                         call_log.to_number = str(getattr(self, 'to_number', '') or '')
+                        
+                        # 🔥 SSOT: Set initial status ONLY on creation
+                        # ⚠️ CRITICAL: After creation, NEVER update call_status/status
+                        # ✅ OWNER: Webhooks own all status updates after this point
                         call_log.call_status = "in_progress"
+                        
                         db.session.add(call_log)
                         
                         # 🔥 יצירת/טעינת CallSession לdeduplication יציב

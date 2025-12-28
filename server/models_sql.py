@@ -91,7 +91,13 @@ class CallLog(db.Model):
     direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound (normalized)
     twilio_direction = db.Column(db.String(32), nullable=True)  # 🔥 Original Twilio direction (outbound-api, outbound-dial, etc.)
     duration = db.Column(db.Integer, default=0)  # ✅ BUILD 106: Call duration in seconds
-    call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field for production DB compatibility
+    
+    # ⚠️ DEPRECATED: Use 'status' field instead
+    # 🔥 SSOT: This field is kept ONLY for backward compatibility with old DB records
+    # ❌ DO NOT UPDATE THIS FIELD - use 'status' field for all new code
+    # 📋 Migration plan: Will be removed in future version after data migration
+    call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field - DO NOT USE
+    
     recording_url = db.Column(db.String(512))
     recording_sid = db.Column(db.String(64), nullable=True)  # 🔥 BUILD 342: Twilio Recording SID
     transcription = db.Column(db.Text)

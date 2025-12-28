@@ -660,6 +660,8 @@ def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
     """
     Minimal fallback prompt - tries to use business settings first.
     This should RARELY be called in production.
+    
+    🎯 SSOT: Uses shared prompt helpers for final fallback
     """
     try:
         if business_id:
@@ -682,16 +684,18 @@ def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
                 logger.warning(f"[FALLBACK] Using system_prompt from Business for business {business_id}")
                 return business.system_prompt
             
-            # Last resort: minimal prompt with business name
+            # Last resort: use shared helper with business name
             if business and business.name:
-                logger.error(f"[FALLBACK] No prompts found in DB for business {business_id} - using minimal fallback")
-                return FALLBACK_BUSINESS_PROMPT_TEMPLATE.format(business_name=business.name)
+                logger.error(f"[FALLBACK] No prompts found in DB for business {business_id} - using shared fallback helper")
+                from server.services.prompt_helpers import get_default_hebrew_prompt_for_calls
+                return get_default_hebrew_prompt_for_calls(business.name)
     except Exception as e:
         logger.error(f"[FALLBACK] Error getting fallback prompt: {e}")
     
     # Absolute last resort (should never happen in production)
     logger.critical("[FALLBACK] Using absolute minimal fallback - this indicates a serious configuration issue")
-    return FALLBACK_GENERIC_PROMPT
+    from server.services.prompt_helpers import get_default_hebrew_prompt_for_calls
+    return get_default_hebrew_prompt_for_calls()
 
 
 def _build_hours_description(policy) -> str:
