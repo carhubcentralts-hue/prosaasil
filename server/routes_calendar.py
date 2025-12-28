@@ -214,11 +214,25 @@ def get_appointments():
                 if customer:
                     appointment_data['customer_name'] = customer.name
             
-            # Add phone number from call log if available
+            # Add phone number from multiple sources (priority order):
+            # 1. Call log (most specific)
+            # 2. Lead phone (if linked to lead)
+            # 3. Contact phone (from appointment itself)
             if apt.call_log_id:
                 call_log = CallLog.query.get(apt.call_log_id)
-                if call_log:
+                if call_log and call_log.from_number:
                     appointment_data['from_phone'] = call_log.from_number
+            
+            # If no phone from call_log, try to get from lead
+            if not appointment_data['from_phone'] and apt.lead_id:
+                from server.models_sql import Lead
+                lead = Lead.query.get(apt.lead_id)
+                if lead and lead.phone_e164:
+                    appointment_data['from_phone'] = lead.phone_e164
+            
+            # If still no phone, use contact_phone from appointment
+            if not appointment_data['from_phone'] and apt.contact_phone:
+                appointment_data['from_phone'] = apt.contact_phone
             
             appointments_data.append(appointment_data)
         
@@ -407,12 +421,26 @@ def get_appointment(appointment_id):
             'call_transcript': appointment.call_transcript,
             'dynamic_summary': appointment.dynamic_summary,
             
+            # Phone number from multiple sources
+            'from_phone': None,
+            
             # Related data
             'business': {'id': business.id, 'name': business.name} if business else None,
             'customer': {'id': customer.id, 'name': customer.name, 'phone': customer.phone} if customer else None,
             'deal': {'id': deal.id, 'title': deal.title, 'stage': deal.stage, 'amount': deal.amount} if deal else None,
             'call_log': {'id': call_log.id, 'from_number': call_log.from_number, 'status': call_log.status} if call_log else None
         }
+        
+        # Fill from_phone from multiple sources (priority order)
+        if call_log and call_log.from_number:
+            appointment_data['from_phone'] = call_log.from_number
+        elif appointment.lead_id:
+            from server.models_sql import Lead
+            lead = Lead.query.get(appointment.lead_id)
+            if lead and lead.phone_e164:
+                appointment_data['from_phone'] = lead.phone_e164
+        elif appointment.contact_phone:
+            appointment_data['from_phone'] = appointment.contact_phone
         
         return jsonify({'appointment': appointment_data})
         
