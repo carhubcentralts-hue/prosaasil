@@ -577,7 +577,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     logger.exception(f"❌ Failed to link appointment to lead: {link_error}")
                     try:
                         db.session.rollback()
-                    except:
+                    except Exception:
                         pass  # Session may already be rolled back
                     
             else:
@@ -600,7 +600,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 logger.exception(f"❌ Failed to generate dynamic summary: {summary_error}")
                 try:
                     db.session.rollback()
-                except:
+                except Exception:
                     pass  # Session may already be rolled back
         
         # STEP 2: whatsapp_send (send confirmation with graceful fallback)
