@@ -69,6 +69,10 @@ import logging
 # Create logger for this module
 logger = logging.getLogger(__name__)
 
+# 🔥 SSOT: Rate limiter for hot path logging
+from server.logging_setup import RateLimiter
+_event_loop_rate_limiter = RateLimiter()
+
 _now_ms = lambda: int(time.time() * 1000)
 
 def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False, eou_reason="unknown"):
@@ -4045,8 +4049,9 @@ class MediaStreamHandler:
                 # 🔥 STEP 2: RAW EVENT TRACE - Log ALL events to diagnose missing events
                 # ═══════════════════════════════════════════════════════════════════════
                 # PRODUCTION: Do NOT log raw events (high I/O, hot-path overhead).
-                # Keep these only for DEBUG investigations.
-                if DEBUG:
+                # Keep these only for DEBUG investigations with rate limiting.
+                # 🔥 SSOT: Rate-limited to prevent log spam (max once per 5 seconds)
+                if DEBUG and _event_loop_rate_limiter.every("raw_event_trace", 5.0):
                     error_info = event.get("error")
                     if error_info:
                         error_type = error_info.get("type", "unknown")
@@ -4099,14 +4104,15 @@ class MediaStreamHandler:
                         continue
                 
                 # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
+                # 🔥 SSOT: Rate-limited to prevent log spam
                 if event_type.startswith("response."):
                     # Log all response-related events with details
                     if event_type == "response.audio.delta":
                         delta = event.get("delta", "")
-                        # 🚫 Production mode: Only log in DEBUG
-                        if DEBUG:
+                        # 🚫 Production mode: Only log in DEBUG with rate limiting
+                        if DEBUG and _event_loop_rate_limiter.every("audio_delta", 10.0):
                             logger.debug(f"[REALTIME] response.audio.delta: {len(delta)} bytes")
-                        else:
+                        elif not DEBUG and _event_loop_rate_limiter.every("audio_delta_print", 10.0):
                             _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
                     elif event_type == "response.done":
                         response = event.get("response", {})

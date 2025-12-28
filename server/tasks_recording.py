@@ -452,10 +452,15 @@ def process_recording_async(form_data):
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 
                 if call_log:
-                    # 🔥 CRITICAL: Skip if already processed (prevent duplicate transcription)
-                    if call_log.final_transcript and len(call_log.final_transcript.strip()) > 50:
-                        print(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars) - skipping reprocessing")
-                        log.info(f"[OFFLINE_STT] Skipping {call_sid} - already processed with final_transcript")
+                    # 🔥 SSOT: Skip if already successfully transcribed (prevent duplicate transcription)
+                    # Policy: Only re-transcribe if source is "failed" or missing
+                    if (call_log.final_transcript and 
+                        len(call_log.final_transcript.strip()) > 50 and
+                        call_log.transcript_source and 
+                        call_log.transcript_source != TRANSCRIPT_SOURCE_FAILED):
+                        
+                        print(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars, source={call_log.transcript_source}) - skipping reprocessing")
+                        log.info(f"[OFFLINE_STT] Skipping {call_sid} - already processed with transcript_source={call_log.transcript_source}")
                         return True  # Already processed successfully
                     
                     # ✅ Use the EXACT same recording that UI plays
@@ -843,17 +848,6 @@ def process_recording_async(form_data):
         import traceback
         traceback.print_exc()
         return False  # Processing failed, may need retry
-
-def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
-    """
-    ⚠️ DEPRECATED - DO NOT USE
-    Use server.services.recording_service.get_recording_file_for_call() instead
-    
-    This function is kept only for backward compatibility but should not be called.
-    The new unified recording service provides the single source of truth.
-    """
-    log.warning(f"[DEPRECATED] download_recording called for {call_sid} - should use recording_service instead")
-    return None
 
 def transcribe_hebrew(audio_file):
     """✨ תמלול עברית עם Google STT v2 (Primary) + Whisper (Fallback)"""
