@@ -1918,6 +1918,7 @@ class MediaStreamHandler:
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
         self.barge_in_active = False  # 🔥 BARGE-IN FIX: Track if user is currently interrupting AI
+        self.barge_in_stop_tx = False  # 🔥 NEW FIX: Flag to immediately stop TX loop from sending audio
         # 🔄 ADAPTIVE: Second confirmation for barge-in - require OpenAI speech_started confirmation
         self._openai_speech_started_confirmed = False  # Set on speech_started event, cleared after barge-in
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
@@ -4105,9 +4106,10 @@ class MediaStreamHandler:
                             self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
+                            self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
-                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False (response_id={response_id[:20]}...)")
+                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False, barge_in_stop_tx=False (response_id={response_id[:20]}...)")
                         
                         self._cancelled_response_ids.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
@@ -4376,9 +4378,10 @@ class MediaStreamHandler:
                             self.speaking = False
                             # 🔥 BARGE-IN FIX: Clear all response flags
                             self.barge_in_active = False
+                            self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission for next response
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
-                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, status={self.active_response_status}, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
+                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, status={self.active_response_status}, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False, barge_in=False, barge_in_stop_tx=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
@@ -4389,6 +4392,7 @@ class MediaStreamHandler:
                             self.speaking = False
                             # 🔥 BARGE-IN FIX: Clear all response flags
                             self.barge_in_active = False
+                            self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
                         
@@ -4463,7 +4467,8 @@ class MediaStreamHandler:
                         self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
-                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
+                        self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission
+                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, barge_in_stop_tx=False ({cancelled_resp_id[:20]}...)")
                 
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
@@ -4819,145 +4824,65 @@ class MediaStreamHandler:
                     has_active_response = bool(self.active_response_id)
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     
-                    # 🔥 SIMPLIFIED BARGE-IN: Only two conditions matter:
-                    # 1. Not during greeting (greeting_lock protects greeting)
-                    # 2. barge_in_enabled flag is True (can be disabled for DTMF, etc.)
-                    barge_in_allowed_now = (
-                        not is_greeting_now
-                        and getattr(self, "barge_in_enabled", True)
-                    )
+                    # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
+                    # רק בדיקה אחת: לא בזמן ברכה (greeting_lock)
                     
-                    # 🔥 IDEMPOTENT CHECK: Only proceed if ALL conditions are met
-                    if has_active_response and self.realtime_client and barge_in_allowed_now:
-                        # 🔥 ENHANCED LOGGING: Show why we're attempting cancel
-                        _orig_print(
-                            f"🎙️ [BARGE-IN] User speech detected! active_response={self.active_response_id[:20] if self.active_response_id else 'None'}... "
-                            f"status={self.active_response_status} greeting_lock={is_greeting_now}",
-                            flush=True
-                        )
-                        
-                        # Use _should_send_cancel for centralized duplicate protection
-                        # This checks: response_id exists, not already sent cancel, not already done
-                        if not self._should_send_cancel(self.active_response_id):
-                            # Already sent cancel or response already done - skip CANCEL but still flush audio
-                            _orig_print(f"⏭️ [BARGE-IN] Skipping cancel - duplicate guard triggered for {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
-                            # 🔥 CRITICAL FIX: Even if we can't cancel, flush audio queues if AI is speaking
-                            if self.is_ai_speaking_event.is_set():
-                                _orig_print(f"🪓 [BARGE-IN] AI still speaking - flushing audio queues anyway", flush=True)
-                                self._flush_tx_queue()
-                                if self.stream_sid:
-                                    try:
-                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                                        self._ws_send(json.dumps(clear_event))
-                                    except Exception as e:
-                                        pass
-                        # Condition 2: Response must be in_progress (not done/cancelled)
-                        elif self.active_response_status != "in_progress":
-                            _orig_print(f"⏭️ [BARGE-IN] Skipping cancel - response status={self.active_response_status} (not in_progress)", flush=True)
-                            # 🔥 CRITICAL FIX: Even if status is not in_progress, flush audio if AI is speaking
-                            if self.is_ai_speaking_event.is_set():
-                                _orig_print(f"🪓 [BARGE-IN] AI still speaking - flushing audio queues anyway", flush=True)
-                                self._flush_tx_queue()
-                                if self.stream_sid:
-                                    try:
-                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                                        self._ws_send(json.dumps(clear_event))
-                                    except Exception as e:
-                                        pass
-                        # Condition 3: No cancel already in flight
-                        elif self.cancel_in_flight:
-                            _orig_print(f"⏭️ [BARGE-IN] Skipping cancel - cancel already in flight for {self.active_response_id[:20]}...", flush=True)
-                            # 🔥 CRITICAL FIX: Even if cancel in flight, flush audio if AI is speaking
-                            if self.is_ai_speaking_event.is_set():
-                                _orig_print(f"🪓 [BARGE-IN] AI still speaking - flushing audio queues anyway", flush=True)
-                                self._flush_tx_queue()
-                                if self.stream_sid:
-                                    try:
-                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                                        self._ws_send(json.dumps(clear_event))
-                                    except Exception as e:
-                                        pass
-                        else:
-                            # All conditions met - proceed with IDEMPOTENT cancel
-                            response_id_to_cancel = self.active_response_id
-                            
-                            # Step 1: Set cancel_in_flight BEFORE sending cancel
+                    if is_greeting_now:
+                        # רק בזמן ברכה - לא עוצרים
+                        logger.info("[GREETING_LOCK] ignoring user speech during greeting")
+                        print("🔒 [GREETING_LOCK] ignoring user speech during greeting")
+                        continue
+                    
+                    # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
+                    _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
+                    
+                    # שלב 1: עצירה מיידית של שידור אודיו
+                    self.barge_in_stop_tx = True
+                    self.barge_in_active = True
+                    self._barge_in_started_ts = time.time()
+                    _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
+                    
+                    # שלב 2: ניקוי דגלים
+                    self.is_ai_speaking_event.clear()
+                    self.speaking = False
+                    if hasattr(self, 'ai_response_active'):
+                        self.ai_response_active = False
+                    _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
+                    
+                    # שלב 3: ניקוי תורים
+                    self._flush_tx_queue()
+                    _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
+                    
+                    # שלב 4: שליחת clear ל-Twilio
+                    if self.stream_sid:
+                        try:
+                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                            self._ws_send(json.dumps(clear_event))
+                            _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
+                        except Exception as e:
+                            pass
+                    
+                    # שלב 5: ביטול response ב-OpenAI (אם יש)
+                    if has_active_response and self.realtime_client:
+                        response_id_to_cancel = self.active_response_id
+                        # רק אם עוד לא ביטלנו את אותו response
+                        if self._should_send_cancel(response_id_to_cancel):
                             self.cancel_in_flight = True
-                            logger.info(f"[BARGE-IN] 🎯 IDEMPOTENT: Starting cancel for response {response_id_to_cancel[:20]}... (cancel_in_flight=True)")
-                            
-                            # Step 2: Send cancel to OpenAI (only once)
-                            cancel_succeeded = False
                             try:
                                 await self.realtime_client.cancel_response(response_id_to_cancel)
-                                logger.info(f"[BARGE-IN] ✅ Cancel sent successfully for {response_id_to_cancel[:20]}...")
-                                cancel_succeeded = True
+                                self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
+                                _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
                             except Exception as e:
                                 error_str = str(e).lower()
-                                # Handle response_cancel_not_active gracefully (DEBUG level, not ERROR)
-                                if ('not_active' in error_str or 'no active' in error_str or 
-                                    'already_cancelled' in error_str or 'already_completed' in error_str or
-                                    'response_cancel_not_active' in error_str):
-                                    # This is EXPECTED when response already ended - treat as LOGICAL SUCCESS
-                                    # Response already done = no need to cancel = mission accomplished
-                                    logger.debug(f"[BARGE-IN] response_cancel_not_active - response already ended ({response_id_to_cancel[:20]}...)")
-                                    cancel_succeeded = True  # Logical success - response is already done
-                                    # Keep response_id in _cancel_sent_for_response_ids (prevent retry spam)
-                                    # Only clear cancel_in_flight
-                                    self.cancel_in_flight = False
+                                if 'not_active' in error_str or 'no active' in error_str:
+                                    _orig_print(f"ℹ️ [BARGE-IN] Response כבר לא פעיל (זה בסדר)", flush=True)
                                 else:
-                                    # Unexpected error (network, timeout, etc.) - allow retry
-                                    logger.info(f"[BARGE-IN] Cancel error (unexpected, allowing retry): {e}")
-                                    # Clear cancel_in_flight and remove from sent set to allow retry
-                                    self.cancel_in_flight = False
-                                    self._cancel_sent_for_response_ids.discard(response_id_to_cancel)
-                            
-                            # Step 3: Mark response as cancelled locally (immediately after cancel attempt)
-                            # Do this even if cancel failed (response might already be done)
-                            self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
-                            
-                            # Step 4: Clear "AI speaking" flags ONLY (no session/conversation/STT reset)
-                            self.is_ai_speaking_event.clear()
-                            if hasattr(self, 'ai_response_active'):
-                                self.ai_response_active = False
-                            
-                            # Step 5: Send Twilio "clear" event to stop buffered audio
-                            if self.stream_sid:
-                                try:
-                                    clear_event = {
-                                        "event": "clear",
-                                        "streamSid": self.stream_sid
-                                    }
-                                    self._ws_send(json.dumps(clear_event))
-                                    logger.debug("[BARGE-IN] Sent Twilio clear event")
-                                except Exception as e:
-                                    logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
-                            
-                            # Step 6: Flush TX queue (idempotent - check if already flushed)
-                            if self._last_flushed_response_id != response_id_to_cancel:
-                                self._flush_tx_queue()
-                                self._last_flushed_response_id = response_id_to_cancel
-                                logger.debug(f"[BARGE-IN] Flushed TX queue for response {response_id_to_cancel[:20]}...")
-                            else:
-                                logger.debug(f"[BARGE-IN] TX queue already flushed for {response_id_to_cancel[:20]}... (skipping)")
-                            
-                            # Step 7: Set barge-in flag with timestamp
-                            self.barge_in_active = True
-                            self._barge_in_started_ts = time.time()
-                            status_msg = "succeeded" if cancel_succeeded else "not needed (already done)"
-                            logger.info(f"[BARGE-IN] ✅ IDEMPOTENT cancel {status_msg} - AI speaking flags cleared (response_id={response_id_to_cancel[:20]}...)")
-                            
-                            # NOTE: active_response_id and cancel_in_flight will be cleared in response.done/cancelled handler
-                    elif not has_active_response:
-                        # 🔥 DEBUG: Log when no active response to cancel
-                        _orig_print(f"⏭️ [BARGE-IN] No active response to cancel (active_response_id is None)", flush=True)
-                    elif not barge_in_allowed_now:
-                        # 🔥 CRITICAL DEBUG: Log why barge-in was blocked
-                        _orig_print(
-                            f"⚠️ [BARGE-IN] BLOCKED: greeting_lock={is_greeting_now}, barge_in_enabled={getattr(self, 'barge_in_enabled', True)}",
-                            flush=True
-                        )
-                    elif not self.realtime_client:
-                        _orig_print(f"⚠️ [BARGE-IN] BLOCKED: No realtime_client available", flush=True)
+                                    _orig_print(f"⚠️ [BARGE-IN] שגיאה בביטול: {e}", flush=True)
+                                self.cancel_in_flight = False
+                        else:
+                            _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
+                    
+                    _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -5089,6 +5014,7 @@ class MediaStreamHandler:
                         self.ai_response_active = True
                         _orig_print(f"✅ [BARGE-IN] ai_response_active=True, status=in_progress on response.created (id={response_id[:20]}...)", flush=True)
                         self.barge_in_active = False  # Reset barge-in flag for new response
+                        self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission for new response
                         print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
                         
                         print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
@@ -8490,9 +8416,37 @@ class MediaStreamHandler:
                     _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
         
         finally:
-            # STEP 7: Unregister session from registry - ALWAYS runs even on exception
+            # STEP 7: Update call_status in database immediately
+            # 🔥 NEW FIX: This ensures active call detection works correctly
             if not DEBUG:
-                _orig_print(f"   [7/8] Unregistering session and handler...", flush=True)
+                _orig_print(f"   [7/8] Updating call_status in database...", flush=True)
+            if self.call_sid:
+                try:
+                    # Update call_status to 'ended' immediately when session closes
+                    # This fixes the active call detection issue
+                    from server.models_sql import CallLog
+                    from server.db import db
+                    app = _get_flask_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        if call_log:
+                            # Update both status fields for proper detection
+                            if call_log.call_status not in ['completed', 'busy', 'no-answer', 'canceled', 'failed']:
+                                call_log.call_status = 'ended'
+                                _orig_print(f"   ✅ Updated call_status='ended' for {self.call_sid}", flush=True)
+                            if call_log.status in ['initiated', 'ringing', 'in-progress', 'queued', 'in_progress']:
+                                call_log.status = 'ended'
+                                _orig_print(f"   ✅ Updated status='ended' for {self.call_sid}", flush=True)
+                            db.session.commit()
+                            _orig_print(f"   ✅ Call status updated in database", flush=True)
+                        else:
+                            _orig_print(f"   ⚠️ No CallLog found for {self.call_sid}", flush=True)
+                except Exception as e:
+                    _orig_print(f"   ⚠️ Error updating call_status: {e}", flush=True)
+            
+            # STEP 8: Unregister session from registry - ALWAYS runs even on exception
+            if not DEBUG:
+                _orig_print(f"   [8/8] Unregistering session and handler...", flush=True)
             if self.call_sid:
                 try:
                     _close_session(self.call_sid)
@@ -8504,9 +8458,9 @@ class MediaStreamHandler:
                     _orig_print(f"   ⚠️ Error unregistering handler: {e}", flush=True)
                 _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
             
-            # STEP 8: Final state verification
+            # STEP 9: Final state verification
             if not DEBUG:
-                _orig_print(f"   [8/8] Final state verification...", flush=True)
+                _orig_print(f"   [9/9] Final state verification...", flush=True)
             is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
             if not DEBUG:
                 _orig_print(f"   is_ai_speaking={is_speaking}", flush=True)
@@ -14650,6 +14604,13 @@ class MediaStreamHandler:
                 
                 # Handle "media" event - send audio to Twilio (NO LOGS)
                 if item.get("type") == "media" or item.get("event") == "media":
+                    # 🔥 NEW FIX: Skip sending audio if barge-in stop flag is set
+                    # This immediately stops all audio transmission when user interrupts
+                    if getattr(self, 'barge_in_stop_tx', False):
+                        # User is interrupting - drop this frame and continue
+                        # Don't send it, don't count it, just skip it
+                        continue
+                    
                     # Send frame to Twilio WS (item already has correct format from enqueue)
                     if item.get("event") == "media" and "media" in item:
                         success = self._ws_send(json.dumps(item))
