@@ -331,6 +331,7 @@ def create_appointment():
         appointment.business_id = business_id
         appointment.customer_id = data.get('customer_id')
         appointment.deal_id = data.get('deal_id')
+        appointment.lead_id = data.get('lead_id')  # 🔥 FIX: Accept lead_id from request
         appointment.call_log_id = data.get('call_log_id')
         appointment.whatsapp_message_id = data.get('whatsapp_message_id')
         appointment.title = data['title']
@@ -486,7 +487,7 @@ def update_appointment(appointment_id):
         updatable_fields = [
             'title', 'description', 'location', 'status', 'appointment_type', 
             'priority', 'contact_name', 'contact_phone', 'contact_email', 
-            'notes', 'outcome', 'follow_up_needed'
+            'notes', 'outcome', 'follow_up_needed', 'lead_id'  # 🔥 FIX: Allow updating lead_id
         ]
         
         for field in updatable_fields:

@@ -1334,7 +1334,9 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
         location: formData.location,
         contact_name: formData.contact_name || (lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : ''),
         contact_phone: formData.contact_phone || lead?.phone_e164 || '',
-        priority: 'medium'
+        priority: 'medium',
+        // 🔥 FIX: Include lead_id when creating from lead page
+        lead_id: lead?.id
       };
 
       if (editingAppointment) {
