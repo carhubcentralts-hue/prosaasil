@@ -86,6 +86,21 @@ const PRIORITY_TYPES = {
   urgent: { label: 'דחוף', color: 'bg-red-100 text-red-700' }
 };
 
+// Translation helpers for dynamic summary fields
+const SENTIMENT_LABELS: Record<string, string> = {
+  'positive': 'חיובי',
+  'negative': 'שלילי',
+  'neutral': 'ניטרלי',
+  'mixed': 'מעורב'
+};
+
+const URGENCY_LABELS: Record<string, string> = {
+  'high': 'גבוהה',
+  'normal': 'רגילה',
+  'low': 'נמוכה',
+  'urgent': 'דחוף'
+};
+
 // Helper component to render dynamic summary with memoization
 const DynamicSummaryDisplay: React.FC<{ appointment: Appointment; navigate: any }> = ({ appointment, navigate }) => {
   const summaryData = useMemo(() => {
@@ -143,16 +158,16 @@ const DynamicSummaryDisplay: React.FC<{ appointment: Appointment; navigate: any 
         <div className="flex items-center gap-3 mt-3 pt-2 border-t border-purple-200">
           {summaryData.sentiment && (
             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-              רגש: {summaryData.sentiment}
+              רגש: {SENTIMENT_LABELS[summaryData.sentiment.toLowerCase()] || summaryData.sentiment}
             </span>
           )}
           {summaryData.urgency_level && (
             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-              summaryData.urgency_level === 'high' ? 'bg-red-100 text-red-800' :
+              summaryData.urgency_level === 'high' || summaryData.urgency_level === 'urgent' ? 'bg-red-100 text-red-800' :
               summaryData.urgency_level === 'normal' ? 'bg-yellow-100 text-yellow-800' :
               'bg-green-100 text-green-800'
             }`}>
-              דחיפות: {summaryData.urgency_level}
+              דחיפות: {URGENCY_LABELS[summaryData.urgency_level.toLowerCase()] || summaryData.urgency_level}
             </span>
           )}
         </div>
