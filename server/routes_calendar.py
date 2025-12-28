@@ -90,6 +90,7 @@ def get_appointments():
         status = request.args.get('status')
         appointment_type = request.args.get('type')
         search = request.args.get('search', '').strip()
+        lead_id = request.args.get('lead_id')  # Filter by lead_id
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 50)), 100)  # Max 100 per page
         
@@ -132,6 +133,14 @@ def get_appointments():
         # Type filter
         if appointment_type and appointment_type != 'all':
             query = query.filter(Appointment.appointment_type == appointment_type)
+        
+        # Lead ID filter - filter appointments linked to a specific lead
+        if lead_id:
+            try:
+                lead_id_int = int(lead_id)
+                query = query.filter(Appointment.lead_id == lead_id_int)
+            except ValueError:
+                return jsonify({'error': 'Invalid lead_id format'}), 400
         
         # Search filter
         if search:
