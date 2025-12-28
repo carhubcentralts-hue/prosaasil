@@ -349,7 +349,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         from server.policy.business_policy import get_business_policy
         policy = get_business_policy(input.business_id, context.get("business_prompt") if context else None)
         
-        # 🔥 USE SMART PHONE SELECTION
+        # 🔥 USE SMART PHONE SELECTION WITH ENHANCED LOGGING
         logger.info(f"📞 Phone extraction starting:")
         logger.info(f"   - input.customer_phone: {input.customer_phone}")
         logger.info(f"   - context: {context}")
@@ -359,7 +359,26 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             logger.info(f"   - caller_number in context: {context.get('caller_number')}")
             logger.info(f"   - from_number in context: {context.get('from_number')}")
             logger.info(f"   - whatsapp_from in context: {context.get('whatsapp_from')}")
+        
+        # Try _choose_phone first
         phone = _choose_phone(input.customer_phone, context, session)
+        logger.info(f"📞 Phone after _choose_phone: {phone}")
+        
+        # 🔥 FIX: If _choose_phone returned None, try direct extraction from context
+        # This handles cases where normalize_il_phone might have issues or context format is unexpected
+        if not phone and context:
+            # Try all possible phone keys in context
+            for key in ['customer_phone', 'caller_number', 'from_number', 'phone']:
+                candidate = context.get(key)
+                if candidate:
+                    normalized = normalize_il_phone(candidate)
+                    if normalized:
+                        phone = normalized
+                        logger.info(f"📞 Extracted phone from context['{key}']: {phone}")
+                        break
+                    else:
+                        logger.warning(f"📞 Failed to normalize phone from context['{key}']: {candidate}")
+        
         logger.info(f"📞 Final phone for appointment: {phone}")
         
         # 🔥 CRITICAL: Guard - phone required before booking (if policy requires it)
