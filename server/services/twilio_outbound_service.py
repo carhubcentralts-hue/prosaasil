@@ -162,7 +162,7 @@ def create_outbound_call(
     
     # Build webhook URL
     host = request.headers.get("X-Forwarded-Host") or request.host
-    webhook_url = f"https://{host}/twilio/outbound?business_id={business_id}"
+    webhook_url = f"https://{host}/webhook/outbound_call?business_id={business_id}"
     
     if lead_id:
         webhook_url += f"&lead_id={lead_id}"
