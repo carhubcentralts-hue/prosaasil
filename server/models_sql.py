@@ -113,7 +113,28 @@ class CallLog(db.Model):
     # 🔥 BUILD 342: Recording Quality Metadata - Verify actual recording transcription
     audio_bytes_len = db.Column(db.Integer, nullable=True)  # Recording file size in bytes (>0 = valid download)
     audio_duration_sec = db.Column(db.Float, nullable=True)  # Recording duration in seconds from metadata
-    transcript_source = db.Column(db.String(32), nullable=True)  # "recording"/"realtime" - source of final_transcript
+    transcript_source = db.Column(db.String(32), nullable=True)  # "recording"/"realtime"/"failed" - source of final_transcript
+    
+    # 🎙️ SSOT: Recording Mode Tracking (prevents double recording costs)
+    # Values: "TWILIO_CALL_RECORD" | "RECORDING_API" | "OFF" | None
+    recording_mode = db.Column(db.String(32), nullable=True)  # How recording was initiated
+    
+    # 💰 TWILIO COST METRICS (Cost Killer - tracks billing factors)
+    # Stream metrics
+    stream_started_at = db.Column(db.DateTime, nullable=True)  # When WebSocket stream started
+    stream_ended_at = db.Column(db.DateTime, nullable=True)  # When WebSocket stream ended
+    stream_duration_sec = db.Column(db.Float, nullable=True)  # Stream duration in seconds
+    stream_connect_count = db.Column(db.Integer, default=0)  # How many times WS reconnected (>1 = cost issue)
+    
+    # Webhook/retry metrics
+    webhook_11205_count = db.Column(db.Integer, default=0)  # Count of Twilio 11205 errors
+    webhook_retry_count = db.Column(db.Integer, default=0)  # Count of webhook retries
+    
+    # Recording metrics
+    recording_count = db.Column(db.Integer, default=0)  # How many recordings created (should be 0 or 1)
+    
+    # Cost classification
+    estimated_cost_bucket = db.Column(db.String(16), nullable=True)  # "LOW"/"MED"/"HIGH" based on metrics
     
     # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
     detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
