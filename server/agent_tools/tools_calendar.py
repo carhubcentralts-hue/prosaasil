@@ -8,7 +8,8 @@ from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import pytz
 import json
-from server.models_sql import db, Appointment, BusinessSettings
+from flask import g
+from server.models_sql import db, Appointment, BusinessSettings, CallLog
 from server.agent_tools.phone_utils import normalize_il_phone
 from server.services.customer_intelligence import CustomerIntelligence
 import logging
@@ -323,6 +324,10 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
     Returns clear Hebrew error messages if validation fails.
     """
     try:
+        # 🔥 FIX: Get context from Flask g if not provided
+        if context is None and hasattr(g, 'agent_context') and g.agent_context:
+            context = g.agent_context
+            logger.info(f"📞 Using Flask g.agent_context for phone extraction")
         # ⚡ Validate duration (15-240 minutes)
         duration_min = (datetime.fromisoformat(input.end_iso) - datetime.fromisoformat(input.start_iso)).total_seconds() / 60
         if duration_min < 15 or duration_min > 240:
@@ -345,6 +350,15 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         policy = get_business_policy(input.business_id, context.get("business_prompt") if context else None)
         
         # 🔥 USE SMART PHONE SELECTION
+        logger.info(f"📞 Phone extraction starting:")
+        logger.info(f"   - input.customer_phone: {input.customer_phone}")
+        logger.info(f"   - context: {context}")
+        logger.info(f"   - context keys: {list(context.keys()) if context else 'None'}")
+        if context:
+            logger.info(f"   - customer_phone in context: {context.get('customer_phone')}")
+            logger.info(f"   - caller_number in context: {context.get('caller_number')}")
+            logger.info(f"   - from_number in context: {context.get('from_number')}")
+            logger.info(f"   - whatsapp_from in context: {context.get('whatsapp_from')}")
         phone = _choose_phone(input.customer_phone, context, session)
         logger.info(f"📞 Final phone for appointment: {phone}")
         
@@ -479,8 +493,26 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         print(f"   start_time: {start_naive}")
         print(f"   end_time: {end_naive}")
         
+        # 🔥 FIX: Link appointment to call_log using call_sid from context
+        call_log_id = None
+        if context and context.get('call_sid'):
+            try:
+                call_log = CallLog.query.filter_by(call_sid=context['call_sid']).first()
+                if call_log:
+                    call_log_id = call_log.id
+                    logger.info(f"✅ Found call_log #{call_log_id} for call_sid {context['call_sid']}")
+                else:
+                    logger.warning(f"⚠️ No call_log found for call_sid {context['call_sid']}")
+            except db.exc.SQLAlchemyError as db_err:
+                logger.exception(f"❌ Database error looking up call_log: {db_err}")
+                # Continue without call_log_id - appointment can still be created
+            except Exception as lookup_err:
+                logger.exception(f"❌ Unexpected error looking up call_log: {lookup_err}")
+                # Continue without call_log_id - appointment can still be created
+        
         appointment = Appointment(
             business_id=input.business_id,
+            call_log_id=call_log_id,  # 🔥 FIX: Link to call_log
             title=f"{input.treatment_type} - {customer_name}",
             description=input.notes,
             start_time=start_naive,  # Save naive datetime (local Israel time)
