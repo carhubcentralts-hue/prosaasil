@@ -72,7 +72,7 @@ def update_cost_metrics(call_log, **metrics) -> None:
     Usage:
         update_cost_metrics(call_log, stream_connect_count=2, webhook_retry_count=1)
     """
-    from server.app_factory import db
+    from server.db import db
     
     # Update provided metrics
     for key, value in metrics.items():

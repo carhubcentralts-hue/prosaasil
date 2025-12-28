@@ -45,7 +45,7 @@ def _check_duplicate_in_db(dedup_key: str, business_id: int, to_phone: str) -> O
     🔒 ATOMIC: DB-level check is authoritative
     Returns call_sid if duplicate found, None otherwise
     """
-    from server.app_factory import db
+    from server.db import db
     from server.models_sql import CallLog
     from datetime import datetime, timedelta
     
