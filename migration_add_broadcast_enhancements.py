@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from server.app_factory import get_process_app
 from server.db import db
+from sqlalchemy import text
 
 def run_migration():
     """Add enhancements to WhatsApp broadcast tables"""
@@ -23,7 +24,7 @@ def run_migration():
         
         try:
             # Add idempotency_key column if it doesn't exist
-            db.engine.execute("""
+            db.session.execute(text("""
                 DO $$ 
                 BEGIN
                     IF NOT EXISTS (
@@ -42,7 +43,9 @@ def run_migration():
                         RAISE NOTICE 'idempotency_key column already exists';
                     END IF;
                 END $$;
-            """)
+            """))
+            
+            db.session.commit()
             
             print("✅ Migration completed successfully")
             
