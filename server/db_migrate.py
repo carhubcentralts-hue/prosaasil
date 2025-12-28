@@ -1514,6 +1514,43 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 50: Add dynamic_summary and lead_id to appointments table
+        # 🔒 CRITICAL FIX: These columns are referenced in code but missing from production DB
+        # Fixes: psycopg2.errors.UndefinedColumn: column appointments.lead_id does not exist
+        checkpoint("Migration 50: Adding dynamic_summary and lead_id to appointments")
+        if check_table_exists('appointments'):
+            try:
+                from sqlalchemy import text
+                
+                # Add lead_id column if missing
+                if not check_column_exists('appointments', 'lead_id'):
+                    db.session.execute(text("""
+                        ALTER TABLE appointments 
+                        ADD COLUMN lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL
+                    """))
+                    # Create index for performance
+                    db.session.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_appointments_lead_id 
+                        ON appointments(lead_id)
+                    """))
+                    migrations_applied.append('add_appointments_lead_id')
+                    log.info("✅ Added lead_id column to appointments table")
+                
+                # Add dynamic_summary column if missing
+                if not check_column_exists('appointments', 'dynamic_summary'):
+                    db.session.execute(text("""
+                        ALTER TABLE appointments 
+                        ADD COLUMN dynamic_summary TEXT
+                    """))
+                    migrations_applied.append('add_appointments_dynamic_summary')
+                    log.info("✅ Added dynamic_summary column to appointments table")
+                
+                checkpoint("✅ Migration 50 completed - appointments table updated")
+            except Exception as e:
+                log.error(f"❌ Migration 50 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
