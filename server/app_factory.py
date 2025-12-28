@@ -767,6 +767,12 @@ def create_app():
                         from server.db_migrate import apply_migrations
                         apply_migrations()
                         
+                        # 🔒 CRITICAL: Validate database schema after migrations
+                        # This ensures all critical columns exist and prevents cascading errors
+                        from server.environment_validation import validate_database_schema
+                        from server.db import db
+                        validate_database_schema(db)
+                        
                         # Migrate legacy admin roles to system_admin
                         try:
                             from server.scripts.migrate_admin_roles import migrate_admin_roles
