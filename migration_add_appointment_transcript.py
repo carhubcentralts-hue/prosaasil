@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from server.app_factory import get_process_app
 from server.db import db
+from sqlalchemy import text
 
 def run_migration():
     """Add transcript field to appointments table"""
@@ -23,7 +24,7 @@ def run_migration():
         
         try:
             # Add call_transcript column if it doesn't exist
-            db.engine.execute("""
+            db.session.execute(text("""
                 DO $$ 
                 BEGIN
                     IF NOT EXISTS (
@@ -39,7 +40,9 @@ def run_migration():
                         RAISE NOTICE 'call_transcript column already exists';
                     END IF;
                 END $$;
-            """)
+            """))
+            
+            db.session.commit()
             
             print("✅ Migration completed successfully")
             print("📝 Appointments now support both call_summary (AI summary) and call_transcript (full transcript)")
