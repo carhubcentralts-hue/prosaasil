@@ -217,6 +217,10 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
         log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS}")
         
         # Start background worker to process the queue
+        # Note: Using daemon thread is safe here because:
+        # 1. All state is persisted in database (OutboundCallRun, OutboundCallJob)
+        # 2. cleanup_stuck_dialing_jobs() handles any interrupted jobs on restart
+        # 3. This matches the pattern used in bulk_enqueue_outbound_calls endpoint
         thread = Thread(target=process_bulk_call_run, args=(run.id,), daemon=True)
         thread.start()
         
@@ -1307,7 +1311,6 @@ def bulk_enqueue_outbound_calls():
         log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={concurrency}")
         
         # Start background worker to process the queue
-        from threading import Thread
         thread = Thread(target=process_bulk_call_run, args=(run.id,), daemon=True)
         thread.start()
         
