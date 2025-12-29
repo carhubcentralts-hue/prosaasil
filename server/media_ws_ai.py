@@ -3104,6 +3104,13 @@ class MediaStreamHandler:
             try:
                 customer_name_to_inject = _extract_customer_name()
                 
+                # 🔥 DEBUG: Log customer name extraction details
+                print(f"🔍 [CRM_CONTEXT DEBUG] Extraction attempt:")
+                print(f"   outbound_lead_name: {outbound_lead_name}")
+                print(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
+                print(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
+                print(f"   extracted name: {customer_name_to_inject}")
+                
                 # 🔥 IDEMPOTENT INJECTION: Only inject if not already injected
                 if customer_name_to_inject and not hasattr(self, '_customer_name_injected'):
                     print(f"📝 [CRM_CONTEXT] Found customer name: {customer_name_to_inject}")
@@ -8719,6 +8726,12 @@ class MediaStreamHandler:
                         self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = custom_params.get("business_name")
                         
+                        # 🔥 DEBUG: Log outbound lead name explicitly
+                        if self.outbound_lead_name:
+                            print(f"✅ [OUTBOUND] Lead name received: '{self.outbound_lead_name}'")
+                        else:
+                            print(f"⚠️ [OUTBOUND] No lead_name in customParameters!")
+                        
                         # 🔥 OPTIMIZATION: Pre-load outbound greeting to avoid DB query in async loop
                         if self.call_direction == "outbound" and self.outbound_template_id and self.outbound_lead_name:
                             try:
@@ -11620,16 +11633,21 @@ class MediaStreamHandler:
                             print(f"🔇 [SILENCE] State changed before hangup - exiting")
                             return
                         
-                        # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
-                        # Just stay idle and let the call continue or let Twilio disconnect
+                        # 🔥 CRITICAL FIX: SIMPLE_MODE with disconnect exception
+                        # SIMPLE_MODE stays active (no flow changes), but we add disconnect exception
+                        # User requirement: "אם יש 20 שניות בלי קול לקוח או ai - לנתק מיד!!!"
+                        # This prevents wasted minutes on prolonged silence
                         if SIMPLE_MODE:
-                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
-                            print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # Optionally send a final message
-                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
-                            # Reset timer to avoid immediate re-triggering, but don't close
-                            self._last_speech_time = time.time()
-                            continue  # Stay in monitor loop
+                            # In SIMPLE_MODE: Skip polite closing message, just disconnect immediately
+                            # This is a disconnect-only exception that doesn't affect call flow
+                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded, IMMEDIATE DISCONNECT (exception)")
+                            print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
+                            await self.request_hangup(
+                                reason="silence_max_warnings_simple_mode",
+                                source="silence_monitor",
+                                transcript_text="Max silence warnings exceeded - SIMPLE_MODE exception disconnect"
+                            )
+                            return
                         
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
@@ -11648,6 +11666,7 @@ class MediaStreamHandler:
                         
                         # 🔇 AUTO-DISCONNECT: Disconnecting after max silence warnings
                         # This prevents wasted minutes on prolonged silence
+                        # User requirement: Must disconnect if there are 20 seconds without voice from customer or AI
                         print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
                         await self.request_hangup(
                             reason="silence_max_warnings",
