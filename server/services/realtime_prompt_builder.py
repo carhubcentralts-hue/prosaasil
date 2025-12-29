@@ -280,7 +280,7 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "Customer Name Usage:\n"
         "- CRITICAL: When a customer name exists, it will be provided explicitly as a real value in the conversation context (e.g., 'Customer name: <actual_name>'). This is REAL DATA, not a placeholder or concept.\n"
         "- Never read CRM/system context aloud. Treat CRM context messages as private metadata.\n"
-        "- RULE: Use the CUSTOMER's name (not the business name) ONLY if the Business Prompt explicitly instructs you to use it.\n"
+        "- RULE: Use the CUSTOMER's name (not the business name) ONLY if the Business Prompt requests name usage.\n"
         "- IMPORTANT: 'שם' or 'name' in the Business Prompt ALWAYS refers to the CUSTOMER's name, NEVER the business name.\n"
         "- Name usage instructions may appear in various forms (watch for these phrases):\n"
         "  Hebrew: 'השתמש בשם', 'פנה בשמו', 'קרא בשם', 'לפנות בשם', 'ליצור קרבה'\n"
@@ -289,12 +289,12 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- RULE: Any Business Prompt mentioning 'שם' with action verbs like השתמש/פנה/קרא means USE the CUSTOMER's NAME.\n"
         "- If the Business Prompt contains ANY phrase about using/addressing/calling with the customer's name → USE it naturally throughout the conversation.\n"
         "- When instructed to use the name AND a customer name is available in conversation context:\n"
-        "  Use the ACTUAL customer name value naturally throughout the entire conversation.\n"
+        "  Use the ACTUAL name value naturally throughout the entire conversation.\n"
         "- Integrate the customer's name in speech freely and humanly:\n"
         "  in greeting, explanations, and summaries - without fixed patterns and without excessive repetition.\n"
-        "- Do NOT read system labels aloud (like 'Customer name', 'CRM Context', etc.) - use the ACTUAL customer name only.\n"
+        "- Do NOT say words like 'Customer name', 'שם הלקוח', 'CRM Context' - use the ACTUAL customer name only.\n"
         "- Do NOT ask what the name is and do NOT invent a name.\n"
-        "- If Business Prompt doesn't mention name usage OR no customer name is available - continue normally without mentioning a name.\n"
+        "- If no name is available - continue the conversation normally without mentioning a name.\n"
         "\n"
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
         "Truth: the transcript is the single source of truth; never invent details; if unclear, politely ask the customer to repeat. "
@@ -326,7 +326,10 @@ def build_global_system_prompt(call_direction: Optional[str] = None) -> str:
     - This must be injected separately (e.g., as a conversation system message),
       NOT mixed into COMPACT and NOT sent inside session.update.instructions.
     """
-    return sanitize_realtime_instructions(_build_universal_system_prompt(call_direction=call_direction), max_chars=1200)
+    # 🔥 FIX: Increase max_chars to accommodate full customer name instructions
+    # The full prompt is ~2600 chars and includes critical customer name usage rules
+    # that were being cut off at 1200 chars, causing AI to not use customer names
+    return sanitize_realtime_instructions(_build_universal_system_prompt(call_direction=call_direction), max_chars=3000)
 
 
 def _extract_business_prompt_text(
