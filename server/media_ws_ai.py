@@ -98,6 +98,12 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
 # 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
+# 🔥 NAME VALIDATION: Invalid placeholder values that should not be used as customer names
+INVALID_NAME_PLACEHOLDERS = [
+    'none', 'null', 'unknown', 'test', '-', 'n/a', 
+    'לא ידוע', 'ללא שם', 'na', 'n.a.', 'undefined'
+]
+
 # 🔥 BUILD 325: Import all call configuration from centralized config
 try:
     from server.config.calls import (
@@ -2865,8 +2871,7 @@ class MediaStreamHandler:
                     
                 except Exception as e:
                     logger.error(f"[NAME_RESOLVE] Error resolving name: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.exception("Full traceback:")
                     _orig_print(f"[NAME_RESOLVE] Error: {e}", flush=True)
                     return (None, None)
             
@@ -2880,6 +2885,7 @@ class MediaStreamHandler:
                     try:
                         lead_id = int(lead_id)
                     except ValueError:
+                        logger.debug(f"[NAME_RESOLVE] Failed to convert lead_id to int: {lead_id}")
                         lead_id = None
                 
                 # Get phone number for fallback lookup
@@ -3257,9 +3263,8 @@ class MediaStreamHandler:
                 if not name_lower:
                     return False
                 
-                # Reject common placeholder values (including Hebrew default)
-                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na', 'ללא שם']
-                if name_lower in invalid_values:
+                # Reject common placeholder values using module constant
+                if name_lower in INVALID_NAME_PLACEHOLDERS:
                     return False
                 
                 return True
@@ -3610,8 +3615,7 @@ class MediaStreamHandler:
                                     if not name:
                                         return False
                                     name_lower = name.strip().lower()
-                                    invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na']
-                                    return name_lower not in invalid_values
+                                    return name_lower not in INVALID_NAME_PLACEHOLDERS
                                 
                                 if not _is_valid_name(customer_name_value):
                                     print(f"⚠️ [CRM_CONTEXT] Invalid/placeholder name detected, skipping injection: '{customer_name_value}'")
@@ -4351,8 +4355,7 @@ class MediaStreamHandler:
             
             # Validate name is not a placeholder
             name_lower = str(current_name).lower().strip()
-            invalid_values = ['none', 'null', 'unknown', 'test', '-', 'n/a', 'לא ידוע', 'ללא שם']
-            if name_lower in invalid_values:
+            if name_lower in INVALID_NAME_PLACEHOLDERS:
                 logger.debug(f"[NAME_ANCHOR] ensure: skipping - invalid name '{current_name}'")
                 print(f"ℹ️ [NAME_ANCHOR] ensure: Invalid placeholder name '{current_name}'")
                 return
