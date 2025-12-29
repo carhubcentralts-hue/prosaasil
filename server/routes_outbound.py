@@ -1705,15 +1705,22 @@ def fill_queue_slots_for_job(job_id: int):
             business_name = business.name or "העסק"
             host = get_public_host()
             
-            # Check how many active calls we have (include both "dialing" and "calling")
+            # 🔒 CRITICAL: Check BUSINESS-LEVEL active outbound calls, not just this run
+            # This prevents multiple runs or mixed direct+bulk calls from exceeding limit
+            from server.services.call_limiter import count_active_outbound_calls, MAX_OUTBOUND_CALLS_PER_BUSINESS
+            
+            # Check how many active calls THIS RUN has (include both "dialing" and "calling")
             # 🔥 FIX: Must count "dialing" jobs too, otherwise we start too many calls in parallel
-            active_count = OutboundCallJob.query.filter(
+            active_in_run = OutboundCallJob.query.filter(
                 OutboundCallJob.run_id == run.id,
                 OutboundCallJob.status.in_(["dialing", "calling"])
             ).count()
             
-            # Fill available slots
-            while active_count < run.concurrency:
+            # 🔒 BUSINESS-LEVEL LIMIT: Check total active outbound calls for this business
+            business_active_outbound = count_active_outbound_calls(run.business_id)
+            
+            # Fill available slots (respect BOTH run concurrency AND business limit)
+            while active_in_run < run.concurrency and business_active_outbound < MAX_OUTBOUND_CALLS_PER_BUSINESS:
                 # Get next queued job
                 next_job = OutboundCallJob.query.filter_by(
                     run_id=run.id,
@@ -1722,7 +1729,7 @@ def fill_queue_slots_for_job(job_id: int):
                 
                 if not next_job:
                     # No more jobs queued
-                    if active_count == 0:
+                    if active_in_run == 0:
                         # All done!
                         run.status = "completed"
                         run.completed_at = datetime.utcnow()
@@ -1832,7 +1839,8 @@ def fill_queue_slots_for_job(job_id: int):
                         db.session.commit()
                         
                         log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={call_sid}")
-                        active_count += 1
+                        active_in_run += 1
+                        business_active_outbound += 1
                         
                     except Exception as twilio_error:
                         # 🔒 DEDUPLICATION: Handle Twilio timeout/exception
@@ -1911,6 +1919,9 @@ def process_bulk_call_run(run_id: int):
             business_name = business.name or "העסק"
             host = get_public_host()
             
+            # 🔒 CRITICAL: Import business-level limiter to prevent exceeding 3 calls per business
+            from server.services.call_limiter import count_active_outbound_calls, MAX_OUTBOUND_CALLS_PER_BUSINESS
+            
             # Process jobs in queue
             while True:
                 # Check if queue was stopped
@@ -1930,8 +1941,12 @@ def process_bulk_call_run(run_id: int):
                     OutboundCallJob.status.in_(["dialing", "calling"])
                 ).count()
                 
-                # Check if we can start more calls
-                if active_jobs < run.concurrency:
+                # 🔒 BUSINESS-LEVEL LIMIT: Check total active outbound calls for this business
+                # This prevents exceeding MAX_OUTBOUND_CALLS_PER_BUSINESS even with multiple runs
+                business_active_outbound = count_active_outbound_calls(run.business_id)
+                
+                # Check if we can start more calls (respect BOTH run concurrency AND business limit)
+                if active_jobs < run.concurrency and business_active_outbound < MAX_OUTBOUND_CALLS_PER_BUSINESS:
                     # Get next queued job
                     next_job = OutboundCallJob.query.filter_by(
                         run_id=run_id,
@@ -2099,7 +2114,10 @@ def process_bulk_call_run(run_id: int):
                             # Wait for active calls to complete
                             time.sleep(2)
                 else:
-                    # At capacity, wait
+                    # At capacity OR business limit reached, wait
+                    # Business limit may be reached even if run has capacity
+                    if business_active_outbound >= MAX_OUTBOUND_CALLS_PER_BUSINESS:
+                        log.debug(f"[BulkCall] Business {run.business_id} at max outbound limit ({business_active_outbound}/{MAX_OUTBOUND_CALLS_PER_BUSINESS}), waiting...")
                     time.sleep(2)
                 
                 # Refresh run to get latest counts
