@@ -2336,7 +2336,7 @@ class MediaStreamHandler:
         # ═══════════════════════════════════════════════════════════════════════════
         # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Aggressive disconnect features
         # ═══════════════════════════════════════════════════════════════════════════
-        self._call_started_ts = time.time()  # Track call start for 15-second voicemail window
+        self._call_started_ts = time.time()  # Track call start for 10-second voicemail window
         self._last_user_activity_ts = time.time()  # Track last user activity for silence watchdog
         self._silence_watchdog_running = True  # Flag to control watchdog thread
         self._silence_watchdog_task = None  # Asyncio task for silence monitoring
@@ -2382,16 +2382,19 @@ class MediaStreamHandler:
         """
         🔥 VOICEMAIL DETECTION: Check if user transcript indicates voicemail/answering machine
         
-        Only checks within first 15 seconds of call. Disconnects immediately if:
+        Only checks within first 10 seconds of call. Disconnects immediately if:
         - User transcript contains voicemail keywords (משיבון, תא קולי, etc.)
         - User transcript contains phone number being read (05x..., +972...)
+        
+        ⚠️ CRITICAL: 10-second window prevents false positives mid-call
+        (customer might mention phone numbers or similar phrases during conversation)
         
         Args:
             user_text: The user's transcript text to check
         """
-        # Only check within first 15 seconds (strict time limit)
+        # Only check within first 10 seconds (strict time limit to prevent false positives)
         elapsed = time.time() - self._call_started_ts
-        if elapsed > 15.0:
+        if elapsed > 10.0:
             return
         
         # Check for voicemail keywords
@@ -6168,7 +6171,7 @@ class MediaStreamHandler:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 VOICEMAIL DETECTION: Check AI transcript too (first 15 seconds only)
+                        # 🔥 VOICEMAIL DETECTION: Check AI transcript too (first 10 seconds only)
                         # ═══════════════════════════════════════════════════════════════════════
                         # Voicemail messages sometimes appear in AI transcript (response.audio_transcript)
                         # instead of user transcript, depending on the audio pipeline
@@ -6981,7 +6984,7 @@ class MediaStreamHandler:
                     # Update last user activity timestamp for silence watchdog
                     self._last_user_activity_ts = time.time()
                     
-                    # Check for voicemail/answering machine (first 15 seconds only)
+                    # Check for voicemail/answering machine (first 10 seconds only)
                     await self._maybe_hangup_voicemail(text)
                     
                     # ═══════════════════════════════════════════════════════════════════════
