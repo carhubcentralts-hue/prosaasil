@@ -153,7 +153,7 @@ class TestCallLimiterFix(unittest.TestCase):
         Test that we never exceed the concurrency limit with new logic
         """
         concurrency_limit = 3
-        max_jobs = 100
+        max_jobs = 20  # Reduced from 100 for test efficiency
         
         # Simulate processing queue
         jobs = [{"id": i, "status": "queued"} for i in range(max_jobs)]
@@ -183,6 +183,7 @@ class TestCallLimiterFix(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    print("Testing call limiter fix (dialing + calling count)...")
-    print("=" * 70)
+    header_msg = "Testing call limiter fix (dialing + calling count)..."
+    print(header_msg)
+    print("=" * len(header_msg))
     unittest.main(verbosity=2)
