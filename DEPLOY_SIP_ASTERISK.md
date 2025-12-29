@@ -19,12 +19,19 @@ OpenAI Realtime API
 ## Prerequisites
 
 ### 1. DID/SIP Provider Account
-- **Recommended**: DIDWW, Twilio SIP, Bandwidth, or similar
+- **Provider**: DIDWW (IP-based authentication)
+- **No SIP registration required** - authentication via source IP whitelist
 - Requirements:
-  - SIP trunk with inbound/outbound support
-  - At least one DID (phone number)
-  - g711 ulaw codec support
-  - Public IP or NAT configuration
+  - At least one DID (phone number) assigned to your account
+  - Your server's public IP whitelisted in DIDWW portal
+  - g711 ulaw codec support (standard)
+  - Stable internet connection with public IP
+
+**DIDWW Configuration**:
+1. Log into DIDWW portal
+2. Add your server's public IP to "Allowed IPs" under SIP Trunk settings
+3. Assign DIDs to your SIP trunk
+4. Note the DIDWW SIP server IPs for pjsip.conf configuration
 
 ### 2. Server Requirements
 - **Minimum**: 4 CPU cores, 8GB RAM, 100GB storage
@@ -54,14 +61,15 @@ Create `.env.sip` file with SIP trunk credentials:
 ASTERISK_ARI_PASSWORD=your_secure_password_here
 ASTERISK_ARI_USER=prosaas
 
-# SIP Trunk Configuration (from your DID provider)
-SIP_TRUNK_HOST=sip.yourprovider.com
-SIP_TRUNK_PORT=5060
-SIP_TRUNK_USERNAME=your_sip_username
-SIP_TRUNK_PASSWORD=your_sip_password
-SIP_TRUNK_IP=1.2.3.4  # Provider's IP for ACL
+# DIDWW SIP Trunk Configuration (IP-based authentication)
+DIDWW_SIP_HOST=sip.didww.com
+DIDWW_SIP_PORT=5060
+# DIDWW source IPs for ACL (from DIDWW documentation)
+DIDWW_IP_1=89.105.196.76
+DIDWW_IP_2=80.93.48.76
+DIDWW_IP_3=89.105.205.76
 
-# External IP (your server's public IP)
+# External IP (your server's public IP - must be whitelisted in DIDWW)
 EXTERNAL_IP=your.server.public.ip
 
 # OpenAI API Key
@@ -110,13 +118,18 @@ pjsip show registrations
 curl -u prosaas:your_password http://localhost:8088/ari/asterisk/info
 ```
 
-### Step 4: Configure DID Routing
+### Step 4: Configure DID Routing (DIDWW)
 
-Update your SIP provider to route incoming calls to your server:
+Configure DIDWW to route incoming calls to your server:
 
-1. **Add SIP Trunk**: Configure your server's public IP in provider's portal
-2. **Assign DID**: Route your phone number to the trunk
-3. **Verify**: Make a test call to your DID
+1. **Whitelist Your IP**: In DIDWW portal → SIP Trunks → Add your server's public IP
+2. **Assign DIDs**: Assign your phone number(s) to the SIP trunk
+3. **Verify Configuration**: 
+   - Destination: Your server IP:5060
+   - Codec: g711 ulaw
+   - Authentication: IP-based (no credentials needed)
+
+**Important**: DIDWW uses IP-based authentication. Your server's public IP MUST be whitelisted, or all calls will be rejected.
 
 ### Step 5: Test Inbound Calls
 
