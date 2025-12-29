@@ -36,6 +36,104 @@ FALLBACK_INBOUND_PROMPT_TEMPLATE = "You are a professional service representativ
 FALLBACK_OUTBOUND_PROMPT_TEMPLATE = "You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 NAME POLICY & NAME ANCHOR: Persistent customer name usage
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def detect_name_usage_policy(business_prompt: str) -> Tuple[bool, Optional[str]]:
+    """
+    Detect if business prompt requests using customer name in conversation.
+    
+    This checks for EXPLICIT instructions to use the customer's name throughout
+    the conversation, not just in greeting.
+    
+    Args:
+        business_prompt: The business prompt text to analyze
+    
+    Returns:
+        Tuple of (use_name: bool, matched_phrase: Optional[str])
+        - use_name: True if prompt requests name usage
+        - matched_phrase: The phrase that triggered the policy (for logging)
+    
+    Examples of phrases that trigger name usage:
+        Hebrew: "השתמש בשם", "פנה בשמו", "קרא בשם", "לפנות בשם"
+        Conditional: "אם קיים שם", "במידה וקיים שם", "אם יש שם"
+        English: "use name", "use their name", "address by name", "call by name"
+    
+    NOTE: "ליצור קרבה" is NOT a name usage instruction - removed!
+    """
+    if not business_prompt:
+        return False, None
+    
+    prompt_lower = business_prompt.lower()
+    
+    # Hebrew patterns for EXPLICIT name usage instructions
+    hebrew_patterns = [
+        r"השתמש\s+בשם",           # "use name" - EXPLICIT
+        r"תשתמש\s+בשם",           # "you will use name" - EXPLICIT
+        r"פנה\s+בשמו",            # "address by his name" - EXPLICIT
+        r"פני\s+בשמה",            # "address by her name" - EXPLICIT
+        r"תפנה\s+בשם",            # "you will address by name" - EXPLICIT
+        r"קרא\s+לו\s+בשם",        # "call him by name" - EXPLICIT
+        r"לפנות\s+בשם",           # "to address by name" - EXPLICIT
+        r"אם\s+קיים\s+שם.*השתמש", # "if name exists...use" - EXPLICIT
+        r"במידה\s+וקיים\s+שם.*השתמש", # "if there is a name...use" - EXPLICIT
+    ]
+    
+    # English patterns for EXPLICIT name usage instructions
+    english_patterns = [
+        r"use\s+(?:the\s+)?(?:customer'?s?\s+)?name",
+        r"use\s+their\s+name",
+        r"address\s+(?:them\s+)?by\s+name",
+        r"call\s+(?:them\s+)?by\s+name",
+        r"if\s+(?:a\s+)?name\s+(?:is\s+)?(?:available|exists).*use",
+    ]
+    
+    all_patterns = hebrew_patterns + english_patterns
+    
+    for pattern in all_patterns:
+        match = re.search(pattern, prompt_lower)
+        if match:
+            matched_text = match.group(0)
+            logger.info(f"[NAME_POLICY] Detected EXPLICIT name usage request: '{matched_text}'")
+            return True, matched_text
+    
+    return False, None
+
+
+def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool) -> str:
+    """
+    Build NAME_ANCHOR message for conversation injection.
+    
+    This creates a SHORT system message that tells the AI:
+    1. The customer's actual name (if available)
+    2. Whether to use the name (based on business prompt)
+    
+    IMPORTANT: Keep this SHORT and FACTUAL. Do NOT repeat instructions that are
+    already in the universal system prompt (lines 280-296 in realtime_prompt_builder.py).
+    
+    Args:
+        customer_name: The customer's name (None if not available)
+        use_name_policy: Whether business prompt requests name usage
+    
+    Returns:
+        Formatted NAME_ANCHOR message text (SHORT!)
+    """
+    if customer_name and use_name_policy:
+        # SHORT: Just the name + enable flag
+        # The system prompt already has all the instructions
+        return f"Customer name: {customer_name}\nNameUsage: ENABLED"
+    elif customer_name and not use_name_policy:
+        # Name available but business doesn't want it used
+        return f"Customer name: {customer_name}\nNameUsage: DISABLED"
+    elif not customer_name and use_name_policy:
+        # Business wants name but it's not available
+        return f"Customer name: NOT_AVAILABLE\nNameUsage: REQUESTED_BUT_UNAVAILABLE"
+    else:
+        # No name and not requested - minimal context
+        return f"Customer name: NOT_AVAILABLE\nNameUsage: DISABLED"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 VALIDATION: Ensure business prompts are properly configured
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

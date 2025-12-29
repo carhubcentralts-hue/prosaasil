@@ -3048,16 +3048,17 @@ class MediaStreamHandler:
                     # Do not fail call if this injection fails; COMPACT still provides business script.
                     logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
             
-            # 🔥 CRM CONTEXT INJECTION: Inject customer name as real data (not placeholder)
-            # This ensures the AI knows the customer name is REAL DATA available for use
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🔥 NAME ANCHOR SYSTEM: Persistent customer name + usage policy
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # This replaces the old CRM context injection with a permanent NAME_ANCHOR
+            # that tells the AI:
+            # 1. The customer's actual name (if available)
+            # 2. Whether to use it (based on business prompt analysis)
+            # 3. How to use it (naturally, not in every sentence)
             
             def _is_valid_customer_name(name: str) -> bool:
-                """Validate that customer name is real data, not a placeholder.
-                
-                Rejects:
-                - None/empty strings
-                - Common placeholder values: 'unknown', 'test', '-'
-                """
+                """Validate that customer name is real data, not a placeholder."""
                 if not name:
                     return False
                 
@@ -3072,14 +3073,8 @@ class MediaStreamHandler:
                 
                 return True
             
-            def _format_crm_context_message(customer_name: str) -> str:
-                """Format CRM context message for Realtime API injection.
-                Keep it simple and short to avoid being read aloud."""
-                return f"Customer name: {customer_name}"
-            
-            def _extract_customer_name() -> str:
-                """Extract customer name from available sources.
-                Returns None if no valid name is found."""
+            def _extract_customer_name() -> Optional[str]:
+                """Extract customer name from available sources."""
                 # Source 1: outbound_lead_name (for outbound calls)
                 if outbound_lead_name and str(outbound_lead_name).strip():
                     name = str(outbound_lead_name).strip()
@@ -3102,21 +3097,40 @@ class MediaStreamHandler:
                 return None
             
             try:
+                # Step 1: Detect name usage policy from business prompt (once per session)
+                from server.services.realtime_prompt_builder import detect_name_usage_policy
+                
+                # Use the FULL business prompt for policy detection (more accurate)
+                business_prompt_for_policy = full_prompt if full_prompt else compact_prompt
+                use_name_policy, matched_phrase = detect_name_usage_policy(business_prompt_for_policy)
+                
+                # Store policy in session (persistent across PROMPT_UPGRADE)
+                self.use_name_policy = use_name_policy
+                
+                # Log policy determination
+                logger.info(f"[NAME_POLICY] use_name_policy={use_name_policy} reason=matched_phrase='{matched_phrase}'")
+                print(f"🎯 [NAME_POLICY] use_name_policy={use_name_policy} (matched: '{matched_phrase or 'none'}')")
+                _orig_print(f"[NAME_POLICY] use_name_policy={use_name_policy}", flush=True)
+                
+                # Step 2: Extract customer name
                 customer_name_to_inject = _extract_customer_name()
                 
-                # 🔥 DEBUG: Log customer name extraction details
-                print(f"🔍 [CRM_CONTEXT DEBUG] Extraction attempt:")
+                # Debug logging
+                print(f"🔍 [NAME_ANCHOR DEBUG] Extraction attempt:")
                 print(f"   outbound_lead_name: {outbound_lead_name}")
                 print(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
                 print(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
                 print(f"   extracted name: {customer_name_to_inject}")
+                print(f"   use_name_policy: {use_name_policy}")
                 
-                # 🔥 IDEMPOTENT INJECTION: Only inject if not already injected
-                if customer_name_to_inject and not hasattr(self, '_customer_name_injected'):
-                    print(f"📝 [CRM_CONTEXT] Found customer name: {customer_name_to_inject}")
-                    crm_context_text = _format_crm_context_message(customer_name_to_inject)
+                # Step 3: Build and inject NAME_ANCHOR (idempotent)
+                if not hasattr(self, '_name_anchor_injected'):
+                    from server.services.realtime_prompt_builder import build_name_anchor_message
                     
-                    await client.send_event(
+                    name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
+                    
+                    # Inject as conversation system message
+                    name_anchor_event = await client.send_event(
                         {
                             "type": "conversation.item.create",
                             "item": {
@@ -3125,24 +3139,33 @@ class MediaStreamHandler:
                                 "content": [
                                     {
                                         "type": "input_text",
-                                        "text": crm_context_text,
+                                        "text": name_anchor_text,
                                     }
                                 ],
                             },
                         }
                     )
-                    # 🔥 Mark as injected to prevent duplicates
-                    self._customer_name_injected = customer_name_to_inject
-                    print(f"✅ [CRM_CONTEXT] Injected customer name: '{customer_name_to_inject}'")
-                    logger.info(f"[CRM_CONTEXT] Injected customer_name='{customer_name_to_inject}' as conversation item")
-                    _orig_print(f"[CRM_CONTEXT] customer_name=injected", flush=True)
-                elif customer_name_to_inject and hasattr(self, '_customer_name_injected'):
-                    print(f"ℹ️ [CRM_CONTEXT] Customer name already injected: '{self._customer_name_injected}'")
+                    
+                    # Store injection state
+                    self._name_anchor_injected = True
+                    self._name_anchor_customer_name = customer_name_to_inject
+                    self._name_anchor_policy = use_name_policy
+                    
+                    # Get item_id if available from response
+                    item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
+                    
+                    # Log injection
+                    logger.info(f"[NAME_ANCHOR] injected name='{customer_name_to_inject}' enabled={use_name_policy} item_id={item_id}")
+                    print(f"✅ [NAME_ANCHOR] Injected: name='{customer_name_to_inject}', policy={use_name_policy}, item_id={item_id}")
+                    _orig_print(f"[NAME_ANCHOR] injected name={customer_name_to_inject is not None} policy={use_name_policy}", flush=True)
                 else:
-                    print(f"ℹ️ [CRM_CONTEXT] No customer name available yet - will inject later if available")
+                    print(f"ℹ️ [NAME_ANCHOR] Already injected (idempotent guard)")
+                    
             except Exception as e:
-                # Do not fail call if CRM context injection fails
-                logger.error(f"[CRM_CONTEXT] Failed to inject CRM context: {e}")
+                # Do not fail call if NAME_ANCHOR injection fails
+                logger.error(f"[NAME_ANCHOR] Failed to inject NAME_ANCHOR: {e}")
+                import traceback
+                traceback.print_exc()
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -4049,6 +4072,97 @@ class MediaStreamHandler:
             print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
             return False
     
+    async def _ensure_name_anchor_present(self, client):
+        """
+        Ensure NAME_ANCHOR is present after PROMPT_UPGRADE or other context changes.
+        
+        This is an IDEMPOTENT operation that:
+        1. Checks if NAME_ANCHOR needs to be updated (name or policy changed)
+        2. Re-injects NAME_ANCHOR if needed
+        3. Logs the operation for debugging
+        
+        Called after PROMPT_UPGRADE to ensure name context persists.
+        """
+        try:
+            # Check if we have a name anchor already injected
+            if not hasattr(self, '_name_anchor_injected'):
+                # No anchor yet - skip (should have been injected at session start)
+                return
+            
+            # Extract current customer name from various sources
+            def _extract_current_name():
+                """Get the current customer name from all available sources."""
+                # Try pending_customer_name first (most recent)
+                if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    name = str(self.pending_customer_name).strip()
+                    if name and name.lower() not in ['unknown', 'test', '-', 'null', 'none']:
+                        return name
+                
+                # Try crm_context
+                if hasattr(self, 'crm_context') and self.crm_context:
+                    if hasattr(self.crm_context, 'customer_name') and self.crm_context.customer_name:
+                        name = str(self.crm_context.customer_name).strip()
+                        if name and name.lower() not in ['unknown', 'test', '-', 'null', 'none']:
+                            return name
+                
+                # Try outbound_lead_name
+                if hasattr(self, 'outbound_lead_name') and self.outbound_lead_name:
+                    name = str(self.outbound_lead_name).strip()
+                    if name and name.lower() not in ['unknown', 'test', '-', 'null', 'none']:
+                        return name
+                
+                return None
+            
+            current_name = _extract_current_name()
+            current_policy = getattr(self, 'use_name_policy', False)
+            
+            # Check if name or policy changed
+            stored_name = getattr(self, '_name_anchor_customer_name', None)
+            stored_policy = getattr(self, '_name_anchor_policy', False)
+            
+            needs_update = (current_name != stored_name) or (current_policy != stored_policy)
+            
+            if needs_update:
+                from server.services.realtime_prompt_builder import build_name_anchor_message
+                
+                # Build updated NAME_ANCHOR
+                name_anchor_text = build_name_anchor_message(current_name, current_policy)
+                
+                # Re-inject NAME_ANCHOR
+                await client.send_event(
+                    {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "message",
+                            "role": "system",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": name_anchor_text,
+                                }
+                            ],
+                        },
+                    }
+                )
+                
+                # Update stored state
+                self._name_anchor_customer_name = current_name
+                self._name_anchor_policy = current_policy
+                
+                # Log update
+                logger.info(f"[NAME_ANCHOR] ensured_after_upgrade=True name='{current_name}' policy={current_policy}")
+                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: name='{current_name}', policy={current_policy}")
+                _orig_print(f"[NAME_ANCHOR] ensured_after_upgrade=True", flush=True)
+            else:
+                # No change needed
+                print(f"ℹ️ [NAME_ANCHOR] No update needed (name='{stored_name}', policy={stored_policy})")
+                logger.debug(f"[NAME_ANCHOR] ensured_after_upgrade=False (no change)")
+                
+        except Exception as e:
+            logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR: {e}")
+            import traceback
+            traceback.print_exc()
+    
     async def _realtime_text_sender(self, client):
         """
         Send text input (e.g., DTMF) from queue to Realtime API
@@ -4313,9 +4427,17 @@ class MediaStreamHandler:
                                 _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
                                 logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms")
                                 
-                                # 🔥 CRM CONTEXT INJECTION: Check for pending customer name injection
-                                # This handles the case where CRM context was created in background thread
-                                # 🔥 IDEMPOTENT: Only inject if not already injected
+                                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                # 🔥 NAME ANCHOR: Ensure it's still present after PROMPT_UPGRADE
+                                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                try:
+                                    await self._ensure_name_anchor_present(client)
+                                except Exception as anchor_err:
+                                    logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR after upgrade: {anchor_err}")
+                                
+                                # 🔥 DEPRECATED: Old CRM context injection - replaced by NAME_ANCHOR
+                                # This code is kept for backward compatibility but should not run
+                                # if NAME_ANCHOR is working correctly
                                 if hasattr(self, '_pending_crm_context_inject') and self._pending_crm_context_inject:
                                     customer_name_value = self._pending_crm_context_inject
                                     
