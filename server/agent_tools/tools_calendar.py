@@ -512,6 +512,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         
         # 🔥 FIX: Link appointment to call_log using call_sid from context
         call_log_id = None
+        call_log = None  # Initialize at function scope
         if context and context.get('call_sid'):
             try:
                 call_log = CallLog.query.filter_by(call_sid=context['call_sid']).first()
