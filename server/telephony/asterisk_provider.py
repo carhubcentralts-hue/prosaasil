@@ -62,6 +62,7 @@ class AsteriskProvider(TelephonyProvider):
             )
             response.raise_for_status()
             logger.info("[ASTERISK] ARI connection validated successfully")
+        logger.info(f"[ARI] Connected successfully to Asterisk ARI (version: {response.json().get('build', {}).get('version', 'unknown')})")
         except Exception as e:
             logger.error(f"[ASTERISK] Failed to connect to ARI: {e}")
             raise ConnectionError(f"Cannot connect to Asterisk ARI at {self.ari_url}: {e}")
