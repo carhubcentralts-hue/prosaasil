@@ -2964,10 +2964,18 @@ class MediaStreamHandler:
                             lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
                             if lead:
                                 name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                # 🔥 DEBUG: Log what we found
+                                logger.info(f"[NAME_RESOLVE] Found lead: id={lead_id}, first_name='{lead.first_name}', last_name='{lead.last_name}', full_name='{name}'")
                                 if name and name != "ללא שם":
                                     logger.info(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}")
                                     _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
                                     return (name, "lead_id")
+                                else:
+                                    logger.info(f"[NAME_RESOLVE] Lead {lead_id} exists but has no valid name (first_name='{lead.first_name}', last_name='{lead.last_name}')")
+                                    _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has no name", flush=True)
+                            else:
+                                logger.info(f"[NAME_RESOLVE] Lead {lead_id} not found in database")
+                                _orig_print(f"[NAME_RESOLVE] Lead {lead_id} not found", flush=True)
                         except Exception as e:
                             logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
                     
@@ -3014,12 +3022,11 @@ class MediaStreamHandler:
                             
                             logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
                             
-                            # Query with all variants
+                            # Query with all variants (only phone_e164 exists in Lead model)
                             lead = Lead.query.filter_by(
                                 tenant_id=business_id
                             ).filter(
-                                (Lead.phone_e164.in_(phone_variants)) | 
-                                (Lead.phone.in_(phone_variants))
+                                Lead.phone_e164.in_(phone_variants)
                             ).order_by(Lead.updated_at.desc()).first()
                             
                             if lead:
