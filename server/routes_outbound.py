@@ -428,7 +428,8 @@ def start_outbound_calls():
                     business_id=tenant_id,
                     host=host,
                     lead_id=lead.id,
-                    business_name=business_name
+                    business_name=business_name,
+                    lead_name=lead_name
                 )
                 
                 call_sid = result["call_sid"]
@@ -1882,6 +1883,9 @@ def fill_queue_slots_for_job(job_id: int):
                     # 🔥 SSOT: Use centralized outbound call service
                     from server.services.twilio_outbound_service import create_outbound_call
                     
+                    # 🔥 NAME SSOT: Extract lead name
+                    lead_name = _get_lead_display_name(lead)
+                    
                     try:
                         result = create_outbound_call(
                             to_phone=normalized_phone,
@@ -1890,7 +1894,8 @@ def fill_queue_slots_for_job(job_id: int):
                             host=host,
                             lead_id=lead.id,
                             job_id=next_job.id,
-                            business_name=business_name
+                            business_name=business_name,
+                            lead_name=lead_name
                         )
                         
                         call_sid = result["call_sid"]
@@ -2111,6 +2116,9 @@ def process_bulk_call_run(run_id: int):
                             # 🔥 SSOT: Use centralized outbound call service
                             from server.services.twilio_outbound_service import create_outbound_call
                             
+                            # 🔥 NAME SSOT: Extract lead name
+                            lead_name = _get_lead_display_name(lead)
+                            
                             try:
                                 result = create_outbound_call(
                                     to_phone=normalized_phone,
@@ -2119,7 +2127,8 @@ def process_bulk_call_run(run_id: int):
                                     host=host,
                                     lead_id=lead.id,
                                     job_id=next_job.id,
-                                    business_name=business_name
+                                    business_name=business_name,
+                                    lead_name=lead_name
                                 )
                                 
                                 call_sid = result["call_sid"]

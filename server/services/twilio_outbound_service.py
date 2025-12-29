@@ -118,7 +118,8 @@ def create_outbound_call(
     lead_id: Optional[int] = None,
     template_id: Optional[int] = None,
     job_id: Optional[int] = None,
-    business_name: Optional[str] = None
+    business_name: Optional[str] = None,
+    lead_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a single outbound Twilio call with atomic deduplication.
@@ -172,6 +173,8 @@ def create_outbound_call(
         webhook_url += f"&job_id={job_id}"
     if business_name:
         webhook_url += f"&business_name={quote(business_name, safe='')}"
+    if lead_name:
+        webhook_url += f"&lead_name={quote(lead_name, safe='')}"
     
     # Get Twilio client
     client = get_twilio_client()
