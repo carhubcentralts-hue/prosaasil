@@ -109,7 +109,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     2. Whether to use the name (based on business prompt)
     
     IMPORTANT: Keep this SHORT and FACTUAL. Do NOT repeat instructions that are
-    already in the universal system prompt (lines 280-296 in realtime_prompt_builder.py).
+    already in the universal system prompt (lines 380-395 in realtime_prompt_builder.py).
     
     Args:
         customer_name: The customer's name (None if not available)
@@ -119,18 +119,34 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         Formatted NAME_ANCHOR message text (SHORT!)
     """
     if customer_name and use_name_policy:
-        # SHORT: Just the name + enable flag
-        # The system prompt already has all the instructions
-        return f"Customer name: {customer_name}\nNameUsage: ENABLED"
+        # EXPLICIT: Make it crystal clear that name MUST be used
+        return (
+            f"[CRM Context]\n"
+            f"Customer name: {customer_name}\n"
+            f"Name usage policy: ENABLED - Business prompt requests using this name.\n"
+            f"ACTION REQUIRED: Use '{customer_name}' naturally throughout the conversation."
+        )
     elif customer_name and not use_name_policy:
         # Name available but business doesn't want it used
-        return f"Customer name: {customer_name}\nNameUsage: DISABLED"
+        return (
+            f"[CRM Context]\n"
+            f"Customer name: {customer_name}\n"
+            f"Name usage policy: DISABLED - Do not use this name in conversation."
+        )
     elif not customer_name and use_name_policy:
         # Business wants name but it's not available
-        return f"Customer name: NOT_AVAILABLE\nNameUsage: REQUESTED_BUT_UNAVAILABLE"
+        return (
+            f"[CRM Context]\n"
+            f"Customer name: NOT AVAILABLE\n"
+            f"Name usage policy: REQUESTED BUT UNAVAILABLE - Continue without name."
+        )
     else:
         # No name and not requested - minimal context
-        return f"Customer name: NOT_AVAILABLE\nNameUsage: DISABLED"
+        return (
+            f"[CRM Context]\n"
+            f"Customer name: NOT AVAILABLE\n"
+            f"Name usage policy: NOT REQUESTED"
+        )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -381,10 +397,10 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- RULE: Use the CUSTOMER's name (not the business name) ONLY if the Business Prompt requests name usage.\n"
         "- IMPORTANT: 'שם' or 'name' in the Business Prompt ALWAYS refers to the CUSTOMER's name, NEVER the business name.\n"
         "- Name usage instructions may appear in various forms (watch for these phrases):\n"
-        "  Hebrew: 'השתמש בשם', 'פנה בשמו', 'קרא בשם', 'לפנות בשם', 'ליצור קרבה'\n"
+        "  Hebrew: 'השתמש בשם', 'תשתמש בשם', 'פנה בשמו', 'קרא לו בשם', 'לפנות בשם'\n"
         "  Conditional: 'אם קיים שם', 'במידה וקיים שם', 'אם יש שם'\n"
         "  English: 'use name', 'use their name', 'address by name', 'call by name'\n"
-        "- RULE: Any Business Prompt mentioning 'שם' with action verbs like השתמש/פנה/קרא means USE the CUSTOMER's NAME.\n"
+        "- RULE: Any Business Prompt mentioning 'שם' with action verbs like השתמש/תשתמש/פנה/קרא means USE the CUSTOMER's NAME.\n"
         "- If the Business Prompt contains ANY phrase about using/addressing/calling with the customer's name → USE it naturally throughout the conversation.\n"
         "- When instructed to use the name AND a customer name is available in conversation context:\n"
         "  Use the ACTUAL name value naturally throughout the entire conversation.\n"

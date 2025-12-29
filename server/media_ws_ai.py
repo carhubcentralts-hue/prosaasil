@@ -3107,10 +3107,10 @@ class MediaStreamHandler:
                 # Store policy in session (persistent across PROMPT_UPGRADE)
                 self.use_name_policy = use_name_policy
                 
-                # Log policy determination
-                logger.info(f"[NAME_POLICY] use_name_policy={use_name_policy} reason=matched_phrase='{matched_phrase}'")
+                 # Log policy determination
+                logger.info(f"[NAME_POLICY] use_name_policy={use_name_policy} reason=matched_phrase={matched_phrase or 'none'}")
                 print(f"🎯 [NAME_POLICY] use_name_policy={use_name_policy} (matched: '{matched_phrase or 'none'}')")
-                _orig_print(f"[NAME_POLICY] use_name_policy={use_name_policy}", flush=True)
+                _orig_print(f"[NAME_POLICY] use_name_policy={use_name_policy} reason={matched_phrase or 'none'}", flush=True)
                 
                 # Step 2: Extract customer name
                 customer_name_to_inject = _extract_customer_name()
@@ -3154,10 +3154,10 @@ class MediaStreamHandler:
                     # Get item_id if available from response
                     item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
                     
-                    # Log injection
-                    logger.info(f"[NAME_ANCHOR] injected name='{customer_name_to_inject}' enabled={use_name_policy} item_id={item_id}")
-                    print(f"✅ [NAME_ANCHOR] Injected: name='{customer_name_to_inject}', policy={use_name_policy}, item_id={item_id}")
-                    _orig_print(f"[NAME_ANCHOR] injected name={customer_name_to_inject is not None} policy={use_name_policy}", flush=True)
+                    # Log injection with detailed format matching requirements
+                    logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id}")
+                    print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject or 'None'}', item_id={item_id}")
+                    _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id}", flush=True)
                 else:
                     print(f"ℹ️ [NAME_ANCHOR] Already injected (idempotent guard)")
                     
@@ -4082,11 +4082,14 @@ class MediaStreamHandler:
         3. Logs the operation for debugging
         
         Called after PROMPT_UPGRADE to ensure name context persists.
+        
+        CRITICAL: This MUST actually re-inject if name/policy changed, not just check flags!
         """
         try:
             # Check if we have a name anchor already injected
             if not hasattr(self, '_name_anchor_injected'):
                 # No anchor yet - skip (should have been injected at session start)
+                logger.warning("[NAME_ANCHOR] ensure called but no initial injection - skipping")
                 return
             
             # Extract current customer name from various sources
@@ -4129,7 +4132,7 @@ class MediaStreamHandler:
                 name_anchor_text = build_name_anchor_message(current_name, current_policy)
                 
                 # Re-inject NAME_ANCHOR
-                await client.send_event(
+                name_anchor_event = await client.send_event(
                     {
                         "type": "conversation.item.create",
                         "item": {
@@ -4149,14 +4152,18 @@ class MediaStreamHandler:
                 self._name_anchor_customer_name = current_name
                 self._name_anchor_policy = current_policy
                 
-                # Log update
-                logger.info(f"[NAME_ANCHOR] ensured_after_upgrade=True name='{current_name}' policy={current_policy}")
-                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: name='{current_name}', policy={current_policy}")
-                _orig_print(f"[NAME_ANCHOR] ensured_after_upgrade=True", flush=True)
+                # Get item_id
+                item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
+                
+                # Log re-injection with exact format requested
+                logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id}")
+                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name or 'None'}', item_id={item_id}")
+                _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id}", flush=True)
             else:
-                # No change needed
-                print(f"ℹ️ [NAME_ANCHOR] No update needed (name='{stored_name}', policy={stored_policy})")
-                logger.debug(f"[NAME_ANCHOR] ensured_after_upgrade=False (no change)")
+                # No change needed - log with exact format requested
+                logger.debug(f"[NAME_ANCHOR] ensured ok (no change) name=\"{stored_name or 'None'}\" policy={stored_policy}")
+                print(f"ℹ️ [NAME_ANCHOR] Ensured - no change needed (name='{stored_name or 'None'}', policy={stored_policy})")
+                _orig_print(f"[NAME_ANCHOR] ensured ok (no change)", flush=True)
                 
         except Exception as e:
             logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR: {e}")
