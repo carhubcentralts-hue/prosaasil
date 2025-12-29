@@ -1242,7 +1242,8 @@ def call_status():
                     # Check if there's an associated job in a bulk run
                     from server.models_sql import OutboundCallJob
                     job = OutboundCallJob.query.filter_by(call_log_id=call_log.id).first()
-                    if job and job.status == "calling":
+                    # 🔥 FIX: Handle both "calling" and "dialing" status (edge case: call ends before status updated)
+                    if job and job.status in ["calling", "dialing"]:
                         # Update job status
                         from datetime import datetime
                         job.status = "completed" if call_status_val == "completed" else "failed"
