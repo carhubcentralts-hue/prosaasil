@@ -3176,8 +3176,8 @@ class MediaStreamHandler:
                 if not name_lower:
                     return False
                 
-                # Reject common placeholder values
-                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na']
+                # Reject common placeholder values (including Hebrew default)
+                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na', 'ללא שם']
                 if name_lower in invalid_values:
                     return False
                 

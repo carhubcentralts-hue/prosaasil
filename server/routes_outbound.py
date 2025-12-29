@@ -74,6 +74,41 @@ def normalize_israeli_phone(phone: str) -> str:
 outbound_bp = Blueprint("outbound", __name__)
 
 
+def _get_lead_display_name(lead) -> str | None:
+    """
+    Get display name for lead - SSOT for name extraction from Lead model.
+    
+    🔥 NAME SSOT: Single function for lead name extraction
+    Used when storing lead name in CallLog.customer_name or OutboundCallJob.lead_name
+    
+    Returns:
+        - Lead.full_name (if available)
+        - "first_name last_name" (if both available)
+        - first_name or last_name (if only one available)
+        - None (if no name available)
+    """
+    if not lead:
+        return None
+    
+    # Try full_name property first
+    full_name = getattr(lead, 'full_name', None)
+    if full_name and full_name != "ללא שם":  # Don't use default placeholder
+        return full_name
+    
+    # Fallback: Construct from first_name + last_name
+    first = (lead.first_name or "").strip()
+    last = (lead.last_name or "").strip()
+    
+    if first and last:
+        return f"{first} {last}"
+    elif first:
+        return first
+    elif last:
+        return last
+    
+    return None
+
+
 def get_business_phone(business_id: int) -> str | None:
     """Get the business phone number for outbound calls"""
     business = Business.query.get(business_id)
@@ -241,7 +276,7 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
             # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
             lead_obj = next((l for l in leads if l.id == lead_id), None)
             if lead_obj:
-                job.lead_name = lead_obj.full_name or f"{lead_obj.first_name or ''} {lead_obj.last_name or ''}".strip() or None
+                job.lead_name = _get_lead_display_name(lead_obj)
             db.session.add(job)
         
         db.session.commit()
@@ -378,7 +413,7 @@ def start_outbound_calls():
                 call_log.status = "initiated"
                 call_log.call_status = "initiated"
                 # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
-                call_log.customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or None
+                call_log.customer_name = _get_lead_display_name(lead)
                 db.session.add(call_log)
                 db.session.flush()
                 
@@ -1342,7 +1377,7 @@ def bulk_enqueue_outbound_calls():
             # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
             lead_obj = next((l for l in leads if l.id == lead_id), None)
             if lead_obj:
-                job.lead_name = lead_obj.full_name or f"{lead_obj.first_name or ''} {lead_obj.last_name or ''}".strip() or None
+                job.lead_name = _get_lead_display_name(lead_obj)
             db.session.add(job)
         
         db.session.commit()
@@ -2065,7 +2100,7 @@ def process_bulk_call_run(run_id: int):
                             call_log.status = "initiated"
                             call_log.call_status = "initiated"
                             # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
-                            call_log.customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or None
+                            call_log.customer_name = _get_lead_display_name(lead)
                             db.session.add(call_log)
                             db.session.flush()
                             
