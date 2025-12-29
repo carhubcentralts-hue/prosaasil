@@ -22,6 +22,9 @@ CRITICAL_COLUMNS = {
         'stream_ended_at',   # Required for cost tracking
         'recording_count',   # Required for cost tracking
     ],
+    'leads': [
+        'gender',  # Required for lead queries and call lookups
+    ],
 }
 
 def validate_production_environment() -> Dict[str, Any]:
