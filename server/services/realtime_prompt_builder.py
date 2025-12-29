@@ -288,71 +288,6 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
         # English unisex
         "alex", "jordan", "taylor", "casey", "riley", "morgan", "avery", "quinn"
     }
-
-
-def detect_gender_from_conversation(text: str) -> Optional[str]:
-    """
-    🧠 CONVERSATION-BASED GENDER DETECTION: Detect gender from what user says
-    
-    Detects when user explicitly states their gender during conversation:
-    - "אני אישה" / "אני נקבה" → female
-    - "אני גבר" / "אני זכר" → male
-    
-    This is the most reliable source - overrides name-based detection.
-    
-    Args:
-        text: The user's transcript text
-        
-    Returns:
-        "male", "female", or None if no gender statement detected
-        
-    Examples:
-        "אני אישה" → "female"
-        "אני גבר" → "male"
-        "כן, אני אישה" → "female"
-        "מה שלומך?" → None
-    """
-    if not text or not isinstance(text, str):
-        return None
-    
-    text_lower = text.lower().strip()
-    
-    # 🔴 FEMALE INDICATORS
-    female_phrases = [
-        "אני אישה",
-        "אני נקבה",
-        "אני בחורה",
-        "אני גברת",
-        "זאת אישה",
-        "זו אישה",
-    ]
-    
-    # 🔵 MALE INDICATORS
-    male_phrases = [
-        "אני גבר",
-        "אני זכר",
-        "אני בחור",
-        "אני מר",
-        "זה גבר",
-        "זה בחור",
-    ]
-    
-    # Check for female indicators
-    for phrase in female_phrases:
-        if phrase in text_lower:
-            logger.info(f"[GENDER_DETECT] Female detected from conversation: '{phrase}' in '{text[:50]}'")
-            return "female"
-    
-    # Check for male indicators
-    for phrase in male_phrases:
-        if phrase in text_lower:
-            logger.info(f"[GENDER_DETECT] Male detected from conversation: '{phrase}' in '{text[:50]}'")
-            return "male"
-    
-    return None
-
-
-def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
     
     # 🔵 HEBREW MALE NAMES (common Israeli male names)
     hebrew_male_names = {
@@ -437,6 +372,69 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
     # Cannot determine gender from name - this is OK for unisex or uncommon names
     logger.debug(f"[GENDER_DETECT] Gender unknown for name: '{name_clean}' (will wait for conversation or manual input)")
     return None
+
+
+def detect_gender_from_conversation(text: str) -> Optional[str]:
+    """
+    🧠 CONVERSATION-BASED GENDER DETECTION: Detect gender from what user says
+    
+    Detects when user explicitly states their gender during conversation:
+    - "אני אישה" / "אני נקבה" → female
+    - "אני גבר" / "אני זכר" → male
+    
+    This is the most reliable source - overrides name-based detection.
+    
+    Args:
+        text: The user's transcript text
+        
+    Returns:
+        "male", "female", or None if no gender statement detected
+        
+    Examples:
+        "אני אישה" → "female"
+        "אני גבר" → "male"
+        "כן, אני אישה" → "female"
+        "מה שלומך?" → None
+    """
+    if not text or not isinstance(text, str):
+        return None
+    
+    text_lower = text.lower().strip()
+    
+    # 🔴 FEMALE INDICATORS
+    female_phrases = [
+        "אני אישה",
+        "אני נקבה",
+        "אני בחורה",
+        "אני גברת",
+        "זאת אישה",
+        "זו אישה",
+    ]
+    
+    # 🔵 MALE INDICATORS
+    male_phrases = [
+        "אני גבר",
+        "אני זכר",
+        "אני בחור",
+        "אני מר",
+        "זה גבר",
+        "זה בחור",
+    ]
+    
+    # Check for female indicators
+    for phrase in female_phrases:
+        if phrase in text_lower:
+            logger.info(f"[GENDER_DETECT] Female detected from conversation: '{phrase}' in '{text[:50]}'")
+            return "female"
+    
+    # Check for male indicators
+    for phrase in male_phrases:
+        if phrase in text_lower:
+            logger.info(f"[GENDER_DETECT] Male detected from conversation: '{phrase}' in '{text[:50]}'")
+            return "male"
+    
+    return None
+
 
 
 def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None) -> str:
