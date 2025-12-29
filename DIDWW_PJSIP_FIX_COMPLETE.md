@@ -22,6 +22,44 @@ When Asterisk tried to:
 3. No match occurred → "No matching endpoint found"
 4. Call immediately disconnected
 
+## 3 Critical Points Verified ✅
+
+This fix ensures three critical requirements are met:
+
+### 1. identify Section Uses 'match=' Syntax ✅
+```ini
+[didww-identify]
+type=identify
+endpoint=didww
+match=46.19.210.14      # Correct syntax
+match=89.105.196.76
+match=80.93.48.76
+match=89.105.205.76
+```
+**NOT** `ip=` (wrong syntax)
+
+### 2. from-trunk Context Catches All Numbers ✅
+```ini
+[from-trunk]
+exten => _X.,1,NoOp(Inbound DIDWW)
+ same => n,Answer()
+ same => n,Stasis(prosaas_ai)
+ same => n,Hangup()
+```
+The `_X.` pattern matches any number with at least one digit.
+
+### 3. External IP Handling ✅
+For VPS with public IP (like 213.199.43.223): Optional  
+For servers behind NAT: Must be configured
+
+Current config has external IP commented out (correct for most VPS).
+If you experience "call connects but no audio":
+1. Uncomment in `pjsip.conf`:
+   ```ini
+   external_media_address=YOUR_PUBLIC_IP
+   external_signaling_address=YOUR_PUBLIC_IP
+   ```
+
 ## Solution
 
 ### Changes Made
