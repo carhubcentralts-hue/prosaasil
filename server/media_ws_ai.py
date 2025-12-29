@@ -1694,6 +1694,10 @@ _PHONE_PATTERN_INTL = re.compile(r'\+?972[0-9]{7,9}')
 _PHONE_PATTERN_LANDLINE = re.compile(r'0[2-9][0-9]{7}')
 _PHONE_PATTERN_DIGITS = re.compile(r'[0-9]{5,}')
 
+# Translation table for string optimization (created once at module load)
+_PHONE_TRANS_TABLE = str.maketrans('', '', ' -.,')
+
+
 def _has_voicemail_keyword(text: str) -> bool:
     """
     Check if text contains Hebrew voicemail keywords.
@@ -1736,9 +1740,8 @@ def _has_phone(text: str) -> bool:
     if not text:
         return False
     
-    # Optimize: Use str.translate for faster character removal
-    trans_table = str.maketrans('', '', ' -.,')
-    text_normalized = text.translate(trans_table)
+    # Optimize: Use pre-created translation table for faster character removal
+    text_normalized = text.translate(_PHONE_TRANS_TABLE)
     
     # Quick checks using pre-compiled regex patterns
     if _PHONE_PATTERN_MOBILE.search(text_normalized):
