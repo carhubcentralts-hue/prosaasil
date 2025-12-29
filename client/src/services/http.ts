@@ -166,9 +166,11 @@ class HttpClient {
   }
 
   async delete<T>(endpoint: string, data?: any): Promise<T> {
+    // 🔥 FIX: Don't stringify FormData - pass it directly (same as POST/PUT/PATCH)
+    const body = data instanceof FormData ? data : (data ? JSON.stringify(data) : undefined);
     return this.request<T>(endpoint, { 
       method: 'DELETE',
-      body: data ? JSON.stringify(data) : undefined,
+      body,
     });
   }
 }

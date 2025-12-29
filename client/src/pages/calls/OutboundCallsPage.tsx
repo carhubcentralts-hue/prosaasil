@@ -33,6 +33,8 @@ import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { ProjectsListView } from './components/ProjectsListView';
+import { ProjectDetailView } from './components/ProjectDetailView';
+import { CreateProjectModal } from './components/CreateProjectModal';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
 import type { LeadStatusConfig } from '../../shared/types/status';
 
@@ -418,6 +420,10 @@ export function OutboundCallsPage() {
   const projects: Project[] = projectsData?.items || [];
   const totalProjects = projectsData?.total || 0;
   const totalProjectsPages = Math.ceil(totalProjects / projectsPageSize);
+
+  // Project view state
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
 
   const systemLeads = Array.isArray(leadsData?.leads) ? leadsData.leads : [];
   const activeLeads = Array.isArray(activeLeadsData?.leads) ? activeLeadsData.leads : [];
@@ -2158,61 +2164,96 @@ export function OutboundCallsPage() {
       {/* Projects Tab */}
       {!showResults && activeTab === 'projects' && (
         <div className="space-y-4">
-          <ProjectsListView
-            projects={projects}
-            loading={projectsLoading}
-            onCreateProject={() => {
-              // TODO: Open create project modal
-              alert('יצירת פרויקט - בקרוב');
-            }}
-            onOpenProject={(projectId) => {
-              // TODO: Navigate to project detail view
-              alert(`פתיחת פרויקט ${projectId} - בקרוב`);
-            }}
-            onDeleteProject={async (projectId) => {
-              if (confirm('האם אתה בטוח שברצונך למחוק את הפרויקט?')) {
-                try {
-                  await http.delete(`/api/projects/${projectId}`);
-                  refetchProjects();
-                } catch (error) {
-                  console.error('Error deleting project:', error);
-                  alert('שגיאה במחיקת הפרויקט');
-                }
-              }
-            }}
-          />
+          {selectedProjectId ? (
+            <ProjectDetailView
+              projectId={selectedProjectId}
+              onBack={() => {
+                setSelectedProjectId(null);
+                refetchProjects();
+              }}
+              onStartCalls={(leadIds) => {
+                // ✅ Use existing bulk call mutation - DON'T COMPLICATE!
+                console.log('🔵 Starting calls from project:', { projectId: selectedProjectId, leadIds, count: leadIds.length });
+                startCallsMutation.mutate({ lead_ids: leadIds });
+              }}
+              statuses={statuses}
+              hasWebhook={hasWebhook}
+            />
+          ) : (
+            <>
+              <ProjectsListView
+                projects={projects}
+                loading={projectsLoading}
+                onCreateProject={() => setShowCreateProject(true)}
+                onOpenProject={(projectId) => setSelectedProjectId(projectId)}
+                onDeleteProject={async (projectId) => {
+                  if (confirm('האם אתה בטוח שברצונך למחוק את הפרויקט?')) {
+                    try {
+                      await http.delete(`/api/projects/${projectId}`);
+                      refetchProjects();
+                    } catch (error) {
+                      console.error('Error deleting project:', error);
+                      alert('שגיאה במחיקת הפרויקט');
+                    }
+                  }
+                }}
+              />
 
-          {/* Pagination */}
-          {totalProjectsPages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-gray-100">
-              <div className="text-sm text-gray-500 order-2 sm:order-1">
-                עמוד {projectsPage} מתוך {totalProjectsPages}
-              </div>
-              <div className="flex gap-2 w-full sm:w-auto order-1 sm:order-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setProjectsPage(p => Math.max(1, p - 1))}
-                  disabled={projectsPage === 1}
-                  data-testid="button-prev-projects-page"
-                  className="flex-1 sm:flex-none min-h-[44px]"
-                >
-                  הקודם
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setProjectsPage(p => Math.min(totalProjectsPages, p + 1))}
-                  disabled={projectsPage === totalProjectsPages}
-                  data-testid="button-next-projects-page"
-                  className="flex-1 sm:flex-none min-h-[44px]"
-                >
-                  הבא
-                </Button>
-              </div>
-            </div>
+              {/* Pagination */}
+              {totalProjectsPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-gray-100">
+                  <div className="text-sm text-gray-500 order-2 sm:order-1">
+                    עמוד {projectsPage} מתוך {totalProjectsPages}
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto order-1 sm:order-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setProjectsPage(p => Math.max(1, p - 1))}
+                      disabled={projectsPage === 1}
+                      data-testid="button-prev-projects-page"
+                      className="flex-1 sm:flex-none min-h-[44px]"
+                    >
+                      הקודם
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setProjectsPage(p => Math.min(totalProjectsPages, p + 1))}
+                      disabled={projectsPage === totalProjectsPages}
+                      data-testid="button-next-projects-page"
+                      className="flex-1 sm:flex-none min-h-[44px]"
+                    >
+                      הבא
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
+      )}
+
+      {/* Create Project Modal */}
+      {showCreateProject && (
+        <CreateProjectModal
+          onClose={() => setShowCreateProject(false)}
+          onCreate={async (name, description, leadIds) => {
+            try {
+              await http.post('/api/projects', {
+                name,
+                description,
+                lead_ids: leadIds
+              });
+              setShowCreateProject(false);
+              refetchProjects();
+            } catch (error) {
+              console.error('Error creating project:', error);
+              throw error;
+            }
+          }}
+          statuses={statuses}
+        />
       )}
 
       {/* Delete Confirmation Modal */}

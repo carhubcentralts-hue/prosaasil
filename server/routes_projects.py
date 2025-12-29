@@ -295,6 +295,7 @@ def add_leads_to_project(project_id):
             """), {'lead_id': lead_id, 'tenant_id': tenant_id}).scalar()
             
             if lead_check:
+                # Use fetchone() to check if row was actually inserted
                 result = db.session.execute(text("""
                     INSERT INTO project_leads (project_id, lead_id, added_at)
                     VALUES (:project_id, :lead_id, NOW())
@@ -302,7 +303,7 @@ def add_leads_to_project(project_id):
                     RETURNING id
                 """), {'project_id': project_id, 'lead_id': lead_id})
                 
-                if result.rowcount > 0:
+                if result.fetchone():  # Row was inserted
                     added_count += 1
         
         # Update project updated_at
