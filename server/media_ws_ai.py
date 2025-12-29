@@ -11049,13 +11049,13 @@ class MediaStreamHandler:
                         self.bot_speaks_first = True  # AI always speaks first in outbound
                         self.auto_end_after_lead_capture = False  # Don't auto-end
                         self.auto_end_on_goodbye = False  # Don't auto-end on goodbye
-                        self.silence_timeout_sec = 20  # 🔥 FIX: Reduced from 120s to 20s - disconnect faster on silence
-                        self.silence_max_warnings = 1  # 🔥 FIX: One warning before disconnect (was 0)
+                        self.silence_timeout_sec = 20  # 🔥 FIX: 20s timeout (watchdog handles disconnect)
+                        self.silence_max_warnings = 0  # 🔥 FIX: No warnings - watchdog only
                         self.smart_hangup_enabled = False  # Disable smart hangup
                         self.required_lead_fields = []  # No required fields
                         self._loop_guard_engaged = False  # Ensure loop guard is off
                         self._max_consecutive_ai_responses = 20  # Very high limit
-                        print(f"   ✓ auto_end=OFF, silence_timeout=20s, smart_hangup=OFF, loop_guard_max=20")
+                        print(f"   ✓ auto_end=OFF, silence_timeout=20s, max_warnings=0, smart_hangup=OFF")
                     else:
                         # Copy config values to instance variables for backward compatibility (INBOUND only)
                         # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - ignore DB value
@@ -11582,7 +11582,7 @@ class MediaStreamHandler:
                 # This section is only for non-SIMPLE_MODE calls
                 if SIMPLE_MODE:
                     # Skip warning logic in SIMPLE_MODE - watchdog handles everything
-                    await asyncio.sleep(5)  # Check every 5 seconds
+                    await asyncio.sleep(2)  # Same interval as main loop for consistency
                     continue
                 
                 if silence_duration >= self.silence_timeout_sec:
