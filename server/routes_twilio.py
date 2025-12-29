@@ -302,12 +302,16 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                 print(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
                 logger.warning(f"CustomerIntelligence failed for call {call_sid}: {e}")
             
-            # ✅ שלב 3: עדכן call_log עם customer_id (אם נוצר)
-            if call_log and customer:
-                call_log.customer_id = customer.id
-                call_log.status = "in_progress"
-                db.session.commit()
-                print(f"✅ Updated call_log with customer_id={customer.id}")
+            # ✅ שלב 3: עדכן call_log עם customer_id + lead_id (אם נוצר)
+            if call_log:
+                if customer:
+                    call_log.customer_id = customer.id
+                if lead:
+                    call_log.lead_id = lead.id
+                if customer or lead:
+                    call_log.status = "in_progress"
+                    db.session.commit()
+                    print(f"✅ Updated call_log with customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}")
             
             # ✅ שלב 4: fallback lead אם CustomerIntelligence נכשל
             # 🚨 CRITICAL: ALWAYS create lead if missing (user demand!)
@@ -335,6 +339,13 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                         db.session.commit()
                         print(f"✅ CREATED FALLBACK LEAD ID={lead.id} for phone={from_number}")
                         logger.info(f"✅ LEAD_CREATED_FALLBACK: lead_id={lead.id}, phone={from_number}, business_id={business_id}")
+                    
+                    # 🔥 FIX: Update call_log with lead_id for name resolution
+                    if call_log and lead:
+                        call_log.lead_id = lead.id
+                        db.session.commit()
+                        print(f"✅ Updated call_log with lead_id={lead.id}")
+                        
                 except Exception as e:
                     print(f"❌ Fallback lead creation FAILED: {e}")
                     logger.error(f"Fallback lead creation failed for {call_sid}: {e}")
@@ -545,9 +556,10 @@ def incoming_call():
         track="inbound_track"  # 🎧 Only send user audio to stream, prevents feedback
     )
     
-    # ✅ CRITICAL: Parameters with CallSid + To + business_id
+    # ✅ CRITICAL: Parameters with CallSid + To + From + business_id
     stream.parameter(name="CallSid", value=call_sid)
     stream.parameter(name="To", value=to_number or "unknown")
+    stream.parameter(name="From", value=from_number or "unknown")  # 🔥 FIX: Pass caller phone for customer context
     # 🔥 FIX #2: Pass business_id as parameter for FAST prompt loading
     if business_id:
         stream.parameter(name="business_id", value=str(business_id))
@@ -708,6 +720,7 @@ def outbound_call():
     
     stream.parameter(name="CallSid", value=call_sid)
     stream.parameter(name="To", value=to_number or "unknown")
+    stream.parameter(name="From", value=from_number or "unknown")  # 🔥 FIX: Pass phone for consistent customer context
     stream.parameter(name="direction", value="outbound")
     stream.parameter(name="lead_id", value=lead_id)
     stream.parameter(name="lead_name", value=lead_name)
