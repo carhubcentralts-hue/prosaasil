@@ -12,13 +12,9 @@ def initialize_telephony_provider():
     """
     Initialize telephony provider on application startup.
     
-    This function:
-    1. Loads the provider (defaults to Twilio)
-    2. Logs the active provider
-    3. Validates configuration
+    In Twilio-only mode, the system uses routes_twilio.py directly
+    for all Twilio integration. This function just logs the configuration.
     """
-    from server.telephony import get_telephony_provider, is_using_twilio
-    
     # Get provider type from environment
     provider_env = os.getenv("TELEPHONY_PROVIDER", "twilio").lower()
     
@@ -26,26 +22,19 @@ def initialize_telephony_provider():
     logger.info("TELEPHONY PROVIDER INITIALIZATION")
     logger.info("=" * 60)
     
-    # Initialize provider
-    try:
-        provider = get_telephony_provider()
-        
-        if is_using_twilio():
-            logger.info("✅ [TELEPHONY] TWILIO PROVIDER ACTIVE (PRODUCTION)")
-            logger.info(f"   Account SID: {os.getenv('TWILIO_ACCOUNT_SID', 'not set')[:20]}...")
-        else:
-            logger.warning("⚠️ [TELEPHONY] UNKNOWN PROVIDER ACTIVE")
-            logger.warning(f"   Environment: TELEPHONY_PROVIDER={provider_env}")
-        
-        logger.info("=" * 60)
-        
-        return provider
-        
-    except Exception as e:
-        logger.error("=" * 60)
-        logger.error(f"❌ [TELEPHONY] FAILED TO INITIALIZE PROVIDER: {e}")
-        logger.error("=" * 60)
-        raise
+    # Log provider info
+    if provider_env == "twilio":
+        logger.info("✅ [TELEPHONY] TWILIO PROVIDER ACTIVE (PRODUCTION)")
+        logger.info("   Integration: routes_twilio.py")
+        logger.info(f"   Account SID: {os.getenv('TWILIO_ACCOUNT_SID', 'not set')[:20]}...")
+    else:
+        logger.warning("⚠️ [TELEPHONY] UNKNOWN PROVIDER ACTIVE")
+        logger.warning(f"   Environment: TELEPHONY_PROVIDER={provider_env}")
+        logger.warning("   Defaulting to Twilio")
+    
+    logger.info("=" * 60)
+    
+    return None
 
 
 def validate_twilio_configuration():
@@ -54,12 +43,6 @@ def validate_twilio_configuration():
     
     Logs warnings if required environment variables are missing.
     """
-    from server.telephony import is_using_twilio
-    
-    if not is_using_twilio():
-        logger.debug("[TELEPHONY] Skipping Twilio validation (not using Twilio)")
-        return
-    
     required_vars = {
         "TWILIO_ACCOUNT_SID": os.getenv("TWILIO_ACCOUNT_SID"),
         "TWILIO_AUTH_TOKEN": os.getenv("TWILIO_AUTH_TOKEN"),
@@ -77,4 +60,5 @@ def validate_twilio_configuration():
         logger.warning("   Please set these environment variables")
     else:
         logger.info("[TELEPHONY] ✅ Twilio configuration validated")
+
 
