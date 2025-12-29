@@ -3051,25 +3051,53 @@ class MediaStreamHandler:
             # 🔥 CRM CONTEXT INJECTION: Inject customer name as real data (not placeholder)
             # This ensures the AI knows the customer name is REAL DATA available for use
             
+            def _is_valid_customer_name(name: str) -> bool:
+                """Validate that customer name is real data, not a placeholder.
+                
+                Rejects:
+                - None/empty strings
+                - Common placeholder values: 'unknown', 'test', '-'
+                """
+                if not name:
+                    return False
+                
+                name_lower = name.strip().lower()
+                if not name_lower:
+                    return False
+                
+                # Reject common placeholder values
+                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na']
+                if name_lower in invalid_values:
+                    return False
+                
+                return True
+            
             def _format_crm_context_message(customer_name: str) -> str:
                 """Format CRM context message for Realtime API injection.
                 Keep it simple and short to avoid being read aloud."""
                 return f"Customer name: {customer_name}"
             
             def _extract_customer_name() -> str:
-                """Extract customer name from available sources."""
+                """Extract customer name from available sources.
+                Returns None if no valid name is found."""
                 # Source 1: outbound_lead_name (for outbound calls)
                 if outbound_lead_name and str(outbound_lead_name).strip():
-                    return str(outbound_lead_name).strip()
+                    name = str(outbound_lead_name).strip()
+                    if _is_valid_customer_name(name):
+                        return name
                 
                 # Source 2: crm_context (if already available)
                 if hasattr(self, 'crm_context') and self.crm_context:
                     if hasattr(self.crm_context, 'customer_name') and self.crm_context.customer_name:
-                        return str(self.crm_context.customer_name).strip()
+                        name = str(self.crm_context.customer_name).strip()
+                        if _is_valid_customer_name(name):
+                            return name
                 
                 # Source 3: pending_customer_name (if stored)
                 if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
-                    return str(self.pending_customer_name).strip()
+                    name = str(self.pending_customer_name).strip()
+                    if _is_valid_customer_name(name):
+                        return name
                 
                 return None
             
@@ -3323,8 +3351,19 @@ class MediaStreamHandler:
                             if self.crm_context.customer_name and str(self.crm_context.customer_name).strip():
                                 customer_name_value = str(self.crm_context.customer_name).strip()
                                 
-                                # 🔥 IDEMPOTENT: Only mark for injection if not already injected
-                                if not hasattr(self, '_customer_name_injected') or self._customer_name_injected != customer_name_value:
+                                # 🔥 VALIDATION: Ensure name is valid (not placeholder like 'unknown', 'test', '-')
+                                def _is_valid_name(name: str) -> bool:
+                                    """Validate customer name is real data, not placeholder."""
+                                    if not name:
+                                        return False
+                                    name_lower = name.strip().lower()
+                                    invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na']
+                                    return name_lower not in invalid_values
+                                
+                                if not _is_valid_name(customer_name_value):
+                                    print(f"⚠️ [CRM_CONTEXT] Invalid/placeholder name detected, skipping injection: '{customer_name_value}'")
+                                # 🔥 IDEMPOTENT: Only mark for injection if not already injected and name is valid
+                                elif not hasattr(self, '_customer_name_injected') or self._customer_name_injected != customer_name_value:
                                     # Store name for later injection (this is in a background thread, can't await here)
                                     # The main async loop will check and inject when it gets a chance
                                     self._pending_crm_context_inject = customer_name_value
