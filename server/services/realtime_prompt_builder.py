@@ -100,6 +100,68 @@ def detect_name_usage_policy(business_prompt: str) -> Tuple[bool, Optional[str]]
     return False, None
 
 
+def extract_first_name(full_name: Optional[str]) -> Optional[str]:
+    """
+    Extract first name from full name (max 2 words).
+    Skip complicated names that are too long or complex.
+    
+    Rules:
+    - Return only first name (first word)
+    - If first name is very short (1-2 chars), include second word
+    - Skip names with more than 2 words (complex names)
+    - Skip names with special characters or numbers
+    - Maximum 2 words total
+    
+    Args:
+        full_name: The full customer name
+        
+    Returns:
+        First name only (max 2 words), or None if name is too complex
+        
+    Examples:
+        "יוסי" -> "יוסי"
+        "יוסי כהן" -> "יוסי"
+        "ד כהן" -> "ד כהן" (short first name, include last)
+        "יוסי בן דוד" -> None (too many words)
+        "John123" -> None (has numbers)
+    """
+    if not full_name or not isinstance(full_name, str):
+        return None
+    
+    # Clean and normalize
+    name = full_name.strip()
+    if not name:
+        return None
+    
+    # Reject names with special characters or numbers
+    if any(char.isdigit() for char in name):
+        return None
+    
+    # Split by whitespace
+    words = name.split()
+    
+    # Too many words = complex name, skip it
+    if len(words) > 2:
+        logger.info(f"[NAME_EXTRACT] Skipping complex name (>2 words): '{full_name}'")
+        return None
+    
+    # Single word - return it
+    if len(words) == 1:
+        return words[0]
+    
+    # Two words - check if first word is very short
+    first_word = words[0]
+    if len(first_word) <= 2:
+        # Short first name (like "ד", "א"), include second word
+        result = f"{first_word} {words[1]}"
+        logger.info(f"[NAME_EXTRACT] Short first name, including second word: '{result}'")
+        return result
+    
+    # Normal case - return first word only
+    logger.info(f"[NAME_EXTRACT] Extracted first name: '{first_word}' from '{full_name}'")
+    return first_word
+
+
 def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool) -> str:
     """
     Build NAME_ANCHOR message for conversation injection.

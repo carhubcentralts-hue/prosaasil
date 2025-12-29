@@ -1697,6 +1697,10 @@ def _has_voicemail_keyword(text: str) -> bool:
         "תאה קולי",  # Common STT error
         "משיבון",
         "תא קול",
+        "נא להשאיר הודעה",  # "please leave a message"
+        "השאירו הודעה",      # "leave a message"
+        "השאר הודעה",        # "leave a message" (singular)
+        "להשאיר הודעות",     # "to leave messages"
     ]
     
     return any(keyword in text_lower for keyword in voicemail_keywords)
@@ -2941,107 +2945,141 @@ class MediaStreamHandler:
                 
                 try:
                     from server.models_sql import CallLog, OutboundCallJob, Lead
+                    from server.services.realtime_prompt_builder import extract_first_name
                     
                     # 🔥 ENHANCED DEBUG: Log all input parameters
                     logger.info(f"[NAME_RESOLVE] Starting resolution: call_sid={call_sid[:8] if call_sid else 'N/A'}, lead_id={lead_id}, phone={phone_number}, business_id={business_id}")
                     _orig_print(f"[NAME_RESOLVE DEBUG] call_sid={call_sid[:8] if call_sid else 'N/A'} lead_id={lead_id} phone={phone_number}", flush=True)
                     
-                    call_log = None
-                    
-                    # Priority 1: CallLog.customer_name
-                    if call_sid:
-                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-                        if call_log and call_log.customer_name:
-                            name = str(call_log.customer_name).strip()
-                            if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=call_log name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
-                                return (name, "call_log")
-                    
-                    # Priority 2: Lead by lead_id (from customParameters)
-                    if lead_id:
-                        try:
-                            lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
-                            if lead:
-                                name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-                                # 🔥 DEBUG: Log what we found
-                                logger.info(f"[NAME_RESOLVE] Found lead: id={lead_id}, first_name='{lead.first_name}', last_name='{lead.last_name}', full_name='{name}'")
-                                if name and name != "ללא שם":
-                                    logger.info(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}")
-                                    _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
-                                    return (name, "lead_id")
+                    # 🔥 CRITICAL FIX: Must have app_context for DB queries in async context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        call_log = None
+                        
+                        # Priority 1: CallLog.customer_name
+                        if call_sid:
+                            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                            if call_log and call_log.customer_name:
+                                full_name = str(call_log.customer_name).strip()
+                                if full_name and full_name != "ללא שם":
+                                    # Extract first name only (max 2 words, skip complex names)
+                                    name = extract_first_name(full_name)
+                                    if name:
+                                        logger.info(f"[NAME_RESOLVE] source=call_log full_name=\"{full_name}\" first_name=\"{name}\" call_sid={call_sid[:8]}")
+                                        _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
+                                        return (name, "call_log")
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] source=call_log skipped complex name: \"{full_name}\"")
+                                        _orig_print(f"[NAME_RESOLVE] Skipped complex name from call_log", flush=True)
+                        
+                        # Priority 2: Lead by lead_id (from customParameters)
+                        if lead_id:
+                            try:
+                                lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
+                                if lead:
+                                    full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                    # 🔥 DEBUG: Log what we found
+                                    logger.info(f"[NAME_RESOLVE] Found lead: id={lead_id}, first_name='{lead.first_name}', last_name='{lead.last_name}', full_name='{full_name}'")
+                                    if full_name and full_name != "ללא שם":
+                                        # Extract first name only (max 2 words, skip complex names)
+                                        name = extract_first_name(full_name)
+                                        if name:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_id full_name=\"{full_name}\" first_name=\"{name}\" lead_id={lead_id}")
+                                            _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
+                                            return (name, "lead_id")
+                                        else:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_id skipped complex name: \"{full_name}\"")
+                                            _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has complex name, skipped", flush=True)
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] Lead {lead_id} exists but has no valid name (first_name='{lead.first_name}', last_name='{lead.last_name}')")
+                                        _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has no name", flush=True)
                                 else:
-                                    logger.info(f"[NAME_RESOLVE] Lead {lead_id} exists but has no valid name (first_name='{lead.first_name}', last_name='{lead.last_name}')")
-                                    _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has no name", flush=True)
-                            else:
-                                logger.info(f"[NAME_RESOLVE] Lead {lead_id} not found in database")
-                                _orig_print(f"[NAME_RESOLVE] Lead {lead_id} not found", flush=True)
-                        except Exception as e:
-                            logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
-                    
-                    # Priority 3: OutboundCallJob.lead_name (for bulk calls)
-                    if call_sid:
-                        job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
-                        if job and job.lead_name:
-                            name = str(job.lead_name).strip()
-                            if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
-                                return (name, "outbound_job")
-                    
-                    # Priority 4: Lead.full_name (via CallLog.lead_id)
-                    if call_log and call_log.lead_id:
-                        lead = Lead.query.get(call_log.lead_id)
-                        if lead:
-                            name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-                            if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\"", flush=True)
-                                return (name, "lead_calllog")
-                    
-                    # Priority 5: Fallback - Lead lookup by phone number
-                    if phone_number:
-                        try:
-                            # 🔥 CRITICAL: Normalize phone for comparison
-                            # Handle both E.164 (+972...) and local (05...) formats
-                            # If Twilio gives +9725... but DB has 05..., we must search both
-                            
-                            phone_variants = [phone_number]  # Start with original
-                            
-                            # Generate normalized variants
-                            cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
-                            
-                            # If E.164 format (+972...), also try local format (0...)
-                            if phone_number.startswith('+972'):
-                                local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
-                                phone_variants.append(local_format)
-                            # If local format (0...), also try E.164 (+972...)
-                            elif phone_number.startswith('0'):
-                                e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
-                                phone_variants.append(e164_format)
-                            
-                            logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
-                            
-                            # Query with all variants (only phone_e164 exists in Lead model)
-                            lead = Lead.query.filter_by(
-                                tenant_id=business_id
-                            ).filter(
-                                Lead.phone_e164.in_(phone_variants)
-                            ).order_by(Lead.updated_at.desc()).first()
-                            
+                                    logger.info(f"[NAME_RESOLVE] Lead {lead_id} not found in database")
+                                    _orig_print(f"[NAME_RESOLVE] Lead {lead_id} not found", flush=True)
+                            except Exception as e:
+                                logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
+                        
+                        # Priority 3: OutboundCallJob.lead_name (for bulk calls)
+                        if call_sid:
+                            job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
+                            if job and job.lead_name:
+                                full_name = str(job.lead_name).strip()
+                                if full_name and full_name != "ללא שם":
+                                    # Extract first name only (max 2 words, skip complex names)
+                                    name = extract_first_name(full_name)
+                                    if name:
+                                        logger.info(f"[NAME_RESOLVE] source=outbound_job full_name=\"{full_name}\" first_name=\"{name}\" call_sid={call_sid[:8]}")
+                                        _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
+                                        return (name, "outbound_job")
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] source=outbound_job skipped complex name: \"{full_name}\"")
+                                        _orig_print(f"[NAME_RESOLVE] Skipped complex name from outbound_job", flush=True)
+                        
+                        # Priority 4: Lead.full_name (via CallLog.lead_id)
+                        if call_log and call_log.lead_id:
+                            lead = Lead.query.get(call_log.lead_id)
                             if lead:
-                                name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-                                if name and name != "ללא שם":
-                                    logger.info(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number} matched={phone_variants}")
-                                    _orig_print(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}", flush=True)
-                                    return (name, "lead_phone")
-                        except Exception as e:
-                            logger.warning(f"[NAME_RESOLVE] Failed to query lead by phone: {e}")
-                    
-                    # Final fallback: No name found
-                    logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8] if call_sid else 'N/A'}")
-                    _orig_print(f"[NAME_RESOLVE] source=none name=None", flush=True)
-                    return (None, None)
+                                full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                if full_name and full_name != "ללא שם":
+                                    # Extract first name only (max 2 words, skip complex names)
+                                    name = extract_first_name(full_name)
+                                    if name:
+                                        logger.info(f"[NAME_RESOLVE] source=lead_calllog full_name=\"{full_name}\" first_name=\"{name}\" call_sid={call_sid[:8]}")
+                                        _orig_print(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\"", flush=True)
+                                        return (name, "lead_calllog")
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] source=lead_calllog skipped complex name: \"{full_name}\"")
+                                        _orig_print(f"[NAME_RESOLVE] Skipped complex name from lead_calllog", flush=True)
+                        
+                        # Priority 5: Fallback - Lead lookup by phone number
+                        if phone_number:
+                            try:
+                                # 🔥 CRITICAL: Normalize phone for comparison
+                                # Handle both E.164 (+972...) and local (05...) formats
+                                # If Twilio gives +9725... but DB has 05..., we must search both
+                                
+                                phone_variants = [phone_number]  # Start with original
+                                
+                                # Generate normalized variants
+                                cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
+                                
+                                # If E.164 format (+972...), also try local format (0...)
+                                if phone_number.startswith('+972'):
+                                    local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
+                                    phone_variants.append(local_format)
+                                # If local format (0...), also try E.164 (+972...)
+                                elif phone_number.startswith('0'):
+                                    e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
+                                    phone_variants.append(e164_format)
+                                
+                                logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
+                                
+                                # Query with all variants (only phone_e164 exists in Lead model)
+                                lead = Lead.query.filter_by(
+                                    tenant_id=business_id
+                                ).filter(
+                                    Lead.phone_e164.in_(phone_variants)
+                                ).order_by(Lead.updated_at.desc()).first()
+                                
+                                if lead:
+                                    full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                    if full_name and full_name != "ללא שם":
+                                        # Extract first name only (max 2 words, skip complex names)
+                                        name = extract_first_name(full_name)
+                                        if name:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_phone full_name=\"{full_name}\" first_name=\"{name}\" phone={phone_number} matched={phone_variants}")
+                                            _orig_print(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}", flush=True)
+                                            return (name, "lead_phone")
+                                        else:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_phone skipped complex name: \"{full_name}\"")
+                                            _orig_print(f"[NAME_RESOLVE] Skipped complex name from lead_phone", flush=True)
+                            except Exception as e:
+                                logger.warning(f"[NAME_RESOLVE] Failed to query lead by phone: {e}")
+                        
+                        # Final fallback: No name found
+                        logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8] if call_sid else 'N/A'}")
+                        _orig_print(f"[NAME_RESOLVE] source=none name=None", flush=True)
+                        return (None, None)
                     
                 except Exception as e:
                     logger.error(f"[NAME_RESOLVE] Error resolving name: {e}")
