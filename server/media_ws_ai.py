@@ -11620,16 +11620,21 @@ class MediaStreamHandler:
                             print(f"🔇 [SILENCE] State changed before hangup - exiting")
                             return
                         
-                        # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
-                        # Just stay idle and let the call continue or let Twilio disconnect
+                        # 🔥 CRITICAL FIX: SIMPLE_MODE with disconnect exception
+                        # SIMPLE_MODE stays active (no flow changes), but we add disconnect exception
+                        # User requirement: "אם יש 20 שניות בלי קול לקוח או ai - לנתק מיד!!!"
+                        # This prevents wasted minutes on prolonged silence
                         if SIMPLE_MODE:
-                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
-                            print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # Optionally send a final message
-                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
-                            # Reset timer to avoid immediate re-triggering, but don't close
-                            self._last_speech_time = time.time()
-                            continue  # Stay in monitor loop
+                            # In SIMPLE_MODE: Skip polite closing message, just disconnect immediately
+                            # This is a disconnect-only exception that doesn't affect call flow
+                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded, IMMEDIATE DISCONNECT (exception)")
+                            print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
+                            await self.request_hangup(
+                                reason="silence_max_warnings_simple_mode",
+                                source="silence_monitor",
+                                transcript_text="Max silence warnings exceeded - SIMPLE_MODE exception disconnect"
+                            )
+                            return
                         
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
@@ -11648,6 +11653,7 @@ class MediaStreamHandler:
                         
                         # 🔇 AUTO-DISCONNECT: Disconnecting after max silence warnings
                         # This prevents wasted minutes on prolonged silence
+                        # User requirement: Must disconnect if there are 20 seconds without voice from customer or AI
                         print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
                         await self.request_hangup(
                             reason="silence_max_warnings",
