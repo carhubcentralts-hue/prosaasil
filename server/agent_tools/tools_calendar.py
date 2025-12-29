@@ -609,56 +609,74 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         lead_id = None
         whatsapp_status = "skipped"
         
-        # STEP 1: leads_upsert (create/update lead automatically)
-        try:
-            if phone:
-                logger.info(f"📋 Creating/updating lead for {input.customer_name} ({phone})")
-                print(f"   📋 Creating/updating lead with phone: {phone}")
-                from server.agent_tools.tools_leads import UpsertLeadInput, _leads_upsert_impl
-                
-                # Split name into first/last
-                name_parts = input.customer_name.strip().split(maxsplit=1)
-                first_name = name_parts[0] if len(name_parts) > 0 else input.customer_name
-                last_name = name_parts[1] if len(name_parts) > 1 else ""
-                
-                lead_input = UpsertLeadInput(
-                    business_id=input.business_id,
-                    phone=phone,
-                    first_name=first_name,
-                    last_name=last_name,
-                    source=input.source or "ai_agent",
-                    status="מתואם",  # Default status for booked appointments
-                    notes=f"{input.treatment_type} - {start.strftime('%d/%m/%Y %H:%M')}"
-                )
-                
-                # BUILD 147: Call the implementation directly, not the FunctionTool wrapper
-                lead_result = _leads_upsert_impl(lead_input)
-                lead_id = lead_result.lead_id
-                logger.info(f"✅ Lead {lead_result.action}: #{lead_id}")
-                print(f"   ✅ Lead {lead_result.action}: #{lead_id}")
-                
-                # 🔥 NEW: Link the appointment to the lead
-                try:
-                    appointment.lead_id = lead_id
-                    db.session.commit()
-                    logger.info(f"✅ Appointment #{appointment.id} linked to lead #{lead_id}")
-                    print(f"   ✅ Appointment #{appointment.id} linked to lead #{lead_id}")
-                except Exception as link_error:
-                    logger.exception(f"❌ Failed to link appointment to lead: {link_error}")
-                    print(f"   ❌ Failed to link appointment to lead: {link_error}")
-                    try:
-                        db.session.rollback()
-                    except Exception:
-                        pass  # Session may already be rolled back
+        # 🔥 FIX: First check if call_log already has a lead_id (set by background thread)
+        # This ensures appointments use the same lead that was created at call start
+        if call_log and call_log.lead_id:
+            lead_id = call_log.lead_id
+            logger.info(f"✅ Using existing lead #{lead_id} from call_log")
+            print(f"   ✅ Using existing lead #{lead_id} from call_log")
+            
+            # Link appointment to existing lead immediately
+            try:
+                appointment.lead_id = lead_id
+                db.session.commit()
+                logger.info(f"✅ Appointment #{appointment.id} linked to existing lead #{lead_id}")
+                print(f"   ✅ Appointment #{appointment.id} linked to existing lead #{lead_id}")
+            except Exception as link_error:
+                logger.exception(f"❌ Failed to link appointment to existing lead: {link_error}")
+                print(f"   ❌ Failed to link appointment to existing lead: {link_error}")
+        
+        # STEP 1: leads_upsert (create/update lead if not already linked)
+        if not lead_id:
+            try:
+                if phone:
+                    logger.info(f"📋 Creating/updating lead for {input.customer_name} ({phone})")
+                    print(f"   📋 Creating/updating lead with phone: {phone}")
+                    from server.agent_tools.tools_leads import UpsertLeadInput, _leads_upsert_impl
                     
-            else:
-                logger.warning("⚠️ No phone - skipping lead creation")
-                print(f"   ⚠️ No phone - skipping lead creation")
-                print(f"   ⚠️ Context was: {context}")
-        except Exception as lead_error:
-            # Don't fail appointment if lead creation fails
-            logger.exception(f"❌ Lead upsert failed: {lead_error}")
-            print(f"   ❌ Lead upsert failed: {lead_error}")
+                    # Split name into first/last
+                    name_parts = input.customer_name.strip().split(maxsplit=1)
+                    first_name = name_parts[0] if len(name_parts) > 0 else input.customer_name
+                    last_name = name_parts[1] if len(name_parts) > 1 else ""
+                    
+                    lead_input = UpsertLeadInput(
+                        business_id=input.business_id,
+                        phone=phone,
+                        first_name=first_name,
+                        last_name=last_name,
+                        source=input.source or "ai_agent",
+                        status="מתואם",  # Default status for booked appointments
+                        notes=f"{input.treatment_type} - {start.strftime('%d/%m/%Y %H:%M')}"
+                    )
+                    
+                    # BUILD 147: Call the implementation directly, not the FunctionTool wrapper
+                    lead_result = _leads_upsert_impl(lead_input)
+                    lead_id = lead_result.lead_id
+                    logger.info(f"✅ Lead {lead_result.action}: #{lead_id}")
+                    print(f"   ✅ Lead {lead_result.action}: #{lead_id}")
+                    
+                    # 🔥 NEW: Link the appointment to the lead
+                    try:
+                        appointment.lead_id = lead_id
+                        db.session.commit()
+                        logger.info(f"✅ Appointment #{appointment.id} linked to lead #{lead_id}")
+                        print(f"   ✅ Appointment #{appointment.id} linked to lead #{lead_id}")
+                    except Exception as link_error:
+                        logger.exception(f"❌ Failed to link appointment to lead: {link_error}")
+                        print(f"   ❌ Failed to link appointment to lead: {link_error}")
+                        try:
+                            db.session.rollback()
+                        except Exception:
+                            pass  # Session may already be rolled back
+                        
+                else:
+                    logger.warning("⚠️ No phone - skipping lead creation")
+                    print(f"   ⚠️ No phone - skipping lead creation")
+                    print(f"   ⚠️ Context was: {context}")
+            except Exception as lead_error:
+                # Don't fail appointment if lead creation fails
+                logger.exception(f"❌ Lead upsert failed: {lead_error}")
+                print(f"   ❌ Lead upsert failed: {lead_error}")
         
         # 🔥 NEW: Generate dynamic conversation summary from transcript
         if input.call_transcript:
