@@ -3882,6 +3882,27 @@ class MediaStreamHandler:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
                             
+                            # 🔥 FIX: If customer name not set from pending, fetch from Lead record
+                            if not self.crm_context.customer_name and lead_id:
+                                try:
+                                    from server.models_sql import Lead
+                                    lead = Lead.query.get(lead_id)
+                                    if lead:
+                                        # Get full name from Lead record
+                                        full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                        if full_name and full_name not in ['', 'Customer', 'ללא שם']:
+                                            # Extract first name only (for natural usage)
+                                            from server.services.realtime_prompt_builder import extract_first_name
+                                            customer_name = extract_first_name(full_name) or full_name
+                                            self.crm_context.customer_name = customer_name
+                                            print(f"✅ [CRM_CONTEXT] Fetched customer name from Lead: '{customer_name}' (lead_id={lead_id})")
+                                        else:
+                                            print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} has no valid name (full_name='{full_name}')")
+                                    else:
+                                        print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} not found in database")
+                                except Exception as e:
+                                    print(f"⚠️ [CRM_CONTEXT] Failed to fetch customer name from Lead: {e}")
+                            
                             # 🔥 CRM CONTEXT INJECTION: Mark customer name for injection if not already injected
                             # This ensures the AI receives the name as REAL DATA during the conversation
                             if self.crm_context.customer_name and str(self.crm_context.customer_name).strip():
