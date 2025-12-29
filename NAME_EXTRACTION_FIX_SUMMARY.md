@@ -50,7 +50,7 @@ if name_lower in INVALID_NAME_PLACEHOLDERS:
 2. **✨ NEW: Lead by lead_id** - חיפוש ישיר לפי lead_id מ-customParameters
 3. **OutboundCallJob.lead_name** (קיים) - עבור שיחות בתור
 4. **Lead via CallLog.lead_id** (קיים) - דרך הקשר של CallLog
-5. **✨ NEW: Lead by phone** - גיבוי - חיפוש לפי מספר טלפון
+5. **✨ NEW: Lead by phone** - גיבוי - חיפוש לפי מספר טלפון **עם נורמליזציה**
 
 ```python
 def _resolve_customer_name(
@@ -61,7 +61,47 @@ def _resolve_customer_name(
 ) -> tuple:
 ```
 
-#### 3. העברת lead_id דרך WebSocket (Pass lead_id Through)
+#### 3. 🔥 לוג קריטי לווידוא פרמטרים (Critical Debug Log)
+
+**NEW**: לוג `[OUTBOUND_PARAMS]` שמוכיח שהפרמטרים מגיעים:
+
+```python
+# 🔥 CRITICAL DEBUG: Log all outbound parameters to verify they arrive
+print(f"📞 [OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id}, phone={self.phone_number}, call_sid={self.call_sid[:8]}...")
+logger.info(f"[OUTBOUND_PARAMS] lead_id={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid}")
+```
+
+**מטרה**: לאבחן מיידית אם הבעיה היא "פרמטרים לא מגיעים" או "DB lookup נכשל".
+
+#### 4. 🔥 נורמליזציה משופרת E.164 ↔ מקומי (Enhanced Phone Normalization)
+
+**NEW**: Priority 5 עכשיו מנרמל בין פורמטים:
+
+```python
+phone_variants = [phone_number]  # Start with original
+
+# If E.164 format (+972...), also try local format (0...)
+if phone_number.startswith('+972'):
+    local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
+    phone_variants.append(local_format)
+    
+# If local format (0...), also try E.164 (+972...)
+elif phone_number.startswith('0'):
+    e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
+    phone_variants.append(e164_format)
+
+logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
+
+# Query with all variants
+lead = Lead.query.filter_by(tenant_id=business_id).filter(
+    (Lead.phone_e164.in_(phone_variants)) | 
+    (Lead.phone.in_(phone_variants))
+).order_by(Lead.updated_at.desc()).first()
+```
+
+**תיקון קריטי**: אם Twilio שולח `+9725...` אבל ב-DB שמור `05...` (או להיפך), החיפוש עכשיו מצליח.
+
+#### 5. העברת lead_id דרך WebSocket (Pass lead_id Through)
 
 **זרימה מלאה (Full Flow)**:
 
@@ -93,6 +133,9 @@ def _resolve_customer_name(
    ```python
    self.outbound_lead_id = custom_params.get("lead_id")  # ✅ נשמר כאן
    
+   # 🔥 NEW: לוג מיידי
+   print(f"📞 [OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id}, phone={self.phone_number}...")
+   
    # ואז משתמש בו:
    lead_id = getattr(self, 'outbound_lead_id', None)
    resolved_name, name_source = _resolve_customer_name(
@@ -103,29 +146,15 @@ def _resolve_customer_name(
    )
    ```
 
-#### 4. לוגים מפורטים (Comprehensive Logging)
-
-```python
-# בתחילת הפתרון:
-logger.info(f"[NAME_RESOLVE] Starting resolution: call_sid={call_sid[:8]}, lead_id={lead_id}, phone={phone_number}")
-
-# כשמוצא שם:
-logger.info(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}")
-
-# כשלא מוצא:
-print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED:")
-print(f"   lead_id from customParameters: {lead_id}")
-print(f"   phone_number for fallback: {phone_number}")
-print(f"   Result: No name found in any source")
-```
-
 ### 📊 אימות (Verification)
 
 **רצף נכון אחרי התיקון (Correct Sequence After Fix)**:
 
 ```
+📞 [OUTBOUND_PARAMS] lead_id_raw=123, phone=+972501234567, call_sid=CA1234...
 [NAME_POLICY] ... result=True
 [NAME_RESOLVE DEBUG] call_sid=CA1234... lead_id=123 phone=+972501234567
+[NAME_RESOLVE] Phone variants for lookup: ['+972501234567', '0501234567']
 [NAME_RESOLVE] source=lead_id name="דוד כהן" lead_id=123
 [NAME_ANCHOR DEBUG] Resolved from DB:
    call_sid: CA1234...
@@ -133,8 +162,34 @@ print(f"   Result: No name found in any source")
    resolved_name: דוד כהן
    name_source: lead_id
 [NAME_ANCHOR] Injected enabled=True name="דוד כהן"
-[PROMPT_SUMMARY] system=1 business=0 name_anchor=1
+[PROMPT_SUMMARY] system=1 business=0/1 name_anchor=1
 ```
+
+### 🎯 נקודות ווידוא (Verification Points)
+
+לפי בקשת הסקירה:
+
+1. ✅ **לוגים חיוניים**: [NAME_POLICY] → [NAME_RESOLVE] → [NAME_ANCHOR] → [PROMPT_SUMMARY]
+2. ✅ **[OUTBOUND_PARAMS] מוכיח שפרמטרים מגיעים**: lead_id, phone, call_sid מודפס מיד
+3. ✅ **נורמליזציה E.164 ↔ מקומי**: phone_variants נוצר ומוצג בלוג
+4. ✅ **Anti-duplicate שמור**: רק NAME_ANCHOR יכול להזריק מחדש, רק אם שם/policy השתנו
+
+### 🔍 אבחון בעיות (Troubleshooting)
+
+אם עדיין רואה `Skipping injection - no valid customer name found`:
+
+**צעד 1**: בדוק את `[OUTBOUND_PARAMS]`
+- אם `lead_id_raw=None` → הפרמטר לא הגיע מ-Twilio
+- אם `lead_id_raw=123` אבל עדיין אין שם → בעיית DB lookup
+
+**צעד 2**: בדוק את `[NAME_RESOLVE]`
+- `source=lead_id` → הצלחה! השם נמצא לפי lead_id
+- `source=lead_phone` → גיבוי עבד! השם נמצא לפי טלפון
+- `source=none` → לא נמצא שם בשום מקור
+
+**צעד 3**: בדוק פורמט טלפון
+- הלוג יראה: `Phone variants for lookup: ['+972501234567', '0501234567']`
+- אם אף אחד לא פוגע ב-DB → בדוק מה בפועל שמור ב-`Lead.phone_e164` / `Lead.phone`
 
 ### 🧪 בדיקות (Tests)
 
@@ -143,8 +198,8 @@ print(f"   Result: No name found in any source")
 **5 בדיקות שעברו בהצלחה**:
 1. ✅ None Injection Prevention - אין הזרקת None
 2. ✅ Lead ID Resolution - חיפוש לפי lead_id
-3. ✅ Phone Number Fallback - גיבוי לפי טלפון
-4. ✅ Debug Logging - לוגים מפורטים
+3. ✅ Phone Number Fallback - גיבוי לפי טלפון **עם נורמליזציה**
+4. ✅ Debug Logging - לוגים מפורטים כולל [OUTBOUND_PARAMS]
 5. ✅ Outbound Parameters - העברת פרמטרים
 
 ### 🔒 אבטחה (Security)
@@ -166,20 +221,29 @@ print(f"   Result: No name found in any source")
 
 3. **לוגים משופרים** - שימוש ב-`logger.exception()` במקום print traceback
 
+4. **🔥 NEW: לוג [OUTBOUND_PARAMS]** - מוכיח מיידית שפרמטרים מגיעים
+
+5. **🔥 NEW: נורמליזציה חכמה** - מייצר phone_variants לכיסוי E.164 ומקומי
+
 ### 📝 סיכום (Summary)
 
 התיקון פותר את הבעיה המקורית ב-3 שכבות:
 
 1. **מניעה** - לא מזריק None או ערכים לא תקינים
 2. **פתרון שורש** - טוען את השם מה-DB לפי lead_id
-3. **גיבוי** - אם אין lead_id, מחפש לפי טלפון
+3. **גיבוי** - אם אין lead_id, מחפש לפי טלפון **עם נורמליזציה**
 
 **הכי חשוב**: עכשיו השם מגיע לשכבת השיחה כבר בהתחלה, לא צריך לנחש!
+
+**NEW בגרסה זו**:
+- 📞 **[OUTBOUND_PARAMS]** - לוג קריטי שמוכיח שפרמטרים מגיעים
+- 🔄 **Phone Normalization** - E.164 ↔ local format conversion
 
 ---
 
 **Files Changed**:
-- `server/media_ws_ai.py` - Main fixes
-- `test_name_extraction_fix.py` - Comprehensive test suite
+- `server/media_ws_ai.py` - Main fixes + critical debug log + phone normalization
+- `test_name_extraction_fix.py` - Comprehensive test suite (updated)
+- `NAME_EXTRACTION_FIX_SUMMARY.md` - Detailed documentation (this file)
 
 **No Breaking Changes**: All changes are backward compatible and improve existing behavior.
