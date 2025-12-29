@@ -1713,6 +1713,8 @@ def _has_phone(text: str) -> bool:
     - "05X..." (Israeli mobile)
     - "+972..." (International format)
     - "972..." (Without plus)
+    - Numbers read with spaces: "0 5 2 1 2 3 4 5 6 7"
+    - Partial numbers (5+ consecutive digits)
     
     Args:
         text: The transcript text to check
@@ -1724,19 +1726,34 @@ def _has_phone(text: str) -> bool:
         return False
     
     # Remove spaces and common separators for easier pattern matching
-    text_normalized = text.replace(" ", "").replace("-", "").replace(".", "")
+    text_normalized = text.replace(" ", "").replace("-", "").replace(".", "").replace(",", "")
     
     # Israeli phone patterns
     # 1. Mobile: 05X-XXX-XXXX (starts with 05)
     # 2. International: +972-5X-XXX-XXXX
     # 3. Without plus: 972-5X-XXX-XXXX
     
-    # Check for sequence starting with 05 followed by 8 more digits
+    # Check for sequence starting with 05 followed by 8 more digits (Israeli mobile)
     if re.search(r'05[0-9]{8}', text_normalized):
         return True
     
-    # Check for +972 or 972 followed by digits
+    # Check for +972 or 972 followed by digits (international format)
     if re.search(r'\+?972[0-9]{7,9}', text_normalized):
+        return True
+    
+    # Check for landline patterns (02, 03, 04, 08, 09 followed by 7 digits)
+    if re.search(r'0[2-9][0-9]{7}', text_normalized):
+        return True
+    
+    # Check for 5+ consecutive digits anywhere (numbers being read)
+    if re.search(r'[0-9]{5,}', text_normalized):
+        return True
+    
+    # Check if text contains many digit words (zero, one, two, etc. in Hebrew)
+    hebrew_digits = ["אפס", "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", 
+                     "שניים", "אחת"]
+    digit_count = sum(1 for word in hebrew_digits if word in text.lower())
+    if digit_count >= 4:  # If 4+ digit words, likely reading a number
         return True
     
     return False
@@ -2379,15 +2396,15 @@ class MediaStreamHandler:
         if kw or ph:
             # 🔥 ONE-LINE LOG: Production visibility for voicemail detection
             logger.warning(
-                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} text={user_text[:120]!r} -> HANGUP"
+                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} text={user_text[:120]!r} -> IMMEDIATE_HANGUP"
             )
             _orig_print(
-                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} -> HANGUP",
+                f"🚨 [VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} -> IMMEDIATE_HANGUP",
                 flush=True
             )
             
-            # Trigger immediate hangup (non-blocking)
-            self._trigger_auto_hangup(reason="voicemail_detected")
+            # Trigger IMMEDIATE hangup (bypasses all protections)
+            self._immediate_hangup(reason="voicemail_detected")
     
     async def _silence_watchdog(self):
         """
@@ -2405,14 +2422,14 @@ class MediaStreamHandler:
                 idle = time.time() - self._last_user_activity_ts
                 if idle >= 20.0:
                     # 🔥 ONE-LINE LOG: Production visibility for watchdog triggers
-                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> hangup")
-                    _orig_print(f"[WATCHDOG] idle={idle:.1f}s -> hangup", flush=True)
+                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP")
+                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP", flush=True)
                     
                     # Stop watchdog before triggering hangup to prevent race conditions
                     self._silence_watchdog_running = False
                     
-                    # Trigger hangup (non-blocking, handles TX queue/locks internally)
-                    self._trigger_auto_hangup(reason="silence_20s")
+                    # Trigger IMMEDIATE hangup (bypasses all protections)
+                    self._immediate_hangup(reason="silence_20s")
                     return
         except asyncio.CancelledError:
             # Normal cancellation during cleanup
@@ -11884,6 +11901,59 @@ class MediaStreamHandler:
             source="fallback_timeout",
             transcript_text=f"Timeout after {timeout_seconds}s for {trigger_type}"
         )
+
+
+    def _immediate_hangup(self, reason: str):
+        """
+        🚨 IMMEDIATE HANGUP: Force immediate disconnection bypassing all protections
+        
+        This is used for critical situations like:
+        - Voicemail detection (within first 15 seconds)
+        - Extended silence (20+ seconds)
+        
+        Unlike _trigger_auto_hangup, this method:
+        - Bypasses greeting protection
+        - Bypasses audio queue checks
+        - Does NOT send goodbye message
+        - Executes hangup immediately via Twilio REST API
+        
+        Args:
+            reason: Why the call is being hung up (for logging)
+        """
+        # Already hung up?
+        if self.hangup_triggered or self.call_state == CallState.ENDED:
+            return
+        
+        # Mark as ended immediately
+        self.hangup_triggered = True
+        self.call_state = CallState.ENDED
+        self.goodbye_message_sent = True  # Prevent normal hangup from sending goodbye
+        
+        _orig_print(f"🚨 [IMMEDIATE_HANGUP] Forcing immediate disconnect: {reason}", flush=True)
+        logger.warning(f"[IMMEDIATE_HANGUP] reason={reason} call_sid={self.call_sid}")
+        
+        # Execute Twilio hangup in separate thread (non-blocking)
+        def do_hangup():
+            try:
+                from twilio.rest import Client
+                import os
+                
+                client = Client(
+                    os.getenv('TWILIO_ACCOUNT_SID'),
+                    os.getenv('TWILIO_AUTH_TOKEN')
+                )
+                
+                if self.call_sid:
+                    client.calls(self.call_sid).update(status='completed')
+                    _orig_print(f"✅ [IMMEDIATE_HANGUP] Twilio call {self.call_sid[:8]}... terminated", flush=True)
+                    logger.info(f"[IMMEDIATE_HANGUP] Twilio call terminated: {self.call_sid}")
+                    
+            except Exception as e:
+                _orig_print(f"⚠️ [IMMEDIATE_HANGUP] Error terminating call: {e}", flush=True)
+                logger.error(f"[IMMEDIATE_HANGUP] Error: {e}")
+        
+        # Execute in thread to avoid blocking
+        threading.Thread(target=do_hangup, daemon=True).start()
 
 
     def _trigger_auto_hangup(self, reason: str):
