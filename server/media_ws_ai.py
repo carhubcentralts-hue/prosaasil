@@ -3111,10 +3111,11 @@ class MediaStreamHandler:
                     _orig_print(f"[NAME_RESOLVE] Error: {e}", flush=True)
                     return (None, None)
             
-            # 🔥 CRITICAL: Resolve customer name from DB (overrides outbound_lead_name if needed)
-            # Pass lead_id and phone_number for comprehensive lookup
-            if call_direction == "outbound" and self.call_sid:
-                # Get lead_id from outbound_lead_id (set from customParameters)
+            # 🔥 CRITICAL: Resolve customer name from DB for ALL calls (inbound + outbound)
+            # This provides name + gender detection for both inbound and outbound calls
+            if self.call_sid:
+                # Get lead_id from outbound_lead_id (set from customParameters for outbound)
+                # For inbound, this may be None but we can still look up by phone
                 lead_id = getattr(self, 'outbound_lead_id', None)
                 # Convert to int if it's a string
                 if lead_id and isinstance(lead_id, str):
@@ -3124,8 +3125,8 @@ class MediaStreamHandler:
                         logger.debug(f"[NAME_RESOLVE] Failed to convert lead_id to int: {lead_id}")
                         lead_id = None
                 
-                # Get phone number for fallback lookup
-                phone_number = getattr(self, 'phone_number', None)
+                # Get phone number for fallback lookup (works for both inbound + outbound)
+                phone_number = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
                 
                 # Call resolution with all available identifiers
                 resolved_name, name_source = _resolve_customer_name(
@@ -3138,26 +3139,27 @@ class MediaStreamHandler:
                 if resolved_name:
                     # Store in pending_customer_name for NAME_ANCHOR extraction
                     self.pending_customer_name = resolved_name
-                    # Also update outbound_lead_name if it was empty
-                    if not outbound_lead_name:
+                    # Also update outbound_lead_name if it was empty (for outbound calls)
+                    if call_direction == "outbound" and not outbound_lead_name:
                         self.outbound_lead_name = resolved_name
                         outbound_lead_name = resolved_name
                     
                     # 🔥 DEBUG LOG: Show what we resolved
-                    print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB:")
+                    print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB ({call_direction}):")
                     print(f"   call_sid: {self.call_sid[:8]}...")
                     print(f"   lead_id from customParameters: {lead_id}")
                     print(f"   phone_number for fallback: {phone_number}")
                     print(f"   resolved_name: {resolved_name}")
                     print(f"   name_source: {name_source}")
-                    print(f"   outbound_lead_name: {outbound_lead_name}")
+                    print(f"   call_direction: {call_direction}")
                     print(f"   pending_customer_name: {self.pending_customer_name}")
                 else:
                     # 🔥 DEBUG: Log why resolution failed
-                    print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED:")
+                    print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED ({call_direction}):")
                     print(f"   call_sid: {self.call_sid[:8]}...")
                     print(f"   lead_id from customParameters: {lead_id}")
                     print(f"   phone_number for fallback: {phone_number}")
+                    print(f"   call_direction: {call_direction}")
                     print(f"   Result: No name found in any source")
             
             # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
