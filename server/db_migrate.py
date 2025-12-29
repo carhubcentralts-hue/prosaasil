@@ -1682,6 +1682,25 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 53: Add gender column to leads table
+        # 🔥 PURPOSE: Fix missing gender column - prevents "column leads.gender does not exist" errors
+        # This column is defined in Lead model but was never added to DB via migration
+        if check_table_exists('leads') and not check_column_exists('leads', 'gender'):
+            checkpoint("Migration 53: Adding gender column to leads table")
+            try:
+                checkpoint("  → Adding gender to leads...")
+                db.session.execute(text("""
+                    ALTER TABLE leads 
+                    ADD COLUMN gender VARCHAR(16)
+                """))
+                checkpoint("  ✅ leads.gender added")
+                migrations_applied.append('add_leads_gender_column')
+                checkpoint("✅ Migration 53 completed - leads.gender column added")
+            except Exception as e:
+                log.error(f"❌ Migration 53 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
