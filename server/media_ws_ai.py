@@ -3169,12 +3169,11 @@ class MediaStreamHandler:
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
             _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
-            # 🔥 NEW: Set Flask g.agent_context for Realtime API tool calls
+            # 🔥 NEW: Set agent context for Realtime API tool calls
             # This allows tools like schedule_appointment to access call metadata
             # Note: This only works when called within a Flask request context.
             # WebSocket handlers may not have access to g, which is acceptable.
             try:
-                app = _get_flask_app()
                 caller_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
                 # Store in instance for tools that need it
                 self.agent_context = {
@@ -3191,6 +3190,7 @@ class MediaStreamHandler:
                 print(f"✅ [AGENT_CONTEXT] Agent context stored for Realtime tools: business={business_id_safe}, phone={caller_phone}")
             except Exception as ctx_err:
                 # Not critical for call to proceed - tools will work without context
+                logger.warning(f"⚠️ [AGENT_CONTEXT] Failed to set agent context: {ctx_err}")
                 pass
             
             # ═══════════════════════════════════════════════════════════════════════
