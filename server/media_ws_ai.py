@@ -3104,6 +3104,13 @@ class MediaStreamHandler:
             try:
                 customer_name_to_inject = _extract_customer_name()
                 
+                # 🔥 DEBUG: Log customer name extraction details
+                print(f"🔍 [CRM_CONTEXT DEBUG] Extraction attempt:")
+                print(f"   outbound_lead_name: {outbound_lead_name}")
+                print(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
+                print(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
+                print(f"   extracted name: {customer_name_to_inject}")
+                
                 # 🔥 IDEMPOTENT INJECTION: Only inject if not already injected
                 if customer_name_to_inject and not hasattr(self, '_customer_name_injected'):
                     print(f"📝 [CRM_CONTEXT] Found customer name: {customer_name_to_inject}")
@@ -8718,6 +8725,12 @@ class MediaStreamHandler:
                         self.outbound_template_id = custom_params.get("template_id")
                         self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = custom_params.get("business_name")
+                        
+                        # 🔥 DEBUG: Log outbound lead name explicitly
+                        if self.outbound_lead_name:
+                            print(f"✅ [OUTBOUND] Lead name received: '{self.outbound_lead_name}'")
+                        else:
+                            print(f"⚠️ [OUTBOUND] No lead_name in customParameters!")
                         
                         # 🔥 OPTIMIZATION: Pre-load outbound greeting to avoid DB query in async loop
                         if self.call_direction == "outbound" and self.outbound_template_id and self.outbound_lead_name:
