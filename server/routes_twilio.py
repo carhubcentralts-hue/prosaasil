@@ -311,7 +311,13 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                 if customer or lead:
                     call_log.status = "in_progress"
                     db.session.commit()
-                    print(f"✅ Updated call_log with customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}")
+                    # 🔥 FIX: Better log formatting to avoid confusing "None" messages
+                    parts = []
+                    if customer:
+                        parts.append(f"customer_id={customer.id}")
+                    if lead:
+                        parts.append(f"lead_id={lead.id}")
+                    print(f"✅ Updated call_log with {', '.join(parts) if parts else 'status only'}")
             
             # ✅ שלב 4: fallback lead אם CustomerIntelligence נכשל
             # 🚨 CRITICAL: ALWAYS create lead if missing (user demand!)
