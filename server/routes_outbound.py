@@ -92,12 +92,40 @@ def get_business_phone(business_id: int) -> str | None:
 
 
 def get_public_host() -> str:
-    """Get public host for webhook URLs"""
+    """
+    Get public host for webhook URLs
+    
+    CRITICAL: Must return valid host for Twilio callbacks to work
+    Fails fast if no valid host configured (prevents silent failures)
+    
+    Returns:
+        Valid hostname (never empty/None)
+    
+    Raises:
+        RuntimeError: If no valid host is configured
+    """
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
     if public_host:
         return public_host
     
-    return os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
+    # Fallback to Replit domains
+    replit_host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    if replit_host:
+        return replit_host
+    
+    # Localhost fallback only for development
+    if os.environ.get('FLASK_ENV') == 'development' or os.environ.get('DEBUG') == '0':
+        log.warning("⚠️ Using localhost for webhooks - this will not work in production!")
+        return 'localhost'
+    
+    # FAIL FAST: No valid host in production
+    error_msg = (
+        "❌ CRITICAL: No public host configured for webhooks!\n"
+        "Set PUBLIC_HOST environment variable to your domain (e.g., myapp.com)\n"
+        "Without this, Twilio callbacks will fail and calls will not work."
+    )
+    log.error(error_msg)
+    raise RuntimeError(error_msg)
 
 
 @outbound_bp.route("/api/outbound_calls/templates", methods=["GET"])
@@ -1703,7 +1731,17 @@ def fill_queue_slots_for_job(job_id: int):
             
             from_phone = business.phone_e164
             business_name = business.name or "העסק"
-            host = get_public_host()
+            
+            # 🔒 CRITICAL: Verify host is available for webhooks (fail fast if missing)
+            try:
+                host = get_public_host()
+                log.info(f"[FillSlots] Run {run.id}: public_host={host} (for Twilio webhooks)")
+            except RuntimeError as e:
+                log.error(f"[FillSlots] Run {run.id} FAILED: {e}")
+                run.status = "failed"
+                run.last_error = "No public host configured for webhooks"
+                db.session.commit()
+                return
             
             # 🔒 CRITICAL: Check BUSINESS-LEVEL active outbound calls, not just this run
             # This prevents multiple runs or mixed direct+bulk calls from exceeding limit
@@ -1917,7 +1955,17 @@ def process_bulk_call_run(run_id: int):
             
             from_phone = business.phone_e164
             business_name = business.name or "העסק"
-            host = get_public_host()
+            
+            # 🔒 CRITICAL: Verify host is available for webhooks (fail fast if missing)
+            try:
+                host = get_public_host()
+                log.info(f"[BulkCall] Run {run_id}: public_host={host} (for Twilio webhooks)")
+            except RuntimeError as e:
+                log.error(f"[BulkCall] Run {run_id} FAILED: {e}")
+                run.status = "failed"
+                run.last_error = "No public host configured for webhooks"
+                db.session.commit()
+                return
             
             # 🔒 CRITICAL: Import business-level limiter to prevent exceeding 3 calls per business
             from server.services.call_limiter import count_active_outbound_calls, MAX_OUTBOUND_CALLS_PER_BUSINESS
