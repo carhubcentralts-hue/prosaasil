@@ -12,7 +12,7 @@ services:
     hostname: asterisk
     environment:
       # ARI Configuration
-      - ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
+      - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD}
       # SIP Trunk Configuration (DID Provider)
       - SIP_TRUNK_HOST=${SIP_TRUNK_HOST:-sip.provider.com}
       - SIP_TRUNK_PORT=${SIP_TRUNK_PORT:-5060}
