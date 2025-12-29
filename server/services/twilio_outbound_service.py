@@ -8,7 +8,6 @@ import logging
 import hashlib
 import time
 from typing import Dict, Any, Optional
-from flask import request
 from sqlalchemy import text
 
 log = logging.getLogger(__name__)
@@ -115,6 +114,7 @@ def create_outbound_call(
     to_phone: str,
     from_phone: str,
     business_id: int,
+    host: str,
     lead_id: Optional[int] = None,
     template_id: Optional[int] = None,
     job_id: Optional[int] = None,
@@ -133,6 +133,7 @@ def create_outbound_call(
         to_phone: Normalized phone number to call
         from_phone: Twilio phone number to call from
         business_id: Business ID
+        host: Public host for webhook URLs (pass from request or use get_public_host())
         lead_id: Optional lead ID (used for deduplication)
         template_id: Optional template ID
         job_id: Optional job ID for bulk calls
@@ -160,8 +161,7 @@ def create_outbound_call(
             "is_duplicate": True
         }
     
-    # Build webhook URL
-    host = request.headers.get("X-Forwarded-Host") or request.host
+    # Build webhook URL (host is passed as parameter, no request context needed)
     webhook_url = f"https://{host}/webhook/outbound_call?business_id={business_id}"
     
     if lead_id:
@@ -222,6 +222,7 @@ def create_outbound_call_for_bulk(
     to_phone: str,
     from_phone: str,
     business_id: int,
+    host: str,
     job_id: int,
     business_name: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -235,6 +236,7 @@ def create_outbound_call_for_bulk(
         to_phone: Normalized phone number
         from_phone: Twilio number
         business_id: Business ID
+        host: Public host for webhook URLs
         job_id: Job ID for tracking
         business_name: Optional business name
         
@@ -245,6 +247,7 @@ def create_outbound_call_for_bulk(
         to_phone=to_phone,
         from_phone=from_phone,
         business_id=business_id,
+        host=host,
         job_id=job_id,
         business_name=business_name
     )

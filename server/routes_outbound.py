@@ -357,6 +357,7 @@ def start_outbound_calls():
                     to_phone=normalized_phone,
                     from_phone=from_phone,
                     business_id=tenant_id,
+                    host=host,
                     lead_id=lead.id,
                     business_name=business_name
                 )
@@ -1796,6 +1797,7 @@ def fill_queue_slots_for_job(job_id: int):
                             to_phone=normalized_phone,
                             from_phone=from_phone,
                             business_id=run.business_id,
+                            host=host,
                             lead_id=lead.id,
                             job_id=next_job.id,
                             business_name=business_name
@@ -2004,6 +2006,7 @@ def process_bulk_call_run(run_id: int):
                                     to_phone=normalized_phone,
                                     from_phone=from_phone,
                                     business_id=run.business_id,
+                                    host=host,
                                     lead_id=lead.id,
                                     job_id=next_job.id,
                                     business_name=business_name
