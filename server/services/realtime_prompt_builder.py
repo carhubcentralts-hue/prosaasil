@@ -102,27 +102,29 @@ def detect_name_usage_policy(business_prompt: str) -> Tuple[bool, Optional[str]]
 
 def extract_first_name(full_name: Optional[str]) -> Optional[str]:
     """
-    Extract first name from full name (max 2 words).
-    Skip complicated names that are too long or complex.
+    🧠 SMART NAME EXTRACTION: Intelligently extract first name, handling Hebrew names properly
     
     Rules:
-    - Return only first name (first word)
-    - If first name is very short (1-2 chars), include second word
-    - Skip names with more than 2 words (complex names)
-    - Skip names with special characters or numbers
-    - Maximum 2 words total
+    - Detects and skips non-name placeholders (בית, תמונה, ללא שם, etc.)
+    - Allows 1-3 word Hebrew names (e.g., "יוסי בן דוד" is valid!)
+    - Returns first name only, or first + middle if first is very short
+    - Skips names with numbers or excessive special characters
+    - Smart detection of common Hebrew name patterns
     
     Args:
         full_name: The full customer name
         
     Returns:
-        First name only (max 2 words), or None if name is too complex
+        First name (1-2 words max), or None if not a valid name
         
     Examples:
         "יוסי" -> "יוסי"
         "יוסי כהן" -> "יוסי"
-        "ד כהן" -> "ד כהן" (short first name, include last)
-        "יוסי בן דוד" -> None (too many words)
+        "יוסי בן דוד" -> "יוסי בן" (first + middle)
+        "מ כהן" -> "מ כהן" (short first, include last)
+        "בית" -> None (not a name)
+        "תמונה" -> None (not a name)
+        "ללא שם" -> None (placeholder)
         "John123" -> None (has numbers)
     """
     if not full_name or not isinstance(full_name, str):
@@ -133,33 +135,75 @@ def extract_first_name(full_name: Optional[str]) -> Optional[str]:
     if not name:
         return None
     
-    # Reject names with special characters or numbers
+    # 🚫 PLACEHOLDER DETECTION: Common non-name values
+    name_lower = name.lower()
+    placeholders = [
+        "ללא שם", "לא ידוע", "אין שם", "לקוח", "customer", "client",
+        "בית", "תמונה", "מסמך", "קובץ", "תיקיה", "folder", "file",
+        "שם", "name", "test", "טסט", "בדיקה", "דוגמה", "example"
+    ]
+    
+    if name_lower in placeholders:
+        logger.info(f"[NAME_EXTRACT] Skipping placeholder: '{full_name}'")
+        return None
+    
+    # 🚫 REJECT: Names with numbers
     if any(char.isdigit() for char in name):
+        logger.info(f"[NAME_EXTRACT] Skipping name with numbers: '{full_name}'")
+        return None
+    
+    # 🚫 REJECT: Too many special characters (more than 2)
+    special_chars = sum(1 for c in name if not c.isalnum() and not c.isspace())
+    if special_chars > 2:
+        logger.info(f"[NAME_EXTRACT] Skipping name with too many special chars: '{full_name}'")
         return None
     
     # Split by whitespace
-    words = name.split()
+    words = [w for w in name.split() if w]  # Filter empty strings
     
-    # Too many words = complex name, skip it
-    if len(words) > 2:
-        logger.info(f"[NAME_EXTRACT] Skipping complex name (>2 words): '{full_name}'")
+    if not words:
         return None
     
-    # Single word - return it
+    # ✅ SINGLE WORD: Return as-is (valid first name)
     if len(words) == 1:
+        logger.debug(f"[NAME_EXTRACT] Single word name: '{words[0]}'")
         return words[0]
     
-    # Two words - check if first word is very short
-    first_word = words[0]
-    if len(first_word) <= 2:
-        # Short first name (like "ד", "א"), include second word
-        result = f"{first_word} {words[1]}"
-        logger.info(f"[NAME_EXTRACT] Short first name, including second word: '{result}'")
-        return result
+    # ✅ TWO WORDS: Return first word, unless it's very short
+    if len(words) == 2:
+        first_word = words[0]
+        if len(first_word) <= 2:
+            # Short first name (like "ד", "א", "מ"), include second word
+            result = f"{first_word} {words[1]}"
+            logger.debug(f"[NAME_EXTRACT] Short first name, including last: '{result}'")
+            return result
+        else:
+            # Normal first name, return it
+            logger.debug(f"[NAME_EXTRACT] First name from 2 words: '{first_word}'")
+            return first_word
     
-    # Normal case - return first word only
-    logger.info(f"[NAME_EXTRACT] Extracted first name: '{first_word}' from '{full_name}'")
-    return first_word
+    # ✅ THREE WORDS: Hebrew names like "יוסי בן דוד"
+    # Return first + middle (e.g., "יוסי בן")
+    if len(words) == 3:
+        first_word = words[0]
+        second_word = words[1]
+        
+        # Common Hebrew middle names/particles
+        hebrew_middles = ["בן", "בת", "אבו", "אל"]
+        
+        # If second word is a common middle particle, include it
+        if second_word in hebrew_middles or len(first_word) <= 2:
+            result = f"{first_word} {second_word}"
+            logger.debug(f"[NAME_EXTRACT] Three-word name, using first+middle: '{result}' from '{full_name}'")
+            return result
+        else:
+            # Just return first name
+            logger.debug(f"[NAME_EXTRACT] Three-word name, using first only: '{first_word}' from '{full_name}'")
+            return first_word
+    
+    # 🚫 FOUR+ WORDS: Too long, skip
+    logger.info(f"[NAME_EXTRACT] Skipping very long name ({len(words)} words): '{full_name}'")
+    return None
 
 
 def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool) -> str:

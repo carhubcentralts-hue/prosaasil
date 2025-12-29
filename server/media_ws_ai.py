@@ -1669,6 +1669,31 @@ def normalize_hebrew_text(text: str) -> str:
 # 🔥 VOICEMAIL DETECTION: Helper functions for detecting answering machines
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# Module-level constants for performance (avoid recreation on every call)
+_VOICEMAIL_KEYWORDS = [
+    "תא קולי",
+    "משיבון קולי",
+    "תא הודעות",
+    "תאה קולי",  # Common STT error
+    "משיבון",
+    "תא קול",
+    "נא להשאיר הודעה",  # "please leave a message"
+    "השאירו הודעה",      # "leave a message"
+    "השאר הודעה",        # "leave a message" (singular)
+    "להשאיר הודעות",     # "to leave messages"
+]
+
+_HEBREW_DIGIT_WORDS = [
+    "אפס", "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע",
+    "עשר", "עשרה", "אחת", "שניים", "שתים"
+]
+
+# Compile regex patterns once at module load
+_PHONE_PATTERN_MOBILE = re.compile(r'05[0-9]{8}')
+_PHONE_PATTERN_INTL = re.compile(r'\+?972[0-9]{7,9}')
+_PHONE_PATTERN_LANDLINE = re.compile(r'0[2-9][0-9]{7}')
+_PHONE_PATTERN_DIGITS = re.compile(r'[0-9]{5,}')
+
 def _has_voicemail_keyword(text: str) -> bool:
     """
     Check if text contains Hebrew voicemail keywords.
@@ -1688,22 +1713,7 @@ def _has_voicemail_keyword(text: str) -> bool:
         return False
     
     text_lower = text.lower()
-    
-    # Hebrew voicemail keywords
-    voicemail_keywords = [
-        "תא קולי",
-        "משיבון קולי",
-        "תא הודעות",
-        "תאה קולי",  # Common STT error
-        "משיבון",
-        "תא קול",
-        "נא להשאיר הודעה",  # "please leave a message"
-        "השאירו הודעה",      # "leave a message"
-        "השאר הודעה",        # "leave a message" (singular)
-        "להשאיר הודעות",     # "to leave messages"
-    ]
-    
-    return any(keyword in text_lower for keyword in voicemail_keywords)
+    return any(keyword in text_lower for keyword in _VOICEMAIL_KEYWORDS)
 
 def _has_phone(text: str) -> bool:
     """
@@ -1715,6 +1725,7 @@ def _has_phone(text: str) -> bool:
     - "972..." (Without plus)
     - Numbers read with spaces: "0 5 2 1 2 3 4 5 6 7"
     - Partial numbers (5+ consecutive digits)
+    - Hebrew digit words being read
     
     Args:
         text: The transcript text to check
@@ -1725,34 +1736,27 @@ def _has_phone(text: str) -> bool:
     if not text:
         return False
     
-    # Remove spaces and common separators for easier pattern matching
-    text_normalized = text.replace(" ", "").replace("-", "").replace(".", "").replace(",", "")
+    # Optimize: Use str.translate for faster character removal
+    trans_table = str.maketrans('', '', ' -.,')
+    text_normalized = text.translate(trans_table)
     
-    # Israeli phone patterns
-    # 1. Mobile: 05X-XXX-XXXX (starts with 05)
-    # 2. International: +972-5X-XXX-XXXX
-    # 3. Without plus: 972-5X-XXX-XXXX
-    
-    # Check for sequence starting with 05 followed by 8 more digits (Israeli mobile)
-    if re.search(r'05[0-9]{8}', text_normalized):
+    # Quick checks using pre-compiled regex patterns
+    if _PHONE_PATTERN_MOBILE.search(text_normalized):
         return True
     
-    # Check for +972 or 972 followed by digits (international format)
-    if re.search(r'\+?972[0-9]{7,9}', text_normalized):
+    if _PHONE_PATTERN_INTL.search(text_normalized):
         return True
     
-    # Check for landline patterns (02, 03, 04, 08, 09 followed by 7 digits)
-    if re.search(r'0[2-9][0-9]{7}', text_normalized):
+    if _PHONE_PATTERN_LANDLINE.search(text_normalized):
         return True
     
-    # Check for 5+ consecutive digits anywhere (numbers being read)
-    if re.search(r'[0-9]{5,}', text_normalized):
+    if _PHONE_PATTERN_DIGITS.search(text_normalized):
         return True
     
-    # Check if text contains many digit words (zero, one, two, etc. in Hebrew)
-    hebrew_digits = ["אפס", "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", 
-                     "שניים", "אחת"]
-    digit_count = sum(1 for word in hebrew_digits if word in text.lower())
+    # Check for Hebrew digit words (split into words for exact matching)
+    text_lower = text.lower()
+    words = text_lower.split()
+    digit_count = sum(1 for word in words if word in _HEBREW_DIGIT_WORDS)
     if digit_count >= 4:  # If 4+ digit words, likely reading a number
         return True
     
