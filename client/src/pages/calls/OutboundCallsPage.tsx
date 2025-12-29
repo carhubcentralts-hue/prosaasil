@@ -80,7 +80,7 @@ interface ImportedLeadsResponse {
   items: ImportedLead[];
 }
 
-type TabType = 'system' | 'active' | 'imported' | 'recent';
+type TabType = 'system' | 'active' | 'imported' | 'recent' | 'projects';
 
 // Default number of available call slots when counts haven't loaded yet
 const DEFAULT_AVAILABLE_SLOTS = 3;
@@ -117,7 +117,7 @@ export function OutboundCallsPage() {
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
     const tabParam = sp.get('tab') as TabType | null;
-    if (tabParam && ['system', 'active', 'imported', 'recent'].includes(tabParam)) {
+    if (tabParam && ['system', 'active', 'imported', 'recent', 'projects'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [location.search]);
@@ -1056,6 +1056,24 @@ export function OutboundCallsPage() {
             )}
           </div>
         </button>
+        <button
+          className={`px-6 py-3 font-medium text-sm transition-colors ${
+            activeTab === 'projects'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          onClick={() => {
+            setActiveTab('projects');
+            setShowResults(false);
+            setCallResults([]);
+          }}
+          data-testid="tab-projects"
+        >
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4" />
+            פרויקטים
+          </div>
+        </button>
       </div>
 
       {/* Call Results */}
@@ -1785,13 +1803,13 @@ export function OutboundCallsPage() {
       {!showResults && activeTab === 'recent' && (
         <div className="space-y-4">
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Clock className="h-5 w-5" />
                 שיחות אחרונות ({totalRecentCalls})
               </h3>
-              <div className="flex items-center gap-3">
-                <div className="relative">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                <div className="relative w-full sm:w-48">
                   <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     placeholder="חיפוש..."
@@ -1800,7 +1818,7 @@ export function OutboundCallsPage() {
                       setRecentCallsSearch(e.target.value);
                       setRecentCallsPage(1);
                     }}
-                    className="pr-10 w-48"
+                    className="pr-10 w-full"
                     data-testid="input-recent-calls-search"
                   />
                 </div>
@@ -1813,6 +1831,7 @@ export function OutboundCallsPage() {
                       refetchRecentCalls();
                     }}
                     data-testid="button-show-all-calls"
+                    className="w-full sm:w-auto"
                   >
                     הצג את כל השיחות
                   </Button>
@@ -1830,7 +1849,8 @@ export function OutboundCallsPage() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                {/* Desktop Table View - Hidden on mobile */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b">
@@ -1943,19 +1963,126 @@ export function OutboundCallsPage() {
                   </table>
                 </div>
 
+                {/* Mobile Card View - Visible only on mobile */}
+                <div className="md:hidden space-y-3">
+                  {recentCalls.map((call) => {
+                    const duration = call.duration 
+                      ? `${Math.floor(call.duration / 60)}:${(call.duration % 60).toString().padStart(2, '0')}`
+                      : '-';
+                    
+                    const getCallStatusColor = (status: string) => {
+                      if (status === 'completed' || status === 'answered') return 'bg-green-100 text-green-800';
+                      if (status === 'no-answer' || status === 'busy') return 'bg-yellow-100 text-yellow-800';
+                      if (status === 'failed') return 'bg-red-100 text-red-800';
+                      return 'bg-gray-100 text-gray-800';
+                    };
+
+                    const getCallStatusLabel = (status: string) => {
+                      if (status === 'completed' || status === 'answered') return 'נענה';
+                      if (status === 'no-answer') return 'לא נענה';
+                      if (status === 'busy') return 'תפוס';
+                      if (status === 'failed') return 'נכשל';
+                      return status;
+                    };
+                    
+                    return (
+                      <div
+                        key={call.call_sid}
+                        className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        data-testid={`recent-call-card-${call.call_sid}`}
+                      >
+                        {/* Header: Phone/Name + Call Status */}
+                        <div 
+                          className="flex items-start justify-between gap-3 mb-3 cursor-pointer"
+                          onClick={() => {
+                            if (call.lead_id) {
+                              handleLeadClick(call.lead_id);
+                            }
+                          }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-base font-medium text-gray-900 truncate">
+                              {call.lead_name || `ליד #${call.lead_id}` || 'לקוח אלמוני'}
+                            </p>
+                            <p className="text-sm text-gray-500 truncate" dir="ltr">{call.to_number || '-'}</p>
+                          </div>
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getCallStatusColor(call.status)}`}>
+                            {getCallStatusLabel(call.status)}
+                          </span>
+                        </div>
+
+                        {/* Details Row: Duration + Time */}
+                        <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-gray-400" />
+                            <span className="font-medium">{duration}</span>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            {call.started_at ? formatDate(call.started_at) : '-'}
+                          </span>
+                        </div>
+
+                        {/* Lead Status - if available */}
+                        {call.lead_id && call.lead_status && (
+                          <div className="mb-3 pb-3 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                            <div className="text-xs text-gray-500 mb-1">סטטוס ליד</div>
+                            <StatusDropdownWithWebhook
+                              leadId={call.lead_id}
+                              currentStatus={call.lead_status}
+                              statuses={statuses}
+                              onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
+                              source="recent_calls_tab"
+                              hasWebhook={hasWebhook}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+
+                        {/* Recording + Summary */}
+                        {(call.recording_url || call.summary || call.transcript) && (
+                          <div className="space-y-2">
+                            {call.recording_url && (
+                              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={`/api/calls/${call.call_sid}/download`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 active:bg-blue-200 transition-colors min-h-[44px]"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  הורד הקלטה
+                                </a>
+                              </div>
+                            )}
+                            {(call.summary || call.transcript) && (
+                              <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg">
+                                <div className="font-medium text-gray-700 mb-1">סיכום:</div>
+                                <p className="line-clamp-2">
+                                  {call.summary || call.transcript || '-'}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Pagination */}
                 {totalRecentPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm text-gray-500">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
+                    <div className="text-sm text-gray-500 order-2 sm:order-1">
                       עמוד {recentCallsPage} מתוך {totalRecentPages}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full sm:w-auto order-1 sm:order-2">
                       <Button
                         variant="secondary"
                         size="sm"
                         onClick={() => setRecentCallsPage(p => Math.max(1, p - 1))}
                         disabled={recentCallsPage === 1}
                         data-testid="button-prev-recent-page"
+                        className="flex-1 sm:flex-none min-h-[44px]"
                       >
                         הקודם
                       </Button>
@@ -1965,6 +2092,7 @@ export function OutboundCallsPage() {
                         onClick={() => setRecentCallsPage(p => Math.min(totalRecentPages, p + 1))}
                         disabled={recentCallsPage === totalRecentPages}
                         data-testid="button-next-recent-page"
+                        className="flex-1 sm:flex-none min-h-[44px]"
                       >
                         הבא
                       </Button>

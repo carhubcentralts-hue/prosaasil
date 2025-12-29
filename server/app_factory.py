@@ -513,6 +513,10 @@ def create_app():
         from server.routes_outbound import outbound_bp
         app.register_blueprint(outbound_bp)
         
+        # Projects API for Outbound Calls
+        from server.routes_projects import projects_bp
+        app.register_blueprint(projects_bp)
+        
         # Register receipts and contracts endpoints
         from server.routes_receipts_contracts import receipts_contracts_bp
         app.register_blueprint(receipts_contracts_bp)
