@@ -2172,8 +2172,7 @@ export function OutboundCallsPage() {
                 refetchProjects();
               }}
               onStartCalls={(leadIds) => {
-                // ✅ Use existing bulk call mutation - DON'T COMPLICATE!
-                console.log('🔵 Starting calls from project:', { projectId: selectedProjectId, leadIds, count: leadIds.length });
+                // Use existing bulk call mutation
                 startCallsMutation.mutate({ lead_ids: leadIds });
               }}
               statuses={statuses}

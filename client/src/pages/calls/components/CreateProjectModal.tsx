@@ -164,9 +164,7 @@ export function CreateProjectModal({
       const response = await http.post('/api/leads/select-ids', {
         statuses: selectedStatusFilters,
         search: systemLeadsSearch,
-        tab: 'system',
-        source: '',
-        direction: ''
+        tab: 'system'
       });
 
       const leadIds = response.lead_ids || [];
