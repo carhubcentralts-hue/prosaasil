@@ -2338,7 +2338,7 @@ class MediaStreamHandler:
         Args:
             user_text: The user's transcript text to check
         """
-        # Only check within first 15 seconds
+        # Only check within first 15 seconds (strict time limit)
         elapsed = time.time() - self._call_started_ts
         if elapsed > 15.0:
             return
@@ -2350,11 +2350,16 @@ class MediaStreamHandler:
         ph = _has_phone(user_text)
         
         if kw or ph:
+            # 🔥 ONE-LINE LOG: Production visibility for voicemail detection
             logger.warning(
-                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s "
-                f"kw={kw} phone={ph} text={user_text[:120]!r} -> HANGUP"
+                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} text={user_text[:120]!r} -> HANGUP"
             )
-            # Trigger immediate hangup
+            _orig_print(
+                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} -> HANGUP",
+                flush=True
+            )
+            
+            # Trigger immediate hangup (non-blocking)
             self._trigger_auto_hangup(reason="voicemail_detected")
     
     async def _silence_watchdog(self):
@@ -2363,15 +2368,32 @@ class MediaStreamHandler:
         
         Runs continuously, checking every 1 second.
         Disconnects call if 20+ seconds pass without user activity.
+        
+        Authority level: Non-blocking, bypasses queues/locks for reliable disconnection.
         """
-        while self._silence_watchdog_running:
-            await asyncio.sleep(1)
-            
-            idle = time.time() - self._last_user_activity_ts
-            if idle >= 20.0:
-                logger.warning(f"[SILENCE_WATCHDOG] idle={idle:.1f}s -> HANGUP")
-                self._trigger_auto_hangup(reason="silence_20s")
-                return
+        try:
+            while self._silence_watchdog_running:
+                await asyncio.sleep(1)
+                
+                idle = time.time() - self._last_user_activity_ts
+                if idle >= 20.0:
+                    # 🔥 ONE-LINE LOG: Production visibility for watchdog triggers
+                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> hangup")
+                    _orig_print(f"[WATCHDOG] idle={idle:.1f}s -> hangup", flush=True)
+                    
+                    # Stop watchdog before triggering hangup to prevent race conditions
+                    self._silence_watchdog_running = False
+                    
+                    # Trigger hangup (non-blocking, handles TX queue/locks internally)
+                    self._trigger_auto_hangup(reason="silence_20s")
+                    return
+        except asyncio.CancelledError:
+            # Normal cancellation during cleanup
+            logger.debug("[WATCHDOG] Task cancelled during cleanup")
+        except Exception as e:
+            # Unexpected error - log but don't crash
+            logger.error(f"[WATCHDOG] Unexpected error: {e}")
+            _orig_print(f"⚠️ [WATCHDOG] Error: {e}", flush=True)
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -5235,6 +5257,10 @@ class MediaStreamHandler:
                     # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
                     self._last_user_voice_started_ts = time.time()
                     
+                    # 🔥 SILENCE WATCHDOG: Update activity timestamp on VAD detection (not just transcription)
+                    # This ensures watchdog tracks actual audio activity, not just completed transcripts
+                    self._last_user_activity_ts = time.time()
+                    
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
                     if DEBUG:
@@ -5922,6 +5948,13 @@ class MediaStreamHandler:
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 VOICEMAIL DETECTION: Check AI transcript too (first 15 seconds only)
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # Voicemail messages sometimes appear in AI transcript (response.audio_transcript)
+                        # instead of user transcript, depending on the audio pipeline
+                        await self._maybe_hangup_voicemail(transcript)
 
                         # 🔴 BYE-ONLY HANGUP: Disconnect ONLY if BOT says explicit goodbye phrases
                         # CRITICAL RULES (SIMPLIFIED):
@@ -6731,8 +6764,7 @@ class MediaStreamHandler:
                     self._last_user_activity_ts = time.time()
                     
                     # Check for voicemail/answering machine (first 15 seconds only)
-                    if hasattr(self, '_maybe_hangup_voicemail'):
-                        await self._maybe_hangup_voicemail(text)
+                    await self._maybe_hangup_voicemail(text)
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
@@ -8766,10 +8798,9 @@ class MediaStreamHandler:
                 
                 # 🔥 SILENCE WATCHDOG: Stop watchdog on session close
                 self._silence_watchdog_running = False
-                if hasattr(self, '_silence_watchdog_task') and self._silence_watchdog_task:
-                    if not self._silence_watchdog_task.done():
-                        self._silence_watchdog_task.cancel()
-                        _orig_print(f"   🔒 Silence watchdog task cancelled", flush=True)
+                if self._silence_watchdog_task is not None and not self._silence_watchdog_task.done():
+                    self._silence_watchdog_task.cancel()
+                    _orig_print(f"   🔒 Silence watchdog task cancelled", flush=True)
                 
                 # Clear response tracking
                 self.has_pending_ai_response = False
