@@ -3147,6 +3147,37 @@ class MediaStreamHandler:
                         self.outbound_lead_name = resolved_name
                         outbound_lead_name = resolved_name
                     
+                    # 🆕 GENDER: Also fetch gender from same Lead for pronoun usage
+                    try:
+                        from server.models_sql import Lead
+                        app = _get_flask_app()
+                        with app.app_context():
+                            lead_for_gender = None
+                            
+                            # Try to find Lead by same identifiers used for name resolution
+                            if lead_id:
+                                lead_for_gender = Lead.query.filter_by(id=lead_id, tenant_id=business_id_safe).first()
+                            elif phone_number:
+                                # Generate phone variants for lookup
+                                phone_variants = [phone_number]
+                                cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
+                                if phone_number.startswith('+972'):
+                                    phone_variants.append('0' + cleaned[3:])
+                                elif phone_number.startswith('0'):
+                                    phone_variants.append('+972' + cleaned[1:])
+                                
+                                lead_for_gender = Lead.query.filter_by(
+                                    tenant_id=business_id_safe
+                                ).filter(
+                                    Lead.phone_e164.in_(phone_variants)
+                                ).order_by(Lead.updated_at.desc()).first()
+                            
+                            if lead_for_gender and lead_for_gender.gender:
+                                self.pending_customer_gender = lead_for_gender.gender
+                                print(f"✅ [GENDER] Fetched from Lead: '{lead_for_gender.gender}' (lead_id={lead_for_gender.id})")
+                    except Exception as e:
+                        logger.warning(f"[GENDER] Failed to fetch gender from Lead: {e}")
+                    
                     # 🔥 DEBUG LOG: Show what we resolved
                     print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB ({call_direction}):")
                     print(f"   call_sid: {self.call_sid[:8]}...")
@@ -3156,6 +3187,7 @@ class MediaStreamHandler:
                     print(f"   name_source: {name_source}")
                     print(f"   call_direction: {call_direction}")
                     print(f"   pending_customer_name: {self.pending_customer_name}")
+                    print(f"   pending_customer_gender: {getattr(self, 'pending_customer_gender', None)}")
                 else:
                     # 🔥 DEBUG: Log why resolution failed
                     print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED ({call_direction}):")
@@ -3584,29 +3616,37 @@ class MediaStreamHandler:
                         from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
                         
                         # 🧠 GENDER DETECTION: Priority order (SSOT)
-                        # 1. Database (if manually set or detected from previous conversation)
-                        # 2. Name-based detection (if not unisex)
+                        # 1. pending_customer_gender (from early Lead lookup)
+                        # 2. Database (if manually set or detected from previous conversation)
+                        # 3. Name-based detection (if not unisex)
                         customer_gender = None
                         
-                        # Priority 1: Check database for saved gender
-                        try:
-                            from server.models_sql import CallLog, Lead
-                            app = _get_flask_app()
-                            with app.app_context():
-                                call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                                lead = None
-                                
-                                if call_log and call_log.lead_id:
-                                    lead = Lead.query.get(call_log.lead_id)
-                                elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
-                                    lead = Lead.query.get(self.outbound_lead_id)
-                                
-                                if lead and lead.gender:
-                                    customer_gender = lead.gender
-                                    logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
-                                    print(f"🧠 [GENDER] Using saved: {customer_gender} from Lead {lead.id}")
-                        except Exception as e:
-                            logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
+                        # Priority 0: Check if we already fetched gender during name resolution
+                        if hasattr(self, 'pending_customer_gender') and self.pending_customer_gender:
+                            customer_gender = self.pending_customer_gender
+                            logger.info(f"[GENDER_DETECT] Using pending gender from early lookup: {customer_gender}")
+                            print(f"🧠 [GENDER] Using pending: {customer_gender}")
+                        
+                        # Priority 1: Check database for saved gender (fallback if pending not available)
+                        if not customer_gender:
+                            try:
+                                from server.models_sql import CallLog, Lead
+                                app = _get_flask_app()
+                                with app.app_context():
+                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                    lead = None
+                                    
+                                    if call_log and call_log.lead_id:
+                                        lead = Lead.query.get(call_log.lead_id)
+                                    elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                                        lead = Lead.query.get(self.outbound_lead_id)
+                                    
+                                    if lead and lead.gender:
+                                        customer_gender = lead.gender
+                                        logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
+                                        print(f"🧠 [GENDER] Using saved: {customer_gender} from Lead {lead.id}")
+                            except Exception as e:
+                                logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
                         
                         # Priority 2: Detect from name (only if not in database)
                         if not customer_gender:
@@ -3883,6 +3923,7 @@ class MediaStreamHandler:
                                 self.pending_customer_name = None
                             
                             # 🔥 FIX: If customer name not set from pending, fetch from Lead record
+                            # 🆕 ALSO fetch gender for proper pronoun usage in conversation
                             if not self.crm_context.customer_name and lead_id:
                                 try:
                                     from server.models_sql import Lead
@@ -3900,10 +3941,16 @@ class MediaStreamHandler:
                                             print(f"✅ [CRM_CONTEXT] Fetched customer name from Lead: '{customer_name}' (lead_id={lead_id})")
                                         else:
                                             print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} has no valid name (full_name='{full_name}')")
+                                        
+                                        # 🆕 GENDER: Also fetch gender from Lead for proper pronoun usage
+                                        if lead.gender:
+                                            # Store gender in instance for later use (NAME_ANCHOR re-injection, etc.)
+                                            self.customer_gender = lead.gender
+                                            print(f"✅ [CRM_CONTEXT] Fetched customer gender from Lead: '{lead.gender}' (lead_id={lead_id})")
                                     else:
                                         print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} not found in database or wrong tenant")
                                 except Exception as e:
-                                    print(f"⚠️ [CRM_CONTEXT] Failed to fetch customer name from Lead: {e}")
+                                    print(f"⚠️ [CRM_CONTEXT] Failed to fetch customer name/gender from Lead: {e}")
                             
                             # 🔥 CRM CONTEXT INJECTION: Mark customer name for injection if not already injected
                             # This ensures the AI receives the name as REAL DATA during the conversation
