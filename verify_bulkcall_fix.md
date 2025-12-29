@@ -10,7 +10,7 @@
 - Added `host` as required parameter to `create_outbound_call()`
 - Worker functions now pass `host` from `get_public_host()` (no request context needed)
 
-### 2. ✅ Business-Level Concurrency Limiting ADDED
+### 2. ✅ Business-Level Concurrency Limiting ADDED (PER BUSINESS!)
 **Problem**: Workers counted only per-run active calls, not per-business
 - Multiple runs could exceed the 3-call limit
 - Mixed direct API + bulk queue calls could exceed limit
@@ -18,8 +18,14 @@
 **Solution**:
 - Integrated `call_limiter.py` SSOT into workers
 - Workers now check `count_active_outbound_calls(business_id)` 
-- Enforces `MAX_OUTBOUND_CALLS_PER_BUSINESS = 3` at business level
+- Enforces `MAX_OUTBOUND_CALLS_PER_BUSINESS = 3` **PER BUSINESS** (not global!)
 - No duplicate logic - uses existing call_limiter
+
+**Important**: The 3-call limit is **PER BUSINESS**:
+- Business A: max 3 concurrent calls
+- Business B: max 3 concurrent calls  
+- Business C: max 3 concurrent calls
+- **Total system**: Can have many calls (3 × number of active businesses)
 
 ### 3. ✅ No Duplicates / Conflicts
 **Existing Protection Preserved**:
@@ -46,8 +52,8 @@ tail -f logs/app.log | grep -i "context\|bulkcall"
 # ❌ NO "Working outside of request context" errors
 ```
 
-### Test 2: Concurrency Limiting (3 max per business)
-**Expected**: Never more than 3 active outbound calls per business
+### Test 2: Concurrency Limiting (3 max per business, NOT global)
+**Expected**: Never more than 3 active outbound calls **per business**
 
 ```sql
 -- Run this query repeatedly during bulk calling
@@ -59,7 +65,13 @@ FROM outbound_call_jobs
 WHERE status IN ('dialing', 'calling')
 GROUP BY business_id;
 
--- Expected result: active_count <= 3 for each business
+-- Expected result: active_count <= 3 for EACH business
+-- Multiple businesses can each have 3 calls simultaneously!
+-- Example valid state:
+-- business_id=1, active_count=3 ✅
+-- business_id=2, active_count=3 ✅
+-- business_id=3, active_count=3 ✅
+-- Total: 9 calls across system ✅
 ```
 
 **OR via logs:**
