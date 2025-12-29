@@ -3886,20 +3886,22 @@ class MediaStreamHandler:
                             if not self.crm_context.customer_name and lead_id:
                                 try:
                                     from server.models_sql import Lead
-                                    lead = Lead.query.get(lead_id)
+                                    from server.services.realtime_prompt_builder import extract_first_name
+                                    
+                                    # 🔒 SECURITY: Filter by tenant_id for data isolation
+                                    lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id_safe).first()
                                     if lead:
                                         # Get full name from Lead record
                                         full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
                                         if full_name and full_name not in ['', 'Customer', 'ללא שם']:
                                             # Extract first name only (for natural usage)
-                                            from server.services.realtime_prompt_builder import extract_first_name
                                             customer_name = extract_first_name(full_name) or full_name
                                             self.crm_context.customer_name = customer_name
                                             print(f"✅ [CRM_CONTEXT] Fetched customer name from Lead: '{customer_name}' (lead_id={lead_id})")
                                         else:
                                             print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} has no valid name (full_name='{full_name}')")
                                     else:
-                                        print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} not found in database")
+                                        print(f"⚠️ [CRM_CONTEXT] Lead {lead_id} not found in database or wrong tenant")
                                 except Exception as e:
                                     print(f"⚠️ [CRM_CONTEXT] Failed to fetch customer name from Lead: {e}")
                             
