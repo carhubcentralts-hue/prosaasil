@@ -189,7 +189,9 @@ def create_outbound_call(
             from_=from_phone,
             url=webhook_url,
             status_callback=f"https://{host}/webhook/call_status",
-            status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+            # 🔥 FIX: Added ALL terminal statuses so queue processing works correctly
+            # Without 'no-answer', 'busy', 'failed', 'canceled', jobs stay in 'calling' status forever!
+            status_callback_event=['initiated', 'ringing', 'answered', 'completed', 'busy', 'no-answer', 'failed', 'canceled'],
             # 🔥 SSOT: Recording is started via _start_recording_from_second_zero (not here)
             # 🎙️ recording_mode will be set to "RECORDING_API" when recording starts
             # ❌ DO NOT ADD record=True - recordings are managed separately
