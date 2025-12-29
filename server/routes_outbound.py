@@ -238,6 +238,10 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
             job.run_id = run.id
             job.lead_id = lead_id
             job.status = "queued"
+            # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
+            lead_obj = next((l for l in leads if l.id == lead_id), None)
+            if lead_obj:
+                job.lead_name = lead_obj.full_name or f"{lead_obj.first_name or ''} {lead_obj.last_name or ''}".strip() or None
             db.session.add(job)
         
         db.session.commit()
@@ -373,6 +377,8 @@ def start_outbound_calls():
                 call_log.direction = "outbound"
                 call_log.status = "initiated"
                 call_log.call_status = "initiated"
+                # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
+                call_log.customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or None
                 db.session.add(call_log)
                 db.session.flush()
                 
@@ -1333,6 +1339,10 @@ def bulk_enqueue_outbound_calls():
             job.run_id = run.id
             job.lead_id = lead_id
             job.status = "queued"
+            # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
+            lead_obj = next((l for l in leads if l.id == lead_id), None)
+            if lead_obj:
+                job.lead_name = lead_obj.full_name or f"{lead_obj.first_name or ''} {lead_obj.last_name or ''}".strip() or None
             db.session.add(job)
         
         db.session.commit()
@@ -2054,6 +2064,8 @@ def process_bulk_call_run(run_id: int):
                             call_log.direction = "outbound"
                             call_log.status = "initiated"
                             call_log.call_status = "initiated"
+                            # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
+                            call_log.customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or None
                             db.session.add(call_log)
                             db.session.flush()
                             
