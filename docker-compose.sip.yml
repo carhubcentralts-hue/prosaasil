@@ -58,8 +58,10 @@ services:
       dockerfile: Dockerfile.media-gateway
     restart: unless-stopped
     depends_on:
-      - asterisk
-      - backend
+      asterisk:
+        condition: service_healthy
+      backend:
+        condition: service_started
     environment:
       # OpenAI API
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -100,7 +102,8 @@ services:
       dockerfile: Dockerfile.backend
     restart: unless-stopped
     depends_on:
-      - asterisk
+      asterisk:
+        condition: service_healthy
     env_file:
       - .env
     environment:

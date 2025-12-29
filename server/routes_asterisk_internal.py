@@ -48,14 +48,12 @@ def handle_call_start():
         
         # Create CallLog entry
         call_log = CallLog(
-            tenant_id=tenant_id,
+            business_id=tenant_id,
             call_sid=call_id,
             direction=direction,
             from_number=from_number,
             to_number=to_number,
-            status='in-progress',
-            started_at=datetime.utcnow(),
-            provider=provider
+            status='in-progress'
         )
         
         # Link to lead if provided
@@ -107,16 +105,15 @@ def handle_call_end():
         
         # Update status
         call_log.status = 'completed'
-        call_log.ended_at = datetime.utcnow()
         
-        # Calculate duration
-        if call_log.started_at and call_log.ended_at:
-            duration = (call_log.ended_at - call_log.started_at).total_seconds()
-            call_log.duration = int(duration)
+        # Calculate duration (CallLog uses created_at and updated_at)
+        if call_log.created_at:
+            duration = (datetime.utcnow() - call_log.created_at).total_seconds()
+            call_log.duration_seconds = int(duration)
         
         db.session.commit()
         
-        logger.info(f"[ASTERISK_INTERNAL] ✅ CallLog updated: id={call_log.id}, duration={call_log.duration}s")
+        logger.info(f"[ASTERISK_INTERNAL] ✅ CallLog updated: id={call_log.id}, duration={call_log.duration_seconds}s")
         
         # Trigger post-call processing (recording transcription, etc.)
         # This will be handled by the recording worker
@@ -124,7 +121,7 @@ def handle_call_end():
         return jsonify({
             'status': 'ok',
             'call_id': call_id,
-            'duration': call_log.duration
+            'duration': call_log.duration_seconds
         }), 200
         
     except Exception as e:
