@@ -3007,6 +3007,7 @@ class MediaStreamHandler:
 
                     # 🔥 FIX #3: Inject dynamic "today" context (helps prevent year/weekday hallucinations).
                     # Keep it short and purely factual.
+                    # ⚠️ IMPORTANT: This context is NOT included in hash calculation to prevent duplicate detection issues
                     try:
                         import pytz
                         from datetime import datetime
@@ -3027,8 +3028,30 @@ class MediaStreamHandler:
 
                     if system_prompt and system_prompt.strip():
                         # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for system prompt
+                        # ⚠️ NORMALIZE before hashing: strip whitespace, normalize newlines, remove dynamic content
                         import hashlib
-                        system_hash = hashlib.md5(system_prompt.encode()).hexdigest()[:8]
+                        import re
+                        
+                        # Helper: Normalize text for hash calculation
+                        def normalize_for_hash(text):
+                            """Normalize text for consistent hash calculation"""
+                            if not text:
+                                return ""
+                            # Strip leading/trailing whitespace
+                            text = text.strip()
+                            # Normalize line endings (\r\n -> \n)
+                            text = text.replace('\r\n', '\n')
+                            # Remove dynamic elements that change per call
+                            # Remove TODAY_ISO, TODAY_WEEKDAY_HE, TIMEZONE (these are added dynamically above)
+                            text = re.sub(r'Context: TODAY_ISO=[^\s]+\.?\s*', '', text)
+                            text = re.sub(r'TODAY_WEEKDAY_HE=[^\s]+\.?\s*', '', text)
+                            text = re.sub(r'TIMEZONE=[^\s\.]+\.?\s*', '', text)
+                            # Remove any remaining "Context: " prefix if empty
+                            text = re.sub(r'\s*Context:\s*\.?\s*', '', text)
+                            return text.strip()
+                        
+                        normalized_system = normalize_for_hash(system_prompt)
+                        system_hash = hashlib.md5(normalized_system.encode()).hexdigest()[:8]
                         
                         # Store hash to prevent duplicate injection
                         self._system_prompt_hash = system_hash
