@@ -86,7 +86,7 @@ def test_phone_fallback():
     
     # Check that _resolve_customer_name accepts lead_id parameter
     resolve_func_start = content.find("def _resolve_customer_name")
-    resolve_func = content[resolve_func_start:resolve_func_start + 6000]  # Increased from 5000
+    resolve_func = content[resolve_func_start:resolve_func_start + 8000]  # Increased to cover full function
     
     # Check for phone_number parameter
     assert "phone_number: Optional[str] = None" in resolve_func, \
@@ -94,9 +94,9 @@ def test_phone_fallback():
     print("✅ _resolve_customer_name accepts phone_number parameter")
     
     # Check for phone-based Lead lookup  
-    # The query might be split across lines, so check for key parts
-    assert "Lead.phone_e164" in resolve_func and "phone_number" in resolve_func, \
-        "Should query Lead by phone number"
+    # The query uses .in_() for multiple phone variants
+    assert "Lead.phone_e164" in resolve_func and "phone_variants" in resolve_func, \
+        "Should query Lead by phone number with variants"
     print("✅ Has Lead lookup by phone number")
     
     # Check for proper ordering (should be fallback, not priority 1)
@@ -124,7 +124,7 @@ def test_debug_logging():
         content = f.read()
     
     resolve_func_start = content.find("def _resolve_customer_name")
-    resolve_func = content[resolve_func_start:resolve_func_start + 6000]  # Increased range
+    resolve_func = content[resolve_func_start:resolve_func_start + 8000]  # Increased to cover full function
     
     # Check for debug logging of input parameters
     assert "[NAME_RESOLVE DEBUG]" in resolve_func or "[NAME_RESOLVE]" in resolve_func, \

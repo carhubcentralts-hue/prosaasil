@@ -2846,19 +2846,38 @@ class MediaStreamHandler:
                     # Priority 5: Fallback - Lead lookup by phone number
                     if phone_number:
                         try:
-                            # Normalize phone for comparison
-                            # Try multiple phone field matches
+                            # 🔥 CRITICAL: Normalize phone for comparison
+                            # Handle both E.164 (+972...) and local (05...) formats
+                            # If Twilio gives +9725... but DB has 05..., we must search both
+                            
+                            phone_variants = [phone_number]  # Start with original
+                            
+                            # Generate normalized variants
+                            cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
+                            
+                            # If E.164 format (+972...), also try local format (0...)
+                            if phone_number.startswith('+972'):
+                                local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
+                                phone_variants.append(local_format)
+                            # If local format (0...), also try E.164 (+972...)
+                            elif phone_number.startswith('0'):
+                                e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
+                                phone_variants.append(e164_format)
+                            
+                            logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
+                            
+                            # Query with all variants
                             lead = Lead.query.filter_by(
                                 tenant_id=business_id
                             ).filter(
-                                (Lead.phone_e164 == phone_number) | 
-                                (Lead.phone == phone_number)
+                                (Lead.phone_e164.in_(phone_variants)) | 
+                                (Lead.phone.in_(phone_variants))
                             ).order_by(Lead.updated_at.desc()).first()
                             
                             if lead:
                                 name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
                                 if name and name != "ללא שם":
-                                    logger.info(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}")
+                                    logger.info(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number} matched={phone_variants}")
                                     _orig_print(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}", flush=True)
                                     return (name, "lead_phone")
                         except Exception as e:
@@ -9126,6 +9145,12 @@ class MediaStreamHandler:
                         self.outbound_template_id = custom_params.get("template_id")
                         self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = custom_params.get("business_name")
+                        
+                        # 🔥 CRITICAL DEBUG: Log all outbound parameters to verify they arrive
+                        # This proves whether lead_id/phone actually reach media_ws_ai.py
+                        print(f"📞 [OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id}, phone={self.phone_number}, call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...")
+                        logger.info(f"[OUTBOUND_PARAMS] lead_id={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid}")
+                        _orig_print(f"[OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...", flush=True)
                         
                         # 🔥 DEBUG: Log outbound lead name explicitly
                         if self.outbound_lead_name:
