@@ -3581,11 +3581,40 @@ class MediaStreamHandler:
                     if existing_hash != name_anchor_hash_short:
                         from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
                         
-                        # 🧠 GENDER DETECTION: Detect gender from name
-                        customer_gender = detect_gender_from_name(customer_name_to_inject)
-                        if customer_gender:
-                            logger.info(f"[GENDER_DETECT] Detected gender: {customer_gender} for name: '{customer_name_to_inject}'")
-                            print(f"🧠 [GENDER] Detected: {customer_gender} for '{customer_name_to_inject}'")
+                        # 🧠 GENDER DETECTION: Priority order (SSOT)
+                        # 1. Database (if manually set or detected from previous conversation)
+                        # 2. Name-based detection (if not unisex)
+                        customer_gender = None
+                        
+                        # Priority 1: Check database for saved gender
+                        try:
+                            from server.models_sql import CallLog, Lead
+                            app = _get_flask_app()
+                            with app.app_context():
+                                call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                lead = None
+                                
+                                if call_log and call_log.lead_id:
+                                    lead = Lead.query.get(call_log.lead_id)
+                                elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                                    lead = Lead.query.get(self.outbound_lead_id)
+                                
+                                if lead and lead.gender:
+                                    customer_gender = lead.gender
+                                    logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
+                                    print(f"🧠 [GENDER] Using saved: {customer_gender} from Lead {lead.id}")
+                        except Exception as e:
+                            logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
+                        
+                        # Priority 2: Detect from name (only if not in database)
+                        if not customer_gender:
+                            customer_gender = detect_gender_from_name(customer_name_to_inject)
+                            if customer_gender:
+                                logger.info(f"[GENDER_DETECT] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
+                                print(f"🧠 [GENDER] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
+                            else:
+                                logger.info(f"[GENDER_DETECT] Cannot determine gender from name: '{customer_name_to_inject}' (unisex or unknown)")
+                                print(f"🧠 [GENDER] Unknown/unisex name: '{customer_name_to_inject}' (will wait for conversation)")
                         
                         name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy, customer_gender)
                         
@@ -4623,11 +4652,37 @@ class MediaStreamHandler:
             if existing_hash != new_hash_short:
                 from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
                 
-                # 🧠 GENDER DETECTION: Detect gender from name
-                customer_gender = detect_gender_from_name(current_name)
-                if customer_gender:
-                    logger.info(f"[GENDER_DETECT] Detected gender: {customer_gender} for name: '{current_name}'")
-                    print(f"🧠 [GENDER] Detected: {customer_gender} for '{current_name}'")
+                # 🧠 GENDER DETECTION: Priority order (SSOT)
+                # 1. Database (if manually set or detected from previous conversation)
+                # 2. Name-based detection (if not unisex)
+                customer_gender = None
+                
+                # Priority 1: Check database for saved gender
+                try:
+                    from server.models_sql import CallLog, Lead
+                    app = _get_flask_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        lead = None
+                        
+                        if call_log and call_log.lead_id:
+                            lead = Lead.query.get(call_log.lead_id)
+                        elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                            lead = Lead.query.get(self.outbound_lead_id)
+                        
+                        if lead and lead.gender:
+                            customer_gender = lead.gender
+                            logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
+                except Exception as e:
+                    logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
+                
+                # Priority 2: Detect from name (only if not in database)
+                if not customer_gender:
+                    customer_gender = detect_gender_from_name(current_name)
+                    if customer_gender:
+                        logger.info(f"[GENDER_DETECT] Detected from name: {customer_gender} for '{current_name}'")
+                    else:
+                        logger.info(f"[GENDER_DETECT] Cannot determine from name: '{current_name}' (unisex/unknown)")
                 
                 # Build updated NAME_ANCHOR
                 name_anchor_text = build_name_anchor_message(current_name, current_policy, customer_gender)
@@ -6986,6 +7041,67 @@ class MediaStreamHandler:
                     
                     # Check for voicemail/answering machine (first 10 seconds only)
                     await self._maybe_hangup_voicemail(text)
+                    
+                    # 🧠 GENDER DETECTION FROM CONVERSATION
+                    # Detect if user explicitly states their gender ("אני אישה" / "אני גבר")
+                    # This is the most reliable source - update Lead in database if detected
+                    if text and len(text) > 3:  # At least a few characters
+                        from server.services.realtime_prompt_builder import detect_gender_from_conversation
+                        detected_gender = detect_gender_from_conversation(text)
+                        
+                        if detected_gender and self.call_sid:
+                            # Gender detected from conversation! Update Lead in database
+                            try:
+                                from server.models_sql import CallLog, Lead
+                                app = _get_flask_app()
+                                with app.app_context():
+                                    # Find the lead associated with this call
+                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                    lead = None
+                                    
+                                    if call_log and call_log.lead_id:
+                                        lead = Lead.query.get(call_log.lead_id)
+                                    elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                                        # Outbound call - use outbound_lead_id
+                                        lead = Lead.query.get(self.outbound_lead_id)
+                                    
+                                    if lead:
+                                        # Update gender in database
+                                        old_gender = lead.gender
+                                        lead.gender = detected_gender
+                                        db.session.commit()
+                                        
+                                        logger.info(f"[GENDER_CONVERSATION] Updated lead {lead.id} gender: {old_gender} → {detected_gender}")
+                                        print(f"🧠 [GENDER] Detected from conversation: {detected_gender} (saved to Lead {lead.id})")
+                                        
+                                        # Re-inject NAME_ANCHOR with updated gender
+                                        if hasattr(self, '_name_anchor_customer_name') and self._name_anchor_customer_name:
+                                            from server.services.realtime_prompt_builder import build_name_anchor_message
+                                            use_policy = getattr(self, '_name_anchor_policy', False)
+                                            updated_anchor = build_name_anchor_message(
+                                                self._name_anchor_customer_name, 
+                                                use_policy, 
+                                                detected_gender
+                                            )
+                                            
+                                            # Send updated context to AI
+                                            try:
+                                                await client.send_event({
+                                                    "type": "conversation.item.create",
+                                                    "item": {
+                                                        "type": "message",
+                                                        "role": "system",
+                                                        "content": [{"type": "input_text", "text": updated_anchor}]
+                                                    }
+                                                })
+                                                print(f"🧠 [GENDER] Updated AI context with detected gender")
+                                            except Exception as e:
+                                                logger.warning(f"[GENDER_CONVERSATION] Failed to update AI context: {e}")
+                                    else:
+                                        logger.debug(f"[GENDER_CONVERSATION] No lead found for call_sid {self.call_sid[:8]}")
+                            except Exception as e:
+                                logger.error(f"[GENDER_CONVERSATION] Error updating gender: {e}")
+                                logger.exception("Full traceback:")
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription

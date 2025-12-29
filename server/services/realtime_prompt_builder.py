@@ -250,21 +250,25 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
     Uses comprehensive lists of common Hebrew and English names to determine gender.
     Returns None if gender cannot be determined from name alone.
     
+    ⚠️ UNISEX NAMES: Returns None for names like גל, נועם, ליאור, Alex, Jordan
+    This allows the system to wait for conversation-based detection or manual input.
+    
     Args:
         name: The customer's first name
         
     Returns:
-        "male", "female", or None if cannot determine
+        "male", "female", or None if cannot determine (unisex/unknown)
         
     Examples:
         "יוסי" → "male"
         "דוד" → "male"
         "שרה" → "female"
         "רחל" → "female"
-        "מיכל" → "female" (unisex, but more common for females)
+        "גל" → None (unisex)
+        "נועם" → None (unisex)
         "John" → "male"
         "Sarah" → "female"
-        "Alex" → None (ambiguous)
+        "Alex" → None (unisex)
     """
     if not name or not isinstance(name, str):
         return None
@@ -276,14 +280,88 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
     
     name_lower = name_clean.lower()
     
+    # 🟡 UNISEX NAMES: Names that can be both male and female
+    # These names should NOT auto-detect gender - wait for conversation or manual input
+    unisex_names = {
+        # Hebrew unisex
+        "גל", "נועם", "ליאור", "יובל", "עדי", "שי", "רוני", "עמית", "אדר",
+        # English unisex
+        "alex", "jordan", "taylor", "casey", "riley", "morgan", "avery", "quinn"
+    }
+
+
+def detect_gender_from_conversation(text: str) -> Optional[str]:
+    """
+    🧠 CONVERSATION-BASED GENDER DETECTION: Detect gender from what user says
+    
+    Detects when user explicitly states their gender during conversation:
+    - "אני אישה" / "אני נקבה" → female
+    - "אני גבר" / "אני זכר" → male
+    
+    This is the most reliable source - overrides name-based detection.
+    
+    Args:
+        text: The user's transcript text
+        
+    Returns:
+        "male", "female", or None if no gender statement detected
+        
+    Examples:
+        "אני אישה" → "female"
+        "אני גבר" → "male"
+        "כן, אני אישה" → "female"
+        "מה שלומך?" → None
+    """
+    if not text or not isinstance(text, str):
+        return None
+    
+    text_lower = text.lower().strip()
+    
+    # 🔴 FEMALE INDICATORS
+    female_phrases = [
+        "אני אישה",
+        "אני נקבה",
+        "אני בחורה",
+        "אני גברת",
+        "זאת אישה",
+        "זו אישה",
+    ]
+    
+    # 🔵 MALE INDICATORS
+    male_phrases = [
+        "אני גבר",
+        "אני זכר",
+        "אני בחור",
+        "אני מר",
+        "זה גבר",
+        "זה בחור",
+    ]
+    
+    # Check for female indicators
+    for phrase in female_phrases:
+        if phrase in text_lower:
+            logger.info(f"[GENDER_DETECT] Female detected from conversation: '{phrase}' in '{text[:50]}'")
+            return "female"
+    
+    # Check for male indicators
+    for phrase in male_phrases:
+        if phrase in text_lower:
+            logger.info(f"[GENDER_DETECT] Male detected from conversation: '{phrase}' in '{text[:50]}'")
+            return "male"
+    
+    return None
+
+
+def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
+    
     # 🔵 HEBREW MALE NAMES (common Israeli male names)
     hebrew_male_names = {
         # Classic Hebrew names
         "אברהם", "יצחק", "יעקב", "משה", "אהרון", "דוד", "שלמה", "יוסף", "בנימין", "דן",
         # Modern Hebrew names
         "יוסי", "דני", "רוני", "עמי", "עומר", "אורי", "אלון", "גיא", "תומר", "רועי",
-        "אייל", "שי", "נועם", "ליאור", "יובל", "איתי", "עידו", "יונתן", "מיכאל", "אריאל",
-        "עומרי", "אדם", "משה", "חיים", "אבי", "אבנר", "גל", "בועז", "נתנאל", "אליהו",
+        "אייל", "נתנאל", "מיכאל", "אריאל",
+        "עומרי", "אדם", "משה", "חיים", "אבי", "אבנר", "בועז", "אליהו",
         "שלום", "מרדכי", "שמעון", "ישראל", "אליעזר", "גד", "אשר", "נפתלי", "ראובן",
         # Ben names (son of)
         "בן", "אבן"
@@ -295,8 +373,8 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
         "שרה", "רבקה", "רחל", "לאה", "מרים", "דינה", "דבורה", "יעל", "רות", "חנה",
         # Modern Hebrew names
         "נועה", "תמר", "שירה", "מיכל", "ענת", "דנה", "הילה", "רונית", "ליאת", "שירן",
-        "מאיה", "עדי", "יעל", "אורית", "אפרת", "טלי", "ניצה", "שלומית", "נטלי", "אלה",
-        "גל", "בר", "ענבל", "נועם", "ליאור", "אדר", "רעות", "עמית", "זהר", "סיגל",
+        "מאיה", "אורית", "אפרת", "טלי", "ניצה", "שלומית", "נטלי", "אלה",
+        "ענבל", "רעות", "זהר", "סיגל",
         "אורנה", "מלכה", "חוה", "אסתר", "שושנה", "עירית", "קרן", "דפנה", "ברכה",
         # Bat names (daughter of)
         "בת"
@@ -324,7 +402,13 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
         "janet", "ruth", "maria", "heather", "diane", "virginia", "julie", "joyce", "victoria"
     }
     
-    # Check Hebrew names first
+    # 🟡 CHECK FOR UNISEX NAMES FIRST
+    # These names should NOT auto-detect - return None to wait for conversation/manual input
+    if name_lower in unisex_names:
+        logger.debug(f"[GENDER_DETECT] Unisex name detected, cannot auto-determine: '{name_clean}'")
+        return None
+    
+    # Check Hebrew names
     if name_lower in hebrew_male_names:
         logger.debug(f"[GENDER_DETECT] Hebrew male name detected: '{name_clean}'")
         return "male"
@@ -342,16 +426,16 @@ def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
         logger.debug(f"[GENDER_DETECT] English female name detected: '{name_clean}'")
         return "female"
     
-    # 🔍 PATTERN-BASED DETECTION: Hebrew name endings
+    # 🔍 PATTERN-BASED DETECTION: Hebrew name endings (but not for short names)
     # Hebrew female names often end with specific patterns
-    if len(name_clean) >= 3:
+    if len(name_clean) >= 4:  # At least 4 characters to avoid false positives
         # Female endings in Hebrew
-        if name_clean.endswith(('ה', 'ת', 'ית', 'לה', 'ן')):
+        if name_clean.endswith(('ה', 'ית', 'לה')):
             logger.debug(f"[GENDER_DETECT] Female pattern detected (ending): '{name_clean}'")
             return "female"
     
-    # Cannot determine gender from name
-    logger.debug(f"[GENDER_DETECT] Gender unknown for name: '{name_clean}'")
+    # Cannot determine gender from name - this is OK for unisex or uncommon names
+    logger.debug(f"[GENDER_DETECT] Gender unknown for name: '{name_clean}' (will wait for conversation or manual input)")
     return None
 
 
@@ -377,11 +461,15 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     Returns:
         Formatted NAME_ANCHOR message text (SHORT!)
     """
-    # Build gender info line if available
+    # Build gender info line with instructions
     gender_line = ""
-    if customer_gender:
-        gender_hebrew = "זכר" if customer_gender == "male" else "נקבה"
-        gender_line = f"Customer gender: {gender_hebrew} ({customer_gender})\n"
+    if customer_gender == "male":
+        gender_line = f"Customer gender: זכר (male) - Use masculine Hebrew forms.\n"
+    elif customer_gender == "female":
+        gender_line = f"Customer gender: נקבה (female) - Use feminine Hebrew forms.\n"
+    else:
+        # Gender unknown - instruct AI to use neutral language
+        gender_line = f"Customer gender: לא ידוע (unknown) - Use NEUTRAL/GENERAL Hebrew forms. Do NOT guess. If needed, you may politely ask.\n"
     
     if customer_name and use_name_policy:
         # EXPLICIT: Make it crystal clear that name MUST be used

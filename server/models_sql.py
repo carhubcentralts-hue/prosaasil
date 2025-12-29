@@ -401,6 +401,7 @@ class Lead(db.Model):
     last_name = db.Column(db.String(255))
     phone_e164 = db.Column(db.String(64), index=True)
     email = db.Column(db.String(255), index=True)
+    gender = db.Column(db.String(16), nullable=True)  # 'male', 'female', or NULL - auto-detected or manually set
     
     # Lead tracking
     source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual|imported_outbound
