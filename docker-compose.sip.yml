@@ -1,0 +1,203 @@
+# Docker Compose for Asterisk + Media Gateway + Backend (SIP/DID System)
+# Complete replacement for Twilio infrastructure
+
+version: '3.8'
+
+services:
+  # Asterisk PBX with ARI
+  asterisk:
+    image: andrius/asterisk:18-current
+    container_name: prosaas-asterisk
+    restart: unless-stopped
+    hostname: asterisk
+    environment:
+      # ARI Configuration
+      - ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
+      # SIP Trunk Configuration (DID Provider)
+      - SIP_TRUNK_HOST=${SIP_TRUNK_HOST:-sip.provider.com}
+      - SIP_TRUNK_PORT=${SIP_TRUNK_PORT:-5060}
+      - SIP_TRUNK_USERNAME=${SIP_TRUNK_USERNAME}
+      - SIP_TRUNK_PASSWORD=${SIP_TRUNK_PASSWORD}
+      - SIP_TRUNK_IP=${SIP_TRUNK_IP:-0.0.0.0}
+      # External IP for RTP (required for production)
+      - EXTERNAL_IP=${EXTERNAL_IP:-127.0.0.1}
+      # Tenant mapping (can be extended)
+      - TENANT_ID=${DEFAULT_TENANT_ID:-1}
+    ports:
+      # SIP signaling
+      - "5060:5060/udp"
+      # ARI HTTP/WebSocket
+      - "8088:8088"
+      # RTP media (large range for concurrent calls)
+      - "10000-10100:10000-10100/udp"
+    volumes:
+      # Asterisk configuration files
+      - ./infra/asterisk/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./infra/asterisk/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./infra/asterisk/ari.conf:/etc/asterisk/ari.conf:ro
+      - ./infra/asterisk/http.conf:/etc/asterisk/http.conf:ro
+      - ./infra/asterisk/rtp.conf:/etc/asterisk/rtp.conf:ro
+      - ./infra/asterisk/logger.conf:/etc/asterisk/logger.conf:ro
+      # Recording storage (shared with backend)
+      - asterisk_recordings:/var/spool/asterisk/recordings
+      # Logs
+      - asterisk_logs:/var/log/asterisk
+    networks:
+      - prosaas-network
+    healthcheck:
+      test: ["CMD", "asterisk", "-rx", "core show version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Media Gateway (RTP ↔ OpenAI Realtime)
+  media-gateway:
+    container_name: prosaas-media-gateway
+    build:
+      context: .
+      dockerfile: Dockerfile.media-gateway
+    restart: unless-stopped
+    depends_on:
+      - asterisk
+      - backend
+    environment:
+      # OpenAI API
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # RTP Configuration
+      - RTP_HOST=0.0.0.0
+      - RTP_PORT_START=10000
+      - RTP_PORT_END=10100
+      # Asterisk connection
+      - ASTERISK_HOST=asterisk
+      - ASTERISK_ARI_URL=http://asterisk:8088/ari
+      - ASTERISK_ARI_USER=prosaas
+      - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
+      # Backend API
+      - BACKEND_URL=http://backend:5000
+      # Debug
+      - DEBUG=${DEBUG:-0}
+      - DUMP_AUDIO=${DUMP_AUDIO:-0}
+    ports:
+      # RTP port range (must match Asterisk ExternalMedia config)
+      - "10000-10100:10000-10100/udp"
+    volumes:
+      # Debug audio dumps (optional)
+      - media_gateway_dumps:/app/dumps
+    networks:
+      - prosaas-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend (existing service with Asterisk integration)
+  backend:
+    container_name: prosaas-backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      - asterisk
+    env_file:
+      - .env
+    environment:
+      # Database
+      - DATABASE_URL=${DATABASE_URL}
+      # Public URL
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
+      - PUBLIC_HOST=${PUBLIC_HOST}
+      # OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Telephony Provider Selection
+      # DEFAULT: asterisk (production)
+      # Set to "twilio" ONLY for emergency fallback
+      - TELEPHONY_PROVIDER=${TELEPHONY_PROVIDER:-asterisk}
+      - ASTERISK_ARI_URL=http://asterisk:8088/ari
+      - ASTERISK_ARI_USER=prosaas
+      - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
+      - ASTERISK_SIP_TRUNK=didww
+      # Media Gateway
+      - MEDIA_GATEWAY_HOST=media-gateway
+      - MEDIA_GATEWAY_PORT=10000
+      # Legacy Twilio (DEPRECATED - for emergency fallback only)
+      # Leave empty unless rollback required
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+    ports:
+      - "5000:5000"
+    volumes:
+      # Shared recording storage
+      - asterisk_recordings:/var/spool/asterisk/recordings:ro
+      - recordings_data:/app/server/recordings
+    networks:
+      - prosaas-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (unchanged)
+  frontend:
+    container_name: prosaas-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - prosaas-network
+
+  # Baileys WhatsApp (unchanged)
+  baileys:
+    container_name: prosaas-baileys
+    build:
+      context: .
+      dockerfile: Dockerfile.baileys
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3300:3300"
+    env_file:
+      - .env
+    environment:
+      - FLASK_BASE_URL=${FLASK_BASE_URL}
+    networks:
+      - prosaas-network
+
+  # n8n (unchanged)
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: prosaas-n8n
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_PATH=/n8n/
+      - DB_TYPE=sqlite
+      - N8N_BASE_URL=${PUBLIC_BASE_URL}/n8n/
+      - N8N_PUBLIC_URL=${PUBLIC_BASE_URL}/n8n/
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+    networks:
+      - prosaas-network
+
+volumes:
+  n8n_data:
+  recordings_data:
+  asterisk_recordings:
+  asterisk_logs:
+  media_gateway_dumps:
+
+networks:
+  prosaas-network:
+    driver: bridge
