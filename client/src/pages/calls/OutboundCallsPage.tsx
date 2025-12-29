@@ -18,7 +18,8 @@ import {
   LayoutGrid,
   List,
   StopCircle,
-  Clock
+  Clock,
+  FolderOpen
 } from 'lucide-react';
 import { formatDateOnly, formatDate } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
@@ -31,6 +32,7 @@ import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDrop
 import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
+import { ProjectsListView } from './components/ProjectsListView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
 import type { LeadStatusConfig } from '../../shared/types/status';
 
@@ -100,6 +102,22 @@ interface RecentCall {
   recording_sid: string | null;
   transcript: string | null;
   summary: string | null;
+}
+
+interface Project {
+  id: number;
+  name: string;
+  description?: string;
+  status: 'draft' | 'active' | 'completed' | 'paused';
+  created_at: string;
+  total_leads: number;
+  stats?: {
+    total_calls: number;
+    answered: number;
+    no_answer: number;
+    failed: number;
+    total_duration: number;
+  } | null;
 }
 
 export function OutboundCallsPage() {
@@ -368,6 +386,38 @@ export function OutboundCallsPage() {
   const recentCalls: RecentCall[] = recentCallsData?.items || [];
   const totalRecentCalls = recentCallsData?.total || 0;
   const totalRecentPages = Math.ceil(totalRecentCalls / recentCallsPageSize);
+
+  // Query for projects
+  const [projectsPage, setProjectsPage] = useState(1);
+  const [projectsSearch, setProjectsSearch] = useState('');
+  const [projectsStatusFilter, setProjectsStatusFilter] = useState('');
+  const projectsPageSize = 50;
+  
+  const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useQuery({
+    queryKey: ['/api/projects', projectsPage, projectsSearch, projectsStatusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(projectsPage),
+        page_size: String(projectsPageSize),
+      });
+      
+      if (projectsSearch) {
+        params.append('search', projectsSearch);
+      }
+      
+      if (projectsStatusFilter) {
+        params.append('status', projectsStatusFilter);
+      }
+
+      return await http.get(`/api/projects?${params.toString()}`);
+    },
+    enabled: activeTab === 'projects',
+    retry: 1,
+  });
+
+  const projects: Project[] = projectsData?.items || [];
+  const totalProjects = projectsData?.total || 0;
+  const totalProjectsPages = Math.ceil(totalProjects / projectsPageSize);
 
   const systemLeads = Array.isArray(leadsData?.leads) ? leadsData.leads : [];
   const activeLeads = Array.isArray(activeLeadsData?.leads) ? activeLeadsData.leads : [];
@@ -2102,6 +2152,66 @@ export function OutboundCallsPage() {
               </>
             )}
           </Card>
+        </div>
+      )}
+
+      {/* Projects Tab */}
+      {!showResults && activeTab === 'projects' && (
+        <div className="space-y-4">
+          <ProjectsListView
+            projects={projects}
+            loading={projectsLoading}
+            onCreateProject={() => {
+              // TODO: Open create project modal
+              alert('יצירת פרויקט - בקרוב');
+            }}
+            onOpenProject={(projectId) => {
+              // TODO: Navigate to project detail view
+              alert(`פתיחת פרויקט ${projectId} - בקרוב`);
+            }}
+            onDeleteProject={async (projectId) => {
+              if (confirm('האם אתה בטוח שברצונך למחוק את הפרויקט?')) {
+                try {
+                  await http.delete(`/api/projects/${projectId}`);
+                  refetchProjects();
+                } catch (error) {
+                  console.error('Error deleting project:', error);
+                  alert('שגיאה במחיקת הפרויקט');
+                }
+              }
+            }}
+          />
+
+          {/* Pagination */}
+          {totalProjectsPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-gray-100">
+              <div className="text-sm text-gray-500 order-2 sm:order-1">
+                עמוד {projectsPage} מתוך {totalProjectsPages}
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto order-1 sm:order-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setProjectsPage(p => Math.max(1, p - 1))}
+                  disabled={projectsPage === 1}
+                  data-testid="button-prev-projects-page"
+                  className="flex-1 sm:flex-none min-h-[44px]"
+                >
+                  הקודם
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setProjectsPage(p => Math.min(totalProjectsPages, p + 1))}
+                  disabled={projectsPage === totalProjectsPages}
+                  data-testid="button-next-projects-page"
+                  className="flex-1 sm:flex-none min-h-[44px]"
+                >
+                  הבא
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
