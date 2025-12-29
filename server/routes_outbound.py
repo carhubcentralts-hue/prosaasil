@@ -92,12 +92,40 @@ def get_business_phone(business_id: int) -> str | None:
 
 
 def get_public_host() -> str:
-    """Get public host for webhook URLs"""
+    """
+    Get public host for webhook URLs
+    
+    CRITICAL: Must return valid host for Twilio callbacks to work
+    Fails fast if no valid host configured (prevents silent failures)
+    
+    Returns:
+        Valid hostname (never empty/None)
+    
+    Raises:
+        RuntimeError: If no valid host is configured
+    """
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
     if public_host:
         return public_host
     
-    return os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
+    # Fallback to Replit domains
+    replit_host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    if replit_host:
+        return replit_host
+    
+    # Localhost fallback only for development
+    if os.environ.get('FLASK_ENV') == 'development' or os.environ.get('DEBUG') == '0':
+        log.warning("⚠️ Using localhost for webhooks - this will not work in production!")
+        return 'localhost'
+    
+    # FAIL FAST: No valid host in production
+    error_msg = (
+        "❌ CRITICAL: No public host configured for webhooks!\n"
+        "Set PUBLIC_HOST environment variable to your domain (e.g., myapp.com)\n"
+        "Without this, Twilio callbacks will fail and calls will not work."
+    )
+    log.error(error_msg)
+    raise RuntimeError(error_msg)
 
 
 @outbound_bp.route("/api/outbound_calls/templates", methods=["GET"])
@@ -357,6 +385,7 @@ def start_outbound_calls():
                     to_phone=normalized_phone,
                     from_phone=from_phone,
                     business_id=tenant_id,
+                    host=host,
                     lead_id=lead.id,
                     business_name=business_name
                 )
@@ -1702,17 +1731,34 @@ def fill_queue_slots_for_job(job_id: int):
             
             from_phone = business.phone_e164
             business_name = business.name or "העסק"
-            host = get_public_host()
             
-            # Check how many active calls we have (include both "dialing" and "calling")
+            # 🔒 CRITICAL: Verify host is available for webhooks (fail fast if missing)
+            try:
+                host = get_public_host()
+                log.info(f"[FillSlots] Run {run.id}: public_host={host} (for Twilio webhooks)")
+            except RuntimeError as e:
+                log.error(f"[FillSlots] Run {run.id} FAILED: {e}")
+                run.status = "failed"
+                run.last_error = "No public host configured for webhooks"
+                db.session.commit()
+                return
+            
+            # 🔒 CRITICAL: Check BUSINESS-LEVEL active outbound calls, not just this run
+            # This prevents multiple runs or mixed direct+bulk calls from exceeding limit
+            from server.services.call_limiter import count_active_outbound_calls, MAX_OUTBOUND_CALLS_PER_BUSINESS
+            
+            # Check how many active calls THIS RUN has (include both "dialing" and "calling")
             # 🔥 FIX: Must count "dialing" jobs too, otherwise we start too many calls in parallel
-            active_count = OutboundCallJob.query.filter(
+            active_in_run = OutboundCallJob.query.filter(
                 OutboundCallJob.run_id == run.id,
                 OutboundCallJob.status.in_(["dialing", "calling"])
             ).count()
             
-            # Fill available slots
-            while active_count < run.concurrency:
+            # 🔒 BUSINESS-LEVEL LIMIT: Check total active outbound calls for this business
+            business_active_outbound = count_active_outbound_calls(run.business_id)
+            
+            # Fill available slots (respect BOTH run concurrency AND business limit)
+            while active_in_run < run.concurrency and business_active_outbound < MAX_OUTBOUND_CALLS_PER_BUSINESS:
                 # Get next queued job
                 next_job = OutboundCallJob.query.filter_by(
                     run_id=run.id,
@@ -1721,7 +1767,7 @@ def fill_queue_slots_for_job(job_id: int):
                 
                 if not next_job:
                     # No more jobs queued
-                    if active_count == 0:
+                    if active_in_run == 0:
                         # All done!
                         run.status = "completed"
                         run.completed_at = datetime.utcnow()
@@ -1796,6 +1842,7 @@ def fill_queue_slots_for_job(job_id: int):
                             to_phone=normalized_phone,
                             from_phone=from_phone,
                             business_id=run.business_id,
+                            host=host,
                             lead_id=lead.id,
                             job_id=next_job.id,
                             business_name=business_name
@@ -1830,7 +1877,8 @@ def fill_queue_slots_for_job(job_id: int):
                         db.session.commit()
                         
                         log.info(f"[FillSlots] Started call for lead {lead.id}, job {next_job.id}, call_sid={call_sid}")
-                        active_count += 1
+                        active_in_run += 1
+                        business_active_outbound += 1
                         
                     except Exception as twilio_error:
                         # 🔒 DEDUPLICATION: Handle Twilio timeout/exception
@@ -1907,7 +1955,20 @@ def process_bulk_call_run(run_id: int):
             
             from_phone = business.phone_e164
             business_name = business.name or "העסק"
-            host = get_public_host()
+            
+            # 🔒 CRITICAL: Verify host is available for webhooks (fail fast if missing)
+            try:
+                host = get_public_host()
+                log.info(f"[BulkCall] Run {run_id}: public_host={host} (for Twilio webhooks)")
+            except RuntimeError as e:
+                log.error(f"[BulkCall] Run {run_id} FAILED: {e}")
+                run.status = "failed"
+                run.last_error = "No public host configured for webhooks"
+                db.session.commit()
+                return
+            
+            # 🔒 CRITICAL: Import business-level limiter to prevent exceeding 3 calls per business
+            from server.services.call_limiter import count_active_outbound_calls, MAX_OUTBOUND_CALLS_PER_BUSINESS
             
             # Process jobs in queue
             while True:
@@ -1928,8 +1989,12 @@ def process_bulk_call_run(run_id: int):
                     OutboundCallJob.status.in_(["dialing", "calling"])
                 ).count()
                 
-                # Check if we can start more calls
-                if active_jobs < run.concurrency:
+                # 🔒 BUSINESS-LEVEL LIMIT: Check total active outbound calls for this business
+                # This prevents exceeding MAX_OUTBOUND_CALLS_PER_BUSINESS even with multiple runs
+                business_active_outbound = count_active_outbound_calls(run.business_id)
+                
+                # Check if we can start more calls (respect BOTH run concurrency AND business limit)
+                if active_jobs < run.concurrency and business_active_outbound < MAX_OUTBOUND_CALLS_PER_BUSINESS:
                     # Get next queued job
                     next_job = OutboundCallJob.query.filter_by(
                         run_id=run_id,
@@ -2004,6 +2069,7 @@ def process_bulk_call_run(run_id: int):
                                     to_phone=normalized_phone,
                                     from_phone=from_phone,
                                     business_id=run.business_id,
+                                    host=host,
                                     lead_id=lead.id,
                                     job_id=next_job.id,
                                     business_name=business_name
@@ -2096,7 +2162,10 @@ def process_bulk_call_run(run_id: int):
                             # Wait for active calls to complete
                             time.sleep(2)
                 else:
-                    # At capacity, wait
+                    # At capacity OR business limit reached, wait
+                    # Business limit may be reached even if run has capacity
+                    if business_active_outbound >= MAX_OUTBOUND_CALLS_PER_BUSINESS:
+                        log.debug(f"[BulkCall] Business {run.business_id} at max outbound limit ({business_active_outbound}/{MAX_OUTBOUND_CALLS_PER_BUSINESS}), waiting...")
                     time.sleep(2)
                 
                 # Refresh run to get latest counts
