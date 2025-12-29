@@ -1665,6 +1665,78 @@ def normalize_hebrew_text(text: str) -> str:
     
     return result
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 VOICEMAIL DETECTION: Helper functions for detecting answering machines
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _has_voicemail_keyword(text: str) -> bool:
+    """
+    Check if text contains Hebrew voicemail keywords.
+    
+    Detects phrases like:
+    - "תא קולי" (voice mailbox)
+    - "משיבון קולי" (answering machine)
+    - "תא הודעות" (message box)
+    
+    Args:
+        text: The transcript text to check
+        
+    Returns:
+        True if voicemail keywords detected, False otherwise
+    """
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    
+    # Hebrew voicemail keywords
+    voicemail_keywords = [
+        "תא קולי",
+        "משיבון קולי",
+        "תא הודעות",
+        "תאה קולי",  # Common STT error
+        "משיבון",
+        "תא קול",
+    ]
+    
+    return any(keyword in text_lower for keyword in voicemail_keywords)
+
+def _has_phone(text: str) -> bool:
+    """
+    Check if text contains Israeli phone number being read aloud.
+    
+    Detects patterns like:
+    - "05X..." (Israeli mobile)
+    - "+972..." (International format)
+    - "972..." (Without plus)
+    
+    Args:
+        text: The transcript text to check
+        
+    Returns:
+        True if phone number pattern detected, False otherwise
+    """
+    if not text:
+        return False
+    
+    # Remove spaces and common separators for easier pattern matching
+    text_normalized = text.replace(" ", "").replace("-", "").replace(".", "")
+    
+    # Israeli phone patterns
+    # 1. Mobile: 05X-XXX-XXXX (starts with 05)
+    # 2. International: +972-5X-XXX-XXXX
+    # 3. Without plus: 972-5X-XXX-XXXX
+    
+    # Check for sequence starting with 05 followed by 8 more digits
+    if re.search(r'05[0-9]{8}', text_normalized):
+        return True
+    
+    # Check for +972 or 972 followed by digits
+    if re.search(r'\+?972[0-9]{7,9}', text_normalized):
+        return True
+    
+    return False
+
 class MediaStreamHandler:
     """
     WebSocket handler for Twilio Media Streams + OpenAI Realtime API integration.
@@ -2892,10 +2964,18 @@ class MediaStreamHandler:
                             lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
                             if lead:
                                 name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                # 🔥 DEBUG: Log what we found
+                                logger.info(f"[NAME_RESOLVE] Found lead: id={lead_id}, first_name='{lead.first_name}', last_name='{lead.last_name}', full_name='{name}'")
                                 if name and name != "ללא שם":
                                     logger.info(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}")
                                     _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
                                     return (name, "lead_id")
+                                else:
+                                    logger.info(f"[NAME_RESOLVE] Lead {lead_id} exists but has no valid name (first_name='{lead.first_name}', last_name='{lead.last_name}')")
+                                    _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has no name", flush=True)
+                            else:
+                                logger.info(f"[NAME_RESOLVE] Lead {lead_id} not found in database")
+                                _orig_print(f"[NAME_RESOLVE] Lead {lead_id} not found", flush=True)
                         except Exception as e:
                             logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
                     
@@ -2942,12 +3022,11 @@ class MediaStreamHandler:
                             
                             logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
                             
-                            # Query with all variants
+                            # Query with all variants (only phone_e164 exists in Lead model)
                             lead = Lead.query.filter_by(
                                 tenant_id=business_id
                             ).filter(
-                                (Lead.phone_e164.in_(phone_variants)) | 
-                                (Lead.phone.in_(phone_variants))
+                                Lead.phone_e164.in_(phone_variants)
                             ).order_by(Lead.updated_at.desc()).first()
                             
                             if lead:
@@ -15404,6 +15483,7 @@ class MediaStreamHandler:
                         
                         # 🔥 NEW: Update appointment with transcript and summary
                         try:
+                            from server.models_sql import Appointment
                             appointment = Appointment.query.filter_by(call_log_id=call_log.id).first()
                             if appointment:
                                 # Save full transcript
@@ -15414,6 +15494,7 @@ class MediaStreamHandler:
                                     try:
                                         from server.services.summary_service import summarize_conversation
                                         from server.services.customer_intelligence import CustomerIntelligence
+                                        from server.models_sql import Business
                                         
                                         business = Business.query.get(call_log.business_id)
                                         business_name = business.name if business else None
