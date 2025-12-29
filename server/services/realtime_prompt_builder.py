@@ -243,13 +243,128 @@ def extract_first_name(full_name: Optional[str]) -> Optional[str]:
     return clean_words[0]  # Return just the first word as fallback
 
 
-def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool) -> str:
+def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
+    """
+    🧠 SMART GENDER DETECTION: Detect if name is male or female (Hebrew/English)
+    
+    Uses comprehensive lists of common Hebrew and English names to determine gender.
+    Returns None if gender cannot be determined from name alone.
+    
+    Args:
+        name: The customer's first name
+        
+    Returns:
+        "male", "female", or None if cannot determine
+        
+    Examples:
+        "יוסי" → "male"
+        "דוד" → "male"
+        "שרה" → "female"
+        "רחל" → "female"
+        "מיכל" → "female" (unisex, but more common for females)
+        "John" → "male"
+        "Sarah" → "female"
+        "Alex" → None (ambiguous)
+    """
+    if not name or not isinstance(name, str):
+        return None
+    
+    # Clean and normalize (take only first word if multiple)
+    name_clean = name.strip().split()[0] if name.strip() else ""
+    if not name_clean:
+        return None
+    
+    name_lower = name_clean.lower()
+    
+    # 🔵 HEBREW MALE NAMES (common Israeli male names)
+    hebrew_male_names = {
+        # Classic Hebrew names
+        "אברהם", "יצחק", "יעקב", "משה", "אהרון", "דוד", "שלמה", "יוסף", "בנימין", "דן",
+        # Modern Hebrew names
+        "יוסי", "דני", "רוני", "עמי", "עומר", "אורי", "אלון", "גיא", "תומר", "רועי",
+        "אייל", "שי", "נועם", "ליאור", "יובל", "איתי", "עידו", "יונתן", "מיכאל", "אריאל",
+        "עומרי", "אדם", "משה", "חיים", "אבי", "אבנר", "גל", "בועז", "נתנאל", "אליהו",
+        "שלום", "מרדכי", "שמעון", "ישראל", "אליעזר", "גד", "אשר", "נפתלי", "ראובן",
+        # Ben names (son of)
+        "בן", "אבן"
+    }
+    
+    # 🔴 HEBREW FEMALE NAMES (common Israeli female names)
+    hebrew_female_names = {
+        # Classic Hebrew names
+        "שרה", "רבקה", "רחל", "לאה", "מרים", "דינה", "דבורה", "יעל", "רות", "חנה",
+        # Modern Hebrew names
+        "נועה", "תמר", "שירה", "מיכל", "ענת", "דנה", "הילה", "רונית", "ליאת", "שירן",
+        "מאיה", "עדי", "יעל", "אורית", "אפרת", "טלי", "ניצה", "שלומית", "נטלי", "אלה",
+        "גל", "בר", "ענבל", "נועם", "ליאור", "אדר", "רעות", "עמית", "זהר", "סיגל",
+        "אורנה", "מלכה", "חוה", "אסתר", "שושנה", "עירית", "קרן", "דפנה", "ברכה",
+        # Bat names (daughter of)
+        "בת"
+    }
+    
+    # 🔵 ENGLISH MALE NAMES (common English male names)
+    english_male_names = {
+        "john", "david", "michael", "james", "robert", "william", "richard", "joseph",
+        "thomas", "charles", "daniel", "matthew", "anthony", "mark", "donald", "steven",
+        "paul", "andrew", "joshua", "kenneth", "kevin", "brian", "george", "edward",
+        "ronald", "timothy", "jason", "jeffrey", "ryan", "jacob", "gary", "nicholas",
+        "eric", "jonathan", "stephen", "larry", "justin", "scott", "brandon", "benjamin",
+        "samuel", "frank", "gregory", "raymond", "alexander", "patrick", "jack", "dennis",
+        "jerry", "tyler", "aaron", "jose", "adam", "henry", "nathan", "douglas", "peter"
+    }
+    
+    # 🔴 ENGLISH FEMALE NAMES (common English female names)
+    english_female_names = {
+        "mary", "patricia", "jennifer", "linda", "elizabeth", "barbara", "susan", "jessica",
+        "sarah", "karen", "nancy", "lisa", "betty", "margaret", "sandra", "ashley",
+        "kimberly", "emily", "donna", "michelle", "dorothy", "carol", "amanda", "melissa",
+        "deborah", "stephanie", "rebecca", "sharon", "laura", "cynthia", "kathleen", "amy",
+        "angela", "shirley", "anna", "brenda", "pamela", "emma", "nicole", "helen",
+        "samantha", "katherine", "christine", "debra", "rachel", "catherine", "carolyn",
+        "janet", "ruth", "maria", "heather", "diane", "virginia", "julie", "joyce", "victoria"
+    }
+    
+    # Check Hebrew names first
+    if name_lower in hebrew_male_names:
+        logger.debug(f"[GENDER_DETECT] Hebrew male name detected: '{name_clean}'")
+        return "male"
+    
+    if name_lower in hebrew_female_names:
+        logger.debug(f"[GENDER_DETECT] Hebrew female name detected: '{name_clean}'")
+        return "female"
+    
+    # Check English names
+    if name_lower in english_male_names:
+        logger.debug(f"[GENDER_DETECT] English male name detected: '{name_clean}'")
+        return "male"
+    
+    if name_lower in english_female_names:
+        logger.debug(f"[GENDER_DETECT] English female name detected: '{name_clean}'")
+        return "female"
+    
+    # 🔍 PATTERN-BASED DETECTION: Hebrew name endings
+    # Hebrew female names often end with specific patterns
+    if len(name_clean) >= 3:
+        # Female endings in Hebrew
+        if name_clean.endswith(('ה', 'ת', 'ית', 'לה', 'ן')):
+            logger.debug(f"[GENDER_DETECT] Female pattern detected (ending): '{name_clean}'")
+            return "female"
+    
+    # Cannot determine gender from name
+    logger.debug(f"[GENDER_DETECT] Gender unknown for name: '{name_clean}'")
+    return None
+
+
+def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None) -> str:
     """
     Build NAME_ANCHOR message for conversation injection.
     
     This creates a SHORT system message that tells the AI:
     1. The customer's actual name (if available)
-    2. Whether to use the name (based on business prompt)
+    2. The customer's gender (if detected)
+    3. Whether to use the name (based on business prompt)
+    
+    Gender helps AI use appropriate Hebrew grammar and forms of address.
     
     IMPORTANT: Keep this SHORT and FACTUAL. Do NOT repeat instructions that are
     already in the universal system prompt (lines 380-395 in realtime_prompt_builder.py).
@@ -257,15 +372,23 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     Args:
         customer_name: The customer's name (None if not available)
         use_name_policy: Whether business prompt requests name usage
+        customer_gender: The customer's detected gender ("male", "female", or None)
     
     Returns:
         Formatted NAME_ANCHOR message text (SHORT!)
     """
+    # Build gender info line if available
+    gender_line = ""
+    if customer_gender:
+        gender_hebrew = "זכר" if customer_gender == "male" else "נקבה"
+        gender_line = f"Customer gender: {gender_hebrew} ({customer_gender})\n"
+    
     if customer_name and use_name_policy:
         # EXPLICIT: Make it crystal clear that name MUST be used
         return (
             f"[CRM Context]\n"
             f"Customer name: {customer_name}\n"
+            f"{gender_line}"
             f"Name usage policy: ENABLED - Business prompt requests using this name.\n"
             f"ACTION REQUIRED: Use '{customer_name}' naturally throughout the conversation."
         )
@@ -274,6 +397,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         return (
             f"[CRM Context]\n"
             f"Customer name: {customer_name}\n"
+            f"{gender_line}"
             f"Name usage policy: DISABLED - Do not use this name in conversation."
         )
     elif not customer_name and use_name_policy:
@@ -281,6 +405,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         return (
             f"[CRM Context]\n"
             f"Customer name: NOT AVAILABLE\n"
+            f"{gender_line}"
             f"Name usage policy: REQUESTED BUT UNAVAILABLE - Continue without name."
         )
     else:
@@ -288,6 +413,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         return (
             f"[CRM Context]\n"
             f"Customer name: NOT AVAILABLE\n"
+            f"{gender_line if gender_line else ''}"
             f"Name usage policy: NOT REQUESTED"
         )
 

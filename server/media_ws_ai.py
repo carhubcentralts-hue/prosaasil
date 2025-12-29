@@ -3574,9 +3574,15 @@ class MediaStreamHandler:
                     # Check if this exact anchor was already injected
                     existing_hash = getattr(self, '_name_anchor_hash', None)
                     if existing_hash != name_anchor_hash_short:
-                        from server.services.realtime_prompt_builder import build_name_anchor_message
+                        from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
                         
-                        name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
+                        # 🧠 GENDER DETECTION: Detect gender from name
+                        customer_gender = detect_gender_from_name(customer_name_to_inject)
+                        if customer_gender:
+                            logger.info(f"[GENDER_DETECT] Detected gender: {customer_gender} for name: '{customer_name_to_inject}'")
+                            print(f"🧠 [GENDER] Detected: {customer_gender} for '{customer_name_to_inject}'")
+                        
+                        name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy, customer_gender)
                         
                         # Inject as conversation system message
                         name_anchor_event = await client.send_event(
@@ -4610,10 +4616,16 @@ class MediaStreamHandler:
             
             # Only re-inject if hash changed
             if existing_hash != new_hash_short:
-                from server.services.realtime_prompt_builder import build_name_anchor_message
+                from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
+                
+                # 🧠 GENDER DETECTION: Detect gender from name
+                customer_gender = detect_gender_from_name(current_name)
+                if customer_gender:
+                    logger.info(f"[GENDER_DETECT] Detected gender: {customer_gender} for name: '{current_name}'")
+                    print(f"🧠 [GENDER] Detected: {customer_gender} for '{current_name}'")
                 
                 # Build updated NAME_ANCHOR
-                name_anchor_text = build_name_anchor_message(current_name, current_policy)
+                name_anchor_text = build_name_anchor_message(current_name, current_policy, customer_gender)
                 
                 # Re-inject NAME_ANCHOR
                 name_anchor_event = await client.send_event(
