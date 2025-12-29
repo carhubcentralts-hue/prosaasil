@@ -3171,10 +3171,13 @@ class MediaStreamHandler:
             
             # 🔥 NEW: Set Flask g.agent_context for Realtime API tool calls
             # This allows tools like schedule_appointment to access call metadata
+            # Note: This only works when called within a Flask request context.
+            # WebSocket handlers may not have access to g, which is acceptable.
             try:
-                from flask import g
+                app = _get_flask_app()
                 caller_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
-                g.agent_context = {
+                # Store in instance for tools that need it
+                self.agent_context = {
                     'business_id': business_id_safe,
                     'business_name': biz_name,
                     'caller_number': caller_phone,
@@ -3185,10 +3188,10 @@ class MediaStreamHandler:
                     'call_direction': call_direction,
                     'business_prompt': None,  # Will be set after prompt is loaded
                 }
-                print(f"✅ [AGENT_CONTEXT] Flask g.agent_context set for Realtime tools: business={business_id_safe}, phone={caller_phone}")
+                print(f"✅ [AGENT_CONTEXT] Agent context stored for Realtime tools: business={business_id_safe}, phone={caller_phone}")
             except Exception as ctx_err:
-                print(f"⚠️ [AGENT_CONTEXT] Failed to set g.agent_context: {ctx_err}")
-                # Continue - not critical for call to proceed
+                # Not critical for call to proceed - tools will work without context
+                pass
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
@@ -3271,9 +3274,8 @@ class MediaStreamHandler:
             
             # 🔥 NEW: Update agent_context with business prompt
             try:
-                from flask import g
-                if hasattr(g, 'agent_context') and isinstance(g.agent_context, dict):
-                    g.agent_context['business_prompt'] = full_prompt
+                if hasattr(self, 'agent_context') and isinstance(self.agent_context, dict):
+                    self.agent_context['business_prompt'] = full_prompt
                     print(f"✅ [AGENT_CONTEXT] Updated with business_prompt ({len(full_prompt)} chars)")
             except Exception:
                 pass  # Not critical
@@ -3698,13 +3700,8 @@ class MediaStreamHandler:
             self.greeting_sent = True  # Mark greeting as sent to allow audio through
             self.is_playing_greeting = True
             self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
-            # 🔴 FINAL CRITICAL FIX #1: Greeting lock ON immediately at greeting response.create trigger
-            self.greeting_lock_active = True
-            self._greeting_lock_response_id = None
+            # 🔥 REMOVED: greeting_lock mechanism - allow audio through during greeting
             self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-            # Log once (not hot path) so production verification can see lock state.
-            logger.info("[GREETING_LOCK] activated (awaiting greeting response_id)")
-            _orig_print("🔒 [GREETING_LOCK] activated", flush=True)
             # ✅ CRITICAL: Wait until Twilio streamSid exists before greeting trigger (inbound + outbound)
             # This ensures the first audio frames can be delivered immediately to the caller.
             sid_wait_start = time.time()
@@ -4081,25 +4078,8 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
                 
-                # 🔴 GREETING_LOCK (HARD):
-                # During greeting_lock_active, do NOT send any input_audio to OpenAI and do NOT buffer it.
-                # We explicitly DROP user audio so it can't be transcribed/answered after greeting ends.
-                if getattr(self, "greeting_lock_active", False):
-                    if not _greeting_block_logged:
-                        print("🔒 [GREETING_LOCK] Ignoring user audio during greeting (not sending, not buffering)")
-                        # Safety: clear any stale buffered frames (should normally be empty).
-                        try:
-                            self._greeting_input_audio_buffer.clear()
-                        except Exception:
-                            pass
-                        _greeting_block_logged = True
-                    self._stats_audio_blocked += 1
-                    _frames_dropped += 1  # counted as "withheld" during lock
-                    # 🔥 FIX: Track in BOTH counters to prevent inconsistency
-                    self._frames_dropped_by_greeting_lock += 1  # Aggregate counter
-                    self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
-                    continue
-
+                # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
+                
                 # If greeting just ended, discard any buffered audio (should be empty) and resume live audio.
                 if _greeting_block_logged and not _greeting_resumed_logged:
                     buffered = getattr(self, "_greeting_input_audio_buffer", [])
@@ -5518,13 +5498,7 @@ class MediaStreamHandler:
                         # Log but continue - we'll verify with transcription
                         print(f"⚠️ [ECHO_CHECK] Speech {time_since_ai_audio:.0f}ms after AI (within {ECHO_WINDOW_MS}ms window) - verifying...")
 
-                    # 🔴 GREETING_LOCK (HARD):
-                    # While greeting_lock_active, ignore ALL user speech during greeting.
-                    # Do NOT cancel, do NOT clear/flush, and do NOT mark utterance metadata.
-                    if getattr(self, "greeting_lock_active", False):
-                        logger.info("[GREETING_LOCK] ignoring user speech during greeting")
-                        print("🔒 [GREETING_LOCK] ignoring user speech during greeting")
-                        continue
+                    # 🔥 REMOVED: greeting_lock check - allow speech detection during greeting
                     
                     # Track utterance start for validation
                     self._candidate_user_speaking = True
@@ -5586,16 +5560,9 @@ class MediaStreamHandler:
                     # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
                     
                     has_active_response = bool(self.active_response_id)
-                    is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     
+                    # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
                     # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
-                    # רק בדיקה אחת: לא בזמן ברכה (greeting_lock)
-                    
-                    if is_greeting_now:
-                        # רק בזמן ברכה - לא עוצרים
-                        logger.info("[GREETING_LOCK] ignoring user speech during greeting")
-                        print("🔒 [GREETING_LOCK] ignoring user speech during greeting")
-                        continue
                     
                     # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
                     _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
@@ -5763,11 +5730,7 @@ class MediaStreamHandler:
                         self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag for new response
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
 
-                        # 🔴 FINAL CRITICAL FIX #1:
-                        # Bind greeting_response_id the moment the greeting response is created.
-                        if getattr(self, "greeting_lock_active", False) and not getattr(self, "_greeting_lock_response_id", None):
-                            self._greeting_lock_response_id = response_id
-                            _orig_print(f"🔒 [GREETING_LOCK] bound greeting_response_id={response_id[:20]}...", flush=True)
+                        # 🔥 REMOVED: greeting_lock binding - no longer needed
                         
                         # 🔥 NEW: Set ai_response_active=True immediately (per requirements)
                         # This is THE fix for barge-in timing issues
@@ -6047,26 +6010,7 @@ class MediaStreamHandler:
                                 for old_key in keys[:-2]:
                                     del self.audio_done_by_response_id[old_key]
                     
-                    # 🔴 GREETING_LOCK: Release ONLY after greeting audio is done (not on response.done).
-                    # Prefer strict response_id match. If we failed to bind earlier, bind from this event and release.
-                    if event_type == "response.audio.done" and getattr(self, "greeting_lock_active", False):
-                        done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
-                        bound_id = getattr(self, "_greeting_lock_response_id", None)
-                        # If we missed the bind on response.created, bind here (still strict: release only on audio.done).
-                        if bound_id is None and done_resp_id:
-                            self._greeting_lock_response_id = done_resp_id
-                            bound_id = done_resp_id
-                            _orig_print(
-                                f"🔒 [GREETING_LOCK] late-bound greeting_response_id={done_resp_id[:20]}... (on audio.done)",
-                                flush=True,
-                            )
-                        if bound_id and done_resp_id and done_resp_id == bound_id:
-                            self.greeting_lock_active = False
-                            _orig_print(
-                                f"[GREETING_LOCK] released (audio.done) response_id={done_resp_id[:20]}...",
-                                flush=True,
-                            )
-                            logger.info("[GREETING_LOCK] released (audio.done)")
+                    # 🔥 REMOVED: greeting_lock release logic - no longer needed
 
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:
@@ -7119,7 +7063,7 @@ class MediaStreamHandler:
                     if getattr(self, '_greeting_needs_transcription_confirm', False):
                         self._greeting_needs_transcription_confirm = False
                         if DEBUG:
-                            print("🔒 [GREETING_LOCK] Ignoring transcription-confirm greeting interruption")
+                            print("🔒 [GREETING] Ignoring transcription-confirm greeting interruption")
                     
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
@@ -8080,11 +8024,7 @@ class MediaStreamHandler:
         
         Rule: Use response.cancel, never drop audio deltas.
         """
-        # 🛡️ GREETING_LOCK (HARD) - Never cancel/flush during greeting!
-        if getattr(self, "greeting_lock_active", False):
-            logger.info("[GREETING_LOCK] ignoring barge-in during greeting")
-            print("🔒 [GREETING_LOCK] ignoring barge-in during greeting")
-            return
+        # 🔥 REMOVED: greeting_lock protection - allow barge-in during greeting
 
         # 🛡️ PROTECT GREETING - Never cancel during greeting playback!
         if hasattr(self, 'is_playing_greeting') and self.is_playing_greeting:
@@ -9826,33 +9766,8 @@ class MediaStreamHandler:
                     # This is the source of truth for "frames_in" - must happen here, not after filters
                     # Counter initialized in __init__ - direct increment (no getattr masking)
                     self.realtime_audio_in_chunks += 1
-                    # 🔴 GREETING_LOCK (HARD, earliest):
-                    # While greeting is playing, the bot must NOT "hear" the caller at all.
-                    # Drop inbound frames immediately (no decode/RMS/VAD/buffer/append/commit/barge-in paths).
-                    # We still touch activity timestamps so watchdogs don't misfire.
-                    # 
-                    # 🔥 SIMPLE_MODE FIX: In SIMPLE_MODE, NEVER drop frames - send everything to OpenAI
-                    if getattr(self, "greeting_lock_active", False) and not SIMPLE_MODE:
-                        self.last_rx_ts = time.time()
-                        if self.call_sid:
-                            stream_registry.touch_media(self.call_sid)
-                        # Rate-limit logs (~1/sec @ 50fps)
-                        try:
-                            if not hasattr(self, "_greeting_lock_drop_frames"):
-                                self._greeting_lock_drop_frames = 0
-                            self._greeting_lock_drop_frames += 1
-                            if self._greeting_lock_drop_frames % 50 == 1:
-                                logger.info("[GREETING_LOCK] dropping inbound audio frame (earliest)")
-                                print("🔒 [GREETING_LOCK] dropping inbound audio frame (earliest)")
-                        except Exception:
-                            pass
-                        try:
-                            self._stats_audio_blocked += 1
-                            self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
-                            self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
-                        except Exception:
-                            pass
-                        continue
+                    # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
+                    
                     b64 = evt["media"]["payload"]
                     mulaw = base64.b64decode(b64)
                     # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
@@ -9952,31 +9867,7 @@ class MediaStreamHandler:
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        # 🔴 GREETING_LOCK (HARD):
-                        # While greeting is playing, the bot must NOT "hear" the caller at all:
-                        # - do NOT buffer input_audio
-                        # - do NOT produce STT
-                        # - do NOT trigger VAD speech_started
-                        # - do NOT allow barge-in cancel paths
-                        #
-                        # Therefore: DROP inbound audio frames before enqueue to OpenAI.
-                        # 🔥 SIMPLE_MODE FIX: In SIMPLE_MODE, NEVER drop frames - send everything to OpenAI
-                        if getattr(self, "greeting_lock_active", False) and not SIMPLE_MODE:
-                            # Rate-limit logs to avoid flooding (about once per second @ 50fps)
-                            if not hasattr(self, "_greeting_lock_drop_frames"):
-                                self._greeting_lock_drop_frames = 0
-                            self._greeting_lock_drop_frames += 1
-                            if self._greeting_lock_drop_frames % 50 == 1:
-                                logger.info("[GREETING_LOCK] dropping inbound audio frame")
-                                print("🔒 [GREETING_LOCK] dropping inbound audio frame")
-                            try:
-                                self._stats_audio_blocked += 1
-                                # 🔥 FIX: Track in BOTH counters to prevent inconsistency
-                                self._frames_dropped_by_greeting_lock += 1  # Aggregate counter
-                                self._frames_dropped_by_reason[FrameDropReason.GREETING_LOCK] += 1  # Detailed tracking
-                            except Exception:
-                                pass
-                            continue
+                        # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
