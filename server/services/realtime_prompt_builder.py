@@ -100,13 +100,355 @@ def detect_name_usage_policy(business_prompt: str) -> Tuple[bool, Optional[str]]
     return False, None
 
 
-def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool) -> str:
+def extract_first_name(full_name: Optional[str]) -> Optional[str]:
+    """
+    🧠 ULTRA-SMART NAME EXTRACTION: Intelligently detect real names vs descriptions
+    
+    This function is INTELLIGENT and understands:
+    - Real Hebrew/English names vs job titles/descriptions
+    - "יוסי המנקה אהוב" → "יוסי" (ignores "המנקה אהוב")
+    - "דוד הטכנאי" → "דוד" (ignores job title)
+    - "משה בן יוסף" → "משה בן" (real Hebrew name)
+    - "בית" / "תמונה" → None (not names at all)
+    
+    Detection Strategy:
+    1. Strip out common descriptors/job titles/adjectives
+    2. Extract only the actual name part (1-2 words max)
+    3. Validate it's a real name (not placeholder/description)
+    
+    Args:
+        full_name: The full text that might contain a name
+        
+    Returns:
+        First name (1-2 words), or None if no valid name found
+        
+    Examples:
+        "יוסי" → "יוסי"
+        "יוסי כהן" → "יוסי"
+        "יוסי המנקה אהוב" → "יוסי" (smart!)
+        "דוד הטכנאי" → "דוד"
+        "משה בן יוסף" → "משה בן"
+        "מ כהן" → "מ כהן"
+        "בית" → None
+        "תמונה" → None
+        "ללא שם" → None
+    """
+    if not full_name or not isinstance(full_name, str):
+        return None
+    
+    # Clean and normalize
+    name = full_name.strip()
+    if not name:
+        return None
+    
+    # 🚫 PLACEHOLDER DETECTION: Common non-name values
+    name_lower = name.lower()
+    placeholders = [
+        "ללא שם", "לא ידוע", "אין שם", "לקוח", "customer", "client",
+        "בית", "תמונה", "מסמך", "קובץ", "תיקיה", "folder", "file",
+        "שם", "name", "test", "טסט", "בדיקה", "דוגמה", "example",
+        "משתמש", "user", "אורח", "guest"
+    ]
+    
+    if name_lower in placeholders:
+        logger.debug(f"[NAME_EXTRACT] Skipping placeholder: '{full_name}'")
+        return None
+    
+    # 🚫 REJECT: Names with numbers
+    if any(char.isdigit() for char in name):
+        logger.debug(f"[NAME_EXTRACT] Skipping name with numbers: '{full_name}'")
+        return None
+    
+    # 🚫 REJECT: Too many special characters (more than 2)
+    special_chars = sum(1 for c in name if not c.isalnum() and not c.isspace())
+    if special_chars > 2:
+        logger.debug(f"[NAME_EXTRACT] Skipping name with too many special chars: '{full_name}'")
+        return None
+    
+    # Split into words
+    words = [w for w in name.split() if w]
+    
+    if not words:
+        return None
+    
+    # 🧠 SMART DESCRIPTOR DETECTION: Common Hebrew descriptors/job titles/adjectives
+    # These indicate the word is NOT part of the actual name
+    descriptors = [
+        # Job titles / professions
+        "המנקה", "הטכנאי", "החשמלאי", "השרברב", "הנהג", "המורה", "הרופא",
+        "העובד", "האיש", "האישה", "הבחור", "הבחורה", "המנהל", "הבעלים",
+        # Adjectives / descriptions
+        "אהוב", "יקר", "טוב", "נחמד", "מקסים", "חביב", "מצוין", "הטוב",
+        "החביב", "היקר", "המקסים", "הנחמד", "הנפלא", "המדהים",
+        # Relationship descriptors
+        "החבר", "האח", "האחות", "הדוד", "הדודה", "הסבא", "הסבתא",
+        # Common non-name words with "ה" prefix
+        "הבית", "התמונה", "הקובץ", "המשתמש"
+    ]
+    
+    # 🧠 INTELLIGENT FILTERING: Remove descriptor words
+    # Keep only actual name words (typically the first 1-2 words before descriptors)
+    clean_words = []
+    for word in words:
+        word_lower = word.lower()
+        
+        # If we hit a descriptor, stop - everything after is description
+        if word_lower in descriptors or word.startswith("ה") and len(word) > 2:
+            # Check if this looks like "the X" pattern (Hebrew definite article)
+            # If it's "ה" + word, it's likely a descriptor, not a name
+            if word_lower in descriptors:
+                break
+        
+        clean_words.append(word)
+        
+        # Stop after 2 name words (don't need more)
+        if len(clean_words) >= 2:
+            break
+    
+    if not clean_words:
+        logger.debug(f"[NAME_EXTRACT] No name found after filtering descriptors from: '{full_name}'")
+        return None
+    
+    # 🧠 HEBREW MIDDLE NAME DETECTION: "בן", "בת", etc.
+    hebrew_middles = ["בן", "בת", "אבו", "אל", "אבן"]
+    
+    # ✅ SINGLE WORD: Return as-is
+    if len(clean_words) == 1:
+        logger.debug(f"[NAME_EXTRACT] Single word name: '{clean_words[0]}'")
+        return clean_words[0]
+    
+    # ✅ TWO WORDS: Check if it's "first + middle" or "first + last"
+    if len(clean_words) == 2:
+        first_word = clean_words[0]
+        second_word = clean_words[1]
+        
+        # If second word is a middle particle, keep both
+        if second_word in hebrew_middles:
+            result = f"{first_word} {second_word}"
+            logger.debug(f"[NAME_EXTRACT] Hebrew name with middle particle: '{result}'")
+            return result
+        
+        # If first word is very short (1-2 chars), keep both
+        if len(first_word) <= 2:
+            result = f"{first_word} {second_word}"
+            logger.debug(f"[NAME_EXTRACT] Short first name, including last: '{result}'")
+            return result
+        
+        # Normal case: return just first name
+        logger.debug(f"[NAME_EXTRACT] First name only: '{first_word}' from '{full_name}'")
+        return first_word
+    
+    # 🚫 THREE+ WORDS: This shouldn't happen after filtering, but just in case
+    logger.debug(f"[NAME_EXTRACT] Too many words after filtering ({len(clean_words)}): '{full_name}'")
+    return clean_words[0]  # Return just the first word as fallback
+
+
+def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
+    """
+    🧠 SMART GENDER DETECTION: Detect if name is male or female (Hebrew/English)
+    
+    Uses comprehensive lists of common Hebrew and English names to determine gender.
+    Returns None if gender cannot be determined from name alone.
+    
+    ⚠️ UNISEX NAMES: Returns None for names like גל, נועם, ליאור, Alex, Jordan
+    This allows the system to wait for conversation-based detection or manual input.
+    
+    Args:
+        name: The customer's first name
+        
+    Returns:
+        "male", "female", or None if cannot determine (unisex/unknown)
+        
+    Examples:
+        "יוסי" → "male"
+        "דוד" → "male"
+        "שרה" → "female"
+        "רחל" → "female"
+        "גל" → None (unisex)
+        "נועם" → None (unisex)
+        "John" → "male"
+        "Sarah" → "female"
+        "Alex" → None (unisex)
+    """
+    if not name or not isinstance(name, str):
+        return None
+    
+    # Clean and normalize (take only first word if multiple)
+    name_clean = name.strip().split()[0] if name.strip() else ""
+    if not name_clean:
+        return None
+    
+    name_lower = name_clean.lower()
+    
+    # 🟡 UNISEX NAMES: Names that can be both male and female
+    # These names should NOT auto-detect gender - wait for conversation or manual input
+    unisex_names = {
+        # Hebrew unisex
+        "גל", "נועם", "ליאור", "יובל", "עדי", "שי", "רוני", "עמית", "אדר",
+        # English unisex
+        "alex", "jordan", "taylor", "casey", "riley", "morgan", "avery", "quinn"
+    }
+
+
+def detect_gender_from_conversation(text: str) -> Optional[str]:
+    """
+    🧠 CONVERSATION-BASED GENDER DETECTION: Detect gender from what user says
+    
+    Detects when user explicitly states their gender during conversation:
+    - "אני אישה" / "אני נקבה" → female
+    - "אני גבר" / "אני זכר" → male
+    
+    This is the most reliable source - overrides name-based detection.
+    
+    Args:
+        text: The user's transcript text
+        
+    Returns:
+        "male", "female", or None if no gender statement detected
+        
+    Examples:
+        "אני אישה" → "female"
+        "אני גבר" → "male"
+        "כן, אני אישה" → "female"
+        "מה שלומך?" → None
+    """
+    if not text or not isinstance(text, str):
+        return None
+    
+    text_lower = text.lower().strip()
+    
+    # 🔴 FEMALE INDICATORS
+    female_phrases = [
+        "אני אישה",
+        "אני נקבה",
+        "אני בחורה",
+        "אני גברת",
+        "זאת אישה",
+        "זו אישה",
+    ]
+    
+    # 🔵 MALE INDICATORS
+    male_phrases = [
+        "אני גבר",
+        "אני זכר",
+        "אני בחור",
+        "אני מר",
+        "זה גבר",
+        "זה בחור",
+    ]
+    
+    # Check for female indicators
+    for phrase in female_phrases:
+        if phrase in text_lower:
+            logger.info(f"[GENDER_DETECT] Female detected from conversation: '{phrase}' in '{text[:50]}'")
+            return "female"
+    
+    # Check for male indicators
+    for phrase in male_phrases:
+        if phrase in text_lower:
+            logger.info(f"[GENDER_DETECT] Male detected from conversation: '{phrase}' in '{text[:50]}'")
+            return "male"
+    
+    return None
+
+
+def detect_gender_from_name(name: Optional[str]) -> Optional[str]:
+    
+    # 🔵 HEBREW MALE NAMES (common Israeli male names)
+    hebrew_male_names = {
+        # Classic Hebrew names
+        "אברהם", "יצחק", "יעקב", "משה", "אהרון", "דוד", "שלמה", "יוסף", "בנימין", "דן",
+        # Modern Hebrew names
+        "יוסי", "דני", "רוני", "עמי", "עומר", "אורי", "אלון", "גיא", "תומר", "רועי",
+        "אייל", "נתנאל", "מיכאל", "אריאל",
+        "עומרי", "אדם", "משה", "חיים", "אבי", "אבנר", "בועז", "אליהו",
+        "שלום", "מרדכי", "שמעון", "ישראל", "אליעזר", "גד", "אשר", "נפתלי", "ראובן",
+        # Ben names (son of)
+        "בן", "אבן"
+    }
+    
+    # 🔴 HEBREW FEMALE NAMES (common Israeli female names)
+    hebrew_female_names = {
+        # Classic Hebrew names
+        "שרה", "רבקה", "רחל", "לאה", "מרים", "דינה", "דבורה", "יעל", "רות", "חנה",
+        # Modern Hebrew names
+        "נועה", "תמר", "שירה", "מיכל", "ענת", "דנה", "הילה", "רונית", "ליאת", "שירן",
+        "מאיה", "אורית", "אפרת", "טלי", "ניצה", "שלומית", "נטלי", "אלה",
+        "ענבל", "רעות", "זהר", "סיגל",
+        "אורנה", "מלכה", "חוה", "אסתר", "שושנה", "עירית", "קרן", "דפנה", "ברכה",
+        # Bat names (daughter of)
+        "בת"
+    }
+    
+    # 🔵 ENGLISH MALE NAMES (common English male names)
+    english_male_names = {
+        "john", "david", "michael", "james", "robert", "william", "richard", "joseph",
+        "thomas", "charles", "daniel", "matthew", "anthony", "mark", "donald", "steven",
+        "paul", "andrew", "joshua", "kenneth", "kevin", "brian", "george", "edward",
+        "ronald", "timothy", "jason", "jeffrey", "ryan", "jacob", "gary", "nicholas",
+        "eric", "jonathan", "stephen", "larry", "justin", "scott", "brandon", "benjamin",
+        "samuel", "frank", "gregory", "raymond", "alexander", "patrick", "jack", "dennis",
+        "jerry", "tyler", "aaron", "jose", "adam", "henry", "nathan", "douglas", "peter"
+    }
+    
+    # 🔴 ENGLISH FEMALE NAMES (common English female names)
+    english_female_names = {
+        "mary", "patricia", "jennifer", "linda", "elizabeth", "barbara", "susan", "jessica",
+        "sarah", "karen", "nancy", "lisa", "betty", "margaret", "sandra", "ashley",
+        "kimberly", "emily", "donna", "michelle", "dorothy", "carol", "amanda", "melissa",
+        "deborah", "stephanie", "rebecca", "sharon", "laura", "cynthia", "kathleen", "amy",
+        "angela", "shirley", "anna", "brenda", "pamela", "emma", "nicole", "helen",
+        "samantha", "katherine", "christine", "debra", "rachel", "catherine", "carolyn",
+        "janet", "ruth", "maria", "heather", "diane", "virginia", "julie", "joyce", "victoria"
+    }
+    
+    # 🟡 CHECK FOR UNISEX NAMES FIRST
+    # These names should NOT auto-detect - return None to wait for conversation/manual input
+    if name_lower in unisex_names:
+        logger.debug(f"[GENDER_DETECT] Unisex name detected, cannot auto-determine: '{name_clean}'")
+        return None
+    
+    # Check Hebrew names
+    if name_lower in hebrew_male_names:
+        logger.debug(f"[GENDER_DETECT] Hebrew male name detected: '{name_clean}'")
+        return "male"
+    
+    if name_lower in hebrew_female_names:
+        logger.debug(f"[GENDER_DETECT] Hebrew female name detected: '{name_clean}'")
+        return "female"
+    
+    # Check English names
+    if name_lower in english_male_names:
+        logger.debug(f"[GENDER_DETECT] English male name detected: '{name_clean}'")
+        return "male"
+    
+    if name_lower in english_female_names:
+        logger.debug(f"[GENDER_DETECT] English female name detected: '{name_clean}'")
+        return "female"
+    
+    # 🔍 PATTERN-BASED DETECTION: Hebrew name endings (but not for short names)
+    # Hebrew female names often end with specific patterns
+    if len(name_clean) >= 4:  # At least 4 characters to avoid false positives
+        # Female endings in Hebrew
+        if name_clean.endswith(('ה', 'ית', 'לה')):
+            logger.debug(f"[GENDER_DETECT] Female pattern detected (ending): '{name_clean}'")
+            return "female"
+    
+    # Cannot determine gender from name - this is OK for unisex or uncommon names
+    logger.debug(f"[GENDER_DETECT] Gender unknown for name: '{name_clean}' (will wait for conversation or manual input)")
+    return None
+
+
+def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None) -> str:
     """
     Build NAME_ANCHOR message for conversation injection.
     
     This creates a SHORT system message that tells the AI:
     1. The customer's actual name (if available)
-    2. Whether to use the name (based on business prompt)
+    2. The customer's gender (if detected)
+    3. Whether to use the name (based on business prompt)
+    
+    Gender helps AI use appropriate Hebrew grammar and forms of address.
     
     IMPORTANT: Keep this SHORT and FACTUAL. Do NOT repeat instructions that are
     already in the universal system prompt (lines 380-395 in realtime_prompt_builder.py).
@@ -114,15 +456,27 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     Args:
         customer_name: The customer's name (None if not available)
         use_name_policy: Whether business prompt requests name usage
+        customer_gender: The customer's detected gender ("male", "female", or None)
     
     Returns:
         Formatted NAME_ANCHOR message text (SHORT!)
     """
+    # Build gender info line with instructions
+    gender_line = ""
+    if customer_gender == "male":
+        gender_line = f"Customer gender: זכר (male) - Use masculine Hebrew forms.\n"
+    elif customer_gender == "female":
+        gender_line = f"Customer gender: נקבה (female) - Use feminine Hebrew forms.\n"
+    else:
+        # Gender unknown - instruct AI to use neutral language
+        gender_line = f"Customer gender: לא ידוע (unknown) - Use NEUTRAL/GENERAL Hebrew forms. Do NOT guess. If needed, you may politely ask.\n"
+    
     if customer_name and use_name_policy:
         # EXPLICIT: Make it crystal clear that name MUST be used
         return (
             f"[CRM Context]\n"
             f"Customer name: {customer_name}\n"
+            f"{gender_line}"
             f"Name usage policy: ENABLED - Business prompt requests using this name.\n"
             f"ACTION REQUIRED: Use '{customer_name}' naturally throughout the conversation."
         )
@@ -131,6 +485,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         return (
             f"[CRM Context]\n"
             f"Customer name: {customer_name}\n"
+            f"{gender_line}"
             f"Name usage policy: DISABLED - Do not use this name in conversation."
         )
     elif not customer_name and use_name_policy:
@@ -138,6 +493,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         return (
             f"[CRM Context]\n"
             f"Customer name: NOT AVAILABLE\n"
+            f"{gender_line}"
             f"Name usage policy: REQUESTED BUT UNAVAILABLE - Continue without name."
         )
     else:
@@ -145,6 +501,7 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         return (
             f"[CRM Context]\n"
             f"Customer name: NOT AVAILABLE\n"
+            f"{gender_line if gender_line else ''}"
             f"Name usage policy: NOT REQUESTED"
         )
 

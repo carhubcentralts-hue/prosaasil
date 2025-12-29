@@ -1669,6 +1669,35 @@ def normalize_hebrew_text(text: str) -> str:
 # 🔥 VOICEMAIL DETECTION: Helper functions for detecting answering machines
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# Module-level constants for performance (avoid recreation on every call)
+_VOICEMAIL_KEYWORDS = [
+    "תא קולי",
+    "משיבון קולי",
+    "תא הודעות",
+    "תאה קולי",  # Common STT error
+    "משיבון",
+    "תא קול",
+    "נא להשאיר הודעה",  # "please leave a message"
+    "השאירו הודעה",      # "leave a message"
+    "השאר הודעה",        # "leave a message" (singular)
+    "להשאיר הודעות",     # "to leave messages"
+]
+
+_HEBREW_DIGIT_WORDS = [
+    "אפס", "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע",
+    "עשר", "עשרה", "אחת", "שניים", "שתים"
+]
+
+# Compile regex patterns once at module load
+_PHONE_PATTERN_MOBILE = re.compile(r'05[0-9]{8}')
+_PHONE_PATTERN_INTL = re.compile(r'\+?972[0-9]{7,9}')
+_PHONE_PATTERN_LANDLINE = re.compile(r'0[2-9][0-9]{7}')
+_PHONE_PATTERN_DIGITS = re.compile(r'[0-9]{5,}')
+
+# Translation table for string optimization (created once at module load)
+_PHONE_TRANS_TABLE = str.maketrans('', '', ' -.,')
+
+
 def _has_voicemail_keyword(text: str) -> bool:
     """
     Check if text contains Hebrew voicemail keywords.
@@ -1688,18 +1717,7 @@ def _has_voicemail_keyword(text: str) -> bool:
         return False
     
     text_lower = text.lower()
-    
-    # Hebrew voicemail keywords
-    voicemail_keywords = [
-        "תא קולי",
-        "משיבון קולי",
-        "תא הודעות",
-        "תאה קולי",  # Common STT error
-        "משיבון",
-        "תא קול",
-    ]
-    
-    return any(keyword in text_lower for keyword in voicemail_keywords)
+    return any(keyword in text_lower for keyword in _VOICEMAIL_KEYWORDS)
 
 def _has_phone(text: str) -> bool:
     """
@@ -1709,6 +1727,9 @@ def _has_phone(text: str) -> bool:
     - "05X..." (Israeli mobile)
     - "+972..." (International format)
     - "972..." (Without plus)
+    - Numbers read with spaces: "0 5 2 1 2 3 4 5 6 7"
+    - Partial numbers (5+ consecutive digits)
+    - Hebrew digit words being read
     
     Args:
         text: The transcript text to check
@@ -1719,20 +1740,27 @@ def _has_phone(text: str) -> bool:
     if not text:
         return False
     
-    # Remove spaces and common separators for easier pattern matching
-    text_normalized = text.replace(" ", "").replace("-", "").replace(".", "")
+    # Optimize: Use pre-created translation table for faster character removal
+    text_normalized = text.translate(_PHONE_TRANS_TABLE)
     
-    # Israeli phone patterns
-    # 1. Mobile: 05X-XXX-XXXX (starts with 05)
-    # 2. International: +972-5X-XXX-XXXX
-    # 3. Without plus: 972-5X-XXX-XXXX
-    
-    # Check for sequence starting with 05 followed by 8 more digits
-    if re.search(r'05[0-9]{8}', text_normalized):
+    # Quick checks using pre-compiled regex patterns
+    if _PHONE_PATTERN_MOBILE.search(text_normalized):
         return True
     
-    # Check for +972 or 972 followed by digits
-    if re.search(r'\+?972[0-9]{7,9}', text_normalized):
+    if _PHONE_PATTERN_INTL.search(text_normalized):
+        return True
+    
+    if _PHONE_PATTERN_LANDLINE.search(text_normalized):
+        return True
+    
+    if _PHONE_PATTERN_DIGITS.search(text_normalized):
+        return True
+    
+    # Check for Hebrew digit words (split into words for exact matching)
+    text_lower = text.lower()
+    words = text_lower.split()
+    digit_count = sum(1 for word in words if word in _HEBREW_DIGIT_WORDS)
+    if digit_count >= 4:  # If 4+ digit words, likely reading a number
         return True
     
     return False
@@ -2308,7 +2336,7 @@ class MediaStreamHandler:
         # ═══════════════════════════════════════════════════════════════════════════
         # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Aggressive disconnect features
         # ═══════════════════════════════════════════════════════════════════════════
-        self._call_started_ts = time.time()  # Track call start for 15-second voicemail window
+        self._call_started_ts = time.time()  # Track call start for 10-second voicemail window
         self._last_user_activity_ts = time.time()  # Track last user activity for silence watchdog
         self._silence_watchdog_running = True  # Flag to control watchdog thread
         self._silence_watchdog_task = None  # Asyncio task for silence monitoring
@@ -2354,16 +2382,19 @@ class MediaStreamHandler:
         """
         🔥 VOICEMAIL DETECTION: Check if user transcript indicates voicemail/answering machine
         
-        Only checks within first 15 seconds of call. Disconnects immediately if:
+        Only checks within first 10 seconds of call. Disconnects immediately if:
         - User transcript contains voicemail keywords (משיבון, תא קולי, etc.)
         - User transcript contains phone number being read (05x..., +972...)
+        
+        ⚠️ CRITICAL: 10-second window prevents false positives mid-call
+        (customer might mention phone numbers or similar phrases during conversation)
         
         Args:
             user_text: The user's transcript text to check
         """
-        # Only check within first 15 seconds (strict time limit)
+        # Only check within first 10 seconds (strict time limit to prevent false positives)
         elapsed = time.time() - self._call_started_ts
-        if elapsed > 15.0:
+        if elapsed > 10.0:
             return
         
         # Check for voicemail keywords
@@ -2375,15 +2406,15 @@ class MediaStreamHandler:
         if kw or ph:
             # 🔥 ONE-LINE LOG: Production visibility for voicemail detection
             logger.warning(
-                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} text={user_text[:120]!r} -> HANGUP"
+                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} text={user_text[:120]!r} -> IMMEDIATE_HANGUP"
             )
             _orig_print(
-                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} -> HANGUP",
+                f"🚨 [VOICEMAIL_DETECT] elapsed={elapsed:.1f}s kw={kw} phone={ph} -> IMMEDIATE_HANGUP",
                 flush=True
             )
             
-            # Trigger immediate hangup (non-blocking)
-            self._trigger_auto_hangup(reason="voicemail_detected")
+            # Trigger IMMEDIATE hangup (bypasses all protections)
+            self._immediate_hangup(reason="voicemail_detected")
     
     async def _silence_watchdog(self):
         """
@@ -2401,14 +2432,14 @@ class MediaStreamHandler:
                 idle = time.time() - self._last_user_activity_ts
                 if idle >= 20.0:
                     # 🔥 ONE-LINE LOG: Production visibility for watchdog triggers
-                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> hangup")
-                    _orig_print(f"[WATCHDOG] idle={idle:.1f}s -> hangup", flush=True)
+                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP")
+                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP", flush=True)
                     
                     # Stop watchdog before triggering hangup to prevent race conditions
                     self._silence_watchdog_running = False
                     
-                    # Trigger hangup (non-blocking, handles TX queue/locks internally)
-                    self._trigger_auto_hangup(reason="silence_20s")
+                    # Trigger IMMEDIATE hangup (bypasses all protections)
+                    self._immediate_hangup(reason="silence_20s")
                     return
         except asyncio.CancelledError:
             # Normal cancellation during cleanup
@@ -2941,107 +2972,141 @@ class MediaStreamHandler:
                 
                 try:
                     from server.models_sql import CallLog, OutboundCallJob, Lead
+                    from server.services.realtime_prompt_builder import extract_first_name
                     
                     # 🔥 ENHANCED DEBUG: Log all input parameters
                     logger.info(f"[NAME_RESOLVE] Starting resolution: call_sid={call_sid[:8] if call_sid else 'N/A'}, lead_id={lead_id}, phone={phone_number}, business_id={business_id}")
                     _orig_print(f"[NAME_RESOLVE DEBUG] call_sid={call_sid[:8] if call_sid else 'N/A'} lead_id={lead_id} phone={phone_number}", flush=True)
                     
-                    call_log = None
-                    
-                    # Priority 1: CallLog.customer_name
-                    if call_sid:
-                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-                        if call_log and call_log.customer_name:
-                            name = str(call_log.customer_name).strip()
-                            if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=call_log name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
-                                return (name, "call_log")
-                    
-                    # Priority 2: Lead by lead_id (from customParameters)
-                    if lead_id:
-                        try:
-                            lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
-                            if lead:
-                                name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-                                # 🔥 DEBUG: Log what we found
-                                logger.info(f"[NAME_RESOLVE] Found lead: id={lead_id}, first_name='{lead.first_name}', last_name='{lead.last_name}', full_name='{name}'")
-                                if name and name != "ללא שם":
-                                    logger.info(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}")
-                                    _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
-                                    return (name, "lead_id")
+                    # 🔥 CRITICAL FIX: Must have app_context for DB queries in async context
+                    app = _get_flask_app()
+                    with app.app_context():
+                        call_log = None
+                        
+                        # Priority 1: CallLog.customer_name
+                        if call_sid:
+                            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                            if call_log and call_log.customer_name:
+                                full_name = str(call_log.customer_name).strip()
+                                if full_name and full_name != "ללא שם":
+                                    # Extract first name only (max 2 words, skip complex names)
+                                    name = extract_first_name(full_name)
+                                    if name:
+                                        logger.info(f"[NAME_RESOLVE] source=call_log full_name=\"{full_name}\" first_name=\"{name}\" call_sid={call_sid[:8]}")
+                                        _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
+                                        return (name, "call_log")
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] source=call_log skipped complex name: \"{full_name}\"")
+                                        _orig_print(f"[NAME_RESOLVE] Skipped complex name from call_log", flush=True)
+                        
+                        # Priority 2: Lead by lead_id (from customParameters)
+                        if lead_id:
+                            try:
+                                lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
+                                if lead:
+                                    full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                    # 🔥 DEBUG: Log what we found
+                                    logger.info(f"[NAME_RESOLVE] Found lead: id={lead_id}, first_name='{lead.first_name}', last_name='{lead.last_name}', full_name='{full_name}'")
+                                    if full_name and full_name != "ללא שם":
+                                        # Extract first name only (max 2 words, skip complex names)
+                                        name = extract_first_name(full_name)
+                                        if name:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_id full_name=\"{full_name}\" first_name=\"{name}\" lead_id={lead_id}")
+                                            _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
+                                            return (name, "lead_id")
+                                        else:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_id skipped complex name: \"{full_name}\"")
+                                            _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has complex name, skipped", flush=True)
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] Lead {lead_id} exists but has no valid name (first_name='{lead.first_name}', last_name='{lead.last_name}')")
+                                        _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has no name", flush=True)
                                 else:
-                                    logger.info(f"[NAME_RESOLVE] Lead {lead_id} exists but has no valid name (first_name='{lead.first_name}', last_name='{lead.last_name}')")
-                                    _orig_print(f"[NAME_RESOLVE] Lead {lead_id} has no name", flush=True)
-                            else:
-                                logger.info(f"[NAME_RESOLVE] Lead {lead_id} not found in database")
-                                _orig_print(f"[NAME_RESOLVE] Lead {lead_id} not found", flush=True)
-                        except Exception as e:
-                            logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
-                    
-                    # Priority 3: OutboundCallJob.lead_name (for bulk calls)
-                    if call_sid:
-                        job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
-                        if job and job.lead_name:
-                            name = str(job.lead_name).strip()
-                            if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
-                                return (name, "outbound_job")
-                    
-                    # Priority 4: Lead.full_name (via CallLog.lead_id)
-                    if call_log and call_log.lead_id:
-                        lead = Lead.query.get(call_log.lead_id)
-                        if lead:
-                            name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-                            if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\"", flush=True)
-                                return (name, "lead_calllog")
-                    
-                    # Priority 5: Fallback - Lead lookup by phone number
-                    if phone_number:
-                        try:
-                            # 🔥 CRITICAL: Normalize phone for comparison
-                            # Handle both E.164 (+972...) and local (05...) formats
-                            # If Twilio gives +9725... but DB has 05..., we must search both
-                            
-                            phone_variants = [phone_number]  # Start with original
-                            
-                            # Generate normalized variants
-                            cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
-                            
-                            # If E.164 format (+972...), also try local format (0...)
-                            if phone_number.startswith('+972'):
-                                local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
-                                phone_variants.append(local_format)
-                            # If local format (0...), also try E.164 (+972...)
-                            elif phone_number.startswith('0'):
-                                e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
-                                phone_variants.append(e164_format)
-                            
-                            logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
-                            
-                            # Query with all variants (only phone_e164 exists in Lead model)
-                            lead = Lead.query.filter_by(
-                                tenant_id=business_id
-                            ).filter(
-                                Lead.phone_e164.in_(phone_variants)
-                            ).order_by(Lead.updated_at.desc()).first()
-                            
+                                    logger.info(f"[NAME_RESOLVE] Lead {lead_id} not found in database")
+                                    _orig_print(f"[NAME_RESOLVE] Lead {lead_id} not found", flush=True)
+                            except Exception as e:
+                                logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
+                        
+                        # Priority 3: OutboundCallJob.lead_name (for bulk calls)
+                        if call_sid:
+                            job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
+                            if job and job.lead_name:
+                                full_name = str(job.lead_name).strip()
+                                if full_name and full_name != "ללא שם":
+                                    # Extract first name only (max 2 words, skip complex names)
+                                    name = extract_first_name(full_name)
+                                    if name:
+                                        logger.info(f"[NAME_RESOLVE] source=outbound_job full_name=\"{full_name}\" first_name=\"{name}\" call_sid={call_sid[:8]}")
+                                        _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
+                                        return (name, "outbound_job")
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] source=outbound_job skipped complex name: \"{full_name}\"")
+                                        _orig_print(f"[NAME_RESOLVE] Skipped complex name from outbound_job", flush=True)
+                        
+                        # Priority 4: Lead.full_name (via CallLog.lead_id)
+                        if call_log and call_log.lead_id:
+                            lead = Lead.query.get(call_log.lead_id)
                             if lead:
-                                name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-                                if name and name != "ללא שם":
-                                    logger.info(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number} matched={phone_variants}")
-                                    _orig_print(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}", flush=True)
-                                    return (name, "lead_phone")
-                        except Exception as e:
-                            logger.warning(f"[NAME_RESOLVE] Failed to query lead by phone: {e}")
-                    
-                    # Final fallback: No name found
-                    logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8] if call_sid else 'N/A'}")
-                    _orig_print(f"[NAME_RESOLVE] source=none name=None", flush=True)
-                    return (None, None)
+                                full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                if full_name and full_name != "ללא שם":
+                                    # Extract first name only (max 2 words, skip complex names)
+                                    name = extract_first_name(full_name)
+                                    if name:
+                                        logger.info(f"[NAME_RESOLVE] source=lead_calllog full_name=\"{full_name}\" first_name=\"{name}\" call_sid={call_sid[:8]}")
+                                        _orig_print(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\"", flush=True)
+                                        return (name, "lead_calllog")
+                                    else:
+                                        logger.info(f"[NAME_RESOLVE] source=lead_calllog skipped complex name: \"{full_name}\"")
+                                        _orig_print(f"[NAME_RESOLVE] Skipped complex name from lead_calllog", flush=True)
+                        
+                        # Priority 5: Fallback - Lead lookup by phone number
+                        if phone_number:
+                            try:
+                                # 🔥 CRITICAL: Normalize phone for comparison
+                                # Handle both E.164 (+972...) and local (05...) formats
+                                # If Twilio gives +9725... but DB has 05..., we must search both
+                                
+                                phone_variants = [phone_number]  # Start with original
+                                
+                                # Generate normalized variants
+                                cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
+                                
+                                # If E.164 format (+972...), also try local format (0...)
+                                if phone_number.startswith('+972'):
+                                    local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
+                                    phone_variants.append(local_format)
+                                # If local format (0...), also try E.164 (+972...)
+                                elif phone_number.startswith('0'):
+                                    e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
+                                    phone_variants.append(e164_format)
+                                
+                                logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
+                                
+                                # Query with all variants (only phone_e164 exists in Lead model)
+                                lead = Lead.query.filter_by(
+                                    tenant_id=business_id
+                                ).filter(
+                                    Lead.phone_e164.in_(phone_variants)
+                                ).order_by(Lead.updated_at.desc()).first()
+                                
+                                if lead:
+                                    full_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                    if full_name and full_name != "ללא שם":
+                                        # Extract first name only (max 2 words, skip complex names)
+                                        name = extract_first_name(full_name)
+                                        if name:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_phone full_name=\"{full_name}\" first_name=\"{name}\" phone={phone_number} matched={phone_variants}")
+                                            _orig_print(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}", flush=True)
+                                            return (name, "lead_phone")
+                                        else:
+                                            logger.info(f"[NAME_RESOLVE] source=lead_phone skipped complex name: \"{full_name}\"")
+                                            _orig_print(f"[NAME_RESOLVE] Skipped complex name from lead_phone", flush=True)
+                            except Exception as e:
+                                logger.warning(f"[NAME_RESOLVE] Failed to query lead by phone: {e}")
+                        
+                        # Final fallback: No name found
+                        logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8] if call_sid else 'N/A'}")
+                        _orig_print(f"[NAME_RESOLVE] source=none name=None", flush=True)
+                        return (None, None)
                     
                 except Exception as e:
                     logger.error(f"[NAME_RESOLVE] Error resolving name: {e}")
@@ -3049,10 +3114,11 @@ class MediaStreamHandler:
                     _orig_print(f"[NAME_RESOLVE] Error: {e}", flush=True)
                     return (None, None)
             
-            # 🔥 CRITICAL: Resolve customer name from DB (overrides outbound_lead_name if needed)
-            # Pass lead_id and phone_number for comprehensive lookup
-            if call_direction == "outbound" and self.call_sid:
-                # Get lead_id from outbound_lead_id (set from customParameters)
+            # 🔥 CRITICAL: Resolve customer name from DB for ALL calls (inbound + outbound)
+            # This provides name + gender detection for both inbound and outbound calls
+            if self.call_sid:
+                # Get lead_id from outbound_lead_id (set from customParameters for outbound)
+                # For inbound, this may be None but we can still look up by phone
                 lead_id = getattr(self, 'outbound_lead_id', None)
                 # Convert to int if it's a string
                 if lead_id and isinstance(lead_id, str):
@@ -3062,8 +3128,8 @@ class MediaStreamHandler:
                         logger.debug(f"[NAME_RESOLVE] Failed to convert lead_id to int: {lead_id}")
                         lead_id = None
                 
-                # Get phone number for fallback lookup
-                phone_number = getattr(self, 'phone_number', None)
+                # Get phone number for fallback lookup (works for both inbound + outbound)
+                phone_number = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
                 
                 # Call resolution with all available identifiers
                 resolved_name, name_source = _resolve_customer_name(
@@ -3076,26 +3142,27 @@ class MediaStreamHandler:
                 if resolved_name:
                     # Store in pending_customer_name for NAME_ANCHOR extraction
                     self.pending_customer_name = resolved_name
-                    # Also update outbound_lead_name if it was empty
-                    if not outbound_lead_name:
+                    # Also update outbound_lead_name if it was empty (for outbound calls)
+                    if call_direction == "outbound" and not outbound_lead_name:
                         self.outbound_lead_name = resolved_name
                         outbound_lead_name = resolved_name
                     
                     # 🔥 DEBUG LOG: Show what we resolved
-                    print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB:")
+                    print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB ({call_direction}):")
                     print(f"   call_sid: {self.call_sid[:8]}...")
                     print(f"   lead_id from customParameters: {lead_id}")
                     print(f"   phone_number for fallback: {phone_number}")
                     print(f"   resolved_name: {resolved_name}")
                     print(f"   name_source: {name_source}")
-                    print(f"   outbound_lead_name: {outbound_lead_name}")
+                    print(f"   call_direction: {call_direction}")
                     print(f"   pending_customer_name: {self.pending_customer_name}")
                 else:
                     # 🔥 DEBUG: Log why resolution failed
-                    print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED:")
+                    print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED ({call_direction}):")
                     print(f"   call_sid: {self.call_sid[:8]}...")
                     print(f"   lead_id from customParameters: {lead_id}")
                     print(f"   phone_number for fallback: {phone_number}")
+                    print(f"   call_direction: {call_direction}")
                     print(f"   Result: No name found in any source")
             
             # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
@@ -3512,9 +3579,44 @@ class MediaStreamHandler:
                     # Check if this exact anchor was already injected
                     existing_hash = getattr(self, '_name_anchor_hash', None)
                     if existing_hash != name_anchor_hash_short:
-                        from server.services.realtime_prompt_builder import build_name_anchor_message
+                        from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
                         
-                        name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
+                        # 🧠 GENDER DETECTION: Priority order (SSOT)
+                        # 1. Database (if manually set or detected from previous conversation)
+                        # 2. Name-based detection (if not unisex)
+                        customer_gender = None
+                        
+                        # Priority 1: Check database for saved gender
+                        try:
+                            from server.models_sql import CallLog, Lead
+                            app = _get_flask_app()
+                            with app.app_context():
+                                call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                lead = None
+                                
+                                if call_log and call_log.lead_id:
+                                    lead = Lead.query.get(call_log.lead_id)
+                                elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                                    lead = Lead.query.get(self.outbound_lead_id)
+                                
+                                if lead and lead.gender:
+                                    customer_gender = lead.gender
+                                    logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
+                                    print(f"🧠 [GENDER] Using saved: {customer_gender} from Lead {lead.id}")
+                        except Exception as e:
+                            logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
+                        
+                        # Priority 2: Detect from name (only if not in database)
+                        if not customer_gender:
+                            customer_gender = detect_gender_from_name(customer_name_to_inject)
+                            if customer_gender:
+                                logger.info(f"[GENDER_DETECT] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
+                                print(f"🧠 [GENDER] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
+                            else:
+                                logger.info(f"[GENDER_DETECT] Cannot determine gender from name: '{customer_name_to_inject}' (unisex or unknown)")
+                                print(f"🧠 [GENDER] Unknown/unisex name: '{customer_name_to_inject}' (will wait for conversation)")
+                        
+                        name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy, customer_gender)
                         
                         # Inject as conversation system message
                         name_anchor_event = await client.send_event(
@@ -4548,10 +4650,42 @@ class MediaStreamHandler:
             
             # Only re-inject if hash changed
             if existing_hash != new_hash_short:
-                from server.services.realtime_prompt_builder import build_name_anchor_message
+                from server.services.realtime_prompt_builder import build_name_anchor_message, detect_gender_from_name
+                
+                # 🧠 GENDER DETECTION: Priority order (SSOT)
+                # 1. Database (if manually set or detected from previous conversation)
+                # 2. Name-based detection (if not unisex)
+                customer_gender = None
+                
+                # Priority 1: Check database for saved gender
+                try:
+                    from server.models_sql import CallLog, Lead
+                    app = _get_flask_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        lead = None
+                        
+                        if call_log and call_log.lead_id:
+                            lead = Lead.query.get(call_log.lead_id)
+                        elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                            lead = Lead.query.get(self.outbound_lead_id)
+                        
+                        if lead and lead.gender:
+                            customer_gender = lead.gender
+                            logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
+                except Exception as e:
+                    logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
+                
+                # Priority 2: Detect from name (only if not in database)
+                if not customer_gender:
+                    customer_gender = detect_gender_from_name(current_name)
+                    if customer_gender:
+                        logger.info(f"[GENDER_DETECT] Detected from name: {customer_gender} for '{current_name}'")
+                    else:
+                        logger.info(f"[GENDER_DETECT] Cannot determine from name: '{current_name}' (unisex/unknown)")
                 
                 # Build updated NAME_ANCHOR
-                name_anchor_text = build_name_anchor_message(current_name, current_policy)
+                name_anchor_text = build_name_anchor_message(current_name, current_policy, customer_gender)
                 
                 # Re-inject NAME_ANCHOR
                 name_anchor_event = await client.send_event(
@@ -6092,7 +6226,7 @@ class MediaStreamHandler:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 VOICEMAIL DETECTION: Check AI transcript too (first 15 seconds only)
+                        # 🔥 VOICEMAIL DETECTION: Check AI transcript too (first 10 seconds only)
                         # ═══════════════════════════════════════════════════════════════════════
                         # Voicemail messages sometimes appear in AI transcript (response.audio_transcript)
                         # instead of user transcript, depending on the audio pipeline
@@ -6905,8 +7039,69 @@ class MediaStreamHandler:
                     # Update last user activity timestamp for silence watchdog
                     self._last_user_activity_ts = time.time()
                     
-                    # Check for voicemail/answering machine (first 15 seconds only)
+                    # Check for voicemail/answering machine (first 10 seconds only)
                     await self._maybe_hangup_voicemail(text)
+                    
+                    # 🧠 GENDER DETECTION FROM CONVERSATION
+                    # Detect if user explicitly states their gender ("אני אישה" / "אני גבר")
+                    # This is the most reliable source - update Lead in database if detected
+                    if text and len(text) > 3:  # At least a few characters
+                        from server.services.realtime_prompt_builder import detect_gender_from_conversation
+                        detected_gender = detect_gender_from_conversation(text)
+                        
+                        if detected_gender and self.call_sid:
+                            # Gender detected from conversation! Update Lead in database
+                            try:
+                                from server.models_sql import CallLog, Lead
+                                app = _get_flask_app()
+                                with app.app_context():
+                                    # Find the lead associated with this call
+                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                    lead = None
+                                    
+                                    if call_log and call_log.lead_id:
+                                        lead = Lead.query.get(call_log.lead_id)
+                                    elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                                        # Outbound call - use outbound_lead_id
+                                        lead = Lead.query.get(self.outbound_lead_id)
+                                    
+                                    if lead:
+                                        # Update gender in database
+                                        old_gender = lead.gender
+                                        lead.gender = detected_gender
+                                        db.session.commit()
+                                        
+                                        logger.info(f"[GENDER_CONVERSATION] Updated lead {lead.id} gender: {old_gender} → {detected_gender}")
+                                        print(f"🧠 [GENDER] Detected from conversation: {detected_gender} (saved to Lead {lead.id})")
+                                        
+                                        # Re-inject NAME_ANCHOR with updated gender
+                                        if hasattr(self, '_name_anchor_customer_name') and self._name_anchor_customer_name:
+                                            from server.services.realtime_prompt_builder import build_name_anchor_message
+                                            use_policy = getattr(self, '_name_anchor_policy', False)
+                                            updated_anchor = build_name_anchor_message(
+                                                self._name_anchor_customer_name, 
+                                                use_policy, 
+                                                detected_gender
+                                            )
+                                            
+                                            # Send updated context to AI
+                                            try:
+                                                await client.send_event({
+                                                    "type": "conversation.item.create",
+                                                    "item": {
+                                                        "type": "message",
+                                                        "role": "system",
+                                                        "content": [{"type": "input_text", "text": updated_anchor}]
+                                                    }
+                                                })
+                                                print(f"🧠 [GENDER] Updated AI context with detected gender")
+                                            except Exception as e:
+                                                logger.warning(f"[GENDER_CONVERSATION] Failed to update AI context: {e}")
+                                    else:
+                                        logger.debug(f"[GENDER_CONVERSATION] No lead found for call_sid {self.call_sid[:8]}")
+                            except Exception as e:
+                                logger.error(f"[GENDER_CONVERSATION] Error updating gender: {e}")
+                                logger.exception("Full traceback:")
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
@@ -11846,6 +12041,59 @@ class MediaStreamHandler:
             source="fallback_timeout",
             transcript_text=f"Timeout after {timeout_seconds}s for {trigger_type}"
         )
+
+
+    def _immediate_hangup(self, reason: str):
+        """
+        🚨 IMMEDIATE HANGUP: Force immediate disconnection bypassing all protections
+        
+        This is used for critical situations like:
+        - Voicemail detection (within first 15 seconds)
+        - Extended silence (20+ seconds)
+        
+        Unlike _trigger_auto_hangup, this method:
+        - Bypasses greeting protection
+        - Bypasses audio queue checks
+        - Does NOT send goodbye message
+        - Executes hangup immediately via Twilio REST API
+        
+        Args:
+            reason: Why the call is being hung up (for logging)
+        """
+        # Already hung up?
+        if self.hangup_triggered or self.call_state == CallState.ENDED:
+            return
+        
+        # Mark as ended immediately
+        self.hangup_triggered = True
+        self.call_state = CallState.ENDED
+        self.goodbye_message_sent = True  # Prevent normal hangup from sending goodbye
+        
+        _orig_print(f"🚨 [IMMEDIATE_HANGUP] Forcing immediate disconnect: {reason}", flush=True)
+        logger.warning(f"[IMMEDIATE_HANGUP] reason={reason} call_sid={self.call_sid}")
+        
+        # Execute Twilio hangup in separate thread (non-blocking)
+        def do_hangup():
+            try:
+                from twilio.rest import Client
+                import os
+                
+                client = Client(
+                    os.getenv('TWILIO_ACCOUNT_SID'),
+                    os.getenv('TWILIO_AUTH_TOKEN')
+                )
+                
+                if self.call_sid:
+                    client.calls(self.call_sid).update(status='completed')
+                    _orig_print(f"✅ [IMMEDIATE_HANGUP] Twilio call {self.call_sid[:8]}... terminated", flush=True)
+                    logger.info(f"[IMMEDIATE_HANGUP] Twilio call terminated: {self.call_sid}")
+                    
+            except Exception as e:
+                _orig_print(f"⚠️ [IMMEDIATE_HANGUP] Error terminating call: {e}", flush=True)
+                logger.error(f"[IMMEDIATE_HANGUP] Error: {e}")
+        
+        # Execute in thread to avoid blocking
+        threading.Thread(target=do_hangup, daemon=True).start()
 
 
     def _trigger_auto_hangup(self, reason: str):
