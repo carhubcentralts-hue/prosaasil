@@ -3026,6 +3026,13 @@ class MediaStreamHandler:
                         pass
 
                     if system_prompt and system_prompt.strip():
+                        # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for system prompt
+                        import hashlib
+                        system_hash = hashlib.md5(system_prompt.encode()).hexdigest()[:8]
+                        
+                        # Store hash to prevent duplicate injection
+                        self._system_prompt_hash = system_hash
+                        
                         await client.send_event(
                             {
                                 "type": "conversation.item.create",
@@ -3042,8 +3049,9 @@ class MediaStreamHandler:
                             }
                         )
                         self._global_system_prompt_injected = True
-                        logger.info("[PROMPT_SEPARATION] Injected global SYSTEM prompt as conversation message")
-                        _orig_print("[PROMPT_SEPARATION] global_system_prompt=injected", flush=True)
+                        self._system_items_count = 1
+                        logger.info(f"[PROMPT_SEPARATION] Injected global SYSTEM prompt hash={system_hash}")
+                        _orig_print(f"[PROMPT_SEPARATION] global_system_prompt=injected hash={system_hash}", flush=True)
                 except Exception as e:
                     # Do not fail call if this injection fails; COMPACT still provides business script.
                     logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
@@ -3123,8 +3131,15 @@ class MediaStreamHandler:
                 print(f"   extracted name: {customer_name_to_inject}")
                 print(f"   use_name_policy: {use_name_policy}")
                 
-                # Step 3: Build and inject NAME_ANCHOR (idempotent)
-                if not hasattr(self, '_name_anchor_injected'):
+                # Step 3: Build and inject NAME_ANCHOR (idempotent with hash)
+                # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint
+                import hashlib
+                name_anchor_hash = f"{customer_name_to_inject or 'None'}|{use_name_policy}"
+                name_anchor_hash_short = hashlib.md5(name_anchor_hash.encode()).hexdigest()[:8]
+                
+                # Check if this exact anchor was already injected
+                existing_hash = getattr(self, '_name_anchor_hash', None)
+                if existing_hash != name_anchor_hash_short:
                     from server.services.realtime_prompt_builder import build_name_anchor_message
                     
                     name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
@@ -3146,26 +3161,41 @@ class MediaStreamHandler:
                         }
                     )
                     
-                    # Store injection state
+                    # Store injection state with hash
                     self._name_anchor_injected = True
                     self._name_anchor_customer_name = customer_name_to_inject
                     self._name_anchor_policy = use_name_policy
+                    self._name_anchor_hash = name_anchor_hash_short
+                    self._name_anchor_count = getattr(self, '_name_anchor_count', 0) + 1
                     
                     # Get item_id if available from response
                     item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
                     
-                    # Log injection with detailed format matching requirements
-                    logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id}")
-                    print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject or 'None'}', item_id={item_id}")
-                    _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id}", flush=True)
+                    # Log injection with hash
+                    logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id} hash={name_anchor_hash_short}")
+                    print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject or 'None'}', hash={name_anchor_hash_short}")
+                    _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" hash={name_anchor_hash_short}", flush=True)
                 else:
-                    print(f"ℹ️ [NAME_ANCHOR] Already injected (idempotent guard)")
+                    print(f"ℹ️ [NAME_ANCHOR] Skip duplicate (hash={name_anchor_hash_short} already injected)")
+                    logger.debug(f"[NAME_ANCHOR] skip_duplicate hash={name_anchor_hash_short}")
                     
             except Exception as e:
                 # Do not fail call if NAME_ANCHOR injection fails
                 logger.error(f"[NAME_ANCHOR] Failed to inject NAME_ANCHOR: {e}")
                 import traceback
                 traceback.print_exc()
+            
+            # 🔥 PROMPT_SUMMARY: Single-line summary of all injected prompts
+            # This makes it easy to verify no duplicates at call start
+            system_count = getattr(self, '_system_items_count', 0)
+            business_count = 0  # Will be 1 after PROMPT_UPGRADE
+            name_count = getattr(self, '_name_anchor_count', 0)
+            system_hash = getattr(self, '_system_prompt_hash', 'none')
+            business_hash = 'none'  # Will be set after PROMPT_UPGRADE
+            name_hash = getattr(self, '_name_anchor_hash', 'none')
+            
+            _orig_print(f"[PROMPT_SUMMARY] system={system_count} business={business_count} name_anchor={name_count} hashes: sys={system_hash}, biz={business_hash}, name={name_hash}", flush=True)
+            logger.info(f"[PROMPT_SUMMARY] Prompt injection summary at call start: system={system_count}, business={business_count}, name_anchor={name_count}")
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -4119,13 +4149,15 @@ class MediaStreamHandler:
             current_name = _extract_current_name()
             current_policy = getattr(self, 'use_name_policy', False)
             
-            # Check if name or policy changed
-            stored_name = getattr(self, '_name_anchor_customer_name', None)
-            stored_policy = getattr(self, '_name_anchor_policy', False)
+            # 🔥 ANTI-DUPLICATE: Check using hash fingerprint
+            import hashlib
+            new_hash = f"{current_name or 'None'}|{current_policy}"
+            new_hash_short = hashlib.md5(new_hash.encode()).hexdigest()[:8]
             
-            needs_update = (current_name != stored_name) or (current_policy != stored_policy)
+            existing_hash = getattr(self, '_name_anchor_hash', None)
             
-            if needs_update:
+            # Only re-inject if hash changed
+            if existing_hash != new_hash_short:
                 from server.services.realtime_prompt_builder import build_name_anchor_message
                 
                 # Build updated NAME_ANCHOR
@@ -4148,22 +4180,24 @@ class MediaStreamHandler:
                     }
                 )
                 
-                # Update stored state
+                # Update stored state with hash
                 self._name_anchor_customer_name = current_name
                 self._name_anchor_policy = current_policy
+                self._name_anchor_hash = new_hash_short
+                self._name_anchor_count = getattr(self, '_name_anchor_count', 0) + 1
                 
                 # Get item_id
                 item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
                 
-                # Log re-injection with exact format requested
-                logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id}")
-                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name or 'None'}', item_id={item_id}")
-                _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id}", flush=True)
+                # Log re-injection with hash
+                logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id} hash={new_hash_short}")
+                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name or 'None'}', hash={new_hash_short}")
+                _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" hash={new_hash_short}", flush=True)
             else:
-                # No change needed - log with exact format requested
-                logger.debug(f"[NAME_ANCHOR] ensured ok (no change) name=\"{stored_name or 'None'}\" policy={stored_policy}")
-                print(f"ℹ️ [NAME_ANCHOR] Ensured - no change needed (name='{stored_name or 'None'}', policy={stored_policy})")
-                _orig_print(f"[NAME_ANCHOR] ensured ok (no change)", flush=True)
+                # No change needed - log with hash
+                logger.debug(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}")
+                print(f"ℹ️ [NAME_ANCHOR] Ensured - no change needed (hash={existing_hash})")
+                _orig_print(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}", flush=True)
                 
         except Exception as e:
             logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR: {e}")
@@ -4356,6 +4390,7 @@ class MediaStreamHandler:
                         
                         # 🔥 PROMPT UPGRADE: After first response, upgrade from COMPACT to FULL prompt
                         # This happens automatically after greeting completes, giving AI full context
+                        # 🔥 ANTI-DUPLICATE: Only inject FULL business prompt once
                         if (self._using_compact_greeting and 
                             self._full_prompt_for_upgrade and
                             not getattr(self, '_prompt_upgraded_to_full', False)):
@@ -4364,12 +4399,20 @@ class MediaStreamHandler:
                                 full_prompt = self._full_prompt_for_upgrade
                                 upgrade_time = time.time()
                                 
-                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
-                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
-                                
-                                # Calculate hash for logging
+                                # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for business prompt
                                 import hashlib
                                 full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
+                                
+                                # Check if this business prompt was already injected
+                                existing_business_hash = getattr(self, '_business_prompt_hash', None)
+                                if existing_business_hash == full_prompt_hash:
+                                    print(f"ℹ️ [PROMPT UPGRADE] Skip duplicate - business prompt hash={full_prompt_hash} already injected")
+                                    logger.warning(f"[PROMPT UPGRADE] Skipping duplicate business prompt injection hash={full_prompt_hash}")
+                                    self._prompt_upgraded_to_full = True
+                                    continue  # Skip to next iteration
+                                
+                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
+                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
                                 
                                 # ✅ Per CRITICAL directive:
                                 # FULL prompt must NOT be sent as session.instructions (system).
@@ -4427,12 +4470,25 @@ class MediaStreamHandler:
                                     )
                                 
                                 self._prompt_upgraded_to_full = True
+                                self._business_prompt_hash = full_prompt_hash
+                                self._business_items_count = 1  # One FULL business prompt injected
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
                                 
                                 print(f"✅ [PROMPT UPGRADE] Expanded to FULL in {upgrade_duration}ms (hash={full_prompt_hash})")
                                 print(f"   └─ This is a planned EXPANSION, not a rebuild - same direction/business")
                                 _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
-                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms")
+                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms hash={full_prompt_hash}")
+                                
+                                # 🔥 PROMPT_SUMMARY: Update after upgrade
+                                system_count = getattr(self, '_system_items_count', 0)
+                                business_count = getattr(self, '_business_items_count', 0)
+                                name_count = getattr(self, '_name_anchor_count', 0)
+                                system_hash = getattr(self, '_system_prompt_hash', 'none')
+                                business_hash = getattr(self, '_business_prompt_hash', 'none')
+                                name_hash = getattr(self, '_name_anchor_hash', 'none')
+                                
+                                _orig_print(f"[PROMPT_SUMMARY] system={system_count} business={business_count} name_anchor={name_count} hashes: sys={system_hash}, biz={business_hash}, name={name_hash}", flush=True)
+                                logger.info(f"[PROMPT_SUMMARY] After upgrade: system={system_count}, business={business_count}, name_anchor={name_count}")
                                 
                                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                                 # 🔥 NAME ANCHOR: Ensure it's still present after PROMPT_UPGRADE
