@@ -7117,6 +7117,60 @@ class MediaStreamHandler:
                                 logger.error(f"[GENDER_CONVERSATION] Error updating gender: {e}")
                                 logger.exception("Full traceback:")
                     
+                    # 🆕 NAME DETECTION FROM CONVERSATION
+                    # Detect if user introduces themselves ("אני דני" / "קוראים לי רונית")
+                    # Update Lead record with detected name for both inbound and outbound calls
+                    if text and len(text) > 3:  # At least a few characters
+                        from server.services.realtime_prompt_builder import detect_name_from_conversation, extract_first_name
+                        detected_name = detect_name_from_conversation(text)
+                        
+                        if detected_name and self.call_sid:
+                            # Name detected from conversation! Update Lead in database
+                            try:
+                                from server.models_sql import CallLog, Lead
+                                app = _get_flask_app()
+                                with app.app_context():
+                                    # Find the lead associated with this call
+                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                    lead = None
+                                    
+                                    if call_log and call_log.lead_id:
+                                        lead = Lead.query.get(call_log.lead_id)
+                                    elif hasattr(self, 'outbound_lead_id') and self.outbound_lead_id:
+                                        # Outbound call - use outbound_lead_id
+                                        lead = Lead.query.get(self.outbound_lead_id)
+                                    
+                                    if lead:
+                                        # Only update if lead doesn't have a name or has placeholder name
+                                        current_name = f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                        should_update = (
+                                            not current_name or 
+                                            current_name in ['Customer', 'לקוח', 'ללא שם'] or
+                                            current_name.startswith('לקוח מטלפון')
+                                        )
+                                        
+                                        if should_update:
+                                            # Update name in database
+                                            old_name = current_name or 'None'
+                                            lead.first_name = detected_name
+                                            lead.last_name = None  # Clear last name since we only extract first name
+                                            db.session.commit()
+                                            
+                                            logger.info(f"[NAME_CONVERSATION] Updated lead {lead.id} name: '{old_name}' → '{detected_name}'")
+                                            print(f"📝 [NAME] Detected from conversation: '{detected_name}' (saved to Lead {lead.id})")
+                                            
+                                            # Update CRM context if it exists
+                                            if hasattr(self, 'crm_context') and self.crm_context:
+                                                self.crm_context.customer_name = detected_name
+                                                print(f"📝 [NAME] Updated CRM context with detected name")
+                                        else:
+                                            logger.debug(f"[NAME_CONVERSATION] Lead {lead.id} already has valid name '{current_name}' - not overriding")
+                                    else:
+                                        logger.debug(f"[NAME_CONVERSATION] No lead found for call_sid {self.call_sid[:8]}")
+                            except Exception as e:
+                                logger.error(f"[NAME_CONVERSATION] Error updating name: {e}")
+                                logger.exception("Full traceback:")
+                    
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
                     # ═══════════════════════════════════════════════════════════════════════
