@@ -136,6 +136,12 @@ class CallLog(db.Model):
     # Cost classification
     estimated_cost_bucket = db.Column(db.String(16), nullable=True)  # "LOW"/"MED"/"HIGH" based on metrics
     
+    # 🔥 RECORDING DOWNLOAD STATUS: Track download state to prevent duplicate jobs
+    recording_download_status = db.Column(db.String(32), nullable=True, default=None)  # missing|queued|downloading|ready|failed
+    recording_last_enqueue_at = db.Column(db.DateTime, nullable=True)  # Last time download was enqueued
+    recording_fail_count = db.Column(db.Integer, default=0)  # Number of failed download attempts
+    recording_next_retry_at = db.Column(db.DateTime, nullable=True)  # When to retry after failure
+    
     # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
     detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
     detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
