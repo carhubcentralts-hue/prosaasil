@@ -84,6 +84,45 @@ def get_stt_client():
     log.warning("⚠️ Google STT should not be used - DISABLE_GOOGLE flag should be set")
     return None
 
+@lazy_singleton("asterisk_ari_service")
+def get_ari_service():
+    """
+    Initialize and start Asterisk ARI service.
+    
+    This service connects to Asterisk via WebSocket and listens for call events.
+    It manages call lifecycle (StasisStart, StasisEnd, hangup) and coordinates
+    with the Media Gateway for real-time audio streaming.
+    """
+    provider = os.getenv("TELEPHONY_PROVIDER", "asterisk")
+    if provider != "asterisk":
+        log.debug(f"ARI service not needed - provider is {provider}")
+        return None
+    
+    try:
+        from server.services.asterisk_ari_service import AsteriskARIService
+        
+        ari_url = os.getenv("ASTERISK_ARI_URL", "http://asterisk:8088/ari")
+        ari_username = os.getenv("ASTERISK_ARI_USER", "prosaas")
+        ari_password = os.getenv("ASTERISK_ARI_PASSWORD", "asterisk123")
+        stasis_app = os.getenv("ARI_APP_NAME", "prosaas_ai")
+        
+        service = AsteriskARIService(
+            ari_url=ari_url,
+            ari_username=ari_username,
+            ari_password=ari_password,
+            stasis_app=stasis_app
+        )
+        
+        # Start the service (runs WebSocket listener in background thread)
+        service.start()
+        
+        log.info(f"✅ ARI service initialized: app={stasis_app}, url={ari_url}")
+        return service
+        
+    except Exception as e:
+        log.error(f"❌ ARI service init failed: {e}")
+        return None
+
 def warmup_services_async():
     """⚡ Non-blocking warmup - starts immediately after app init"""
     def _warmup():
@@ -109,6 +148,21 @@ def warmup_services_async():
         # 🚫 SKIP Google STT warmup (DISABLED)
         print("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
         log.info("WARMUP_STT_SKIPPED")
+        
+        # 🔥 Initialize Asterisk ARI service if using Asterisk provider
+        provider = os.getenv("TELEPHONY_PROVIDER", "asterisk")
+        if provider == "asterisk":
+            print("  🔥 Starting Asterisk ARI service...")
+            ari_service = get_ari_service()
+            if ari_service:
+                print("    ✅ ARI service started - listening for call events")
+                log.info("WARMUP_ARI_OK")
+            else:
+                print("    ❌ ARI service failed to start")
+                log.warning("WARMUP_ARI_ERR")
+        else:
+            print(f"  ⚠️ Asterisk ARI service SKIPPED (provider={provider})")
+            log.info(f"WARMUP_ARI_SKIPPED provider={provider}")
         
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
         try:

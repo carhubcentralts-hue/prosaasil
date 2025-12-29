@@ -58,8 +58,10 @@ services:
       dockerfile: Dockerfile.media-gateway
     restart: unless-stopped
     depends_on:
-      - asterisk
-      - backend
+      asterisk:
+        condition: service_healthy
+      backend:
+        condition: service_started
     environment:
       # OpenAI API
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -72,6 +74,7 @@ services:
       - ASTERISK_ARI_URL=http://asterisk:8088/ari
       - ASTERISK_ARI_USER=prosaas
       - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
+      - ARI_APP_NAME=prosaas_ai
       # Backend API
       - BACKEND_URL=http://backend:5000
       # Debug
@@ -99,7 +102,8 @@ services:
       dockerfile: Dockerfile.backend
     restart: unless-stopped
     depends_on:
-      - asterisk
+      asterisk:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -118,6 +122,7 @@ services:
       - ASTERISK_ARI_USER=prosaas
       - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
       - ASTERISK_SIP_TRUNK=didww
+      - ARI_APP_NAME=prosaas_ai
       # Media Gateway
       - MEDIA_GATEWAY_HOST=media-gateway
       - MEDIA_GATEWAY_PORT=10000

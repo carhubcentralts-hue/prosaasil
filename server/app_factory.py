@@ -424,6 +424,11 @@ def create_app():
         app.register_blueprint(webhook_secret_bp)
         app.logger.info("✅ Webhook Secret Management blueprint registered")
         
+        # Asterisk Internal API - /internal/calls/*
+        from server.routes_asterisk_internal import asterisk_internal_bp
+        app.register_blueprint(asterisk_internal_bp)
+        app.logger.info("✅ Asterisk Internal API blueprint registered")
+        
     except Exception as e:
         app.logger.error(f"❌ CRITICAL: Failed to register essential API blueprints: {e}")
         import traceback
