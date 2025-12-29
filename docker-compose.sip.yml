@@ -110,16 +110,19 @@ services:
       - PUBLIC_HOST=${PUBLIC_HOST}
       # OpenAI
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # Asterisk Configuration
-      - TELEPHONY_PROVIDER=asterisk
+      # Telephony Provider Selection
+      # DEFAULT: asterisk (production)
+      # Set to "twilio" ONLY for emergency fallback
+      - TELEPHONY_PROVIDER=${TELEPHONY_PROVIDER:-asterisk}
       - ASTERISK_ARI_URL=http://asterisk:8088/ari
       - ASTERISK_ARI_USER=prosaas
       - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-asterisk123}
-      - ASTERISK_SIP_TRUNK=provider
+      - ASTERISK_SIP_TRUNK=didww
       # Media Gateway
       - MEDIA_GATEWAY_HOST=media-gateway
       - MEDIA_GATEWAY_PORT=10000
-      # Legacy Twilio (for gradual migration)
+      # Legacy Twilio (DEPRECATED - for emergency fallback only)
+      # Leave empty unless rollback required
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
     ports:
