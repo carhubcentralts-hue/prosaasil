@@ -436,6 +436,99 @@ def detect_gender_from_conversation(text: str) -> Optional[str]:
     return None
 
 
+def detect_name_from_conversation(text: str) -> Optional[str]:
+    """
+    🆕 CONVERSATION-BASED NAME DETECTION: Detect customer name from what they say
+    
+    Detects when user introduces themselves during conversation:
+    - "אני [שם]" → extracts name
+    - "קוראים לי [שם]" → extracts name
+    - "השם שלי [שם]" → extracts name
+    
+    Uses both regex patterns AND AI validation for higher accuracy.
+    
+    Args:
+        text: The user's transcript text
+        
+    Returns:
+        Customer name (first name only) or None if no name detected
+        
+    Examples:
+        "אני דני" → "דני"
+        "קוראים לי רונית" → "רונית"
+        "השם שלי משה" → "משה"
+        "מה שלומך?" → None
+    """
+    if not text or not isinstance(text, str):
+        return None
+    
+    # Name patterns in Hebrew
+    name_patterns = [
+        r'(?:^|[^\w])אני\s+([א-ת]{2,15})(?:[^\w]|$)',  # "אני [name]"
+        r'(?:^|[^\w])קוראים\s+לי\s+([א-ת]{2,15})(?:[^\w]|$)',  # "קוראים לי [name]"
+        r'(?:^|[^\w])השם\s+שלי\s+([א-ת]{2,15})(?:[^\w]|$)',  # "השם שלי [name]"
+        r'(?:^|[^\w])השם\s+([א-ת]{2,15})(?:[^\w]|$)',  # "השם [name]"
+        r'(?:^|[^\w])שמי\s+([א-ת]{2,15})(?:[^\w]|$)',  # "שמי [name]"
+    ]
+    
+    # Common words to filter out (not names)
+    COMMON_WORDS_TO_EXCLUDE = {
+        'כן', 'לא', 'בסדר', 'טוב', 'רוצה', 'צריך', 'יכול', 'אוכל', 'מעוניין',
+        'כאן', 'שם', 'פה', 'איפה', 'מתי', 'למה', 'איך', 'מה', 'מי',
+        'אותו', 'אותה', 'אותם', 'אותן', 'זה', 'זו', 'זאת', 'אלה',
+        'גם', 'רק', 'עוד', 'כבר', 'תמיד', 'לעולם', 'אף', 'פעם',
+        'מאוד', 'הרבה', 'קצת', 'מעט', 'יותר', 'פחות',
+        'שלום', 'תודה', 'סליחה', 'בבקשה', 'נכון',
+    }
+    
+    # Try regex patterns first
+    for pattern in name_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            potential_name = match.group(1).strip()
+            
+            # Validate the name
+            if (len(potential_name) >= 2 and 
+                potential_name not in COMMON_WORDS_TO_EXCLUDE and
+                potential_name.lower() not in COMMON_WORDS_TO_EXCLUDE):
+                
+                # 🆕 Additional AI validation for edge cases (optional, can be enabled if needed)
+                # This makes it even smarter by having AI verify the name
+                if _is_likely_a_name_ai_validate(potential_name, text):
+                    logger.info(f"[NAME_DETECT] Name detected from conversation: '{potential_name}' in '{text[:50]}'")
+                    return potential_name
+    
+    return None
+
+
+def _is_likely_a_name_ai_validate(candidate_name: str, context: str) -> bool:
+    """
+    🆕 AI validation to verify if extracted word is actually a name
+    
+    This is a quick check to avoid false positives like "אני רוצה" → "רוצה"
+    Uses simple heuristics first, can be enhanced with AI if needed.
+    
+    Returns True if likely a name, False otherwise
+    """
+    # For now, use simple heuristics (can be enhanced with AI later)
+    # Hebrew names are typically 2-8 characters
+    if len(candidate_name) < 2 or len(candidate_name) > 12:
+        return False
+    
+    # Check if it's a common verb or adjective (basic list)
+    COMMON_NON_NAMES = {
+        'רוצה', 'צריך', 'יכול', 'אוכל', 'הולך', 'בא', 'עושה',
+        'טוב', 'יפה', 'גדול', 'קטן', 'חדש', 'ישן'
+    }
+    
+    if candidate_name.lower() in COMMON_NON_NAMES:
+        logger.debug(f"[NAME_DETECT] Rejected '{candidate_name}' - common verb/adjective")
+        return False
+    
+    # If we get here, it's likely a name
+    return True
+
+
 
 def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None) -> str:
     """

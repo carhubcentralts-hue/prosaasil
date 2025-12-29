@@ -25,7 +25,7 @@ class LeadAutoStatusService:
         structured_extraction: Optional[dict] = None
     ) -> Optional[str]:
         """
-        Suggest a status for a lead based on call outcome
+        Suggest a status for a lead based on call outcome using AI
         
         Args:
             tenant_id: Business/tenant ID
@@ -41,22 +41,37 @@ class LeadAutoStatusService:
         from server.models_sql import LeadStatus
         
         # Get valid statuses for this business
-        valid_statuses = self._get_valid_statuses(tenant_id)
-        if not valid_statuses:
+        valid_statuses_dict = self._get_valid_statuses_dict(tenant_id)
+        if not valid_statuses_dict:
             log.warning(f"No valid statuses found for tenant {tenant_id}")
             return None
         
+        # 🆕 Priority 0: Use AI to intelligently determine status
+        # This is the SMART method that actually understands the conversation
+        text_to_analyze = call_summary if call_summary else call_transcript
+        if text_to_analyze and len(text_to_analyze) > 10:
+            suggested = self._suggest_status_with_ai(
+                text_to_analyze, 
+                valid_statuses_dict, 
+                call_direction
+            )
+            if suggested:
+                log.info(f"[AutoStatus] ✅ AI suggested '{suggested}' for lead {lead_id}")
+                return suggested
+        
+        # Fallback to keyword matching (less intelligent)
+        valid_statuses_set = set(valid_statuses_dict.keys())
+        
         # Priority 1: Use structured extraction if available
         if structured_extraction:
-            suggested = self._map_from_structured_extraction(structured_extraction, valid_statuses)
+            suggested = self._map_from_structured_extraction(structured_extraction, valid_statuses_set)
             if suggested:
                 log.info(f"[AutoStatus] Suggested '{suggested}' from structured extraction for lead {lead_id}")
                 return suggested
         
         # Priority 2: Use keyword scoring on summary (preferred) or transcript
-        text_to_analyze = call_summary if call_summary else call_transcript
         if text_to_analyze and len(text_to_analyze) > 10:
-            suggested = self._map_from_keywords(text_to_analyze, valid_statuses)
+            suggested = self._map_from_keywords(text_to_analyze, valid_statuses_set)
             if suggested:
                 log.info(f"[AutoStatus] Suggested '{suggested}' from keywords for lead {lead_id}")
                 return suggested
@@ -75,6 +90,105 @@ class LeadAutoStatusService:
         ).all()
         
         return {s.name for s in statuses}
+    
+    def _get_valid_statuses_dict(self, tenant_id: int) -> dict:
+        """
+        Get dictionary of valid statuses for tenant with descriptions
+        Returns: {status_name: status_description}
+        """
+        from server.models_sql import LeadStatus
+        
+        statuses = LeadStatus.query.filter_by(
+            business_id=tenant_id,
+            is_active=True
+        ).all()
+        
+        return {s.name: (s.description or s.name) for s in statuses}
+    
+    def _suggest_status_with_ai(
+        self, 
+        conversation_text: str, 
+        valid_statuses: dict, 
+        call_direction: str
+    ) -> Optional[str]:
+        """
+        🆕 INTELLIGENT STATUS SUGGESTION using OpenAI
+        
+        Uses GPT-4 to analyze the conversation and intelligently match
+        to one of the available statuses for this business.
+        
+        Args:
+            conversation_text: Call summary or transcript
+            valid_statuses: Dict of {status_name: status_description}
+            call_direction: 'inbound' or 'outbound'
+            
+        Returns:
+            Status name or None
+        """
+        try:
+            import os
+            from openai import OpenAI
+            
+            # Get OpenAI API key
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                log.warning("[AutoStatus] No OpenAI API key found - falling back to keyword matching")
+                return None
+            
+            client = OpenAI(api_key=api_key)
+            
+            # Build status list for prompt
+            status_list = "\n".join([f"- {name}: {desc}" for name, desc in valid_statuses.items()])
+            
+            # Build intelligent prompt
+            prompt = f"""אתה מערכת חכמה לניתוח שיחות ועדכון סטטוס לידים.
+
+ניתן לך סיכום/תמלול של שיחה {'נכנסת' if call_direction == 'inbound' else 'יוצאת'} עם לקוח פוטנציאלי.
+המשימה שלך היא לקבוע את הסטטוס המתאים ביותר עבור הליד הזה מתוך רשימת הסטטוסים הזמינים.
+
+**סטטוסים זמינים:**
+{status_list}
+
+**סיכום/תמלול השיחה:**
+{conversation_text}
+
+**הנחיות:**
+1. נתח את תוכן השיחה והבן את רמת העניין של הלקוח
+2. זהה אם נקבע מפגש/פגישה, אם הלקוח מעוניין, לא מעוניין, או צריך מעקב
+3. בחר את הסטטוס המתאים ביותר מתוך הרשימה לעיל
+4. אם אף סטטוס לא מתאים באופן ברור, החזר "none"
+5. החזר **רק** את שם הסטטוס בדיוק כמו שהוא ברשימה (lowercase)
+
+**התשובה שלך (רק שם הסטטוס):**"""
+
+            # Call OpenAI
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Fast and cheap for this task
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "אתה מערכת חכמה לניתוח שיחות. תמיד החזר רק שם סטטוס אחד או 'none'."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,  # Low temperature for consistent results
+                max_tokens=50  # Just need the status name
+            )
+            
+            suggested_status = response.choices[0].message.content.strip().lower()
+            
+            # Validate the suggested status is in our list
+            if suggested_status in valid_statuses:
+                log.info(f"[AutoStatus] 🤖 AI suggested status: '{suggested_status}'")
+                return suggested_status
+            elif suggested_status != "none":
+                log.warning(f"[AutoStatus] AI suggested invalid status: '{suggested_status}' - not in valid list")
+            
+            return None
+            
+        except Exception as e:
+            log.error(f"[AutoStatus] Error in AI status suggestion: {e}")
+            return None
     
     def _map_from_structured_extraction(self, extraction: dict, valid_statuses: set) -> Optional[str]:
         """
