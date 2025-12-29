@@ -98,6 +98,61 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
 # 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 VOICEMAIL DETECTION: Aggressive disconnect on voicemail/answering machine
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Hebrew keywords that indicate voicemail/answering machine
+VOICEMAIL_KEYWORDS = [
+    "מענה קולי", "המשיבון", "משיבון", "תא קולי", "תא הודעות", "תא ההודעות",
+    "הגעתם לתא", "הגעת לתא",
+    "נא להשאיר הודעה", "לאחר הצליל", "בסיום ההודעה",
+    "איננו זמינים", "לא זמינים כרגע",
+    "הודעתך חשובה", "נשוב אליכם",
+    "השאר הודעה", "השאירו הודעה",
+]
+
+# Phone number regex - matches Israeli mobile numbers (05x...) and international (+972/972)
+PHONE_REGEX = re.compile(r'(?:\+972[\s\-]?)?0(?:5\d|[23489])[\s\-]?\d{3}[\s\-]?\d{4}')
+
+def _has_phone(text: str) -> bool:
+    """
+    Detect if text contains a phone number being read out.
+    Returns True if found, False otherwise.
+    
+    Matches:
+    - 05 + at least 7 digits (Israeli mobile)
+    - +972 or 972 followed by digits
+    """
+    if not text:
+        return False
+    
+    # Remove spaces and dashes for easier matching
+    t = text.replace(" ", "").replace("-", "")
+    
+    # Simple check: 05 followed by at least 7 more digits
+    if "05" in t:
+        digits = re.findall(r'\d+', t)
+        if any(d.startswith("05") and len(d) >= 9 for d in digits):
+            return True
+    
+    # Regex check for full patterns
+    return bool(PHONE_REGEX.search(text))
+
+def _has_voicemail_keyword(text: str) -> str | None:
+    """
+    Check if text contains any voicemail keyword.
+    Returns the matched keyword if found, None otherwise.
+    """
+    if not text:
+        return None
+    
+    for kw in VOICEMAIL_KEYWORDS:
+        if kw in text:
+            return kw
+    
+    return None
+
 # 🔥 BUILD 325: Import all call configuration from centralized config
 try:
     from server.config.calls import (
@@ -2226,6 +2281,14 @@ class MediaStreamHandler:
         self._vad_speech_started_count_first_3s = 0  # Count speech_started events in first 3 seconds
         self._vad_calibrated_noise_floor = None  # Calibrated noise floor value
         self._vad_calibrated_threshold = None  # Calibrated VAD threshold
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Aggressive disconnect features
+        # ═══════════════════════════════════════════════════════════════════════════
+        self._call_started_ts = time.time()  # Track call start for 15-second voicemail window
+        self._last_user_activity_ts = time.time()  # Track last user activity for silence watchdog
+        self._silence_watchdog_running = True  # Flag to control watchdog thread
+        self._silence_watchdog_task = None  # Asyncio task for silence monitoring
 
     def _check_queue_backlog(self, queue, queue_name: str, threshold: int = 200) -> None:
         """
@@ -2263,6 +2326,52 @@ class MediaStreamHandler:
         except Exception as e:
             # Don't let backlog monitoring crash the call
             pass
+    
+    async def _maybe_hangup_voicemail(self, user_text: str):
+        """
+        🔥 VOICEMAIL DETECTION: Check if user transcript indicates voicemail/answering machine
+        
+        Only checks within first 15 seconds of call. Disconnects immediately if:
+        - User transcript contains voicemail keywords (משיבון, תא קולי, etc.)
+        - User transcript contains phone number being read (05x..., +972...)
+        
+        Args:
+            user_text: The user's transcript text to check
+        """
+        # Only check within first 15 seconds
+        elapsed = time.time() - self._call_started_ts
+        if elapsed > 15.0:
+            return
+        
+        # Check for voicemail keywords
+        kw = _has_voicemail_keyword(user_text)
+        
+        # Check for phone number
+        ph = _has_phone(user_text)
+        
+        if kw or ph:
+            logger.warning(
+                f"[VOICEMAIL_DETECT] elapsed={elapsed:.1f}s "
+                f"kw={kw} phone={ph} text={user_text[:120]!r} -> HANGUP"
+            )
+            # Trigger immediate hangup
+            self._trigger_auto_hangup(reason="voicemail_detected")
+    
+    async def _silence_watchdog(self):
+        """
+        🔥 SILENCE WATCHDOG: Monitor user activity and disconnect after 20 seconds of silence
+        
+        Runs continuously, checking every 1 second.
+        Disconnects call if 20+ seconds pass without user activity.
+        """
+        while self._silence_watchdog_running:
+            await asyncio.sleep(1)
+            
+            idle = time.time() - self._last_user_activity_ts
+            if idle >= 20.0:
+                logger.warning(f"[SILENCE_WATCHDOG] idle={idle:.1f}s -> HANGUP")
+                self._trigger_auto_hangup(reason="silence_20s")
+                return
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3385,6 +3494,11 @@ class MediaStreamHandler:
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             logger.debug("[REALTIME] Audio/text tasks created successfully")
+            
+            # 🔥 SILENCE WATCHDOG: Start 20-second silence monitoring task
+            logger.debug("[SILENCE_WATCHDOG] Starting silence watchdog task...")
+            self._silence_watchdog_task = asyncio.create_task(self._silence_watchdog())
+            logger.debug("[SILENCE_WATCHDOG] Watchdog task created successfully")
 
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
@@ -3594,7 +3708,7 @@ class MediaStreamHandler:
                 self.crm_context = None
             
             logger.debug(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
-            await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
+            await asyncio.gather(audio_in_task, audio_out_task, text_in_task, self._silence_watchdog_task)
             logger.debug(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
@@ -6611,6 +6725,16 @@ class MediaStreamHandler:
                     self._utterance_start_ts = None
                     
                     # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Update activity tracking
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Update last user activity timestamp for silence watchdog
+                    self._last_user_activity_ts = time.time()
+                    
+                    # Check for voicemail/answering machine (first 15 seconds only)
+                    if hasattr(self, '_maybe_hangup_voicemail'):
+                        await self._maybe_hangup_voicemail(text)
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
                     # ═══════════════════════════════════════════════════════════════════════
                     # If greeting was protected during speech_started, now confirm with transcription
@@ -8639,6 +8763,13 @@ class MediaStreamHandler:
                 self.user_speaking = False
                 self._candidate_user_speaking = False
                 self._utterance_start_ts = None
+                
+                # 🔥 SILENCE WATCHDOG: Stop watchdog on session close
+                self._silence_watchdog_running = False
+                if hasattr(self, '_silence_watchdog_task') and self._silence_watchdog_task:
+                    if not self._silence_watchdog_task.done():
+                        self._silence_watchdog_task.cancel()
+                        _orig_print(f"   🔒 Silence watchdog task cancelled", flush=True)
                 
                 # Clear response tracking
                 self.has_pending_ai_response = False
