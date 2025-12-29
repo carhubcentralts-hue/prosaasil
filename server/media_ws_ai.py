@@ -3007,6 +3007,7 @@ class MediaStreamHandler:
 
                     # 🔥 FIX #3: Inject dynamic "today" context (helps prevent year/weekday hallucinations).
                     # Keep it short and purely factual.
+                    # ⚠️ IMPORTANT: This context is NOT included in hash calculation to prevent duplicate detection issues
                     try:
                         import pytz
                         from datetime import datetime
@@ -3026,6 +3027,35 @@ class MediaStreamHandler:
                         pass
 
                     if system_prompt and system_prompt.strip():
+                        # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for system prompt
+                        # ⚠️ NORMALIZE before hashing: strip whitespace, normalize newlines, remove dynamic content
+                        import hashlib
+                        import re
+                        
+                        # Helper: Normalize text for hash calculation
+                        def normalize_for_hash(text):
+                            """Normalize text for consistent hash calculation"""
+                            if not text:
+                                return ""
+                            # Strip leading/trailing whitespace
+                            text = text.strip()
+                            # Normalize line endings (\r\n -> \n)
+                            text = text.replace('\r\n', '\n')
+                            # Remove dynamic elements that change per call
+                            # Remove TODAY_ISO, TODAY_WEEKDAY_HE, TIMEZONE (these are added dynamically above)
+                            text = re.sub(r'Context: TODAY_ISO=[^\s]+\.?\s*', '', text)
+                            text = re.sub(r'TODAY_WEEKDAY_HE=[^\s]+\.?\s*', '', text)
+                            text = re.sub(r'TIMEZONE=[^\s\.]+\.?\s*', '', text)
+                            # Remove any remaining "Context: " prefix if empty
+                            text = re.sub(r'\s*Context:\s*\.?\s*', '', text)
+                            return text.strip()
+                        
+                        normalized_system = normalize_for_hash(system_prompt)
+                        system_hash = hashlib.md5(normalized_system.encode()).hexdigest()[:8]
+                        
+                        # Store hash to prevent duplicate injection
+                        self._system_prompt_hash = system_hash
+                        
                         await client.send_event(
                             {
                                 "type": "conversation.item.create",
@@ -3042,22 +3072,24 @@ class MediaStreamHandler:
                             }
                         )
                         self._global_system_prompt_injected = True
-                        logger.info("[PROMPT_SEPARATION] Injected global SYSTEM prompt as conversation message")
-                        _orig_print("[PROMPT_SEPARATION] global_system_prompt=injected", flush=True)
+                        self._system_items_count = 1
+                        logger.info(f"[PROMPT_SEPARATION] Injected global SYSTEM prompt hash={system_hash}")
+                        _orig_print(f"[PROMPT_SEPARATION] global_system_prompt=injected hash={system_hash}", flush=True)
                 except Exception as e:
                     # Do not fail call if this injection fails; COMPACT still provides business script.
                     logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
             
-            # 🔥 CRM CONTEXT INJECTION: Inject customer name as real data (not placeholder)
-            # This ensures the AI knows the customer name is REAL DATA available for use
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🔥 NAME ANCHOR SYSTEM: Persistent customer name + usage policy
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # This replaces the old CRM context injection with a permanent NAME_ANCHOR
+            # that tells the AI:
+            # 1. The customer's actual name (if available)
+            # 2. Whether to use it (based on business prompt analysis)
+            # 3. How to use it (naturally, not in every sentence)
             
             def _is_valid_customer_name(name: str) -> bool:
-                """Validate that customer name is real data, not a placeholder.
-                
-                Rejects:
-                - None/empty strings
-                - Common placeholder values: 'unknown', 'test', '-'
-                """
+                """Validate that customer name is real data, not a placeholder."""
                 if not name:
                     return False
                 
@@ -3072,14 +3104,8 @@ class MediaStreamHandler:
                 
                 return True
             
-            def _format_crm_context_message(customer_name: str) -> str:
-                """Format CRM context message for Realtime API injection.
-                Keep it simple and short to avoid being read aloud."""
-                return f"Customer name: {customer_name}"
-            
-            def _extract_customer_name() -> str:
-                """Extract customer name from available sources.
-                Returns None if no valid name is found."""
+            def _extract_customer_name() -> Optional[str]:
+                """Extract customer name from available sources."""
                 # Source 1: outbound_lead_name (for outbound calls)
                 if outbound_lead_name and str(outbound_lead_name).strip():
                     name = str(outbound_lead_name).strip()
@@ -3102,21 +3128,47 @@ class MediaStreamHandler:
                 return None
             
             try:
+                # Step 1: Detect name usage policy from business prompt (once per session)
+                from server.services.realtime_prompt_builder import detect_name_usage_policy
+                
+                # Use the FULL business prompt for policy detection (more accurate)
+                business_prompt_for_policy = full_prompt if full_prompt else compact_prompt
+                use_name_policy, matched_phrase = detect_name_usage_policy(business_prompt_for_policy)
+                
+                # Store policy in session (persistent across PROMPT_UPGRADE)
+                self.use_name_policy = use_name_policy
+                
+                # Log policy determination with source
+                logger.info(f"[NAME_POLICY] source=business_prompt result={use_name_policy} matched=\"{matched_phrase or 'none'}\"")
+                print(f"🎯 [NAME_POLICY] source=business_prompt result={use_name_policy} (matched: '{matched_phrase or 'none'}')")
+                _orig_print(f"[NAME_POLICY] source=business_prompt result={use_name_policy} matched=\"{matched_phrase or 'none'}\"", flush=True)
+                
+                # Step 2: Extract customer name
                 customer_name_to_inject = _extract_customer_name()
                 
-                # 🔥 DEBUG: Log customer name extraction details
-                print(f"🔍 [CRM_CONTEXT DEBUG] Extraction attempt:")
+                # Debug logging
+                print(f"🔍 [NAME_ANCHOR DEBUG] Extraction attempt:")
                 print(f"   outbound_lead_name: {outbound_lead_name}")
                 print(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
                 print(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
                 print(f"   extracted name: {customer_name_to_inject}")
+                print(f"   use_name_policy: {use_name_policy}")
                 
-                # 🔥 IDEMPOTENT INJECTION: Only inject if not already injected
-                if customer_name_to_inject and not hasattr(self, '_customer_name_injected'):
-                    print(f"📝 [CRM_CONTEXT] Found customer name: {customer_name_to_inject}")
-                    crm_context_text = _format_crm_context_message(customer_name_to_inject)
+                # Step 3: Build and inject NAME_ANCHOR (idempotent with hash)
+                # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint
+                import hashlib
+                name_anchor_hash = f"{customer_name_to_inject or 'None'}|{use_name_policy}"
+                name_anchor_hash_short = hashlib.md5(name_anchor_hash.encode()).hexdigest()[:8]
+                
+                # Check if this exact anchor was already injected
+                existing_hash = getattr(self, '_name_anchor_hash', None)
+                if existing_hash != name_anchor_hash_short:
+                    from server.services.realtime_prompt_builder import build_name_anchor_message
                     
-                    await client.send_event(
+                    name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
+                    
+                    # Inject as conversation system message
+                    name_anchor_event = await client.send_event(
                         {
                             "type": "conversation.item.create",
                             "item": {
@@ -3125,24 +3177,48 @@ class MediaStreamHandler:
                                 "content": [
                                     {
                                         "type": "input_text",
-                                        "text": crm_context_text,
+                                        "text": name_anchor_text,
                                     }
                                 ],
                             },
                         }
                     )
-                    # 🔥 Mark as injected to prevent duplicates
-                    self._customer_name_injected = customer_name_to_inject
-                    print(f"✅ [CRM_CONTEXT] Injected customer name: '{customer_name_to_inject}'")
-                    logger.info(f"[CRM_CONTEXT] Injected customer_name='{customer_name_to_inject}' as conversation item")
-                    _orig_print(f"[CRM_CONTEXT] customer_name=injected", flush=True)
-                elif customer_name_to_inject and hasattr(self, '_customer_name_injected'):
-                    print(f"ℹ️ [CRM_CONTEXT] Customer name already injected: '{self._customer_name_injected}'")
+                    
+                    # Store injection state with hash
+                    self._name_anchor_injected = True
+                    self._name_anchor_customer_name = customer_name_to_inject
+                    self._name_anchor_policy = use_name_policy
+                    self._name_anchor_hash = name_anchor_hash_short
+                    self._name_anchor_count = getattr(self, '_name_anchor_count', 0) + 1
+                    
+                    # Get item_id if available from response
+                    item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
+                    
+                    # Log injection with hash
+                    logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id} hash={name_anchor_hash_short}")
+                    print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject or 'None'}', hash={name_anchor_hash_short}")
+                    _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" hash={name_anchor_hash_short}", flush=True)
                 else:
-                    print(f"ℹ️ [CRM_CONTEXT] No customer name available yet - will inject later if available")
+                    print(f"ℹ️ [NAME_ANCHOR] Skip duplicate (hash={name_anchor_hash_short} already injected)")
+                    logger.debug(f"[NAME_ANCHOR] skip_duplicate hash={name_anchor_hash_short}")
+                    
             except Exception as e:
-                # Do not fail call if CRM context injection fails
-                logger.error(f"[CRM_CONTEXT] Failed to inject CRM context: {e}")
+                # Do not fail call if NAME_ANCHOR injection fails
+                logger.error(f"[NAME_ANCHOR] Failed to inject NAME_ANCHOR: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # 🔥 PROMPT_SUMMARY: Single-line summary of all injected prompts
+            # This makes it easy to verify no duplicates at call start
+            system_count = getattr(self, '_system_items_count', 0)
+            business_count = 0  # Will be 1 after PROMPT_UPGRADE
+            name_count = getattr(self, '_name_anchor_count', 0)
+            system_hash = getattr(self, '_system_prompt_hash', 'none')
+            business_hash = 'none'  # Will be set after PROMPT_UPGRADE
+            name_hash = getattr(self, '_name_anchor_hash', 'none')
+            
+            _orig_print(f"[PROMPT_SUMMARY] system={system_count} business={business_count} name_anchor={name_count} hashes: sys={system_hash}, biz={business_hash}, name={name_hash}", flush=True)
+            logger.info(f"[PROMPT_SUMMARY] Prompt injection summary at call start: system={system_count}, business={business_count}, name_anchor={name_count}")
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -4049,6 +4125,108 @@ class MediaStreamHandler:
             print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
             return False
     
+    async def _ensure_name_anchor_present(self, client):
+        """
+        Ensure NAME_ANCHOR is present after PROMPT_UPGRADE or other context changes.
+        
+        This is an IDEMPOTENT operation that:
+        1. Checks if NAME_ANCHOR needs to be updated (name or policy changed)
+        2. Re-injects NAME_ANCHOR if needed
+        3. Logs the operation for debugging
+        
+        Called after PROMPT_UPGRADE to ensure name context persists.
+        
+        CRITICAL: This MUST actually re-inject if name/policy changed, not just check flags!
+        """
+        try:
+            # Check if we have a name anchor already injected
+            if not hasattr(self, '_name_anchor_injected'):
+                # No anchor yet - skip (should have been injected at session start)
+                logger.warning("[NAME_ANCHOR] ensure called but no initial injection - skipping")
+                return
+            
+            # Extract current customer name from various sources
+            def _extract_current_name():
+                """Get the current customer name from all available sources."""
+                # Try pending_customer_name first (most recent)
+                if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    name = str(self.pending_customer_name).strip()
+                    if name and name.lower() not in ['unknown', 'test', '-', 'null', 'none']:
+                        return name
+                
+                # Try crm_context
+                if hasattr(self, 'crm_context') and self.crm_context:
+                    if hasattr(self.crm_context, 'customer_name') and self.crm_context.customer_name:
+                        name = str(self.crm_context.customer_name).strip()
+                        if name and name.lower() not in ['unknown', 'test', '-', 'null', 'none']:
+                            return name
+                
+                # Try outbound_lead_name
+                if hasattr(self, 'outbound_lead_name') and self.outbound_lead_name:
+                    name = str(self.outbound_lead_name).strip()
+                    if name and name.lower() not in ['unknown', 'test', '-', 'null', 'none']:
+                        return name
+                
+                return None
+            
+            current_name = _extract_current_name()
+            current_policy = getattr(self, 'use_name_policy', False)
+            
+            # 🔥 ANTI-DUPLICATE: Check using hash fingerprint
+            import hashlib
+            new_hash = f"{current_name or 'None'}|{current_policy}"
+            new_hash_short = hashlib.md5(new_hash.encode()).hexdigest()[:8]
+            
+            existing_hash = getattr(self, '_name_anchor_hash', None)
+            
+            # Only re-inject if hash changed
+            if existing_hash != new_hash_short:
+                from server.services.realtime_prompt_builder import build_name_anchor_message
+                
+                # Build updated NAME_ANCHOR
+                name_anchor_text = build_name_anchor_message(current_name, current_policy)
+                
+                # Re-inject NAME_ANCHOR
+                name_anchor_event = await client.send_event(
+                    {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "message",
+                            "role": "system",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": name_anchor_text,
+                                }
+                            ],
+                        },
+                    }
+                )
+                
+                # Update stored state with hash
+                self._name_anchor_customer_name = current_name
+                self._name_anchor_policy = current_policy
+                self._name_anchor_hash = new_hash_short
+                self._name_anchor_count = getattr(self, '_name_anchor_count', 0) + 1
+                
+                # Get item_id
+                item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
+                
+                # Log re-injection with hash
+                logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id} hash={new_hash_short}")
+                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name or 'None'}', hash={new_hash_short}")
+                _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" hash={new_hash_short}", flush=True)
+            else:
+                # No change needed - log with hash
+                logger.debug(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}")
+                print(f"ℹ️ [NAME_ANCHOR] Ensured - no change needed (hash={existing_hash})")
+                _orig_print(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}", flush=True)
+                
+        except Exception as e:
+            logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR: {e}")
+            import traceback
+            traceback.print_exc()
+    
     async def _realtime_text_sender(self, client):
         """
         Send text input (e.g., DTMF) from queue to Realtime API
@@ -4235,6 +4413,7 @@ class MediaStreamHandler:
                         
                         # 🔥 PROMPT UPGRADE: After first response, upgrade from COMPACT to FULL prompt
                         # This happens automatically after greeting completes, giving AI full context
+                        # 🔥 ANTI-DUPLICATE: Only inject FULL business prompt once
                         if (self._using_compact_greeting and 
                             self._full_prompt_for_upgrade and
                             not getattr(self, '_prompt_upgraded_to_full', False)):
@@ -4243,12 +4422,20 @@ class MediaStreamHandler:
                                 full_prompt = self._full_prompt_for_upgrade
                                 upgrade_time = time.time()
                                 
-                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
-                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
-                                
-                                # Calculate hash for logging
+                                # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for business prompt
                                 import hashlib
                                 full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
+                                
+                                # Check if this business prompt was already injected
+                                existing_business_hash = getattr(self, '_business_prompt_hash', None)
+                                if existing_business_hash == full_prompt_hash:
+                                    print(f"ℹ️ [PROMPT UPGRADE] Skip duplicate - business prompt hash={full_prompt_hash} already injected")
+                                    logger.warning(f"[PROMPT UPGRADE] Skipping duplicate business prompt injection hash={full_prompt_hash}")
+                                    self._prompt_upgraded_to_full = True
+                                    continue  # Skip to next iteration
+                                
+                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
+                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
                                 
                                 # ✅ Per CRITICAL directive:
                                 # FULL prompt must NOT be sent as session.instructions (system).
@@ -4306,16 +4493,42 @@ class MediaStreamHandler:
                                     )
                                 
                                 self._prompt_upgraded_to_full = True
+                                self._business_prompt_hash = full_prompt_hash
+                                self._business_items_count = 1  # One FULL business prompt injected
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
+                                
+                                # 🔥 BUSINESS_PROMPT LOG: Track business prompt injection
+                                prompt_source = 'outbound_ai_prompt' if call_direction == 'outbound' else 'ai_prompt'
+                                logger.info(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}")
+                                _orig_print(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}", flush=True)
                                 
                                 print(f"✅ [PROMPT UPGRADE] Expanded to FULL in {upgrade_duration}ms (hash={full_prompt_hash})")
                                 print(f"   └─ This is a planned EXPANSION, not a rebuild - same direction/business")
                                 _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
-                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms")
+                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms hash={full_prompt_hash}")
                                 
-                                # 🔥 CRM CONTEXT INJECTION: Check for pending customer name injection
-                                # This handles the case where CRM context was created in background thread
-                                # 🔥 IDEMPOTENT: Only inject if not already injected
+                                # 🔥 PROMPT_SUMMARY: Update after upgrade
+                                system_count = getattr(self, '_system_items_count', 0)
+                                business_count = getattr(self, '_business_items_count', 0)
+                                name_count = getattr(self, '_name_anchor_count', 0)
+                                system_hash = getattr(self, '_system_prompt_hash', 'none')
+                                business_hash = getattr(self, '_business_prompt_hash', 'none')
+                                name_hash = getattr(self, '_name_anchor_hash', 'none')
+                                
+                                _orig_print(f"[PROMPT_SUMMARY] system={system_count} business={business_count} name_anchor={name_count} hashes: sys={system_hash}, biz={business_hash}, name={name_hash}", flush=True)
+                                logger.info(f"[PROMPT_SUMMARY] After upgrade: system={system_count}, business={business_count}, name_anchor={name_count}")
+                                
+                                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                # 🔥 NAME ANCHOR: Ensure it's still present after PROMPT_UPGRADE
+                                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                try:
+                                    await self._ensure_name_anchor_present(client)
+                                except Exception as anchor_err:
+                                    logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR after upgrade: {anchor_err}")
+                                
+                                # 🔥 DEPRECATED: Old CRM context injection - replaced by NAME_ANCHOR
+                                # This code is kept for backward compatibility but should not run
+                                # if NAME_ANCHOR is working correctly
                                 if hasattr(self, '_pending_crm_context_inject') and self._pending_crm_context_inject:
                                     customer_name_value = self._pending_crm_context_inject
                                     
