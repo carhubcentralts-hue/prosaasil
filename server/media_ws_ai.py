@@ -11049,13 +11049,13 @@ class MediaStreamHandler:
                         self.bot_speaks_first = True  # AI always speaks first in outbound
                         self.auto_end_after_lead_capture = False  # Don't auto-end
                         self.auto_end_on_goodbye = False  # Don't auto-end on goodbye
-                        self.silence_timeout_sec = 120  # Very long timeout (2 min)
-                        self.silence_max_warnings = 0  # No silence warnings
+                        self.silence_timeout_sec = 20  # 🔥 FIX: 20s timeout (watchdog handles disconnect)
+                        self.silence_max_warnings = 0  # 🔥 FIX: No warnings - watchdog only
                         self.smart_hangup_enabled = False  # Disable smart hangup
                         self.required_lead_fields = []  # No required fields
                         self._loop_guard_engaged = False  # Ensure loop guard is off
                         self._max_consecutive_ai_responses = 20  # Very high limit
-                        print(f"   ✓ auto_end=OFF, silence_timeout=120s, smart_hangup=OFF, loop_guard_max=20")
+                        print(f"   ✓ auto_end=OFF, silence_timeout=20s, max_warnings=0, smart_hangup=OFF")
                     else:
                         # Copy config values to instance variables for backward compatibility (INBOUND only)
                         # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - ignore DB value
@@ -11524,7 +11524,8 @@ class MediaStreamHandler:
                     last_user_voice = getattr(self, "_last_user_voice_started_ts", None)
                     last_ai_audio = getattr(self, "last_ai_audio_ts", None)
                     last_activity = max([t for t in [last_user_voice, last_ai_audio] if t is not None] or [self._last_speech_time])
-                    hard_timeout = float(getattr(self, "_hard_silence_hangup_sec", 20.0))
+                    # 🔥 NEW REQUIREMENT: In SIMPLE_MODE, 20 seconds silence = immediate disconnect (no warnings)
+                    hard_timeout = 20.0 if SIMPLE_MODE else float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
                     if (now_ts - last_activity) >= hard_timeout:
                         # 🔥 AUTO-DISCONNECT: 20 seconds of silence from both bot and customer
@@ -11575,6 +11576,14 @@ class MediaStreamHandler:
                 
                 # Calculate silence duration
                 silence_duration = time.time() - self._last_speech_time
+                
+                # 🔥 NEW REQUIREMENT: In SIMPLE_MODE, skip warning system entirely
+                # After 20 seconds of silence, watchdog will handle disconnect (see above)
+                # This section is only for non-SIMPLE_MODE calls
+                if SIMPLE_MODE:
+                    # Skip warning logic in SIMPLE_MODE - watchdog handles everything
+                    await asyncio.sleep(2)  # Same interval as main loop for consistency
+                    continue
                 
                 if silence_duration >= self.silence_timeout_sec:
                     # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
