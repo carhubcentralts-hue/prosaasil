@@ -11149,45 +11149,40 @@ class MediaStreamHandler:
 
     async def _fallback_hangup_after_timeout(self, timeout_seconds: int, trigger_type: str):
         """
-        🔥 FIX 6: TIMEOUT CLEANUP (NO HANGUP)
+        🔥 TIMEOUT HANGUP: Trigger hangup after timeout
         
-        This function now only does cleanup and state management.
-        It does NOT trigger Twilio hangup - only bot saying goodbye can do that.
-        
-        Timeouts can:
-        - Clean up internal state
-        - Clear queues/handlers
-        - Close internal loops
-        
-        Timeouts CANNOT:
-        - Call Twilio hangup
-        - Set pending_hangup
+        This function triggers hangup if the timeout expires and the call hasn't
+        already ended. This prevents calls from getting stuck waiting for AI responses.
         
         Args:
-            timeout_seconds: How long to wait before cleanup
-            trigger_type: What triggered this ("user_goodbye" or "lead_captured")
+            timeout_seconds: How long to wait before triggering hangup
+            trigger_type: What triggered this ("user_goodbye", "lead_captured", etc.)
         """
-        print(f"⏰ [TIMEOUT_CLEANUP] Starting {timeout_seconds}s timer for {trigger_type} (cleanup only, NO hangup)...")
+        print(f"⏰ [TIMEOUT] Starting {timeout_seconds}s timer for {trigger_type}...")
         
         await asyncio.sleep(timeout_seconds)
         
         # Check if already disconnected
         if self.hangup_triggered:
-            print(f"✅ [TIMEOUT_CLEANUP] Call already ended - no cleanup needed")
+            print(f"✅ [TIMEOUT] Call already ended - no action needed")
             return
         
         # Check if pending_hangup was set (AI said closing phrase)
         if self.pending_hangup:
-            print(f"✅ [TIMEOUT_CLEANUP] pending_hangup already set - normal flow working")
+            print(f"✅ [TIMEOUT] pending_hangup already set - normal flow working")
             return
         
-        # 🔥 FIX 6: Only cleanup, never hangup
-        print(f"[TIMEOUT_CLEANUP] {timeout_seconds}s passed - cleaning up state (NO HANGUP)")
+        # Timeout expired - trigger hangup
+        print(f"📞 [TIMEOUT] {timeout_seconds}s passed - triggering hangup for {trigger_type}")
+        print(f"📞 [AUTO_DISCONNECT] Disconnecting due to timeout - prevents wasted minutes")
         
-        # Cleanup: clear internal state (but don't disconnect call)
-        # This prevents stuck loops/handlers but keeps call alive
-        print(f"🧹 [TIMEOUT_CLEANUP] Cleanup complete for {trigger_type} (call still active)")
-        return
+        # Trigger hangup
+        await self.request_hangup(
+            reason=f"timeout_{trigger_type}",
+            source="fallback_timeout",
+            transcript_text=f"Timeout after {timeout_seconds}s for {trigger_type}"
+        )
+
 
     def _trigger_auto_hangup(self, reason: str):
         """
@@ -11480,8 +11475,8 @@ class MediaStreamHandler:
                     hard_timeout = float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
                     if (now_ts - last_activity) >= hard_timeout:
-                        # 🔥 FIX 6: NO TIMEOUT HANGUP - only cleanup
-                        # Timeout cannot trigger hangup - only bot saying goodbye can
+                        # 🔥 AUTO-DISCONNECT: 20 seconds of silence from both bot and customer
+                        # This prevents wasted minutes on voicemail or prolonged silence
                         # Only hang up when nothing is actively happening.
                         if (
                             not self.is_ai_speaking_event.is_set()
@@ -11495,10 +11490,13 @@ class MediaStreamHandler:
                             and not getattr(self, "pending_hangup", False)
                         ):
                             print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity detected (last_activity={now_ts - last_activity:.1f}s ago)")
-                            print(f"🔥 [FIX 6] TIMEOUT CLEANUP ONLY - NO HANGUP (bot must say goodbye to disconnect)")
-                            # Cleanup: Can clear internal state here if needed
-                            # BUT: Do NOT call request_hangup() or trigger Twilio disconnect
-                            # Call continues until bot says "ביי" or "להתראות"
+                            print(f"📞 [AUTO_DISCONNECT] Disconnecting due to prolonged silence - prevents wasted minutes")
+                            # Trigger immediate hangup - don't wait for goodbye
+                            await self.request_hangup(
+                                reason="hard_silence_timeout",
+                                source="silence_monitor",
+                                transcript_text=f"No activity for {hard_timeout:.0f}s"
+                            )
                             return
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
@@ -11509,12 +11507,16 @@ class MediaStreamHandler:
                     if self.greeting_completed_at:
                         time_since_greeting = time.time() - self.greeting_completed_at
                         if time_since_greeting > 30.0:
-                            # 30 seconds with no user speech - idle timeout
-                            # 🔥 FIX 6: NO TIMEOUT HANGUP - only cleanup
+                            # 30 seconds with no user speech - idle timeout (likely voicemail)
                             if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech detected")
-                                print(f"🔥 [FIX 6] TIMEOUT CLEANUP ONLY - NO HANGUP (bot must say goodbye)")
-                                # Cleanup only - don't disconnect
+                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech detected - likely voicemail")
+                                print(f"📞 [AUTO_DISCONNECT] Disconnecting due to no user response - prevents wasted minutes")
+                                # Trigger immediate hangup - don't wait for goodbye
+                                await self.request_hangup(
+                                    reason="idle_timeout_no_user_speech",
+                                    source="silence_monitor",
+                                    transcript_text="No user speech for 30+ seconds"
+                                )
                             return
                     # Still waiting for user to speak - don't count silence
                     continue
@@ -11605,13 +11607,15 @@ class MediaStreamHandler:
                         else:
                             await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
                         
-                        # 🔥 FIX 6: SILENCE TIMEOUT DISABLED - NO HANGUP
-                        # Timeouts cannot trigger hangup - only bot saying goodbye can
-                        print(f"🔥 [FIX 6] TIMEOUT - AI will say goodbye, then hangup triggered by BYE detection (not timeout)")
-                        # AI will say goodbye in response to SYSTEM message
-                        # Hangup will be triggered by BYE detection when AI says "ביי" or "להתראות"
-                        # NOT by this timeout
-                        return  # Exit cleanly without calling request_hangup
+                        # 🔇 AUTO-DISCONNECT: Disconnecting after max silence warnings
+                        # This prevents wasted minutes on prolonged silence
+                        print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
+                        await self.request_hangup(
+                            reason="silence_max_warnings",
+                            source="silence_monitor",
+                            transcript_text="Max silence warnings exceeded"
+                        )
+                        return
                         
         except asyncio.CancelledError:
             print(f"🔇 [SILENCE] Monitor cancelled")
