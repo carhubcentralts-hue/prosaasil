@@ -1704,10 +1704,11 @@ def fill_queue_slots_for_job(job_id: int):
             business_name = business.name or "העסק"
             host = get_public_host()
             
-            # Check how many active calls we have
-            active_count = OutboundCallJob.query.filter_by(
-                run_id=run.id,
-                status="calling"
+            # Check how many active calls we have (include both "dialing" and "calling")
+            # 🔥 FIX: Must count "dialing" jobs too, otherwise we start too many calls in parallel
+            active_count = OutboundCallJob.query.filter(
+                OutboundCallJob.run_id == run.id,
+                OutboundCallJob.status.in_(["dialing", "calling"])
             ).count()
             
             # Fill available slots
@@ -1920,10 +1921,11 @@ def process_bulk_call_run(run_id: int):
                         db.session.commit()
                     break
                 
-                # Get current active count
-                active_jobs = OutboundCallJob.query.filter_by(
-                    run_id=run_id,
-                    status="calling"
+                # Get current active count (include both "dialing" and "calling")
+                # 🔥 FIX: Must count "dialing" jobs too, otherwise we start too many calls in parallel
+                active_jobs = OutboundCallJob.query.filter(
+                    OutboundCallJob.run_id == run_id,
+                    OutboundCallJob.status.in_(["dialing", "calling"])
                 ).count()
                 
                 # Check if we can start more calls
