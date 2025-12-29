@@ -1,13 +1,12 @@
 """
 Telephony Provider Factory
 Creates the appropriate telephony provider based on configuration
-DEFAULTS TO ASTERISK - Twilio is legacy fallback only
+DEFAULTS TO TWILIO - Legacy Asterisk support removed
 """
 import os
 import logging
 from typing import Optional
 from server.telephony.provider_base import TelephonyProvider
-from server.telephony.asterisk_provider import AsteriskProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +18,10 @@ def get_telephony_provider() -> TelephonyProvider:
     """
     Get the configured telephony provider.
     
-    IMPORTANT: Defaults to Asterisk.
-    Twilio is only used if explicitly set via TELEPHONY_PROVIDER=twilio (legacy fallback).
+    IMPORTANT: Defaults to Twilio.
     
     Returns:
-        TelephonyProvider instance (AsteriskProvider by default)
+        TelephonyProvider instance (TwilioProvider by default)
     """
     global _provider_instance
     
@@ -32,34 +30,29 @@ def get_telephony_provider() -> TelephonyProvider:
         return _provider_instance
     
     # Get provider type from environment
-    # DEFAULT: "asterisk" - Twilio is legacy only
-    provider_type = os.getenv("TELEPHONY_PROVIDER", "asterisk").lower()
+    # DEFAULT: "twilio"
+    provider_type = os.getenv("TELEPHONY_PROVIDER", "twilio").lower()
     
     logger.info(f"[TELEPHONY] Initializing provider: {provider_type}")
     
-    if provider_type == "asterisk":
-        # Production: Use Asterisk
-        _provider_instance = AsteriskProvider()
-        logger.info("[TELEPHONY] ✅ Using Asterisk provider (production)")
-        
-    elif provider_type == "twilio":
-        # Legacy fallback: Use Twilio (only if explicitly set)
-        logger.warning("[TELEPHONY] ⚠️ Using Twilio provider (LEGACY - should migrate to Asterisk)")
+    if provider_type == "twilio":
+        # Production: Use Twilio
+        logger.info("[TELEPHONY] ✅ Using Twilio provider (production)")
         
         # Lazy import to avoid Twilio dependency if not needed
         try:
             from server.telephony.twilio_provider import TwilioProvider
             _provider_instance = TwilioProvider()
-            logger.info("[TELEPHONY] Twilio provider initialized (legacy mode)")
+            logger.info("[TELEPHONY] Twilio provider initialized")
         except ImportError as e:
             logger.error(f"[TELEPHONY] ❌ Failed to import TwilioProvider: {e}")
-            logger.error("[TELEPHONY] Falling back to Asterisk")
-            _provider_instance = AsteriskProvider()
+            raise RuntimeError("Failed to initialize Twilio provider")
     else:
-        # Unknown provider - default to Asterisk
+        # Unknown provider - default to Twilio
         logger.error(f"[TELEPHONY] ❌ Unknown provider type: {provider_type}")
-        logger.info("[TELEPHONY] Defaulting to Asterisk")
-        _provider_instance = AsteriskProvider()
+        logger.info("[TELEPHONY] Defaulting to Twilio")
+        from server.telephony.twilio_provider import TwilioProvider
+        _provider_instance = TwilioProvider()
     
     return _provider_instance
 
@@ -73,22 +66,14 @@ def reset_provider():
     logger.debug("[TELEPHONY] Provider instance reset")
 
 
-def is_using_asterisk() -> bool:
-    """
-    Check if currently using Asterisk provider.
-    
-    Returns:
-        True if using Asterisk, False otherwise
-    """
-    provider = get_telephony_provider()
-    return isinstance(provider, AsteriskProvider)
-
-
 def is_using_twilio() -> bool:
     """
-    Check if currently using Twilio provider (legacy).
+    Check if currently using Twilio provider.
     
     Returns:
-        True if using Twilio, False otherwise
+        True if using Twilio
     """
-    return not is_using_asterisk()
+    from server.telephony.twilio_provider import TwilioProvider
+    provider = get_telephony_provider()
+    return isinstance(provider, TwilioProvider)
+
