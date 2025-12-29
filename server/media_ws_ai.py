@@ -2758,6 +2758,85 @@ class MediaStreamHandler:
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
+            # 🔥 NAME SSOT: Resolve customer name from database by call_sid
+            # This is the authoritative source for outbound call names
+            def _resolve_customer_name(call_sid: str, business_id: int) -> tuple:
+                """
+                Resolve customer name from database based on call_sid.
+                
+                Priority order (SSOT):
+                1. CallLog.customer_name (if exists)
+                2. OutboundCallJob.lead_name (for bulk calls)
+                3. Lead.full_name (via lead_id relationship)
+                4. Fallback: None
+                
+                Returns:
+                    (name, source) tuple where source is one of:
+                    "call_log", "outbound_job", "lead", None
+                """
+                if not call_sid:
+                    return (None, None)
+                
+                try:
+                    from server.models_sql import CallLog, OutboundCallJob, Lead
+                    
+                    # Priority 1: CallLog.customer_name
+                    call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                    if call_log and call_log.customer_name:
+                        name = str(call_log.customer_name).strip()
+                        if name:
+                            logger.info(f"[NAME_RESOLVE] source=call_log name=\"{name}\" call_sid={call_sid[:8]}")
+                            _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
+                            return (name, "call_log")
+                    
+                    # Priority 2: OutboundCallJob.lead_name (for bulk calls)
+                    job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
+                    if job and job.lead_name:
+                        name = str(job.lead_name).strip()
+                        if name:
+                            logger.info(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\" call_sid={call_sid[:8]}")
+                            _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
+                            return (name, "outbound_job")
+                    
+                    # Priority 3: Lead.full_name (via CallLog.lead_id)
+                    if call_log and call_log.lead_id:
+                        lead = Lead.query.get(call_log.lead_id)
+                        if lead:
+                            name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                            if name and name != "ללא שם":
+                                logger.info(f"[NAME_RESOLVE] source=lead name=\"{name}\" call_sid={call_sid[:8]}")
+                                _orig_print(f"[NAME_RESOLVE] source=lead name=\"{name}\"", flush=True)
+                                return (name, "lead")
+                    
+                    # Fallback: No name found
+                    logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8]}")
+                    _orig_print(f"[NAME_RESOLVE] source=none name=None", flush=True)
+                    return (None, None)
+                    
+                except Exception as e:
+                    logger.error(f"[NAME_RESOLVE] Error resolving name: {e}")
+                    _orig_print(f"[NAME_RESOLVE] Error: {e}", flush=True)
+                    return (None, None)
+            
+            # 🔥 CRITICAL: Resolve customer name from DB (overrides outbound_lead_name if needed)
+            if call_direction == "outbound" and self.call_sid:
+                resolved_name, name_source = _resolve_customer_name(self.call_sid, business_id_safe)
+                if resolved_name:
+                    # Store in pending_customer_name for NAME_ANCHOR extraction
+                    self.pending_customer_name = resolved_name
+                    # Also update outbound_lead_name if it was empty
+                    if not outbound_lead_name:
+                        self.outbound_lead_name = resolved_name
+                        outbound_lead_name = resolved_name
+                    
+                    # 🔥 DEBUG LOG: Show what we resolved
+                    print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB:")
+                    print(f"   call_sid: {self.call_sid[:8]}...")
+                    print(f"   resolved_name: {resolved_name}")
+                    print(f"   name_source: {name_source}")
+                    print(f"   outbound_lead_name: {outbound_lead_name}")
+                    print(f"   pending_customer_name: {self.pending_customer_name}")
+            
             # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
             _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
@@ -3097,8 +3176,8 @@ class MediaStreamHandler:
                 if not name_lower:
                     return False
                 
-                # Reject common placeholder values
-                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na']
+                # Reject common placeholder values (including Hebrew default)
+                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na', 'ללא שם']
                 if name_lower in invalid_values:
                     return False
                 
@@ -3146,61 +3225,71 @@ class MediaStreamHandler:
                 # Step 2: Extract customer name
                 customer_name_to_inject = _extract_customer_name()
                 
-                # Debug logging
+                # 🔥 ENHANCED DEBUG: Show comprehensive name resolution state
                 print(f"🔍 [NAME_ANCHOR DEBUG] Extraction attempt:")
+                print(f"   call_sid: {self.call_sid[:8] if self.call_sid else 'N/A'}...")
+                print(f"   business_id: {business_id_safe}")
+                print(f"   call_direction: {call_direction}")
                 print(f"   outbound_lead_name: {outbound_lead_name}")
                 print(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
                 print(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
                 print(f"   extracted name: {customer_name_to_inject}")
                 print(f"   use_name_policy: {use_name_policy}")
                 
-                # Step 3: Build and inject NAME_ANCHOR (idempotent with hash)
-                # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint
-                import hashlib
-                name_anchor_hash = f"{customer_name_to_inject or 'None'}|{use_name_policy}"
-                name_anchor_hash_short = hashlib.md5(name_anchor_hash.encode()).hexdigest()[:8]
-                
-                # Check if this exact anchor was already injected
-                existing_hash = getattr(self, '_name_anchor_hash', None)
-                if existing_hash != name_anchor_hash_short:
-                    from server.services.realtime_prompt_builder import build_name_anchor_message
-                    
-                    name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
-                    
-                    # Inject as conversation system message
-                    name_anchor_event = await client.send_event(
-                        {
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "message",
-                                "role": "system",
-                                "content": [
-                                    {
-                                        "type": "input_text",
-                                        "text": name_anchor_text,
-                                    }
-                                ],
-                            },
-                        }
-                    )
-                    
-                    # Store injection state with hash
-                    self._name_anchor_injected = True
-                    self._name_anchor_customer_name = customer_name_to_inject
-                    self._name_anchor_policy = use_name_policy
-                    self._name_anchor_hash = name_anchor_hash_short
-                    self._name_anchor_count = getattr(self, '_name_anchor_count', 0) + 1
-                    
-                    # Get item_id if available from response
-                    item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
-                    
-                    # Log injection with hash
-                    logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" item_id={item_id} hash={name_anchor_hash_short}")
-                    print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject or 'None'}', hash={name_anchor_hash_short}")
-                    _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject or 'None'}\" hash={name_anchor_hash_short}", flush=True)
+                # 🔥 CRITICAL: Do NOT inject NAME_ANCHOR if name is None or invalid
+                # This prevents the bug where we inject "name='None'" into the conversation
+                if customer_name_to_inject is None:
+                    print(f"⚠️ [NAME_ANCHOR] Skipping injection - no valid customer name found")
+                    logger.info(f"[NAME_ANCHOR] skipped reason=no_name call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}")
+                    _orig_print(f"[NAME_ANCHOR] skipped reason=no_name", flush=True)
                 else:
-                    print(f"ℹ️ [NAME_ANCHOR] Skip duplicate (hash={name_anchor_hash_short} already injected)")
-                    logger.debug(f"[NAME_ANCHOR] skip_duplicate hash={name_anchor_hash_short}")
+                    # Step 3: Build and inject NAME_ANCHOR (idempotent with hash)
+                    # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint
+                    import hashlib
+                    name_anchor_hash = f"{customer_name_to_inject}|{use_name_policy}"
+                    name_anchor_hash_short = hashlib.md5(name_anchor_hash.encode()).hexdigest()[:8]
+                    
+                    # Check if this exact anchor was already injected
+                    existing_hash = getattr(self, '_name_anchor_hash', None)
+                    if existing_hash != name_anchor_hash_short:
+                        from server.services.realtime_prompt_builder import build_name_anchor_message
+                        
+                        name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy)
+                        
+                        # Inject as conversation system message
+                        name_anchor_event = await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": name_anchor_text,
+                                        }
+                                    ],
+                                },
+                            }
+                        )
+                        
+                        # Store injection state with hash
+                        self._name_anchor_injected = True
+                        self._name_anchor_customer_name = customer_name_to_inject
+                        self._name_anchor_policy = use_name_policy
+                        self._name_anchor_hash = name_anchor_hash_short
+                        self._name_anchor_count = getattr(self, '_name_anchor_count', 0) + 1
+                        
+                        # Get item_id if available from response
+                        item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
+                        
+                        # Log injection with hash
+                        logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject}\" item_id={item_id} hash={name_anchor_hash_short}")
+                        print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject}', hash={name_anchor_hash_short}")
+                        _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject}\" hash={name_anchor_hash_short}", flush=True)
+                    else:
+                        print(f"ℹ️ [NAME_ANCHOR] Skip duplicate (hash={name_anchor_hash_short} already injected)")
+                        logger.debug(f"[NAME_ANCHOR] skip_duplicate hash={name_anchor_hash_short}")
                     
             except Exception as e:
                 # Do not fail call if NAME_ANCHOR injection fails

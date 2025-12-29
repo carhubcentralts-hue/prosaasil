@@ -1647,6 +1647,41 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 52: Add customer_name to call_log and lead_name to outbound_call_jobs
+        # 🔥 PURPOSE: Fix NAME_ANCHOR system SSOT - retrieve customer name from database
+        # Priority order: CallLog.customer_name → OutboundCallJob.lead_name → Lead.full_name
+        if not check_column_exists('call_log', 'customer_name') or not check_column_exists('outbound_call_jobs', 'lead_name'):
+            checkpoint("Migration 52: Adding customer_name and lead_name for NAME_ANCHOR SSOT")
+            try:
+                # 1. Add customer_name to call_log
+                if not check_column_exists('call_log', 'customer_name'):
+                    checkpoint("  → Adding customer_name to call_log...")
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN customer_name VARCHAR(255)
+                    """))
+                    checkpoint("  ✅ call_log.customer_name added")
+                else:
+                    checkpoint("  ℹ️ call_log.customer_name already exists")
+                
+                # 2. Add lead_name to outbound_call_jobs
+                if not check_column_exists('outbound_call_jobs', 'lead_name'):
+                    checkpoint("  → Adding lead_name to outbound_call_jobs...")
+                    db.session.execute(text("""
+                        ALTER TABLE outbound_call_jobs 
+                        ADD COLUMN lead_name VARCHAR(255)
+                    """))
+                    checkpoint("  ✅ outbound_call_jobs.lead_name added")
+                else:
+                    checkpoint("  ℹ️ outbound_call_jobs.lead_name already exists")
+                
+                migrations_applied.append('migration_52_name_anchor_ssot')
+                checkpoint("✅ Migration 52 completed - NAME_ANCHOR SSOT fields added")
+            except Exception as e:
+                log.error(f"❌ Migration 52 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

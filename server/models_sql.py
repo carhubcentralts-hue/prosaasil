@@ -141,6 +141,9 @@ class CallLog(db.Model):
     detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
     detected_topic_source = db.Column(db.String(32), default="embedding")  # "embedding" - classification method
     
+    # 🔥 NAME SSOT: Customer name for NAME_ANCHOR system (especially outbound calls)
+    customer_name = db.Column(db.String(255), nullable=True)  # Customer/lead name for outbound calls
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -905,6 +908,9 @@ class OutboundCallJob(db.Model):
     twilio_call_sid = db.Column(db.String(64), nullable=True, index=True)  # Twilio call SID for idempotency
     dial_started_at = db.Column(db.DateTime, nullable=True)  # When dial attempt started
     dial_lock_token = db.Column(db.String(64), nullable=True, index=True)  # UUID for atomic locking
+    
+    # 🔥 NAME SSOT: Lead name cached for NAME_ANCHOR system
+    lead_name = db.Column(db.String(255), nullable=True)  # Lead name cached from Lead table
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
