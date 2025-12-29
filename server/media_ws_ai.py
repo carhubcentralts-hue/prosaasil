@@ -98,60 +98,11 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
 # 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 VOICEMAIL DETECTION: Aggressive disconnect on voicemail/answering machine
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Hebrew keywords that indicate voicemail/answering machine
-VOICEMAIL_KEYWORDS = [
-    "מענה קולי", "המשיבון", "משיבון", "תא קולי", "תא הודעות", "תא ההודעות",
-    "הגעתם לתא", "הגעת לתא",
-    "נא להשאיר הודעה", "לאחר הצליל", "בסיום ההודעה",
-    "איננו זמינים", "לא זמינים כרגע",
-    "הודעתך חשובה", "נשוב אליכם",
-    "השאר הודעה", "השאירו הודעה",
+# 🔥 NAME VALIDATION: Invalid placeholder values that should not be used as customer names
+INVALID_NAME_PLACEHOLDERS = [
+    'none', 'null', 'unknown', 'test', '-', 'n/a', 
+    'לא ידוע', 'ללא שם', 'na', 'n.a.', 'undefined'
 ]
-
-# Phone number regex - matches Israeli mobile numbers (05x...) and international (+972/972)
-PHONE_REGEX = re.compile(r'(?:\+972[\s\-]?)?0(?:5\d|[23489])[\s\-]?\d{3}[\s\-]?\d{4}')
-
-def _has_phone(text: str) -> bool:
-    """
-    Detect if text contains a phone number being read out.
-    Returns True if found, False otherwise.
-    
-    Matches:
-    - 05 + at least 7 digits (Israeli mobile)
-    - +972 or 972 followed by digits
-    """
-    if not text:
-        return False
-    
-    # Remove spaces and dashes for easier matching
-    t = text.replace(" ", "").replace("-", "")
-    
-    # Simple check: 05 followed by at least 7 more digits
-    if "05" in t:
-        digits = re.findall(r'\d+', t)
-        if any(d.startswith("05") and len(d) >= 9 for d in digits):
-            return True
-    
-    # Regex check for full patterns
-    return bool(PHONE_REGEX.search(text))
-
-def _has_voicemail_keyword(text: str) -> str | None:
-    """
-    Check if text contains any voicemail keyword.
-    Returns the matched keyword if found, None otherwise.
-    """
-    if not text:
-        return None
-    
-    for kw in VOICEMAIL_KEYWORDS:
-        if kw in text:
-            return kw
-    
-    return None
 
 # 🔥 BUILD 325: Import all call configuration from centralized config
 try:
@@ -2889,69 +2840,160 @@ class MediaStreamHandler:
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
-            # 🔥 NAME SSOT: Resolve customer name from database by call_sid
+            # 🔥 NAME SSOT: Resolve customer name from database by call_sid, lead_id, or phone
             # This is the authoritative source for outbound call names
-            def _resolve_customer_name(call_sid: str, business_id: int) -> tuple:
+            def _resolve_customer_name(call_sid: str, business_id: int, lead_id: Optional[int] = None, phone_number: Optional[str] = None) -> tuple:
                 """
-                Resolve customer name from database based on call_sid.
+                Resolve customer name from database based on available identifiers.
                 
                 Priority order (SSOT):
                 1. CallLog.customer_name (if exists)
-                2. OutboundCallJob.lead_name (for bulk calls)
-                3. Lead.full_name (via lead_id relationship)
-                4. Fallback: None
+                2. Lead by lead_id (if provided)
+                3. OutboundCallJob.lead_name (for bulk calls)
+                4. Lead.full_name (via CallLog.lead_id relationship)
+                5. Fallback: Lead lookup by phone number
+                6. Final fallback: None
+                
+                Args:
+                    call_sid: Twilio call SID
+                    business_id: Business ID for filtering
+                    lead_id: Optional lead ID from customParameters
+                    phone_number: Optional phone number for fallback lookup
                 
                 Returns:
                     (name, source) tuple where source is one of:
-                    "call_log", "outbound_job", "lead", None
+                    "call_log", "lead_id", "outbound_job", "lead_calllog", "lead_phone", None
                 """
-                if not call_sid:
+                if not call_sid and not lead_id and not phone_number:
                     return (None, None)
                 
                 try:
                     from server.models_sql import CallLog, OutboundCallJob, Lead
                     
+                    # 🔥 ENHANCED DEBUG: Log all input parameters
+                    logger.info(f"[NAME_RESOLVE] Starting resolution: call_sid={call_sid[:8] if call_sid else 'N/A'}, lead_id={lead_id}, phone={phone_number}, business_id={business_id}")
+                    _orig_print(f"[NAME_RESOLVE DEBUG] call_sid={call_sid[:8] if call_sid else 'N/A'} lead_id={lead_id} phone={phone_number}", flush=True)
+                    
+                    call_log = None
+                    
                     # Priority 1: CallLog.customer_name
-                    call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-                    if call_log and call_log.customer_name:
-                        name = str(call_log.customer_name).strip()
-                        if name:
-                            logger.info(f"[NAME_RESOLVE] source=call_log name=\"{name}\" call_sid={call_sid[:8]}")
-                            _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
-                            return (name, "call_log")
+                    if call_sid:
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                        if call_log and call_log.customer_name:
+                            name = str(call_log.customer_name).strip()
+                            if name and name != "ללא שם":
+                                logger.info(f"[NAME_RESOLVE] source=call_log name=\"{name}\" call_sid={call_sid[:8]}")
+                                _orig_print(f"[NAME_RESOLVE] source=call_log name=\"{name}\"", flush=True)
+                                return (name, "call_log")
                     
-                    # Priority 2: OutboundCallJob.lead_name (for bulk calls)
-                    job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
-                    if job and job.lead_name:
-                        name = str(job.lead_name).strip()
-                        if name:
-                            logger.info(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\" call_sid={call_sid[:8]}")
-                            _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
-                            return (name, "outbound_job")
+                    # Priority 2: Lead by lead_id (from customParameters)
+                    if lead_id:
+                        try:
+                            lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
+                            if lead:
+                                name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                if name and name != "ללא שם":
+                                    logger.info(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}")
+                                    _orig_print(f"[NAME_RESOLVE] source=lead_id name=\"{name}\" lead_id={lead_id}", flush=True)
+                                    return (name, "lead_id")
+                        except Exception as e:
+                            logger.warning(f"[NAME_RESOLVE] Failed to query lead by ID: {e}")
                     
-                    # Priority 3: Lead.full_name (via CallLog.lead_id)
+                    # Priority 3: OutboundCallJob.lead_name (for bulk calls)
+                    if call_sid:
+                        job = OutboundCallJob.query.filter_by(twilio_call_sid=call_sid).first()
+                        if job and job.lead_name:
+                            name = str(job.lead_name).strip()
+                            if name and name != "ללא שם":
+                                logger.info(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\" call_sid={call_sid[:8]}")
+                                _orig_print(f"[NAME_RESOLVE] source=outbound_job name=\"{name}\"", flush=True)
+                                return (name, "outbound_job")
+                    
+                    # Priority 4: Lead.full_name (via CallLog.lead_id)
                     if call_log and call_log.lead_id:
                         lead = Lead.query.get(call_log.lead_id)
                         if lead:
                             name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
                             if name and name != "ללא שם":
-                                logger.info(f"[NAME_RESOLVE] source=lead name=\"{name}\" call_sid={call_sid[:8]}")
-                                _orig_print(f"[NAME_RESOLVE] source=lead name=\"{name}\"", flush=True)
-                                return (name, "lead")
+                                logger.info(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\" call_sid={call_sid[:8]}")
+                                _orig_print(f"[NAME_RESOLVE] source=lead_calllog name=\"{name}\"", flush=True)
+                                return (name, "lead_calllog")
                     
-                    # Fallback: No name found
-                    logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8]}")
+                    # Priority 5: Fallback - Lead lookup by phone number
+                    if phone_number:
+                        try:
+                            # 🔥 CRITICAL: Normalize phone for comparison
+                            # Handle both E.164 (+972...) and local (05...) formats
+                            # If Twilio gives +9725... but DB has 05..., we must search both
+                            
+                            phone_variants = [phone_number]  # Start with original
+                            
+                            # Generate normalized variants
+                            cleaned = phone_number.replace('+', '').replace('-', '').replace(' ', '')
+                            
+                            # If E.164 format (+972...), also try local format (0...)
+                            if phone_number.startswith('+972'):
+                                local_format = '0' + cleaned[3:]  # +972501234567 -> 0501234567
+                                phone_variants.append(local_format)
+                            # If local format (0...), also try E.164 (+972...)
+                            elif phone_number.startswith('0'):
+                                e164_format = '+972' + cleaned[1:]  # 0501234567 -> +972501234567
+                                phone_variants.append(e164_format)
+                            
+                            logger.debug(f"[NAME_RESOLVE] Phone variants for lookup: {phone_variants}")
+                            
+                            # Query with all variants
+                            lead = Lead.query.filter_by(
+                                tenant_id=business_id
+                            ).filter(
+                                (Lead.phone_e164.in_(phone_variants)) | 
+                                (Lead.phone.in_(phone_variants))
+                            ).order_by(Lead.updated_at.desc()).first()
+                            
+                            if lead:
+                                name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                                if name and name != "ללא שם":
+                                    logger.info(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number} matched={phone_variants}")
+                                    _orig_print(f"[NAME_RESOLVE] source=lead_phone name=\"{name}\" phone={phone_number}", flush=True)
+                                    return (name, "lead_phone")
+                        except Exception as e:
+                            logger.warning(f"[NAME_RESOLVE] Failed to query lead by phone: {e}")
+                    
+                    # Final fallback: No name found
+                    logger.info(f"[NAME_RESOLVE] source=none name=None call_sid={call_sid[:8] if call_sid else 'N/A'}")
                     _orig_print(f"[NAME_RESOLVE] source=none name=None", flush=True)
                     return (None, None)
                     
                 except Exception as e:
                     logger.error(f"[NAME_RESOLVE] Error resolving name: {e}")
+                    logger.exception("Full traceback:")
                     _orig_print(f"[NAME_RESOLVE] Error: {e}", flush=True)
                     return (None, None)
             
             # 🔥 CRITICAL: Resolve customer name from DB (overrides outbound_lead_name if needed)
+            # Pass lead_id and phone_number for comprehensive lookup
             if call_direction == "outbound" and self.call_sid:
-                resolved_name, name_source = _resolve_customer_name(self.call_sid, business_id_safe)
+                # Get lead_id from outbound_lead_id (set from customParameters)
+                lead_id = getattr(self, 'outbound_lead_id', None)
+                # Convert to int if it's a string
+                if lead_id and isinstance(lead_id, str):
+                    try:
+                        lead_id = int(lead_id)
+                    except ValueError:
+                        logger.debug(f"[NAME_RESOLVE] Failed to convert lead_id to int: {lead_id}")
+                        lead_id = None
+                
+                # Get phone number for fallback lookup
+                phone_number = getattr(self, 'phone_number', None)
+                
+                # Call resolution with all available identifiers
+                resolved_name, name_source = _resolve_customer_name(
+                    self.call_sid, 
+                    business_id_safe,
+                    lead_id=lead_id,
+                    phone_number=phone_number
+                )
+                
                 if resolved_name:
                     # Store in pending_customer_name for NAME_ANCHOR extraction
                     self.pending_customer_name = resolved_name
@@ -2963,10 +3005,19 @@ class MediaStreamHandler:
                     # 🔥 DEBUG LOG: Show what we resolved
                     print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB:")
                     print(f"   call_sid: {self.call_sid[:8]}...")
+                    print(f"   lead_id from customParameters: {lead_id}")
+                    print(f"   phone_number for fallback: {phone_number}")
                     print(f"   resolved_name: {resolved_name}")
                     print(f"   name_source: {name_source}")
                     print(f"   outbound_lead_name: {outbound_lead_name}")
                     print(f"   pending_customer_name: {self.pending_customer_name}")
+                else:
+                    # 🔥 DEBUG: Log why resolution failed
+                    print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED:")
+                    print(f"   call_sid: {self.call_sid[:8]}...")
+                    print(f"   lead_id from customParameters: {lead_id}")
+                    print(f"   phone_number for fallback: {phone_number}")
+                    print(f"   Result: No name found in any source")
             
             # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
@@ -3307,9 +3358,8 @@ class MediaStreamHandler:
                 if not name_lower:
                     return False
                 
-                # Reject common placeholder values (including Hebrew default)
-                invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na', 'ללא שם']
-                if name_lower in invalid_values:
+                # Reject common placeholder values using module constant
+                if name_lower in INVALID_NAME_PLACEHOLDERS:
                     return False
                 
                 return True
@@ -3665,8 +3715,7 @@ class MediaStreamHandler:
                                     if not name:
                                         return False
                                     name_lower = name.strip().lower()
-                                    invalid_values = ['unknown', 'test', '-', 'null', 'none', 'n/a', 'na']
-                                    return name_lower not in invalid_values
+                                    return name_lower not in INVALID_NAME_PLACEHOLDERS
                                 
                                 if not _is_valid_name(customer_name_value):
                                     print(f"⚠️ [CRM_CONTEXT] Invalid/placeholder name detected, skipping injection: '{customer_name_value}'")
@@ -4397,9 +4446,23 @@ class MediaStreamHandler:
             current_name = _extract_current_name()
             current_policy = getattr(self, 'use_name_policy', False)
             
+            # 🔥 FIX: Skip re-injection if name is None or invalid
+            # This prevents injecting name='None' which is a bug
+            if not current_name or not str(current_name).strip():
+                logger.debug(f"[NAME_ANCHOR] ensure: skipping - no valid name available")
+                print(f"ℹ️ [NAME_ANCHOR] ensure: No valid name to re-inject")
+                return
+            
+            # Validate name is not a placeholder
+            name_lower = str(current_name).lower().strip()
+            if name_lower in INVALID_NAME_PLACEHOLDERS:
+                logger.debug(f"[NAME_ANCHOR] ensure: skipping - invalid name '{current_name}'")
+                print(f"ℹ️ [NAME_ANCHOR] ensure: Invalid placeholder name '{current_name}'")
+                return
+            
             # 🔥 ANTI-DUPLICATE: Check using hash fingerprint
             import hashlib
-            new_hash = f"{current_name or 'None'}|{current_policy}"
+            new_hash = f"{current_name}|{current_policy}"
             new_hash_short = hashlib.md5(new_hash.encode()).hexdigest()[:8]
             
             existing_hash = getattr(self, '_name_anchor_hash', None)
@@ -4438,9 +4501,9 @@ class MediaStreamHandler:
                 item_id = name_anchor_event.get('item', {}).get('id', 'unknown') if isinstance(name_anchor_event, dict) else 'unknown'
                 
                 # Log re-injection with hash
-                logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" item_id={item_id} hash={new_hash_short}")
-                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name or 'None'}', hash={new_hash_short}")
-                _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name or 'None'}\" hash={new_hash_short}", flush=True)
+                logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name}\" item_id={item_id} hash={new_hash_short}")
+                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name}', hash={new_hash_short}")
+                _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name}\" hash={new_hash_short}", flush=True)
             else:
                 # No change needed - log with hash
                 logger.debug(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}")
@@ -9189,6 +9252,12 @@ class MediaStreamHandler:
                         self.outbound_template_id = custom_params.get("template_id")
                         self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = custom_params.get("business_name")
+                        
+                        # 🔥 CRITICAL DEBUG: Log all outbound parameters to verify they arrive
+                        # This proves whether lead_id/phone actually reach media_ws_ai.py
+                        print(f"📞 [OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id}, phone={self.phone_number}, call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...")
+                        logger.info(f"[OUTBOUND_PARAMS] lead_id={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid}")
+                        _orig_print(f"[OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...", flush=True)
                         
                         # 🔥 DEBUG: Log outbound lead name explicitly
                         if self.outbound_lead_name:
