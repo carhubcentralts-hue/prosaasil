@@ -3138,10 +3138,10 @@ class MediaStreamHandler:
                 # Store policy in session (persistent across PROMPT_UPGRADE)
                 self.use_name_policy = use_name_policy
                 
-                 # Log policy determination
-                logger.info(f"[NAME_POLICY] use_name_policy={use_name_policy} reason=matched_phrase={matched_phrase or 'none'}")
-                print(f"🎯 [NAME_POLICY] use_name_policy={use_name_policy} (matched: '{matched_phrase or 'none'}')")
-                _orig_print(f"[NAME_POLICY] use_name_policy={use_name_policy} reason={matched_phrase or 'none'}", flush=True)
+                # Log policy determination with source
+                logger.info(f"[NAME_POLICY] source=business_prompt result={use_name_policy} matched=\"{matched_phrase or 'none'}\"")
+                print(f"🎯 [NAME_POLICY] source=business_prompt result={use_name_policy} (matched: '{matched_phrase or 'none'}')")
+                _orig_print(f"[NAME_POLICY] source=business_prompt result={use_name_policy} matched=\"{matched_phrase or 'none'}\"", flush=True)
                 
                 # Step 2: Extract customer name
                 customer_name_to_inject = _extract_customer_name()
@@ -4496,6 +4496,11 @@ class MediaStreamHandler:
                                 self._business_prompt_hash = full_prompt_hash
                                 self._business_items_count = 1  # One FULL business prompt injected
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
+                                
+                                # 🔥 BUSINESS_PROMPT LOG: Track business prompt injection
+                                prompt_source = 'outbound_ai_prompt' if call_direction == 'outbound' else 'ai_prompt'
+                                logger.info(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}")
+                                _orig_print(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}", flush=True)
                                 
                                 print(f"✅ [PROMPT UPGRADE] Expanded to FULL in {upgrade_duration}ms (hash={full_prompt_hash})")
                                 print(f"   └─ This is a planned EXPANSION, not a rebuild - same direction/business")
