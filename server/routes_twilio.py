@@ -1225,9 +1225,10 @@ def call_status():
             "twilio_direction": twilio_direction,
             "parent_call_sid": parent_call_sid
         })
-        if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled"]:
+        if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled", "ended"]:
             # ✅ BUILD 106: Save with duration and direction
             # 🔥 NEW: Pass twilio_direction and parent_call_sid for proper tracking
+            # 🔥 FIX: Added 'ended' to handle media_ws_ai.py finally block status updates
             from server.tasks_recording import normalize_call_direction
             # 🔥 CRITICAL: Only normalize if we have a direction, otherwise keep existing
             normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else None
@@ -1245,10 +1246,11 @@ def call_status():
                     # 🔥 FIX: Handle both "calling" and "dialing" status (edge case: call ends before status updated)
                     if job and job.status in ["calling", "dialing"]:
                         # Update job status
+                        # 🔥 FIX: Treat 'ended' as completed (set by media_ws_ai.py finally block)
                         from datetime import datetime
-                        job.status = "completed" if call_status_val == "completed" else "failed"
+                        job.status = "completed" if call_status_val in ["completed", "ended"] else "failed"
                         job.completed_at = datetime.utcnow()
-                        if call_status_val != "completed":
+                        if call_status_val not in ["completed", "ended"]:
                             job.error_message = f"Call ended with status: {call_status_val}"
                         
                         # Update run counts
@@ -1256,7 +1258,7 @@ def call_status():
                         run = OutboundCallRun.query.get(job.run_id)
                         if run:
                             run.in_progress_count -= 1
-                            if call_status_val == "completed":
+                            if call_status_val in ["completed", "ended"]:
                                 run.completed_count += 1
                             else:
                                 run.failed_count += 1
