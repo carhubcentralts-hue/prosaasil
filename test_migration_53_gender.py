@@ -47,8 +47,8 @@ def check_migration_53_exists():
 
 
 def check_idempotency():
-    """Verify Migration 53 uses IF NOT EXISTS"""
-    print("\n=== Checking Idempotency (IF NOT EXISTS) ===")
+    """Verify Migration 53 uses check_column_exists guard for idempotency"""
+    print("\n=== Checking Idempotency (Guard Pattern) ===")
     
     filepath = 'server/db_migrate.py'
     
@@ -69,19 +69,26 @@ def check_idempotency():
         
         migration_53_content = migration_53_match.group(0)
         
-        # Check for IF NOT EXISTS in ALTER TABLE
-        if 'IF NOT EXISTS' in migration_53_content:
-            print(f"  ✅ Migration 53 uses IF NOT EXISTS for idempotency")
-        else:
-            print(f"  ❌ Migration 53 missing IF NOT EXISTS clause")
-            return False
-        
-        # Check for check_column_exists guard
+        # Check for check_column_exists guard (modern pattern, like Migration 52)
         if "check_column_exists('leads', 'gender')" in migration_53_content:
-            print(f"  ✅ Migration 53 guarded by check_column_exists")
+            print(f"  ✅ Migration 53 guarded by check_column_exists (modern pattern)")
         else:
             print(f"  ❌ Migration 53 missing check_column_exists guard")
             return False
+        
+        # Check guard logic is correct (NOT check_column_exists)
+        if "not check_column_exists('leads', 'gender')" in migration_53_content:
+            print(f"  ✅ Guard logic is correct (runs only if column does NOT exist)")
+        else:
+            print(f"  ❌ Guard logic incorrect")
+            return False
+        
+        # Note: Modern migrations (52+) use guard only, not IF NOT EXISTS
+        # This is the preferred pattern for clarity
+        if 'IF NOT EXISTS' in migration_53_content:
+            print(f"  ℹ️  Uses IF NOT EXISTS (old pattern, but still safe)")
+        else:
+            print(f"  ✅ Uses guard-only pattern (modern, follows Migration 52)")
         
         return True
         
@@ -240,7 +247,7 @@ def main():
     
     results = {
         'Migration 53 Exists': check_migration_53_exists(),
-        'Idempotency (IF NOT EXISTS)': check_idempotency(),
+        'Idempotency (Guard Pattern)': check_idempotency(),
         'Error Handling': check_error_handling(),
         'CRITICAL_COLUMNS Updated': check_critical_columns(),
         'Migration Structure': check_migration_structure(),

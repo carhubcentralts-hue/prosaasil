@@ -1691,7 +1691,7 @@ def apply_migrations():
                 checkpoint("  → Adding gender to leads...")
                 db.session.execute(text("""
                     ALTER TABLE leads 
-                    ADD COLUMN IF NOT EXISTS gender VARCHAR(16)
+                    ADD COLUMN gender VARCHAR(16)
                 """))
                 checkpoint("  ✅ leads.gender added")
                 migrations_applied.append('add_leads_gender_column')
