@@ -543,7 +543,7 @@ class OpenAIRealtimeClient:
                     silence_duration_ms = SERVER_VAD_SILENCE_MS
                 if prefix_padding_ms is None:
                     prefix_padding_ms = SERVER_VAD_PREFIX_PADDING_MS
-                logger.debug(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
+                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
             except ImportError:
                 # Fallback if config not available
                 if vad_threshold is None:
