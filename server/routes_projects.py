@@ -42,7 +42,7 @@ def list_projects():
                 p.id, p.name, p.description, p.status,
                 p.created_at, p.updated_at, p.started_at, p.completed_at,
                 COUNT(DISTINCT pl.lead_id) as total_leads,
-                COUNT(DISTINCT cl.sid) as total_calls,
+                COUNT(DISTINCT cl.call_sid) as total_calls,
                 SUM(CASE WHEN cl.status = 'completed' THEN 1 ELSE 0 END) as answered_calls,
                 SUM(CASE WHEN cl.status = 'no-answer' THEN 1 ELSE 0 END) as no_answer_calls,
                 SUM(CASE WHEN cl.status IN ('busy', 'failed') THEN 1 ELSE 0 END) as failed_calls,
@@ -134,7 +134,7 @@ def create_project():
         
         log.info(f"[Projects] create_project: Using tenant_id={tenant_id}")
         
-        user_id = g.user.id if hasattr(g, 'user') else None
+        user_id = g.user.get('id') if hasattr(g, 'user') and g.user else None
         
         data = request.get_json()
         name = data.get('name', '').strip()
