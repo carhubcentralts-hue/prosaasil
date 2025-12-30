@@ -2436,13 +2436,19 @@ export function OutboundCallsPage() {
           onClose={() => setShowCreateProject(false)}
           onCreate={async (name, description, leadIds) => {
             try {
-              await http.post('/api/projects', {
+              const response = await http.post('/api/projects', {
                 name,
                 description,
                 lead_ids: leadIds
               });
+              
               setShowCreateProject(false);
               refetchProjects();
+              
+              // Show feedback about the result
+              if (response.message) {
+                alert(response.message);
+              }
             } catch (error) {
               console.error('Error creating project:', error);
               throw error;
