@@ -932,6 +932,11 @@ def create_app():
             from server.agent_tools.agent_factory import warmup_all_agents
             
             def warmup_with_context():
+                # 🔥 FIX: Add delay to ensure database is fully initialized before warmup
+                # This prevents OperationalError: connection failed during startup
+                import time
+                time.sleep(2.0)  # Wait 2 seconds for DB connection pool to initialize
+                
                 with app.app_context():
                     try:
                         warmup_all_agents()

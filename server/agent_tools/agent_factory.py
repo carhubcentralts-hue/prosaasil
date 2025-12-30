@@ -1510,11 +1510,33 @@ def warmup_all_agents():
         print("\n🔥 WARMUP: Pre-creating agents for active businesses...")
         logger.info("🔥 Starting agent warmup...")
         
-        # Get active businesses (had activity in last 7 days)
-        cutoff_date = datetime.utcnow() - timedelta(days=7)
+        # 🔥 FIX: Wait for database to be ready with retry logic
+        # This prevents OperationalError during startup when DB connection isn't fully initialized
+        max_retries = 5
+        retry_delay = 1.0  # Start with 1 second
+        active_businesses = None
         
-        # Query businesses - limit to 10 most recent for fast startup
-        active_businesses = Business.query.order_by(Business.id.desc()).limit(10).all()
+        for attempt in range(max_retries):
+            try:
+                # Test database connection first
+                db.session.execute(db.text("SELECT 1"))
+                
+                # Get active businesses (had activity in last 7 days)
+                cutoff_date = datetime.utcnow() - timedelta(days=7)
+                
+                # Query businesses - limit to 10 most recent for fast startup
+                active_businesses = Business.query.order_by(Business.id.desc()).limit(10).all()
+                break  # Success - exit retry loop
+                
+            except Exception as db_error:
+                if attempt < max_retries - 1:
+                    print(f"⏳ Database not ready (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                    logger.warning(f"Database not ready (attempt {attempt + 1}/{max_retries}): {db_error}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    # Final attempt failed
+                    raise db_error
         
         if not active_businesses:
             print("⚠️  No active businesses found for warmup")
