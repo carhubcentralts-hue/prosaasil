@@ -93,11 +93,12 @@ def test_getattr_logic():
         print(f"❌ FAIL: Expected 'דוד לוי', got {lead_customer_name2}")
         return False
     
-    # Test with None lead
+    # Test with None lead (the if lead else None should short-circuit)
+    lead = None
     lead_customer_name3 = (
-        getattr(None, "first_name", None) or 
-        getattr(None, "full_name", None)
-    ) if None else None
+        getattr(lead, "first_name", None) or 
+        getattr(lead, "full_name", None)
+    ) if lead else None
     
     if lead_customer_name3 is None:
         print("✅ PASS: None lead handled correctly")
