@@ -2989,18 +2989,16 @@ class MediaStreamHandler:
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
                 auto_create_response=not manual_turns,
-                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
-                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
+                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.85) - reduced false positives
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (600ms) - optimal for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                # 🔥 PRODUCTION STT QUALITY: Optimized transcription prompt for Hebrew accuracy
-                # Goal: Maximum precision for Hebrew speech, avoid hallucinations, prefer accuracy over completeness
+                # 🔥 PRODUCTION STT QUALITY: Neutral transcription prompt for Hebrew
+                # Per OpenAI best practices: Keep prompt simple and neutral
+                # Don't instruct model to skip/omit - let VAD threshold handle false triggers
                 transcription_prompt=(
                     "תמלול מדויק בעברית ישראלית. "
-                    "דיוק מקסימלי! "
-                    "אם לא דיברו או לא ברור - השאר ריק. "
-                    "אל תנחש, אל תשלים, אל תמציא מילים. "
-                    "העדף דיוק על פני שלמות."
+                    "תמלל רק מה שנאמר בפועל."
                 ),
                 tools=tools,  # 🔥 NEW: Include tools in first session.update
                 tool_choice=tool_choice if tools else None,  # Only set if tools exist

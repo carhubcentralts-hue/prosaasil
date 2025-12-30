@@ -547,11 +547,11 @@ class OpenAIRealtimeClient:
             except ImportError:
                 # Fallback if config not available
                 if vad_threshold is None:
-                    vad_threshold = 0.60
+                    vad_threshold = 0.85  # Match default from config
                 if silence_duration_ms is None:
-                    silence_duration_ms = 900
+                    silence_duration_ms = 600  # Match default from config (was 900)
                 if prefix_padding_ms is None:
-                    prefix_padding_ms = 400
+                    prefix_padding_ms = 300  # Match default from config (was 400)
                 logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
         # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW
         # Per הנחיה: Use Realtime capabilities, no local noise-floor guards
