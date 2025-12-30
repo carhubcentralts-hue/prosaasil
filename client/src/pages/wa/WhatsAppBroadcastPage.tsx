@@ -1164,27 +1164,48 @@ export function WhatsAppBroadcastPage() {
                           ? 'bg-blue-600 text-white'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
-                      onClick={() => {
-                        setCampaignDetails({ ...campaignDetails, status_filter: null });
-                        loadCampaignDetails(selectedCampaign);
+                      onClick={async () => {
+                        setLoadingDetails(true);
+                        try {
+                          const response = await http.get<any>(`/api/whatsapp/broadcasts/${selectedCampaign}`);
+                          setCampaignDetails(response);
+                        } catch (error) {
+                          console.error('Error loading all recipients:', error);
+                        } finally {
+                          setLoadingDetails(false);
+                        }
                       }}
                     >
                       הכל ({campaignDetails.total_recipients})
                     </button>
                     <button
                       className="px-4 py-2 rounded-md text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200"
-                      onClick={() => {
-                        setCampaignDetails({ ...campaignDetails, status_filter: 'sent' });
-                        // Would need to implement filtered loading
+                      onClick={async () => {
+                        setLoadingDetails(true);
+                        try {
+                          const response = await http.get<any>(`/api/whatsapp/broadcasts/${selectedCampaign}?status=sent`);
+                          setCampaignDetails(response);
+                        } catch (error) {
+                          console.error('Error loading sent recipients:', error);
+                        } finally {
+                          setLoadingDetails(false);
+                        }
                       }}
                     >
                       נשלחו ({campaignDetails.sent_count})
                     </button>
                     <button
                       className="px-4 py-2 rounded-md text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200"
-                      onClick={() => {
-                        setCampaignDetails({ ...campaignDetails, status_filter: 'failed' });
-                        // Would need to implement filtered loading
+                      onClick={async () => {
+                        setLoadingDetails(true);
+                        try {
+                          const response = await http.get<any>(`/api/whatsapp/broadcasts/${selectedCampaign}?status=failed`);
+                          setCampaignDetails(response);
+                        } catch (error) {
+                          console.error('Error loading failed recipients:', error);
+                        } finally {
+                          setLoadingDetails(false);
+                        }
                       }}
                     >
                       נכשלו ({campaignDetails.failed_count})

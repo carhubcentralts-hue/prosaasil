@@ -58,8 +58,8 @@ class BroadcastWorker:
             
             log.info(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} queued_recipients={len(recipients)}")
             
-            # Process each recipient in batches
-            # ✅ FIX: Smart rate limiting - 30 msgs every 3 seconds
+            # ✅ FIX: Smart rate limiting - batch-based (30 msgs every 3 seconds)
+            # Process each recipient in batches to avoid blocking
             for idx, recipient in enumerate(recipients, 1):
                 # Check if stop was requested
                 if self._check_stop_requested():
