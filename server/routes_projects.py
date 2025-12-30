@@ -173,9 +173,10 @@ def create_project():
         log.info(f"[Projects] Created project {project_id} - Added {added_count} leads, skipped {skipped_count} for tenant {tenant_id}")
         
         # Build appropriate message
-        if len(lead_ids) == 0:
+        total_requested = len(lead_ids) if lead_ids else 0
+        if total_requested == 0:
             message = 'פרויקט נוצר בהצלחה ללא לידים (ניתן להוסיף לידים מאוחר יותר)'
-        elif added_count == 0 and len(lead_ids) > 0:
+        elif added_count == 0:
             message = f'פרויקט נוצר אך לא נוספו לידים ({skipped_count} לידים לא נמצאו או לא שייכים לחשבון)'
         elif skipped_count > 0:
             message = f'פרויקט נוצר עם {added_count} לידים ({skipped_count} לידים דולגו)'
@@ -187,7 +188,7 @@ def create_project():
             'project_id': project_id,
             'added_count': added_count,
             'skipped_count': skipped_count,
-            'total_requested': len(lead_ids),
+            'total_requested': total_requested,
             'message': message
         })
     
