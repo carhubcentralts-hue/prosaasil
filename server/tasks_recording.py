@@ -636,7 +636,13 @@ def process_recording_async(form_data):
                 except Exception:
                     pass
             
-            summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
+            summary = summarize_conversation(
+                source_text_for_summary, 
+                call_sid, 
+                business_type, 
+                business_name,
+                call_duration=call_log.duration if call_log else audio_duration_sec  # 🆕 Pass duration for smart summary!
+            )
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:
                 if summary and len(summary.strip()) > 0:
@@ -1211,14 +1217,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # Get call direction from call_log
                 call_direction = call_log.direction if call_log else "inbound"
                 
-                # Use new auto-status service
+                # Use new auto-status service with call duration for smart no-summary handling
                 from server.services.lead_auto_status_service import suggest_lead_status_from_call
                 suggested_status = suggest_lead_status_from_call(
                     tenant_id=call_log.business_id,
                     lead_id=lead.id,
                     call_direction=call_direction,
                     call_summary=summary,  # AI-generated summary
-                    call_transcript=final_transcript or ""  # 🔥 FIX: Only recording transcript
+                    call_transcript=final_transcript or "",  # 🔥 FIX: Only recording transcript
+                    call_duration=call_log.duration  # 🆕 Pass duration for smart no-summary logic
                 )
                 
                 # Apply status change with validation

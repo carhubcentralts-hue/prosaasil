@@ -14,27 +14,31 @@ def summarize_conversation(
     transcription: str, 
     call_sid: Optional[str] = None,
     business_type: Optional[str] = None,
-    business_name: Optional[str] = None
+    business_name: Optional[str] = None,
+    call_duration: Optional[int] = None
 ) -> str:
     """
     סיכום דינמי לחלוטין של שיחה - מזהה אוטומטית את סוג השיחה והעסק!
     BUILD 144 - Universal Dynamic Summaries
     BUILD 183 - CRITICAL FIX: Don't hallucinate summaries when no user spoke!
+    🆕 BUILD XXX - Smart duration and disconnect reason tracking
     
     GPT מזהה בעצמו:
     - סוג העסק (כל תחום - המערכת מזהה אוטומטית!)
     - מטרת השיחה
     - פרטים רלוונטיים
     - פעולות נדרשות
+    - משך זמן השיחה וסיבת הסיום (חכם!)
     
     Args:
         transcription: התמלול המלא של השיחה
         call_sid: מזהה שיחה ללוגים
         business_type: רמז על סוג העסק (אופציונלי - GPT יזהה בעצמו)
         business_name: שם העסק (אופציונלי)
+        call_duration: משך השיחה בשניות (🆕 חדש!)
         
     Returns:
-        סיכום מקצועי דינמי בעברית (80-150 מילים)
+        סיכום מקצועי דינמי בעברית (80-150 מילים) כולל משך וסיבת סיום
         Returns EMPTY STRING if no actual user speech occurred!
     """
     # 🔥 BUILD 183: Early exit if no transcription
@@ -42,8 +46,13 @@ def summarize_conversation(
         log.info(f"📊 [SUMMARY] Skipping - no/short transcription for call {call_sid}")
         return ""  # Return empty, NOT fake text!
     
+    # 🆕 For very short calls - still generate summary but focus on disconnect reason!
+    # Don't skip - every call gets a summary!
+    
+    log.info(f"📊 Generating universal dynamic summary for call {call_sid} (transcript: {len(transcription)} chars, duration: {call_duration}s)")
+    
     # 🔥 BUILD 183 CRITICAL: Check if USER actually spoke in the conversation
-    # If only AI spoke (greeting) but user hung up immediately, don't generate summary!
+    # But for very short calls, we still want to document WHY (voicemail, hang up, etc.)
     user_spoke = False
     user_content_length = 0
     
@@ -77,12 +86,53 @@ def summarize_conversation(
             user_spoke = True
             log.info(f"📊 [SUMMARY] Continuous transcript detected ({user_content_length} chars), treating as real conversation")
     
-    # 🔥 BUILD 183: If no meaningful user speech, return empty (no hallucination!)
+    # 🆕 For short calls without real user speech - still create a summary!
+    # Document WHY the call ended (voicemail, hang up, etc.)
     if not user_spoke or user_content_length < 5:
-        log.info(f"📊 [SUMMARY] Skipping - NO USER SPEECH detected for call {call_sid} (user_spoke={user_spoke}, content_len={user_content_length})")
-        return ""  # CRITICAL: Return empty, don't hallucinate!
+        log.info(f"📊 [SUMMARY] Short call with minimal user speech ({user_content_length} chars) - creating disconnect reason summary")
+        
+        # Analyze the transcript to understand why call was short
+        # Common patterns: voicemail, immediate hangup, number announcement, etc.
+        transcript_lower = transcription.lower()
+        
+        # Build a smart summary based on what actually happened
+        if call_duration is not None:
+            minutes = call_duration // 60
+            seconds = call_duration % 60
+            if minutes > 0:
+                duration_text = f"{minutes} דקות ו-{seconds} שניות" if seconds > 0 else f"{minutes} דקות"
+            else:
+                duration_text = f"{seconds} שניות"
+            
+            # Detect specific disconnect reasons from transcript
+            disconnect_reason = ""
+            if any(word in transcript_lower for word in ['תא קולי', 'משיבון', 'voicemail', 'mailbox']):
+                disconnect_reason = "הגיע לתא קולי/משיבון אוטומטי"
+            elif any(word in transcript_lower for word in ['מספר', 'number', 'חייג', 'dial', 'להקריא']):
+                disconnect_reason = "התחיל להקריא מספר/הודעה אוטומטית"
+            elif call_duration < 3:
+                disconnect_reason = "לא נענה/ניתוק מיידי"
+            elif call_duration < 10:
+                disconnect_reason = "הלקוח ניתק בתחילת השיחה"
+            else:
+                disconnect_reason = "הלקוח ניתק את השיחה מהר"
+            
+            # Create concise summary for short calls
+            summary = f"שיחה של {duration_text} - {disconnect_reason}\n\n"
+            
+            # Add transcript snippet if available
+            if len(transcription.strip()) > 0:
+                summary += f"תמלול: {transcription[:200]}"  # First 200 chars
+                if len(transcription) > 200:
+                    summary += "..."
+            
+            log.info(f"📊 [SUMMARY] Created short call summary: '{disconnect_reason}'")
+            return summary
+        
+        # Fallback if no duration available
+        return f"שיחה קצרה - לא נוצר דיאלוג מלא\n\nתמלול: {transcription[:200]}"
     
-    log.info(f"📊 Generating universal dynamic summary for call {call_sid} (user_content: {user_content_length} chars)")
+    log.info(f"📊 [SUMMARY] User spoke detected ({user_content_length} chars) - generating full summary")
     
     try:
         from openai import OpenAI
@@ -95,6 +145,31 @@ def summarize_conversation(
         if business_type:
             business_context += f"\nתחום העסק (רמז): {business_type}"
         
+        # 🆕 Add duration context for smart disconnect detection
+        duration_context = ""
+        disconnect_hint = ""
+        if call_duration is not None:
+            minutes = call_duration // 60
+            seconds = call_duration % 60
+            if minutes > 0:
+                duration_text = f"{minutes} דקות ו-{seconds} שניות" if seconds > 0 else f"{minutes} דקות"
+            else:
+                duration_text = f"{seconds} שניות"
+            
+            duration_context = f"\n\n⏱️ **משך השיחה**: {duration_text} ({call_duration} שניות)"
+            
+            # Add smart disconnect detection hints
+            if call_duration < 5:
+                disconnect_hint = "\n🔍 **רמז**: שיחה קצרה מאוד (< 5 שניות) - כנראה אין מענה או ניתוק מיידי"
+            elif 5 <= call_duration < 20:
+                disconnect_hint = "\n🔍 **רמז**: שיחה קצרה (5-20 שניות) - בדוק אם הלקוח ענה או ניתק מהר"
+            elif 20 <= call_duration < 30:
+                disconnect_hint = "\n🔍 **רמז**: שיחה קצרה-בינונית (20-30 שניות) - בדוק אם היה ניתוק מהיר או שיחה קצרה"
+            elif 30 <= call_duration <= 60:
+                disconnect_hint = "\n🔍 **רמז**: שיחה בינונית (30-60 שניות) - בדוק אם היה ניתוק באמצע שיחה או שיחה חלקית"
+            elif 60 < call_duration <= 120:
+                disconnect_hint = "\n🔍 **רמז**: שיחה ארוכה יחסית (1-2 דקות) - כנראה הייתה שיחה מלאה"
+        
         prompt = f"""אתה מומחה סיכום שיחות עסקיות בעברית. סכם את השיחה הבאה בצורה **אמיתית, מדויקת ואובייקטיבית**.
 
 🎯 **הוראות קריטיות - קרא בעיון!**
@@ -103,6 +178,7 @@ def summarize_conversation(
 3. **התאמה דינמית**: התאם את מבנה הסיכום לסוג השיחה
 4. **חלץ פרטים ריאליים**: רק מידע שהלקוח באמת אמר
 5. **סטטוס אמיתי**: אם הלקוח אמר "לא מעוניין" - כתוב את זה! אל תכתוב שהוא מעוניין!
+6. 🆕 **תיעוד משך וסיום**: **חובה** לכלול משך השיחה וסיבת הסיום בצורה חכמה!
 
 ⚠️ **כללי זהב (אסור להפר!):**
 - אם הלקוח אמר "לא רוצה" → **חייב** לכתוב שהוא לא מעוניין
@@ -110,30 +186,38 @@ def summarize_conversation(
 - אם הלקוח ניתק → כתוב "הלקוח ניתק את השיחה"
 - אם לא נקבעה פגישה → **אסור** לכתוב שנקבעה!
 - **אמת קודמת לנימוס** - עדיף סיכום קצר ואמיתי מאשר ארוך ומפוברק!
+- 🆕 **חובה לתעד משך וסיום** - השתמש במידע על משך השיחה כדי לזהות אם הייתה שיחה מלאה או ניתוק!
 
 📋 **מבנה הסיכום הנדרש (80-150 מילים):**
 
-1. **סוג הפנייה והתחום**: (זהה אוטומטית - מה סוג העסק ומה הלקוח באמת מחפש?)
+🆕 **1. כותרת עם משך וסיום** (שורה ראשונה):
+   - **דוגמה מוצלחת**: "שיחה של 45 שניות - הלקוח ניתק באמצע השיחה"
+   - **דוגמה מוצלחת**: "שיחה של דקה וחצי - הסתיימה בהצלחה"
+   - **דוגמה מוצלחת**: "שיחה של 3 שניות - אין מענה/ניתוק מיידי"
+   - השתמש במשך הזמן כדי לזהות את סיבת הסיום!
 
-2. **פרטים ספציפיים שנמסרו בפועל**:
+2. **סוג הפנייה והתחום**: (זהה אוטומטית - מה סוג העסק ומה הלקוח באמת מחפש?)
+
+3. **פרטים ספציפיים שנמסרו בפועל**:
    - רק מה שהלקוח באמת אמר!
    - אם לא אמר - כתוב "לא צויין בשיחה"
    - אל תמלא חורים עם הנחות
    
-3. **פרטי הלקוח שנמסרו**: שם ואמצעי התקשרות (אם נמסרו בפועל)
+4. **פרטי הלקוח שנמסרו**: שם ואמצעי התקשרות (אם נמסרו בפועל)
 
-4. **סטטוס ומעקב - אמיתי**:
+5. **סטטוס ומעקב - אמיתי**:
    - האם הלקוח מעוניין? כן/לא/לא ברור (לפי מה שהוא **באמת** אמר!)
    - האם נקבעה פגישה? רק אם באמת נקבעה!
+   - האם השיחה הסתיימה בהצלחה או ניתוק? (חכם!)
    - פעולה נדרשת: מה באמת צריך לעשות?
 
-5. **הערות חשובות**: מידע נוסף **שנאמר בפועל**
-{business_context}
+6. **הערות חשובות**: מידע נוסף **שנאמר בפועל**
+{business_context}{duration_context}{disconnect_hint}
 
 📝 **תמלול השיחה:**
 {transcription}
 
-📝 **סיכום אמיתי, מדויק ואובייקטיבי:**"""
+📝 **סיכום אמיתי, מדויק ואובייקטיבי (כולל משך וסיום!):**"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -149,6 +233,7 @@ def summarize_conversation(
 - מתאים את מבנה הסיכום לתחום הספציפי
 - חולץ מידע רלוונטי בצורה חכמה ואמיתית
 - כותב סיכומים אובייקטיביים ושימושיים
+- 🆕 מתעד משך השיחה וסיבת הסיום בצורה חכמה ומדויקת!
 
 ⚠️ **כללים חמורים (הפרה = כישלון!):**
 1. ✅ **אמת בלבד**: כתוב רק מה שבאמת נאמר בשיחה
@@ -156,15 +241,23 @@ def summarize_conversation(
 3. ❌ **אסור לשקר**: אם הלקוח אמר "לא" - כתוב "לא"!
 4. ✅ **אובייקטיביות**: אל תצבע את המציאות ברוז
 5. ✅ **קצר עדיף על מפוברק**: אם אין מידע - כתוב שאין
+6. 🆕 ✅ **חובה לתעד משך וסיום**: השורה הראשונה חייבת לכלול משך השיחה וסיבת הסיום!
 
-דוגמאות:
+🆕 **דוגמאות לשורה פותחת (חובה!):**
+✅ "שיחה של 45 שניות - הלקוח ניתק באמצע השיחה"
+✅ "שיחה של דקה וחצי - הסתיימה בהצלחה, נקבעה פגישה"
+✅ "שיחה של 3 שניות - אין מענה/ניתוק מיידי"
+✅ "שיחה של 55 שניות - ניתוק באמצע שיחה, לא הושלם"
+❌ אסור להתחיל ישירות עם תוכן השיחה ללא תיעוד משך וסיום!
+
+דוגמאות כלליות:
 ❌ שגוי: "הלקוח הביע עניין" (כשאמר "לא רוצה")
 ✅ נכון: "הלקוח אמר שהוא לא מעוניין בשירות"
 
 ❌ שגוי: "נקבעה פגישה ליום ראשון" (כשלא נקבע כלום)
 ✅ נכון: "לא נקבעה פגישה"
 
-סיכום: 80-150 מילים בעברית, מבנה ברור, **אמת מוחלטת**"""
+סיכום: 80-150 מילים בעברית, מבנה ברור, **אמת מוחלטת**, 🆕 **משך וסיום בשורה הראשונה!**"""
                 },
                 {"role": "user", "content": prompt}
             ],

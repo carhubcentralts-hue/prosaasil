@@ -4,9 +4,13 @@ Automatically suggests lead status based on call outcome (inbound + outbound)
 Dynamic mapping using structured extraction + keyword scoring
 """
 import logging
+import re
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+# Configuration constants
+CALL_HISTORY_LIMIT = 10  # Number of previous calls to check for no-answer progression
 
 
 class LeadAutoStatusService:
@@ -22,7 +26,8 @@ class LeadAutoStatusService:
         call_direction: str,
         call_summary: Optional[str] = None,
         call_transcript: Optional[str] = None,
-        structured_extraction: Optional[dict] = None
+        structured_extraction: Optional[dict] = None,
+        call_duration: Optional[int] = None
     ) -> Optional[str]:
         """
         Suggest a status for a lead based on call outcome using AI
@@ -34,6 +39,7 @@ class LeadAutoStatusService:
             call_summary: AI-generated call summary (preferred)
             call_transcript: Full call transcript (fallback)
             structured_extraction: Structured data extracted from call (if available)
+            call_duration: Call duration in seconds (for smart no-summary handling)
             
         Returns:
             Status name (lowercase canonical) or None if cannot determine
@@ -46,17 +52,24 @@ class LeadAutoStatusService:
             log.warning(f"No valid statuses found for tenant {tenant_id}")
             return None
         
-        # 🆕 Priority 0: Use AI to intelligently determine status
-        # This is the SMART method that actually understands the conversation
+        # 🆕 SIMPLIFIED SMART LOGIC: Always use summary/transcript (now always available!)
+        # The summary now includes duration and disconnect reason for ALL calls,
+        # so we don't need complex duration-based logic anymore!
         text_to_analyze = call_summary if call_summary else call_transcript
+        
+        # Priority 0: Use AI to intelligently determine status (MAIN PATH)
+        # This is the SMART method that actually understands the conversation
+        # 🆕 Now the summary ALWAYS includes duration and disconnect reason - SUPER SMART!
         if text_to_analyze and len(text_to_analyze) > 10:
             suggested = self._suggest_status_with_ai(
                 text_to_analyze, 
                 valid_statuses_dict, 
-                call_direction
+                call_direction,
+                tenant_id=tenant_id,  # 🆕 Pass for smart progression
+                lead_id=lead_id  # 🆕 Pass for smart progression
             )
             if suggested:
-                log.info(f"[AutoStatus] ✅ AI suggested '{suggested}' for lead {lead_id}")
+                log.info(f"[AutoStatus] ✅ AI suggested '{suggested}' for lead {lead_id} (using {'summary with duration info' if call_summary else 'transcript'})")
                 return suggested
         
         # Fallback to keyword matching (less intelligent)
@@ -109,7 +122,9 @@ class LeadAutoStatusService:
         self, 
         conversation_text: str, 
         valid_statuses: dict, 
-        call_direction: str
+        call_direction: str,
+        tenant_id: int = None,
+        lead_id: int = None
     ) -> Optional[str]:
         """
         🆕 INTELLIGENT STATUS SUGGESTION using OpenAI
@@ -121,6 +136,8 @@ class LeadAutoStatusService:
             conversation_text: Call summary or transcript
             valid_statuses: Dict of {status_name: status_description}
             call_direction: 'inbound' or 'outbound'
+            tenant_id: Business ID (for checking lead history)
+            lead_id: Lead ID (for checking previous status)
             
         Returns:
             Status name or None
@@ -137,6 +154,72 @@ class LeadAutoStatusService:
             
             client = OpenAI(api_key=api_key)
             
+            # 🆕 Check lead's current status AND call history for super smart progression!
+            current_status_info = ""
+            call_history_info = ""
+            
+            if tenant_id and lead_id:
+                try:
+                    from server.models_sql import Lead, CallLog
+                    
+                    # Get lead's current status
+                    lead = Lead.query.filter_by(id=lead_id).first()
+                    if lead and lead.status:
+                        current_status_info = f"\n\n🔍 **מידע נוסף - סטטוס נוכחי של הליד:**\nהליד כרגע בסטטוס: '{lead.status}'\n"
+                        
+                        # Check if it's a no-answer status with number
+                        status_lower = lead.status.lower()
+                        if ('no_answer' in status_lower or 
+                            'no answer' in status_lower or 
+                            'אין מענה' in status_lower or
+                            'לא ענה' in status_lower):
+                            
+                            numbers = re.findall(r'\d+', lead.status)
+                            if numbers:
+                                current_attempt = int(numbers[-1])
+                                next_attempt = current_attempt + 1
+                                current_status_info += f"💡 **חשוב**: הליד כבר ב-'אין מענה' ניסיון {current_attempt}.\n"
+                                current_status_info += f"אם זה שוב אין מענה, חפש סטטוס עם המספר {next_attempt} (למשל: no_answer_{next_attempt} או אין מענה {next_attempt})\n"
+                            else:
+                                current_status_info += f"💡 **חשוב**: הליד כבר ב-'אין מענה'.\n"
+                                current_status_info += f"אם זה שוב אין מענה, חפש סטטוס עם המספר 2 (למשל: no_answer_2 או אין מענה 2)\n"
+                    
+                    # 🆕 Get call history for this lead (last 5 calls)
+                    previous_calls = CallLog.query.filter_by(
+                        business_id=tenant_id,
+                        lead_id=lead_id
+                    ).order_by(CallLog.created_at.desc()).limit(5).all()
+                    
+                    if previous_calls:
+                        call_history_info = f"\n\n📋 **היסטוריית שיחות קודמות (עד 5 אחרונות):**\n"
+                        
+                        for idx, call in enumerate(previous_calls, 1):
+                            call_date = call.created_at.strftime("%d/%m %H:%M") if call.created_at else "תאריך לא ידוע"
+                            duration = f"{call.duration}s" if call.duration else "לא ידוע"
+                            
+                            # Get short summary or status
+                            call_desc = ""
+                            if call.summary and len(call.summary) > 0:
+                                # Take first line of summary (usually has duration + reason)
+                                first_line = call.summary.split('\n')[0][:80]
+                                call_desc = first_line
+                            elif call.duration:
+                                if call.duration < 5:
+                                    call_desc = f"שיחה קצרה ({duration}) - כנראה אין מענה"
+                                elif call.duration < 30:
+                                    call_desc = f"שיחה קצרה-בינונית ({duration})"
+                                else:
+                                    call_desc = f"שיחה ({duration})"
+                            else:
+                                call_desc = "שיחה ללא פרטים"
+                            
+                            call_history_info += f"{idx}. {call_date}: {call_desc}\n"
+                        
+                        call_history_info += f"\n💡 **שים לב לדפוס**: אם רוב השיחות קצרות/אין מענה, זה כנראה שוב אין מענה!\n"
+                        
+                except Exception as e:
+                    log.warning(f"[AutoStatus] Could not check lead status/history: {e}")
+            
             # Build status list for prompt
             status_list = "\n".join([f"- {name}: {desc}" for name, desc in valid_statuses.items()])
             
@@ -144,6 +227,7 @@ class LeadAutoStatusService:
             prompt = f"""אתה מערכת חכמה לניתוח שיחות ועדכון סטטוס לידים.
 
 ניתן לך סיכום/תמלול של שיחה {'נכנסת' if call_direction == 'inbound' else 'יוצאת'} עם לקוח פוטנציאלי.
+🆕 הסיכום כולל מידע על משך השיחה וסיבת הסיום - השתמש בזה בצורה חכמה!
 המשימה שלך היא לקבוע את הסטטוס המתאים ביותר עבור הליד הזה מתוך רשימת הסטטוסים הזמינים.
 
 **סטטוסים זמינים:**
@@ -151,15 +235,62 @@ class LeadAutoStatusService:
 
 **סיכום/תמלול השיחה:**
 {conversation_text}
+{current_status_info}{call_history_info}
 
-**הנחיות:**
-1. נתח את תוכן השיחה והבן את רמת העניין של הלקוח
-2. זהה אם נקבע מפגש/פגישה, אם הלקוח מעוניין, לא מעוניין, או צריך מעקב
-3. בחר את הסטטוס המתאים ביותר מתוך הרשימה לעיל
-4. אם אף סטטוס לא מתאים באופן ברור, החזר "none"
-5. החזר **רק** את שם הסטטוס בדיוק כמו שהוא ברשימה (lowercase)
+**הנחיות מורחבות (חכם ביותר!):**
+🎯 **מטרה: למצוא את ההתאמה הכי טובה בין הסיכום לסטטוסים!**
 
-**התשובה שלך (רק שם הסטטוס):**"""
+1. **קרא היטב** את הסיכום והבן מה קרה בשיחה
+2. **בדוק כל סטטוס** ברשימה וחפש התאמה:
+   
+   📋 **מילות מפתח לזיהוי (דוגמאות):**
+   - אם בסיכום: "תא קולי" / "משיבון" → חפש סטטוס עם "voicemail", "תא_קולי", "משיבון_קולי", "answering_machine"
+   - אם בסיכום: "לא נענה" / "לא ענה" → חפש סטטוס עם "no_answer", "אין_מענה", "לא_ענה", "unanswered"
+   
+   🔢 **פרוגרסיה חכמה של אין מענה (חשוב מאוד!):**
+   - אם יש מספר סטטוסים: `no_answer`, `no_answer_2`, `no_answer_3` או `אין מענה`, `אין מענה 2`, `אין מענה 3`
+   - בדוק איזה ניסיון זה (ראשון, שני, שלישי)
+   - העדף סטטוס עם המספר המתאים!
+   - **דוגמאות:**
+     * ניסיון ראשון + יש `no_answer` → בחר `no_answer`
+     * ניסיון שני + יש `no_answer_2` → בחר `no_answer_2`
+     * ניסיון שלישי + יש `no_answer_3` → בחר `no_answer_3`
+     * אם אין סטטוס מספרי → בחר את הבסיסי (`no_answer`)
+   
+   - אם בסיכום: "ניתק" / "התנתק" → חפש סטטוס עם "disconnect", "ניתק", "hung_up", "terminated"
+   - אם בסיכום: "ניתק באמצע" → חפש סטטוס עם "mid_call", "באמצע", "partial", "incomplete"
+   - אם בסיכום: "התחיל להקריא מספר" → חפש סטטוס עם "number_announcement", "automated", "הקראת_מספר"
+   - אם בסיכום: "מעוניין" → חפש סטטוס עם "interested", "מעוניין", "hot"
+   - אם בסיכום: "לא מעוניין" → חפש סטטוס עם "not_interested", "לא_מעוניין", "not_relevant"
+   - אם בסיכום: "נקבעה פגישה" → חפש סטטוס עם "appointment", "meeting", "פגישה", "qualified"
+   
+3. **היה גמיש וחכם:**
+   - אותיות גדולות/קטנות לא משנות (case-insensitive)
+   - קו תחתון (_) = רווח
+   - חפש קשרים סמנטיים (למשל: "voicemail" ↔ "תא קולי")
+   - אפילו אם הסטטוס נקרא "משהו_אחר_לגמרי", אם הוא מכיל מילה רלוונטית - זה התאמה!
+
+4. **שים לב למשך השיחה:**
+   - קצרה מאוד (< 5 שניות) + "תא קולי" = התאמה מושלמת ל"voicemail"/"תא_קולי"
+   - קצרה מאוד (< 5 שניות) + "לא נענה" = התאמה ל"no_answer"
+   - בינונית (30-60 שניות) + "ניתק" = התאמה ל"disconnected" או "partial"
+
+5. **אם אין התאמה מושלמת - בחר את הקרוב ביותר:**
+   - העדף סטטוסים שמכילים מילים רלוונטיות מהסיכום
+   - אם אין בכלל התאמה - החזר "none"
+
+6. **חשוב מאוד:**
+   - תמיד החזר את שם הסטטוס **בדיוק כמו שהוא ברשימה** (lowercase)
+   - אל תשנה אותיות, אל תוסיף מילים
+   - פשוט העתק את השם מהרשימה
+
+🎯 **דוגמאות להתאמה חכמה:**
+- סיכום: "הגיע לתא קולי" + יש סטטוס "voicemail_response" → החזר "voicemail_response"
+- סיכום: "משיבון אוטומטי" + יש סטטוס "תא_קולי" → החזר "תא_קולי"
+- סיכום: "לא נענה" + יש סטטוס "no_answer_2" והליד כבר ב-no_answer_1 → החזר "no_answer_2"
+- סיכום: "ניתק באמצע" + יש סטטוס "call_dropped" → החזר "call_dropped"
+
+**התשובה שלך (רק שם הסטטוס מהרשימה):**"""
 
             # Call OpenAI
             response = client.chat.completions.create(
@@ -167,7 +298,45 @@ class LeadAutoStatusService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "אתה מערכת חכמה לניתוח שיחות. תמיד החזר רק שם סטטוס אחד או 'none'."
+                        "content": """אתה מערכת חכמה ביותר לניתוח שיחות והתאמת סטטוסים. תמיד החזר רק שם סטטוס אחד או 'none'.
+                        
+🎯 **המשימה שלך: למצוא את ההתאמה הכי טובה!**
+
+אתה מקבל:
+1. סיכום/תמלול של שיחה (כולל משך וסיבת סיום)
+2. רשימת סטטוסים זמינים במערכת
+
+אתה צריך למצוא איזה סטטוס **הכי מתאים** לסיכום.
+
+🔍 **איך למצוא התאמה:**
+1. קרא את הסיכום והבן מה קרה
+2. עבור על כל סטטוס ברשימה וחפש מילים משותפות:
+   - "תא קולי" בסיכום ↔ "voicemail", "תא_קולי", "משיבון" בסטטוס
+   - "לא נענה" בסיכום ↔ "no_answer", "אין_מענה", "unanswered" בסטטוס
+   - "ניתק" בסיכום ↔ "disconnect", "ניתק", "hung_up" בסטטוס
+   - "מעוניין" בסיכום ↔ "interested", "מעוניין", "hot" בסטטוס
+   - וכן הלאה...
+
+3. **חכם סמנטי:** גם אם המילים לא זהות - חפש קשרים:
+   - "משיבון אוטומטי" = "voicemail" = "תא קולי"
+   - "התנתק" = "disconnected" = "ניתק"
+   - "התחיל להקריא מספר" = "number announcement" = "automated message"
+
+4. **היה גמיש:**
+   - אותיות גדולות/קטנות לא משנות
+   - קו תחתון = רווח
+   - חפש חלקים של מילים גם (למשל: "disconnect" מכיל את "connect")
+
+5. **תעדיף סטטוסים ספציפיים:**
+   - אם יש "voicemail_1" ו-"no_answer", ובסיכום "תא קולי" → בחר "voicemail_1"
+   - אם יש "disconnected_mid_call" ו-"contacted", ובסיכום "ניתק באמצע" → בחר "disconnected_mid_call"
+
+⚠️ **חשוב מאוד:**
+- תמיד החזר את השם **בדיוק כמו שהוא ברשימה** (לא לשנות!)
+- אם אין התאמה טובה - החזר "none"
+- אל תמציא סטטוסים שלא ברשימה!
+
+🎯 **מטרה: להיות הכי חכם שאפשר ולמצוא את הסטטוס המדויק ביותר לכל שיחה!**"""
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -356,6 +525,275 @@ class LeadAutoStatusService:
         log.info(f"[AutoStatus] Keyword scoring: {scores}, winner: {winner_group}")
         
         return status_groups[winner_group]
+    
+    def _handle_no_answer_with_progression(
+        self, 
+        tenant_id: int, 
+        lead_id: int, 
+        valid_statuses_dict: dict
+    ) -> Optional[str]:
+        """
+        🆕 Smart no-answer status progression
+        
+        Handles intelligent status progression for no-answer calls:
+        - First no-answer: → "no_answer" or "no_answer_1" 
+        - Second no-answer: → "no_answer_2" (if exists)
+        - Third no-answer: → "no_answer_3" (if exists)
+        
+        Falls back gracefully if only some no-answer statuses exist.
+        
+        Args:
+            tenant_id: Business ID
+            lead_id: Lead ID
+            valid_statuses_dict: Dictionary of available statuses
+            
+        Returns:
+            Status name or None
+        """
+        from server.models_sql import CallLog
+        
+        valid_statuses_set = set(valid_statuses_dict.keys())
+        
+        # Find available no-answer statuses in this business
+        # Check for: no_answer, no_answer_1, no_answer_2, no_answer_3, אין מענה, אין מענה 2, אין מענה 3
+        available_no_answer_statuses = []
+        
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            # Match variations: no_answer, no_answer_1, no_answer_2, אין מענה, אין מענה 2, etc.
+            if ('no_answer' in status_lower or 
+                'no answer' in status_lower or 
+                'אין מענה' in status_lower or
+                'לא ענה' in status_lower):
+                available_no_answer_statuses.append(status_name)
+        
+        if not available_no_answer_statuses:
+            log.info(f"[AutoStatus] No 'no_answer' status available for business {tenant_id}")
+            return None
+        
+        # Count previous no-answer calls for this lead
+        try:
+            # Get all previous calls for this lead
+            previous_calls = CallLog.query.filter_by(
+                business_id=tenant_id,
+                lead_id=lead_id
+            ).order_by(CallLog.created_at.desc()).limit(CALL_HISTORY_LIMIT).all()
+            
+            # Get lead's current status to check if it's already a no-answer variant
+            from server.models_sql import Lead
+            lead = Lead.query.filter_by(id=lead_id).first()
+            if lead and lead.status:
+                status_lower = lead.status.lower()
+                if ('no_answer' in status_lower or 
+                    'no answer' in status_lower or 
+                    'אין מענה' in status_lower or
+                    'לא ענה' in status_lower):
+                    # Lead is currently in a no-answer state
+                    # Extract number if present (e.g., "no_answer_2" → 2, "אין מענה 3" → 3)
+                    numbers = re.findall(r'\d+', lead.status)
+                    if numbers:
+                        current_attempt = int(numbers[-1])  # Take last number found
+                    else:
+                        current_attempt = 1  # First no-answer
+                    
+                    # Determine next attempt
+                    next_attempt = current_attempt + 1
+                    
+                    log.info(f"[AutoStatus] Lead {lead_id} currently at no-answer attempt {current_attempt}, trying for {next_attempt}")
+                else:
+                    # Not currently no-answer, this is the first
+                    next_attempt = 1
+            else:
+                # No lead found or no status, assume first attempt
+                next_attempt = 1
+            
+            # Now find the appropriate status based on attempt number
+            # Sort available statuses to prefer numbered ones
+            sorted_statuses = sorted(available_no_answer_statuses)
+            
+            # Try to find status matching the attempt number
+            # Priority: exact match (no_answer_2) > base status (no_answer)
+            target_status = None
+            
+            if next_attempt == 1:
+                # First attempt - use base "no_answer" or "no_answer_1"
+                for status in sorted_statuses:
+                    status_lower = status.lower()
+                    # Prefer exact "no_answer" without number, or "no_answer_1"
+                    if (status_lower == 'no_answer' or 
+                        status_lower == 'no answer' or
+                        status_lower == 'אין מענה' or
+                        status_lower == 'לא ענה' or
+                        '1' in status_lower):
+                        target_status = status
+                        break
+            else:
+                # 2nd, 3rd attempt - try to find numbered status
+                for status in sorted_statuses:
+                    # Check if status contains the target attempt number
+                    if str(next_attempt) in status:
+                        target_status = status
+                        break
+            
+            # Fallback: if no exact match, use any available no-answer status
+            if not target_status and available_no_answer_statuses:
+                target_status = available_no_answer_statuses[0]
+                log.info(f"[AutoStatus] No exact match for attempt {next_attempt}, using fallback: {target_status}")
+            
+            if target_status:
+                log.info(f"[AutoStatus] Smart progression: attempt {next_attempt} → '{target_status}'")
+                return target_status
+            
+        except Exception as e:
+            log.error(f"[AutoStatus] Error in no-answer progression: {e}")
+            # Fallback to simple no_answer if progression logic fails
+            for status in available_no_answer_statuses:
+                if status.lower() in ['no_answer', 'no answer', 'אין מענה', 'לא ענה']:
+                    return status
+        
+        return None
+    
+    def _handle_mid_length_disconnect(self, valid_statuses_dict: dict, call_duration: int) -> Optional[str]:
+        """
+        🆕 Handle short-mid calls (20-30 seconds) without summary
+        
+        These are typically cases where:
+        - Customer answered but hung up quickly
+        - Brief connection before disconnect
+        
+        Looks for appropriate statuses like:
+        - "answered_but_disconnected" / "נענה אך ניתק"
+        - "contacted" / "נוצר קשר" 
+        - "attempted" / "ניסיון קשר"
+        - Falls back to generic statuses if specific ones don't exist
+        
+        Args:
+            valid_statuses_dict: Dictionary of available statuses
+            call_duration: Duration in seconds (for logging)
+            
+        Returns:
+            Status name or None
+        """
+        valid_statuses_set = set(valid_statuses_dict.keys())
+        
+        # Priority 1: Look for "answered but disconnected" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            # Match: answered_but_disconnected, נענה_אך_ניתק, answered_disconnected, etc.
+            if (('answer' in status_lower or 'נענה' in status_lower) and 
+                ('disconnect' in status_lower or 'ניתק' in status_lower)):
+                log.info(f"[AutoStatus] Short-mid disconnect ({call_duration}s) matched 'answered_but_disconnected': {status_name}")
+                return status_name
+        
+        # Priority 2: Look for "contacted" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            if ('contact' in status_lower or 'נוצר קשר' in status_lower):
+                log.info(f"[AutoStatus] Short-mid disconnect ({call_duration}s) matched 'contacted': {status_name}")
+                return status_name
+        
+        # Priority 3: Look for "attempting" or "attempted" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            if ('attempt' in status_lower or 'ניסיון' in status_lower):
+                log.info(f"[AutoStatus] Short-mid disconnect ({call_duration}s) matched 'attempting': {status_name}")
+                return status_name
+        
+        # No specific status found - let it fall through
+        log.info(f"[AutoStatus] Short-mid disconnect ({call_duration}s): no specific status found, will use default logic")
+        return None
+    
+    def _handle_longer_disconnect(self, valid_statuses_dict: dict, call_duration: int) -> Optional[str]:
+        """
+        🆕 Handle longer calls (30-60 seconds) without summary
+        
+        These are cases where:
+        - Conversation started but customer hung up mid-way
+        - Connection lasted 30-60 seconds but no meaningful summary
+        - Customer disconnected after partial conversation
+        
+        Looks for appropriate statuses with smart priority:
+        - "disconnected_mid_call" / "ניתק באמצע שיחה"
+        - "partial_conversation" / "שיחה חלקית"
+        - "disconnected_after_X" / "ניתק אחרי X שניות" (where X matches duration range)
+        - "contacted" / "נוצר קשר"
+        - "attempted_conversation" / "ניסיון שיחה"
+        
+        Smart matching based on duration:
+        - 30-40 seconds: "disconnected after 30 seconds" / "ניתק אחרי חצי דקה"
+        - 40-50 seconds: "disconnected after 40 seconds" / "ניתק אחרי 40 שניות"
+        - 50-60 seconds: "disconnected after 50 seconds" / "ניתק אחרי דקה"
+        
+        Args:
+            valid_statuses_dict: Dictionary of available statuses
+            call_duration: Duration in seconds
+            
+        Returns:
+            Status name or None
+        """
+        valid_statuses_set = set(valid_statuses_dict.keys())
+        
+        # Priority 1: Look for duration-specific "disconnected after X" statuses
+        # Smart matching: 30-40s → "30", 40-50s → "40", 50-60s → "50"/"60"
+        duration_keywords = []
+        if 30 <= call_duration < 40:
+            duration_keywords = ['30', 'חצי דקה', 'half minute']
+        elif 40 <= call_duration < 50:
+            duration_keywords = ['40', '40 שניות']
+        elif 50 <= call_duration <= 60:
+            duration_keywords = ['50', '60', 'דקה', 'minute']
+        
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            # Check if status mentions disconnection AND contains duration keyword
+            if (('disconnect' in status_lower or 'ניתק' in status_lower) and
+                any(kw in status_lower for kw in duration_keywords)):
+                log.info(f"[AutoStatus] Longer disconnect ({call_duration}s) matched duration-specific: {status_name}")
+                return status_name
+        
+        # Priority 2: Look for "disconnected mid call" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            # Match: disconnected_mid_call, ניתק_באמצע, mid_call_disconnect, etc.
+            if (('disconnect' in status_lower or 'ניתק' in status_lower) and 
+                ('mid' in status_lower or 'באמצע' in status_lower or 'אמצע' in status_lower)):
+                log.info(f"[AutoStatus] Longer disconnect ({call_duration}s) matched 'disconnected_mid_call': {status_name}")
+                return status_name
+        
+        # Priority 3: Look for "partial conversation" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            if (('partial' in status_lower or 'חלקית' in status_lower or 'חלקי' in status_lower) and
+                ('conversation' in status_lower or 'שיחה' in status_lower)):
+                log.info(f"[AutoStatus] Longer disconnect ({call_duration}s) matched 'partial_conversation': {status_name}")
+                return status_name
+        
+        # Priority 4: Generic "answered but disconnected" (less specific than mid-call)
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            if (('answer' in status_lower or 'נענה' in status_lower) and 
+                ('disconnect' in status_lower or 'ניתק' in status_lower)):
+                log.info(f"[AutoStatus] Longer disconnect ({call_duration}s) matched 'answered_but_disconnected': {status_name}")
+                return status_name
+        
+        # Priority 5: Look for "contacted" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            if ('contact' in status_lower or 'נוצר קשר' in status_lower):
+                log.info(f"[AutoStatus] Longer disconnect ({call_duration}s) matched 'contacted': {status_name}")
+                return status_name
+        
+        # Priority 6: Look for "attempted conversation" type statuses
+        for status_name in valid_statuses_set:
+            status_lower = status_name.lower()
+            if (('attempt' in status_lower or 'ניסיון' in status_lower) and
+                ('conversation' in status_lower or 'שיחה' in status_lower)):
+                log.info(f"[AutoStatus] Longer disconnect ({call_duration}s) matched 'attempted_conversation': {status_name}")
+                return status_name
+        
+        # No specific status found - let it fall through
+        log.info(f"[AutoStatus] Longer disconnect ({call_duration}s): no specific status found, will use default logic")
+        return None
 
 
 # Global singleton instance
@@ -373,7 +811,8 @@ def suggest_lead_status_from_call(
     call_direction: str,
     call_summary: Optional[str] = None,
     call_transcript: Optional[str] = None,
-    structured_extraction: Optional[dict] = None
+    structured_extraction: Optional[dict] = None,
+    call_duration: Optional[int] = None
 ) -> Optional[str]:
     """
     Convenience function to suggest status from call
@@ -387,5 +826,6 @@ def suggest_lead_status_from_call(
         call_direction=call_direction,
         call_summary=call_summary,
         call_transcript=call_transcript,
-        structured_extraction=structured_extraction
+        structured_extraction=structured_extraction,
+        call_duration=call_duration
     )
