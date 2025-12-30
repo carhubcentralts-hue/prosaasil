@@ -1577,7 +1577,10 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
             
             if call_log:
                 # UPDATE: Call log already exists
+                old_call_status = call_log.call_status
                 call_log.call_status = status
+                
+                log.info(f"🔄 [CALL_STATUS] Updating call_sid={call_sid}: call_status '{old_call_status}' → '{status}'")
                 
                 # ✅ Only update duration if provided and greater than current
                 if duration > 0 and duration > (call_log.duration or 0):

@@ -40,14 +40,23 @@ def count_active_calls(business_id: int) -> int:
         
         # 🔥 FIX: Only check call_status (not status field) since Twilio updates call_status
         # Also exclude NULL call_status (shouldn't happen but defensive coding)
-        count = CallLog.query.filter(
+        active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
             CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
             CallLog.call_status.isnot(None),
             CallLog.created_at >= cutoff_time
-        ).count()
+        )
         
-        log.debug(f"📊 Business {business_id}: {count} active calls (checked last {MAX_CALL_AGE_MINUTES} min)")
+        count = active_calls_query.count()
+        
+        # 🔥 DEBUG: Log details of active calls for troubleshooting
+        if count > 0:
+            active_calls = active_calls_query.limit(10).all()
+            for call in active_calls:
+                age_minutes = (datetime.utcnow() - call.created_at).total_seconds() / 60
+                log.info(f"  📞 Active call: sid={call.call_sid[:20]}... status={call.status}, call_status={call.call_status}, age={age_minutes:.1f}min, direction={call.direction}")
+        
+        log.info(f"📊 Business {business_id}: {count} active calls (checked last {MAX_CALL_AGE_MINUTES} min)")
         return count
     except Exception as e:
         log.error(f"Error counting active calls for business {business_id}: {e}")
@@ -64,15 +73,24 @@ def count_active_outbound_calls(business_id: int) -> int:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
         # 🔥 FIX: Only check call_status (not status field) since Twilio updates call_status
-        count = CallLog.query.filter(
+        active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
             CallLog.direction == 'outbound',
             CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
             CallLog.call_status.isnot(None),
             CallLog.created_at >= cutoff_time
-        ).count()
+        )
         
-        log.debug(f"📊 Business {business_id}: {count} active outbound calls")
+        count = active_calls_query.count()
+        
+        # 🔥 DEBUG: Log outbound calls specifically
+        if count > 0:
+            active_calls = active_calls_query.limit(10).all()
+            for call in active_calls:
+                age_minutes = (datetime.utcnow() - call.created_at).total_seconds() / 60
+                log.info(f"  📤 Active outbound: sid={call.call_sid[:20]}... status={call.status}, call_status={call.call_status}, age={age_minutes:.1f}min")
+        
+        log.info(f"📊 Business {business_id}: {count} active outbound calls")
         return count
     except Exception as e:
         log.error(f"Error counting active outbound calls for business {business_id}: {e}")
