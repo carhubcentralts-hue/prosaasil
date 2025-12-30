@@ -528,39 +528,34 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 
                 # 🔥 ENHANCED: Use verbose_json for better quality with segments
                 # This provides timestamps and segment-level information that improves accuracy
-                transcription_params = {
-                    "model": model,
-                    "file": None,  # Will be set below
-                    "language": "he",  # Hebrew
-                    "temperature": 0,  # Most deterministic/accurate
-                    "response_format": "verbose_json",  # Get segments and timestamps for better quality
-                    "prompt": clean_hebrew_prompt
-                }
                 
                 # Try to add timestamp_granularities if supported (newer API versions)
                 try:
                     with open(file_to_transcribe, 'rb') as audio_file:
-                        transcription_params["file"] = audio_file
-                        # Try with word-level timestamps for maximum accuracy
+                        # Try with segment-level timestamps for maximum accuracy
                         try:
                             transcript_response = client.audio.transcriptions.create(
-                                **transcription_params,
-                                timestamp_granularities=["segment"]  # Segment-level timestamps
+                                model=model,
+                                file=audio_file,
+                                language="he",
+                                temperature=0,
+                                response_format="verbose_json",
+                                prompt=clean_hebrew_prompt,
+                                timestamp_granularities=["segment"]
                             )
                             logger.info(f"[OFFLINE_STT] Using timestamp_granularities for enhanced accuracy")
-                        except Exception as ts_error:
+                        except Exception:
                             # Fallback: timestamp_granularities not supported, use basic verbose_json
                             logger.info(f"[OFFLINE_STT] timestamp_granularities not supported, using basic verbose_json")
                             # Re-open file and try without timestamp_granularities
                             with open(file_to_transcribe, 'rb') as audio_file_retry:
-                                transcription_params["file"] = audio_file_retry
                                 transcript_response = client.audio.transcriptions.create(
-                                    model=transcription_params["model"],
+                                    model=model,
                                     file=audio_file_retry,
-                                    language=transcription_params["language"],
-                                    temperature=transcription_params["temperature"],
-                                    response_format=transcription_params["response_format"],
-                                    prompt=transcription_params["prompt"]
+                                    language="he",
+                                    temperature=0,
+                                    response_format="verbose_json",
+                                    prompt=clean_hebrew_prompt
                                 )
                 except Exception as file_error:
                     logger.error(f"[OFFLINE_STT] File handling error: {file_error}")
