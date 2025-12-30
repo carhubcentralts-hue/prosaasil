@@ -569,10 +569,16 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     
     parts.append(f"Gender: {gender_info}")
     
-    if use_name_policy:
+    if use_name_policy and customer_name:
+        # Explicit mandatory action when name usage is enabled AND name exists
         parts.append("Policy: USE name (business prompt requests it)")
+        parts.append(f"ACTION: Address customer as '{customer_name}' naturally throughout conversation")
+    elif use_name_policy and not customer_name:
+        parts.append("Policy: name requested but not available - continue without name")
+    elif not use_name_policy and customer_name:
+        parts.append("Policy: do NOT use name in conversation")
     else:
-        parts.append("Policy: do NOT use name")
+        parts.append("Policy: name not requested")
     
     return "\n".join(parts)
 
@@ -827,9 +833,9 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- If no name is available, continue normally without mentioning it.\n"
         "\n"
         "Business Scope:\n"
-        "- Stay strictly within the business services and topics defined in the Business Prompt.\n"
-        "- If customer asks about unrelated topics: politely redirect to business services.\n"
-        "- Never provide information outside your business expertise.\n"
+        "- Focus on the business services and topics in the Business Prompt.\n"
+        "- If a question seems clearly outside your business domain: gently guide back to your services.\n"
+        "- Use judgment - customers may ask indirectly about relevant topics.\n"
         "- Behave as a trained business employee, not a general AI assistant.\n"
         "\n"
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
