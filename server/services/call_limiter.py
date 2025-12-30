@@ -16,8 +16,8 @@ log = logging.getLogger(__name__)
 MAX_OUTBOUND_CALLS_PER_BUSINESS = 3
 MAX_TOTAL_CALLS_PER_BUSINESS = 5
 
-# 🔥 FIX: Terminal call statuses that indicate call has ended
-# These are the definitive statuses from Twilio that mean the call is complete
+# 🔥 FIX: Terminal statuses for BOTH fields (status + call_status for backward compat)
+# These indicate the call has ended
 TERMINAL_CALL_STATUSES = ['completed', 'busy', 'no-answer', 'canceled', 'failed', 'ended', 'hangup']
 
 # 🔥 FIX: Reduce max call age to 10 minutes (calls shouldn't last longer than this)
@@ -29,21 +29,21 @@ def count_active_calls(business_id: int) -> int:
     """
     Count total active calls (inbound + outbound) for a business
     
-    🔥 FIX: Use call_status as PRIMARY field (Twilio updates this)
-    Active = call_status NOT IN terminal statuses
+    🔥 FIX: Use status as PRIMARY field (per models_sql.py line 105)
+    Active = status NOT IN terminal statuses
     AND created within last MAX_CALL_AGE_MINUTES (to exclude stale entries)
     
-    This ensures we don't count calls that completed but status field wasn't synced.
+    Note: We check status field (not deprecated call_status field)
     """
     try:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
-        # 🔥 FIX: Only check call_status (not status field) since Twilio updates call_status
-        # Also exclude NULL call_status (shouldn't happen but defensive coding)
+        # 🔥 FIX: Check 'status' field (PRIMARY) per models_sql.py documentation
+        # Also check call_status for backward compatibility with old records
         active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
-            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
-            CallLog.call_status.isnot(None),
+            CallLog.status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),  # Backward compat
             CallLog.created_at >= cutoff_time
         )
         
@@ -67,17 +67,17 @@ def count_active_outbound_calls(business_id: int) -> int:
     """
     Count active outbound calls for a business
     
-    🔥 FIX: Use call_status as PRIMARY field (Twilio updates this)
+    🔥 FIX: Use status as PRIMARY field (per models_sql.py)
     """
     try:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
-        # 🔥 FIX: Only check call_status (not status field) since Twilio updates call_status
+        # 🔥 FIX: Check 'status' field (PRIMARY) + call_status (backward compat)
         active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
             CallLog.direction == 'outbound',
-            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
-            CallLog.call_status.isnot(None),
+            CallLog.status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),  # Backward compat
             CallLog.created_at >= cutoff_time
         )
         

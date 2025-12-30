@@ -1577,10 +1577,14 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
             
             if call_log:
                 # UPDATE: Call log already exists
+                old_status = call_log.status
                 old_call_status = call_log.call_status
-                call_log.call_status = status
                 
-                log.info(f"🔄 [CALL_STATUS] Updating call_sid={call_sid}: call_status '{old_call_status}' → '{status}'")
+                # 🔥 FIX: Update BOTH status (PRIMARY per models_sql.py) and call_status (backward compat)
+                call_log.status = status
+                call_log.call_status = status  # Keep in sync for backward compatibility
+                
+                log.info(f"🔄 [CALL_STATUS] Updating call_sid={call_sid}: status '{old_status}' → '{status}', call_status '{old_call_status}' → '{status}'")
                 
                 # ✅ Only update duration if provided and greater than current
                 if duration > 0 and duration > (call_log.duration or 0):
