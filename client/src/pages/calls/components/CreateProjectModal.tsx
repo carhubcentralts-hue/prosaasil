@@ -78,7 +78,7 @@ export function CreateProjectModal({
       setLoadingSystemLeads(true);
       const params = new URLSearchParams({
         page: '1',
-        pageSize: '5000',  // Increased to 5000 to allow more leads
+        pageSize: '10000',  // 🔥 FIX: Increased to 10,000 to match project limit
       });
       
       if (systemLeadsSearch) {
@@ -106,7 +106,7 @@ export function CreateProjectModal({
       setLoadingImportLeads(true);
       const params = new URLSearchParams({
         page: '1',
-        page_size: '5000',  // Increased to 5000 to allow more leads
+        page_size: '10000',  // 🔥 FIX: Increased to 10,000 to match project limit
       });
       
       if (importLeadsSearch) {
@@ -155,6 +155,12 @@ export function CreateProjectModal({
   const handleCreate = async () => {
     if (!projectName.trim()) {
       alert('יש להזין שם פרויקט');
+      return;
+    }
+
+    // 🔥 FIX: Validate max 10,000 leads per project
+    if (selectedLeadIds.size > 10000) {
+      alert('לא ניתן להוסיף יותר מ-10,000 לידים לפרויקט.\nאנא הסר חלק מהלידים או צור פרויקטים נפרדים.');
       return;
     }
 
@@ -426,9 +432,15 @@ export function CreateProjectModal({
             </div>
 
             {/* Selected Count */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-900">
+            <div className={`${selectedLeadIds.size > 10000 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'} border rounded-lg p-3`}>
+              <p className={`text-sm ${selectedLeadIds.size > 10000 ? 'text-red-900' : 'text-blue-900'}`}>
                 <strong>{selectedLeadIds.size}</strong> לידים נבחרו מתוך {currentLeads.length} זמינים
+                {selectedLeadIds.size > 10000 && (
+                  <span className="block mt-1 font-semibold">⚠️ מקסימום 10,000 לידים לפרויקט - יש להסיר {selectedLeadIds.size - 10000} לידים</span>
+                )}
+                {selectedLeadIds.size > 5000 && selectedLeadIds.size <= 10000 && (
+                  <span className="block mt-1 text-orange-700">💡 מתקרבים למגבלה של 10,000 לידים</span>
+                )}
               </p>
             </div>
 
@@ -494,13 +506,17 @@ export function CreateProjectModal({
               </Button>
               <Button
                 onClick={handleCreate}
-                disabled={creating || selectedLeadIds.size === 0}
+                disabled={creating || selectedLeadIds.size === 0 || selectedLeadIds.size > 10000}
                 data-testid="button-create-project"
               >
                 {creating ? (
                   <>
                     <Loader2 className="h-4 w-4 ml-2 animate-spin" />
                     יוצר...
+                  </>
+                ) : selectedLeadIds.size > 10000 ? (
+                  <>
+                    חריגה ממגבלת 10,000 לידים
                   </>
                 ) : (
                   <>

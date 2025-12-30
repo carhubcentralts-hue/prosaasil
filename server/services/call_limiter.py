@@ -16,29 +16,47 @@ log = logging.getLogger(__name__)
 MAX_OUTBOUND_CALLS_PER_BUSINESS = 3
 MAX_TOTAL_CALLS_PER_BUSINESS = 5
 
-ACTIVE_CALL_STATUSES = ['initiated', 'ringing', 'in-progress', 'queued', 'in_progress']
+# 🔥 FIX: Terminal statuses for BOTH fields (status + call_status for backward compat)
+# These indicate the call has ended
 TERMINAL_CALL_STATUSES = ['completed', 'busy', 'no-answer', 'canceled', 'failed', 'ended', 'hangup']
 
-MAX_CALL_AGE_MINUTES = 30
+# 🔥 FIX: Reduce max call age to 10 minutes (calls shouldn't last longer than this)
+# This prevents counting stuck/stale calls that never properly completed
+MAX_CALL_AGE_MINUTES = 10
 
 
 def count_active_calls(business_id: int) -> int:
     """
     Count total active calls (inbound + outbound) for a business
     
-    Active = status in ['initiated', 'ringing', 'in-progress', 'queued']
+    🔥 FIX: Use status as PRIMARY field (per models_sql.py line 105)
+    Active = status NOT IN terminal statuses
     AND created within last MAX_CALL_AGE_MINUTES (to exclude stale entries)
-    AND call_status is not terminal (completed, busy, etc.)
+    
+    Note: We check status field (not deprecated call_status field)
     """
     try:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
-        count = CallLog.query.filter(
+        # 🔥 FIX: Check 'status' field (PRIMARY) per models_sql.py documentation
+        # Also check call_status for backward compatibility with old records
+        active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
-            CallLog.status.in_(ACTIVE_CALL_STATUSES),
-            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),  # Backward compat
             CallLog.created_at >= cutoff_time
-        ).count()
+        )
+        
+        count = active_calls_query.count()
+        
+        # 🔥 DEBUG: Log details of active calls for troubleshooting
+        if count > 0:
+            active_calls = active_calls_query.limit(10).all()
+            for call in active_calls:
+                age_minutes = (datetime.utcnow() - call.created_at).total_seconds() / 60
+                log.info(f"  📞 Active call: sid={call.call_sid[:20]}... status={call.status}, call_status={call.call_status}, age={age_minutes:.1f}min, direction={call.direction}")
+        
+        log.info(f"📊 Business {business_id}: {count} active calls (checked last {MAX_CALL_AGE_MINUTES} min)")
         return count
     except Exception as e:
         log.error(f"Error counting active calls for business {business_id}: {e}")
@@ -48,17 +66,31 @@ def count_active_calls(business_id: int) -> int:
 def count_active_outbound_calls(business_id: int) -> int:
     """
     Count active outbound calls for a business
+    
+    🔥 FIX: Use status as PRIMARY field (per models_sql.py)
     """
     try:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
-        count = CallLog.query.filter(
+        # 🔥 FIX: Check 'status' field (PRIMARY) + call_status (backward compat)
+        active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
             CallLog.direction == 'outbound',
-            CallLog.status.in_(ACTIVE_CALL_STATUSES),
-            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),  # Backward compat
             CallLog.created_at >= cutoff_time
-        ).count()
+        )
+        
+        count = active_calls_query.count()
+        
+        # 🔥 DEBUG: Log outbound calls specifically
+        if count > 0:
+            active_calls = active_calls_query.limit(10).all()
+            for call in active_calls:
+                age_minutes = (datetime.utcnow() - call.created_at).total_seconds() / 60
+                log.info(f"  📤 Active outbound: sid={call.call_sid[:20]}... status={call.status}, call_status={call.call_status}, age={age_minutes:.1f}min")
+        
+        log.info(f"📊 Business {business_id}: {count} active outbound calls")
         return count
     except Exception as e:
         log.error(f"Error counting active outbound calls for business {business_id}: {e}")
