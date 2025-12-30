@@ -245,7 +245,9 @@ def get_project(project_id):
         # Get leads in project with their call status
         leads = db.session.execute(text("""
             SELECT 
-                l.id, l.full_name, l.phone_e164, l.status,
+                l.id, 
+                COALESCE(CONCAT_WS(' ', l.first_name, l.last_name), l.first_name, l.last_name, '') AS full_name,
+                l.phone_e164, l.status,
                 pl.call_attempts, pl.last_call_at, pl.last_call_status, pl.total_call_duration,
                 pl.added_at
             FROM project_leads pl
