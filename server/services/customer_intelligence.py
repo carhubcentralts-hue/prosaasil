@@ -68,10 +68,14 @@ class CustomerIntelligence:
                 log.info(f"🆕 Created new customer: {customer.name} ({phone_e164})")
             
             # ✅ חפש ליד קיים לפי מספר מנורמל - מונע כפילויות!
+            # 🔥 FIX: Look for ANY lead, not just specific statuses - prevents duplicate leads!
+            # מחפשים כל ליד פתוח (לא closed/won/lost)
             existing_lead = Lead.query.filter_by(
                 tenant_id=self.business_id,
                 phone_e164=phone_e164  # ✅ משתמש במספר מנורמל!
-            ).filter(Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])).first()
+            ).filter(
+                ~Lead.status.in_(['won', 'lost', 'closed', 'unqualified', 'archived'])
+            ).order_by(Lead.updated_at.desc()).first()
             
             if not existing_lead:
                 lead = self._create_lead_from_whatsapp(customer, message_text)
@@ -482,12 +486,13 @@ class CustomerIntelligence:
     def _update_or_create_lead_for_existing_customer(self, customer: Customer, call_sid: str, extracted_info: Dict) -> Lead:
         """עדכן או צור ליד עבור לקוח קיים"""
         # ✅ חפש ליד פעיל קיים לאותו מספר טלפון (לא לפי call_sid!)
-        # מחפשים לידים פעילים בלבד (לא won/lost/unqualified)
+        # 🔥 FIX: Look for ANY open lead, not just specific statuses - prevents duplicate leads!
+        # מחפשים כל ליד פתוח (לא closed/won/lost)
         existing_lead = Lead.query.filter_by(
             tenant_id=self.business_id,
             phone_e164=customer.phone_e164
         ).filter(
-            Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])
+            ~Lead.status.in_(['won', 'lost', 'closed', 'unqualified', 'archived'])
         ).order_by(Lead.updated_at.desc()).first()
         
         if existing_lead:
