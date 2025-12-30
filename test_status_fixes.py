@@ -137,8 +137,8 @@ def test_project_limit_fix():
         
         # Check for the increased limit
         checks = {
-            "increased_system_limit": "pageSize: '1000'" in content,
-            "increased_import_limit": "page_size: '1000'" in content,
+            "increased_system_limit": "pageSize: '5000'" in content,
+            "increased_import_limit": "page_size: '5000'" in content,
             "no_old_limit_100": "pageSize: '100'" not in content and "page_size: '100'" not in content,
         }
         

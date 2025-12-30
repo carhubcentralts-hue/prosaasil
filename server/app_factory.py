@@ -510,8 +510,17 @@ def create_app():
         app.register_blueprint(calls_bp)
         
         # BUILD 174: Outbound Calls API
-        from server.routes_outbound import outbound_bp
+        from server.routes_outbound import outbound_bp, cleanup_stuck_dialing_jobs
         app.register_blueprint(outbound_bp)
+        
+        # 🔒 CRITICAL: Cleanup stuck jobs on startup to prevent blocking
+        # This runs immediately after blueprint registration
+        try:
+            logger.info("[STARTUP] Running cleanup_stuck_dialing_jobs on startup...")
+            cleanup_stuck_dialing_jobs()
+            logger.info("[STARTUP] ✅ Cleanup complete")
+        except Exception as e:
+            logger.error(f"[STARTUP] ⚠️ Cleanup failed: {e}")
         
         # Projects API for Outbound Calls
         from server.routes_projects import projects_bp

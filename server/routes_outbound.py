@@ -2163,6 +2163,10 @@ def process_bulk_call_run(run_id: int):
                                 
                                 log.info(f"[BulkCall] Started call for lead {lead.id}, job {next_job.id}, call_sid={call_sid}")
                                 
+                                # 🔒 FIX: Add small delay after starting each call to prevent race conditions
+                                # This ensures database status updates propagate before checking active count again
+                                time.sleep(0.5)  # 500ms delay to prevent starting too many calls at once
+                                
                             except Exception as twilio_error:
                                 # 🔒 DEDUPLICATION: Handle Twilio timeout/exception
                                 # Don't retry if we already have a twilio_call_sid (call may have succeeded)
@@ -2245,13 +2249,14 @@ def process_bulk_call_run(run_id: int):
 
 def cleanup_stuck_dialing_jobs():
     """
-    Cleanup jobs stuck in 'dialing' status without a twilio_call_sid
+    Cleanup jobs stuck in 'dialing' or 'calling' status
     
     This handles edge cases where:
     - calls.create succeeded but UPDATE with call_sid failed
     - Process crashed between acquiring lock and creating call
+    - System restart left jobs in active state
     
-    Jobs stuck in 'dialing' for >5 minutes without call_sid are reset to 'queued'
+    🔒 CRITICAL: Reset ALL stuck jobs on startup to prevent blocking new calls
     """
     from server.app_factory import get_process_app
     from server.models_sql import OutboundCallJob
@@ -2262,28 +2267,36 @@ def cleanup_stuck_dialing_jobs():
     
     with app.app_context():
         try:
-            # Find jobs stuck in 'dialing' for more than 5 minutes without call_sid
-            cutoff_time = datetime.utcnow() - timedelta(minutes=5)
-            
-            # Complete lock reset: status, lock_token, and started_at
-            # This prevents "half-locked" state and allows the job to be retried
-            result = db.session.execute(text("""
+            # 🔥 FIX: On startup, reset ALL jobs stuck in 'dialing' state
+            # Don't wait 5 minutes - clean immediately to prevent blocking
+            result_dialing = db.session.execute(text("""
                 UPDATE outbound_call_jobs 
-                SET status='queued',
-                    dial_lock_token=NULL,
-                    dial_started_at=NULL
+                SET status='failed',
+                    error_message='System restart - job was stuck in dialing state',
+                    completed_at=NOW()
                 WHERE status='dialing'
                     AND twilio_call_sid IS NULL
-                    AND dial_started_at < :cutoff_time
-                    AND dial_lock_token IS NOT NULL
+            """))
+            
+            # 🔥 FIX: Also reset jobs in 'calling' state that are old (>10 minutes)
+            # These are likely calls that ended but webhook never arrived
+            cutoff_time = datetime.utcnow() - timedelta(minutes=10)
+            result_calling = db.session.execute(text("""
+                UPDATE outbound_call_jobs 
+                SET status='failed',
+                    error_message='Call timeout - no status update received',
+                    completed_at=NOW()
+                WHERE status='calling'
+                    AND started_at < :cutoff_time
             """), {"cutoff_time": cutoff_time})
             
             db.session.commit()
             
-            if result.rowcount > 0:
-                log.info(f"[CLEANUP] Reset {result.rowcount} stuck 'dialing' jobs to 'queued'")
+            total_cleaned = result_dialing.rowcount + result_calling.rowcount
+            if total_cleaned > 0:
+                log.info(f"[CLEANUP] ✅ Reset {result_dialing.rowcount} stuck 'dialing' jobs and {result_calling.rowcount} stuck 'calling' jobs")
             
-            return result.rowcount
+            return total_cleaned
             
         except Exception as e:
             log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
