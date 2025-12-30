@@ -2724,6 +2724,7 @@ class MediaStreamHandler:
         Returns CallContext with all needed data cached.
         """
         from server.models_sql import CallLog, Lead, Business, BusinessSettings, OutboundCallJob
+        from server.db import db
         
         try:
             app = _get_flask_app()
@@ -2793,6 +2794,7 @@ class MediaStreamHandler:
         
         try:
             from server.models_sql import Lead, CallSession
+            from server.db import db
             
             app = _get_flask_app()
             with app.app_context():
