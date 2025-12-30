@@ -917,27 +917,27 @@ export function OutboundCallsPage() {
   }, []);
 
   return (
-    <div className="p-6 space-y-6" dir="rtl">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-full overflow-x-hidden" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <PhoneOutgoing className="h-8 w-8 text-blue-600" />
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">שיחות יוצאות</h1>
-            <p className="text-sm text-gray-500">לידים שמקורם משיחות יוצאות + ניהול רשימות ייבוא</p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <PhoneOutgoing className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 flex-shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">שיחות יוצאות</h1>
+            <p className="text-xs sm:text-sm text-gray-500 line-clamp-1">לידים שמקורם משיחות יוצאות + ניהול רשימות ייבוא</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
           {/* Stop Queue Button */}
           {activeRunId && queueStatus && (
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                  <div className="text-sm">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
+                  <div className="text-xs sm:text-sm min-w-0">
                     <div className="font-medium text-blue-900">תור פעיל</div>
-                    <div className="text-blue-600">
+                    <div className="text-blue-600 truncate">
                       בתור: {queueStatus.queued} | מתבצע: {queueStatus.in_progress} | הושלם: {queueStatus.completed}
                       {queueStatus.failed > 0 && ` | נכשל: ${queueStatus.failed}`}
                     </div>
@@ -948,7 +948,7 @@ export function OutboundCallsPage() {
                 variant="destructive"
                 size="sm"
                 onClick={handleStopQueue}
-                className="flex items-center gap-2"
+                className="flex items-center justify-center gap-2 min-h-[44px] w-full sm:w-auto"
                 data-testid="button-stop-queue"
               >
                 <StopCircle className="h-4 w-4" />
@@ -959,13 +959,13 @@ export function OutboundCallsPage() {
           
           {/* View Mode Toggle */}
           {(activeTab === 'system' || activeTab === 'active' || activeTab === 'imported') && !showResults && (
-            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-full sm:w-auto">
               <button
                 onClick={() => {
                   console.log('[OutboundCallsPage] Switching to Kanban view');
                   setViewMode('kanban');
                 }}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                   viewMode === 'kanban'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -973,14 +973,14 @@ export function OutboundCallsPage() {
                 data-testid="button-kanban-view"
               >
                 <LayoutGrid className="h-4 w-4" />
-                Kanban
+                <span className="hidden sm:inline">Kanban</span>
               </button>
               <button
                 onClick={() => {
                   console.log('[OutboundCallsPage] Switching to Table view');
                   setViewMode('table');
                 }}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                   viewMode === 'table'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -988,22 +988,26 @@ export function OutboundCallsPage() {
                 data-testid="button-table-view"
               >
                 <List className="h-4 w-4" />
-                רשימה
+                <span className="hidden sm:inline">רשימה</span>
               </button>
             </div>
           )}
           
           {counts && (
-            <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-100 px-4 py-2 rounded-lg">
-              <Phone className="h-4 w-4" />
-              <span>
-                שיחות פעילות: {counts.active_total}/{counts.max_total}
-              </span>
-              <span className="mx-2">|</span>
-              <PhoneOutgoing className="h-4 w-4" />
-              <span>
-                יוצאות: {counts.active_outbound}/{counts.max_outbound}
-              </span>
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-600 bg-gray-100 px-3 sm:px-4 py-2 rounded-lg w-full sm:w-auto">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="whitespace-nowrap">
+                  שיחות פעילות: {counts.active_total}/{counts.max_total}
+                </span>
+              </div>
+              <span className="hidden sm:inline mx-2">|</span>
+              <div className="flex items-center gap-1 sm:gap-2">
+                <PhoneOutgoing className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="whitespace-nowrap">
+                  יוצאות: {counts.active_outbound}/{counts.max_outbound}
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -1029,9 +1033,9 @@ export function OutboundCallsPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex overflow-x-auto border-b border-gray-200 -mx-4 sm:mx-0 px-4 sm:px-0 scrollbar-hide">
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'system'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1045,11 +1049,12 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4" />
-            לידים במערכת
+            <span className="hidden sm:inline">לידים במערכת</span>
+            <span className="sm:hidden">במערכת</span>
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'active'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1063,11 +1068,12 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <PhoneOutgoing className="h-4 w-4" />
-            לידים לשיחות יוצאות
+            <span className="hidden sm:inline">לידים לשיחות יוצאות</span>
+            <span className="sm:hidden">יוצאות</span>
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'imported'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1081,7 +1087,8 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-4 w-4" />
-            רשימת ייבוא לשיחות יוצאות
+            <span className="hidden sm:inline">רשימת ייבוא לשיחות יוצאות</span>
+            <span className="sm:hidden">ייבוא</span>
             {totalImported > 0 && (
               <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
                 {totalImported}
@@ -1090,7 +1097,7 @@ export function OutboundCallsPage() {
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'recent'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1104,7 +1111,8 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            שיחות אחרונות
+            <span className="hidden sm:inline">שיחות אחרונות</span>
+            <span className="sm:hidden">אחרונות</span>
             {totalRecentCalls > 0 && (
               <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
                 {totalRecentCalls}
@@ -1113,7 +1121,7 @@ export function OutboundCallsPage() {
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'projects'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
