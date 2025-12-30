@@ -5,7 +5,7 @@ Handles project management, lead assignment, and call tracking
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import text, func
 from server.db import db
-from server.auth import require_auth
+from server.auth import require_auth, get_current_tenant
 import logging
 from datetime import datetime
 
@@ -19,7 +19,14 @@ projects_bp = Blueprint('projects', __name__)
 def list_projects():
     """List all projects for the current tenant"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] list_projects: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] list_projects: Using tenant_id={tenant_id}")
         
         # Get pagination params
         page = int(request.args.get('page', 1))
@@ -111,7 +118,7 @@ def list_projects():
         })
     
     except Exception as e:
-        log.error(f"Error listing projects: {e}", exc_info=True)
+        log.error(f"[Projects] Error listing projects: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -120,7 +127,15 @@ def list_projects():
 def create_project():
     """Create a new project"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] create_project: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] create_project: Using tenant_id={tenant_id}")
+        
         user_id = g.user.id if hasattr(g, 'user') else None
         
         data = request.get_json()
@@ -202,7 +217,7 @@ def create_project():
         elif 'project_leads' in error_msg and 'does not exist' in error_msg:
             error_msg = 'טבלת קישורי הלידים לפרויקטים לא קיימת. יש להריץ מיגרציות: ./run_migrations.sh'
         
-        log.error(f"Error creating project: {e}", exc_info=True)
+        log.error(f"[Projects] Error creating project: {e}", exc_info=True)
         return jsonify({'success': False, 'error': error_msg}), 500
 
 
@@ -211,7 +226,14 @@ def create_project():
 def get_project(project_id):
     """Get project details with leads and statistics"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] get_project: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] get_project: Using tenant_id={tenant_id}")
         
         # Get project info
         project = db.session.execute(text("""
@@ -293,7 +315,7 @@ def get_project(project_id):
         })
     
     except Exception as e:
-        log.error(f"Error getting project {project_id}: {e}", exc_info=True)
+        log.error(f"[Projects] Error getting project {project_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -302,7 +324,14 @@ def get_project(project_id):
 def add_leads_to_project(project_id):
     """Add leads to an existing project"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] add_leads_to_project: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] add_leads_to_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
         project = db.session.execute(text("""
@@ -352,7 +381,7 @@ def add_leads_to_project(project_id):
     
     except Exception as e:
         db.session.rollback()
-        log.error(f"Error adding leads to project {project_id}: {e}", exc_info=True)
+        log.error(f"[Projects] Error adding leads to project {project_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -361,7 +390,14 @@ def add_leads_to_project(project_id):
 def remove_leads_from_project(project_id):
     """Remove leads from a project"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] remove_leads_from_project: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] remove_leads_from_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
         project = db.session.execute(text("""
@@ -400,7 +436,7 @@ def remove_leads_from_project(project_id):
     
     except Exception as e:
         db.session.rollback()
-        log.error(f"Error removing leads from project {project_id}: {e}", exc_info=True)
+        log.error(f"[Projects] Error removing leads from project {project_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -409,7 +445,14 @@ def remove_leads_from_project(project_id):
 def update_project(project_id):
     """Update project details"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] update_project: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] update_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
         project = db.session.execute(text("""
@@ -468,7 +511,7 @@ def update_project(project_id):
     
     except Exception as e:
         db.session.rollback()
-        log.error(f"Error updating project {project_id}: {e}", exc_info=True)
+        log.error(f"[Projects] Error updating project {project_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -477,7 +520,14 @@ def update_project(project_id):
 def delete_project(project_id):
     """Delete a project"""
     try:
-        tenant_id = g.tenant_id
+        # Use get_current_tenant() instead of g.tenant_id
+        tenant = get_current_tenant()
+        if not tenant:
+            log.error("[Projects] delete_project: No tenant found")
+            return jsonify({'success': False, 'error': 'Tenant not found'}), 401
+        
+        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
+        log.info(f"[Projects] delete_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
         project = db.session.execute(text("""
@@ -503,5 +553,5 @@ def delete_project(project_id):
     
     except Exception as e:
         db.session.rollback()
-        log.error(f"Error deleting project {project_id}: {e}", exc_info=True)
+        log.error(f"[Projects] Error deleting project {project_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
