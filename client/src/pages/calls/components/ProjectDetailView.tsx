@@ -62,6 +62,7 @@ export function ProjectDetailView({
   const [editingDescription, setEditingDescription] = useState(false);
   const [editedDescription, setEditedDescription] = useState('');
   const [updatingStatusLeadId, setUpdatingStatusLeadId] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
 
   useEffect(() => {
     loadProject();
@@ -135,10 +136,11 @@ export function ProjectDetailView({
   };
 
   const handleSelectAll = () => {
-    if (selectedLeadIds.size === project.leads.length) {
+    const leadsToSelect = filteredLeads;
+    if (selectedLeadIds.size === leadsToSelect.length) {
       setSelectedLeadIds(new Set());
     } else {
-      setSelectedLeadIds(new Set(project.leads.map((l: ProjectLead) => l.id)));
+      setSelectedLeadIds(new Set(leadsToSelect.map((l: ProjectLead) => l.id)));
     }
   };
 
@@ -232,6 +234,14 @@ export function ProjectDetailView({
   }
 
   const hasStarted = project.stats !== null && project.stats !== undefined;
+
+  // Filter leads by selected statuses
+  const filteredLeads = project.leads.filter((lead: ProjectLead) => {
+    if (statusFilter.length === 0) {
+      return true; // No filter = show all
+    }
+    return statusFilter.includes(lead.status);
+  });
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -393,21 +403,53 @@ export function ProjectDetailView({
 
       {/* Leads List */}
       <Card className="p-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            לידים בפרויקט ({selectedLeadIds.size}/{project.leads.length})
-          </h3>
+        <div className="flex flex-col gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              לידים בפרויקט ({selectedLeadIds.size}/{filteredLeads.length})
+              {statusFilter.length > 0 && (
+                <span className="text-sm text-gray-500 font-normal">
+                  (מתוך {project.leads.length} סה"כ)
+                </span>
+              )}
+            </h3>
+            {project.leads.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAll}
+                className="w-full sm:w-auto min-h-[44px]"
+                data-testid="button-select-all"
+              >
+                {selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0 ? 'בטל בחירה' : 'בחר הכל'}
+              </Button>
+            )}
+          </div>
+          
+          {/* Status Filter */}
           {project.leads.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSelectAll}
-              className="w-full sm:w-auto min-h-[44px]"
-              data-testid="button-select-all"
-            >
-              {selectedLeadIds.size === project.leads.length ? 'בטל בחירה' : 'בחר הכל'}
-            </Button>
+            <div className="flex items-center gap-3">
+              <Filter className="h-5 w-5 text-gray-500 flex-shrink-0" />
+              <div className="flex-1">
+                <MultiStatusSelect
+                  statuses={statuses}
+                  selectedStatuses={statusFilter}
+                  onChange={setStatusFilter}
+                  placeholder="סנן לפי סטטוס..."
+                />
+              </div>
+              {statusFilter.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setStatusFilter([])}
+                  className="flex-shrink-0"
+                >
+                  נקה סינון
+                </Button>
+              )}
+            </div>
           )}
         </div>
 
@@ -420,9 +462,17 @@ export function ProjectDetailView({
               הוסף לידים
             </Button>
           </div>
+        ) : filteredLeads.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            <Filter className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+            <p className="mb-4">אין לידים התואמים לסינון</p>
+            <Button onClick={() => setStatusFilter([])} variant="outline">
+              נקה סינון
+            </Button>
+          </div>
         ) : (
           <div className="space-y-3">
-            {project.leads.map((lead: ProjectLead) => (
+            {filteredLeads.map((lead: ProjectLead) => (
               <div
                 key={lead.id}
                 className={`flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-lg border transition-colors ${

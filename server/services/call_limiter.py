@@ -39,11 +39,20 @@ def count_active_calls(business_id: int) -> int:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
         # 🔥 FIX: Check 'status' field (PRIMARY) per models_sql.py documentation
-        # Also check call_status for backward compatibility with old records
+        # A call is active if BOTH status AND call_status are NOT in terminal states
+        # This prevents counting calls where one field was updated but not the other
+        # 
+        # CRITICAL BUG FIX: Changed from AND to OR logic using SQLAlchemy's or_()
+        # Before: Both fields must be non-terminal (counted stuck calls as active)
+        # After: If either field is terminal, the call is inactive
+        from sqlalchemy import or_
+        
         active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
-            CallLog.status.notin_(TERMINAL_CALL_STATUSES),
-            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),  # Backward compat
+            ~or_(
+                CallLog.status.in_(TERMINAL_CALL_STATUSES),
+                CallLog.call_status.in_(TERMINAL_CALL_STATUSES)
+            ),
             CallLog.created_at >= cutoff_time
         )
         
@@ -73,11 +82,17 @@ def count_active_outbound_calls(business_id: int) -> int:
         cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
         
         # 🔥 FIX: Check 'status' field (PRIMARY) + call_status (backward compat)
+        # A call is active if BOTH status AND call_status are NOT in terminal states
+        # CRITICAL BUG FIX: Changed from AND to OR logic using SQLAlchemy's or_()
+        from sqlalchemy import or_
+        
         active_calls_query = CallLog.query.filter(
             CallLog.business_id == business_id,
             CallLog.direction == 'outbound',
-            CallLog.status.notin_(TERMINAL_CALL_STATUSES),
-            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),  # Backward compat
+            ~or_(
+                CallLog.status.in_(TERMINAL_CALL_STATUSES),
+                CallLog.call_status.in_(TERMINAL_CALL_STATUSES)
+            ),
             CallLog.created_at >= cutoff_time
         )
         

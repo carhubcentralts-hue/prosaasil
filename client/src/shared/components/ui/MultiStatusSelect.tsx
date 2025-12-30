@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { LeadStatus } from '../../../features/statuses/hooks';
+import { LeadStatusConfig } from '../../types/status';
 import { getStatusDotColor } from '../../utils/status';
 
 interface MultiStatusSelectProps {
-  statuses: LeadStatus[];
+  statuses: LeadStatusConfig[];
   selectedStatuses: string[];
   onChange: (selectedStatuses: string[]) => void;
   placeholder?: string;
@@ -173,7 +174,7 @@ export function MultiStatusSelect({
                 const isSelected = selectedStatuses.includes(status.name);
                 return (
                   <button
-                    key={status.id}
+                    key={status.name}
                     onClick={() => handleStatusToggle(status.name)}
                     className={`
                       w-full px-4 py-2 text-sm text-right hover:bg-gray-50 
