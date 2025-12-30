@@ -1778,7 +1778,7 @@ class CallContext:
         # Lead data
         self.lead_full_name = lead.full_name if lead else None
         self.lead_first_name = lead.first_name if lead else None
-        self.lead_phone = lead.phone if lead else None
+        self.lead_phone = lead.phone_e164 if lead else None
         self.lead_customer_name = lead.customer_name if lead else None
         self.lead_gender = getattr(lead, 'gender', None) if lead else None
         self.lead_tenant_id = lead.tenant_id if lead else None
