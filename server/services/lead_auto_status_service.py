@@ -64,21 +64,31 @@ class LeadAutoStatusService:
             'לא נענה', 'לא ענה', 'אין מענה', 'no answer', 'unanswered', 
             'didn\'t answer', 'did not answer', 'לא השיב', 'לא הגיב',
             'ניתוק מיידי', 'immediate disconnect', '0 שניות', '1 שנייה', '2 שניות',
-            'שיחה לא נענתה'  # Direct match for our summary service output
+            'שיחה לא נענתה',  # Direct match for our summary service output
+            'קו תפוס', 'line busy', 'busy', 'תפוס',  # 🆕 CRITICAL FIX: Include busy signals!
+            'שיחה נכשלה', 'call failed', 'failed', 'נכשל'  # 🆕 Include failed calls
         ]
         has_no_answer_indicator = False
+        matched_indicator = None
         if text_to_analyze:
             text_lower = text_to_analyze.lower()
-            has_no_answer_indicator = any(indicator in text_lower for indicator in no_answer_indicators)
+            for indicator in no_answer_indicators:
+                if indicator in text_lower:
+                    has_no_answer_indicator = True
+                    matched_indicator = indicator
+                    break
         
         # If EITHER condition is true → handle as no-answer with smart progression
         if is_very_short_call or has_no_answer_indicator:
-            reason = "duration < 3s" if is_very_short_call else "no-answer indicator in text"
-            log.info(f"[AutoStatus] Detected no-answer call for lead {lead_id} ({reason})")
+            reason = f"duration < 3s" if is_very_short_call else f"matched indicator: '{matched_indicator}' in text"
+            log.info(f"[AutoStatus] 🔍 Detected no-answer call for lead {lead_id} ({reason})")
+            log.info(f"[AutoStatus] 📋 Summary/Transcript text: '{text_to_analyze[:100]}...'")
             suggested = self._handle_no_answer_with_progression(tenant_id, lead_id, valid_statuses_dict)
             if suggested:
                 log.info(f"[AutoStatus] ✅ No-answer progression suggested '{suggested}' for lead {lead_id}")
                 return suggested
+            else:
+                log.warning(f"[AutoStatus] ⚠️ No-answer detected but no status suggested for lead {lead_id} - check available statuses!")
         
         # 🆕 SIMPLIFIED SMART LOGIC: Always use summary/transcript (now always available!)
         # The summary now includes duration and disconnect reason for ALL calls,
@@ -272,7 +282,9 @@ class LeadAutoStatusService:
    
    📋 **מילות מפתח לזיהוי (דוגמאות):**
    - אם בסיכום: "תא קולי" / "משיבון" → חפש סטטוס עם "voicemail", "תא_קולי", "משיבון_קולי", "answering_machine"
-   - אם בסיכום: "לא נענה" / "לא ענה" → חפש סטטוס עם "no_answer", "אין_מענה", "לא_ענה", "unanswered"
+   - אם בסיכום: "לא נענה" / "לא ענה" / "אין מענה" → חפש סטטוס עם "no_answer", "אין_מענה", "לא_ענה", "unanswered"
+   - 🆕 **אם בסיכום: "קו תפוס" / "busy" / "תפוס"** → חפש סטטוס עם "busy", "תפוס", "no_answer", "אין_מענה" (זה גם סוג של אין מענה!)
+   - 🆕 **אם בסיכום: "שיחה נכשלה" / "failed" / "נכשל"** → חפש סטטוס עם "failed", "נכשל", "no_answer", "אין_מענה"
    
    🔢 **פרוגרסיה חכמה של אין מענה (חשוב מאוד!):**
    - אם יש מספר סטטוסים: `no_answer`, `no_answer_2`, `no_answer_3` או `אין מענה`, `אין מענה 2`, `אין מענה 3`
@@ -339,7 +351,9 @@ class LeadAutoStatusService:
 1. קרא את הסיכום והבן מה קרה
 2. עבור על כל סטטוס ברשימה וחפש מילים משותפות:
    - "תא קולי" בסיכום ↔ "voicemail", "תא_קולי", "משיבון" בסטטוס
-   - "לא נענה" בסיכום ↔ "no_answer", "אין_מענה", "unanswered" בסטטוס
+   - "לא נענה" / "אין מענה" בסיכום ↔ "no_answer", "אין_מענה", "unanswered" בסטטוס
+   - 🆕 **"קו תפוס" / "busy" בסיכום** ↔ "busy", "תפוס", או **"no_answer"** (זה גם אין מענה!)
+   - 🆕 **"שיחה נכשלה" / "failed" בסיכום** ↔ "failed", "נכשל", או **"no_answer"** (זה גם אין מענה!)
    - "ניתק" בסיכום ↔ "disconnect", "ניתק", "hung_up" בסטטוס
    - "מעוניין" בסיכום ↔ "interested", "מעוניין", "hot" בסטטוס
    - וכן הלאה...
@@ -348,6 +362,8 @@ class LeadAutoStatusService:
    - "משיבון אוטומטי" = "voicemail" = "תא קולי"
    - "התנתק" = "disconnected" = "ניתק"
    - "התחיל להקריא מספר" = "number announcement" = "automated message"
+   - 🆕 **"קו תפוס" = "busy" = "no_answer" = "אין מענה"** (כולם מייצגים שהלקוח לא ענה!)
+   - 🆕 **"שיחה נכשלה" = "failed" = "no_answer"** (כולם מייצגים כישלון בשיחה!)
 
 4. **היה גמיש:**
    - אותיות גדולות/קטנות לא משנות
@@ -442,7 +458,7 @@ class LeadAutoStatusService:
             'HOT_INTERESTED': ['interested', 'hot', 'מעוניין', 'חם', 'מתעניין', 'המשך טיפול', 'פוטנציאל'],
             'FOLLOW_UP': ['follow_up', 'callback', 'חזרה', 'תזכורת', 'תחזור', 'מאוחר יותר'],
             'NOT_RELEVANT': ['not_relevant', 'not_interested', 'לא רלוונטי', 'לא מעוניין', 'להסיר', 'חסום'],
-            'NO_ANSWER': ['no_answer', 'אין מענה', 'לא ענה', 'תא קולי'],
+            'NO_ANSWER': ['no_answer', 'אין מענה', 'לא ענה', 'תא קולי', 'busy', 'תפוס', 'failed', 'נכשל'],
         }
         
         result = {}
@@ -527,11 +543,13 @@ class LeadAutoStatusService:
         if follow_up_score > 0 and 'FOLLOW_UP' in status_groups:
             scores['FOLLOW_UP'] = (3, follow_up_score)  # Priority 3
         
-        # Pattern 5: No answer / Voicemail (LOWEST PRIORITY)
+        # Pattern 5: No answer / Voicemail / Busy (LOWEST PRIORITY)
         no_answer_keywords = [
             'לא ענה', 'אין מענה', 'תא קולי', 'לא זמין', 'לא פנוי',
             'no answer', 'voicemail', 'not available', 'unavailable',
-            'מכשיר כבוי', 'לא משיב', 'מספר לא זמין'
+            'מכשיר כבוי', 'לא משיב', 'מספר לא זמין',
+            'קו תפוס', 'busy', 'line busy', 'תפוס',  # 🆕 CRITICAL FIX: Include busy!
+            'שיחה נכשלה', 'call failed', 'failed', 'נכשל'  # 🆕 Include failed calls
         ]
         no_answer_score = sum(1 for kw in no_answer_keywords if kw in text_lower)
         if no_answer_score > 0 and 'NO_ANSWER' in status_groups:
@@ -583,22 +601,31 @@ class LeadAutoStatusService:
         
         # Find available no-answer statuses in this business
         # Check for: no_answer, no_answer_1, no_answer_2, no_answer_3, אין מענה, אין מענה 2, אין מענה 3
+        # 🆕 ALSO include: busy, תפוס, failed, נכשל (they're all types of no-answer!)
         available_no_answer_statuses = []
         
         for status_name in valid_statuses_set:
             status_lower = status_name.lower()
-            # Match variations: no_answer, no_answer_1, no_answer_2, אין מענה, אין מענה 2, etc.
+            # Match variations: no_answer, busy, failed, אין מענה, תפוס, etc.
             if ('no_answer' in status_lower or 
                 'no answer' in status_lower or 
                 'אין מענה' in status_lower or
-                'לא ענה' in status_lower):
+                'לא ענה' in status_lower or
+                'busy' in status_lower or
+                'תפוס' in status_lower or
+                'failed' in status_lower or
+                'נכשל' in status_lower):
                 available_no_answer_statuses.append(status_name)
         
         if not available_no_answer_statuses:
-            log.info(f"[AutoStatus] No 'no_answer' status available for business {tenant_id}")
+            log.warning(f"[AutoStatus] ⚠️ No 'no_answer' status available for business {tenant_id}!")
+            log.info(f"[AutoStatus] 📋 Available statuses: {', '.join(list(valid_statuses_set)[:10])}")
             return None
         
-        # Count previous no-answer calls for this lead
+        log.info(f"[AutoStatus] 🔍 Found {len(available_no_answer_statuses)} no-answer statuses: {', '.join(available_no_answer_statuses)}")
+        
+        # 🆕 ENHANCED: Count previous no-answer calls from CALL HISTORY
+        # This is SMARTER than just looking at current status!
         try:
             # Get all previous calls for this lead
             previous_calls = CallLog.query.filter_by(
@@ -606,33 +633,70 @@ class LeadAutoStatusService:
                 lead_id=lead_id
             ).order_by(CallLog.created_at.desc()).limit(CALL_HISTORY_LIMIT).all()
             
+            # 🆕 Count how many no-answer calls we've already had
+            no_answer_call_count = 0
+            no_answer_patterns = [
+                'לא נענה', 'אין מענה', 'no answer', 'קו תפוס', 'busy', 
+                'שיחה נכשלה', 'failed', 'לא ענה', 'תפוס', 'נכשל'
+            ]
+            
+            log.info(f"[AutoStatus] 📋 Checking call history for lead {lead_id}...")
+            for call in previous_calls:
+                if call.summary:
+                    summary_lower = call.summary.lower()
+                    is_no_answer = any(pattern in summary_lower for pattern in no_answer_patterns)
+                    if is_no_answer:
+                        no_answer_call_count += 1
+                        log.info(f"[AutoStatus]   - Call {call.call_sid[:20]}... had no-answer: '{call.summary[:60]}...'")
+            
+            log.info(f"[AutoStatus] 🔢 Found {no_answer_call_count} previous no-answer calls for lead {lead_id}")
+            
             # Get lead's current status to check if it's already a no-answer variant
             from server.models_sql import Lead
             lead = Lead.query.filter_by(id=lead_id).first()
+            
+            # Determine next attempt based on BOTH history and current status
+            next_attempt = 1  # Default
+            
             if lead and lead.status:
                 status_lower = lead.status.lower()
                 if ('no_answer' in status_lower or 
                     'no answer' in status_lower or 
                     'אין מענה' in status_lower or
-                    'לא ענה' in status_lower):
-                    # Lead is currently in a no-answer state
+                    'לא ענה' in status_lower or
+                    'busy' in status_lower or
+                    'תפוס' in status_lower):
+                    # Lead is currently in a no-answer/busy state
                     # Extract number if present (e.g., "no_answer_2" → 2, "אין מענה 3" → 3)
                     numbers = re.findall(r'\d+', lead.status)
                     if numbers:
                         current_attempt = int(numbers[-1])  # Take last number found
                     else:
-                        current_attempt = 1  # First no-answer
+                        current_attempt = 1  # First no-answer (no number = attempt 1)
                     
                     # Determine next attempt
                     next_attempt = current_attempt + 1
                     
-                    log.info(f"[AutoStatus] Lead {lead_id} currently at no-answer attempt {current_attempt}, trying for {next_attempt}")
+                    log.info(f"[AutoStatus] 👤 Lead {lead_id} currently at no-answer status '{lead.status}' (attempt {current_attempt})")
+                    log.info(f"[AutoStatus] ➡️  Next attempt will be: {next_attempt}")
                 else:
-                    # Not currently no-answer, this is the first
-                    next_attempt = 1
+                    # Not currently no-answer, but check history
+                    # If we have no-answer calls in history, start from attempt based on count
+                    if no_answer_call_count > 0:
+                        next_attempt = no_answer_call_count + 1
+                        log.info(f"[AutoStatus] 👤 Lead {lead_id} not in no-answer status, but has {no_answer_call_count} no-answer calls in history")
+                        log.info(f"[AutoStatus] ➡️  Starting from attempt: {next_attempt}")
+                    else:
+                        # First time!
+                        next_attempt = 1
+                        log.info(f"[AutoStatus] 👤 Lead {lead_id} - first no-answer attempt!")
             else:
-                # No lead found or no status, assume first attempt
-                next_attempt = 1
+                # No lead found or no status
+                if no_answer_call_count > 0:
+                    next_attempt = no_answer_call_count + 1
+                else:
+                    next_attempt = 1
+                log.info(f"[AutoStatus] ⚠️  Lead {lead_id} has no status yet, using attempt: {next_attempt}")
             
             # Now find the appropriate status based on attempt number
             # Sort available statuses to prefer numbered ones
