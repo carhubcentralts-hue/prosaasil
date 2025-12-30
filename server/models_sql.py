@@ -956,10 +956,13 @@ class WhatsAppBroadcast(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
+    stopped_by = db.Column(db.Integer, db.ForeignKey("users.id"))  # User who stopped the broadcast
+    stopped_at = db.Column(db.DateTime)  # When the broadcast was stopped
     
     # Relationships
     business = db.relationship("Business")
-    creator = db.relationship("User")
+    creator = db.relationship("User", foreign_keys=[created_by])
+    stopper = db.relationship("User", foreign_keys=[stopped_by])
 
 
 class WhatsAppBroadcastRecipient(db.Model):
