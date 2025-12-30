@@ -1520,9 +1520,7 @@ def warmup_all_agents():
             try:
                 # Test database connection first
                 db.session.execute(db.text("SELECT 1"))
-                
-                # Get active businesses (had activity in last 7 days)
-                cutoff_date = datetime.utcnow() - timedelta(days=7)
+                db.session.rollback()  # Clean up any transaction state
                 
                 # Query businesses - limit to 10 most recent for fast startup
                 active_businesses = Business.query.order_by(Business.id.desc()).limit(10).all()
@@ -1533,7 +1531,7 @@ def warmup_all_agents():
                     print(f"⏳ Database not ready (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
                     logger.warning(f"Database not ready (attempt {attempt + 1}/{max_retries}): {db_error}")
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay = min(retry_delay * 2, 5.0)  # Exponential backoff with 5s cap
                 else:
                     # Final attempt failed
                     raise db_error
