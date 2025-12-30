@@ -52,10 +52,39 @@ class LeadAutoStatusService:
             log.warning(f"No valid statuses found for tenant {tenant_id}")
             return None
         
+        # 🆕 CRITICAL FIX: Handle no-answer calls (0 seconds duration) FIRST!
+        # When call_duration is 0 or very short (< 3s) AND no meaningful summary/transcript,
+        # this is clearly a no-answer case - handle it with smart progression!
+        if call_duration is not None and call_duration < 3:
+            if not call_summary or len(call_summary.strip()) < 10:
+                log.info(f"[AutoStatus] Detected no-answer call (duration={call_duration}s, no summary) for lead {lead_id}")
+                # Use smart no-answer progression
+                suggested = self._handle_no_answer_with_progression(tenant_id, lead_id, valid_statuses_dict)
+                if suggested:
+                    log.info(f"[AutoStatus] ✅ No-answer progression suggested '{suggested}' for lead {lead_id}")
+                    return suggested
+        
+        # 🆕 ALSO handle case where summary exists but clearly says "no answer" / "לא נענה"
+        text_to_analyze = call_summary if call_summary else call_transcript
+        if text_to_analyze:
+            text_lower = text_to_analyze.lower()
+            # Check for explicit no-answer indicators in summary
+            no_answer_indicators = [
+                'לא נענה', 'לא ענה', 'אין מענה', 'no answer', 'unanswered', 
+                'didn\'t answer', 'did not answer', 'לא השיב', 'לא הגיב',
+                'ניתוק מיידי', 'immediate disconnect', '0 שניות', '1 שנייה', '2 שניות'
+            ]
+            if any(indicator in text_lower for indicator in no_answer_indicators):
+                log.info(f"[AutoStatus] Detected no-answer from summary text for lead {lead_id}: '{text_to_analyze[:100]}'")
+                # Use smart no-answer progression
+                suggested = self._handle_no_answer_with_progression(tenant_id, lead_id, valid_statuses_dict)
+                if suggested:
+                    log.info(f"[AutoStatus] ✅ No-answer progression (from summary) suggested '{suggested}' for lead {lead_id}")
+                    return suggested
+        
         # 🆕 SIMPLIFIED SMART LOGIC: Always use summary/transcript (now always available!)
         # The summary now includes duration and disconnect reason for ALL calls,
         # so we don't need complex duration-based logic anymore!
-        text_to_analyze = call_summary if call_summary else call_transcript
         
         # Priority 0: Use AI to intelligently determine status (MAIN PATH)
         # This is the SMART method that actually understands the conversation

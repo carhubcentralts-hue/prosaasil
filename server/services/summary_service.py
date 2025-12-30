@@ -39,12 +39,27 @@ def summarize_conversation(
         
     Returns:
         סיכום מקצועי דינמי בעברית (80-150 מילים) כולל משך וסיבת סיום
-        Returns EMPTY STRING if no actual user speech occurred!
+        🆕 CRITICAL: ALWAYS returns a summary, even for unanswered calls!
     """
-    # 🔥 BUILD 183: Early exit if no transcription
+    # 🔥 CRITICAL FIX: Handle 0-second / no-answer calls FIRST!
+    # Even if there's NO transcription, if we have duration info showing no-answer, create summary!
+    if call_duration is not None and call_duration == 0:
+        log.info(f"📊 [SUMMARY] 0-second call detected for {call_sid} - creating no-answer summary")
+        return "שיחה לא נענתה (0 שניות) - אין מענה"
+    
+    # 🔥 BUILD 183: Early exit if no transcription AND no duration info
     if not transcription or len(transcription.strip()) < 10:
-        log.info(f"📊 [SUMMARY] Skipping - no/short transcription for call {call_sid}")
-        return ""  # Return empty, NOT fake text!
+        # If we have duration info, still create a summary!
+        if call_duration is not None:
+            if call_duration < 3:
+                log.info(f"📊 [SUMMARY] Very short call ({call_duration}s) with no transcript for {call_sid}")
+                return f"שיחה לא נענתה ({call_duration} שניות) - אין מענה"
+            else:
+                log.info(f"📊 [SUMMARY] Short call ({call_duration}s) with no transcript for {call_sid}")
+                return f"שיחה קצרה ({call_duration} שניות) - ללא תמלול"
+        
+        log.info(f"📊 [SUMMARY] Skipping - no transcription and no duration info for call {call_sid}")
+        return ""  # Return empty only if we have NOTHING
     
     # 🆕 For very short calls - still generate summary but focus on disconnect reason!
     # Don't skip - every call gets a summary!
