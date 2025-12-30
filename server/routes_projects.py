@@ -145,6 +145,8 @@ def create_project():
         project_id = result.scalar()
         
         # Add leads to project if provided
+        added_count = 0
+        skipped_count = 0
         if lead_ids:
             for lead_id in lead_ids:
                 # Verify lead belongs to tenant
@@ -153,26 +155,55 @@ def create_project():
                 """), {'lead_id': lead_id, 'tenant_id': tenant_id}).scalar()
                 
                 if lead_check:
-                    db.session.execute(text("""
+                    result = db.session.execute(text("""
                         INSERT INTO project_leads (project_id, lead_id, added_at)
                         VALUES (:project_id, :lead_id, NOW())
                         ON CONFLICT (project_id, lead_id) DO NOTHING
+                        RETURNING id
                     """), {'project_id': project_id, 'lead_id': lead_id})
+                    
+                    if result.fetchone():  # Lead was actually inserted (not a duplicate)
+                        added_count += 1
+                else:
+                    skipped_count += 1
+                    log.warning(f"[Projects] Skipped lead {lead_id} - not found or doesn't belong to tenant {tenant_id}")
         
         db.session.commit()
         
-        log.info(f"[Projects] Created project {project_id} with {len(lead_ids)} leads for tenant {tenant_id}")
+        log.info(f"[Projects] Created project {project_id} - Added {added_count} leads, skipped {skipped_count} for tenant {tenant_id}")
+        
+        # Build appropriate message
+        total_requested = len(lead_ids) if lead_ids else 0
+        if total_requested == 0:
+            message = 'פרויקט נוצר בהצלחה ללא לידים (ניתן להוסיף לידים מאוחר יותר)'
+        elif added_count == 0:
+            message = f'פרויקט נוצר אך לא נוספו לידים ({skipped_count} לידים לא נמצאו או לא שייכים לחשבון)'
+        elif skipped_count > 0:
+            message = f'פרויקט נוצר עם {added_count} לידים ({skipped_count} לידים דולגו)'
+        else:
+            message = f'פרויקט נוצר בהצלחה עם {added_count} לידים'
         
         return jsonify({
             'success': True,
             'project_id': project_id,
-            'message': 'פרויקט נוצר בהצלחה'
+            'added_count': added_count,
+            'skipped_count': skipped_count,
+            'total_requested': total_requested,
+            'message': message
         })
     
     except Exception as e:
         db.session.rollback()
+        error_msg = str(e)
+        
+        # Provide helpful error message if tables don't exist
+        if 'outbound_projects' in error_msg and 'does not exist' in error_msg:
+            error_msg = 'טבלת הפרויקטים לא קיימת במסד הנתונים. יש להריץ מיגרציות: ./run_migrations.sh או python -m server.db_migrate'
+        elif 'project_leads' in error_msg and 'does not exist' in error_msg:
+            error_msg = 'טבלת קישורי הלידים לפרויקטים לא קיימת. יש להריץ מיגרציות: ./run_migrations.sh'
+        
         log.error(f"Error creating project: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': error_msg}), 500
 
 
 @projects_bp.route('/api/projects/<int:project_id>', methods=['GET'])
