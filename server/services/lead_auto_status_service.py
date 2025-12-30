@@ -64,7 +64,9 @@ class LeadAutoStatusService:
             suggested = self._suggest_status_with_ai(
                 text_to_analyze, 
                 valid_statuses_dict, 
-                call_direction
+                call_direction,
+                tenant_id=tenant_id,  # 🆕 Pass for smart progression
+                lead_id=lead_id  # 🆕 Pass for smart progression
             )
             if suggested:
                 log.info(f"[AutoStatus] ✅ AI suggested '{suggested}' for lead {lead_id} (using {'summary with duration info' if call_summary else 'transcript'})")
@@ -120,7 +122,9 @@ class LeadAutoStatusService:
         self, 
         conversation_text: str, 
         valid_statuses: dict, 
-        call_direction: str
+        call_direction: str,
+        tenant_id: int = None,
+        lead_id: int = None
     ) -> Optional[str]:
         """
         🆕 INTELLIGENT STATUS SUGGESTION using OpenAI
@@ -132,6 +136,8 @@ class LeadAutoStatusService:
             conversation_text: Call summary or transcript
             valid_statuses: Dict of {status_name: status_description}
             call_direction: 'inbound' or 'outbound'
+            tenant_id: Business ID (for checking lead history)
+            lead_id: Lead ID (for checking previous status)
             
         Returns:
             Status name or None
@@ -148,6 +154,72 @@ class LeadAutoStatusService:
             
             client = OpenAI(api_key=api_key)
             
+            # 🆕 Check lead's current status AND call history for super smart progression!
+            current_status_info = ""
+            call_history_info = ""
+            
+            if tenant_id and lead_id:
+                try:
+                    from server.models_sql import Lead, CallLog
+                    
+                    # Get lead's current status
+                    lead = Lead.query.filter_by(id=lead_id).first()
+                    if lead and lead.status:
+                        current_status_info = f"\n\n🔍 **מידע נוסף - סטטוס נוכחי של הליד:**\nהליד כרגע בסטטוס: '{lead.status}'\n"
+                        
+                        # Check if it's a no-answer status with number
+                        status_lower = lead.status.lower()
+                        if ('no_answer' in status_lower or 
+                            'no answer' in status_lower or 
+                            'אין מענה' in status_lower or
+                            'לא ענה' in status_lower):
+                            
+                            numbers = re.findall(r'\d+', lead.status)
+                            if numbers:
+                                current_attempt = int(numbers[-1])
+                                next_attempt = current_attempt + 1
+                                current_status_info += f"💡 **חשוב**: הליד כבר ב-'אין מענה' ניסיון {current_attempt}.\n"
+                                current_status_info += f"אם זה שוב אין מענה, חפש סטטוס עם המספר {next_attempt} (למשל: no_answer_{next_attempt} או אין מענה {next_attempt})\n"
+                            else:
+                                current_status_info += f"💡 **חשוב**: הליד כבר ב-'אין מענה'.\n"
+                                current_status_info += f"אם זה שוב אין מענה, חפש סטטוס עם המספר 2 (למשל: no_answer_2 או אין מענה 2)\n"
+                    
+                    # 🆕 Get call history for this lead (last 5 calls)
+                    previous_calls = CallLog.query.filter_by(
+                        business_id=tenant_id,
+                        lead_id=lead_id
+                    ).order_by(CallLog.created_at.desc()).limit(5).all()
+                    
+                    if previous_calls:
+                        call_history_info = f"\n\n📋 **היסטוריית שיחות קודמות (עד 5 אחרונות):**\n"
+                        
+                        for idx, call in enumerate(previous_calls, 1):
+                            call_date = call.created_at.strftime("%d/%m %H:%M") if call.created_at else "תאריך לא ידוע"
+                            duration = f"{call.duration}s" if call.duration else "לא ידוע"
+                            
+                            # Get short summary or status
+                            call_desc = ""
+                            if call.summary and len(call.summary) > 0:
+                                # Take first line of summary (usually has duration + reason)
+                                first_line = call.summary.split('\n')[0][:80]
+                                call_desc = first_line
+                            elif call.duration:
+                                if call.duration < 5:
+                                    call_desc = f"שיחה קצרה ({duration}) - כנראה אין מענה"
+                                elif call.duration < 30:
+                                    call_desc = f"שיחה קצרה-בינונית ({duration})"
+                                else:
+                                    call_desc = f"שיחה ({duration})"
+                            else:
+                                call_desc = "שיחה ללא פרטים"
+                            
+                            call_history_info += f"{idx}. {call_date}: {call_desc}\n"
+                        
+                        call_history_info += f"\n💡 **שים לב לדפוס**: אם רוב השיחות קצרות/אין מענה, זה כנראה שוב אין מענה!\n"
+                        
+                except Exception as e:
+                    log.warning(f"[AutoStatus] Could not check lead status/history: {e}")
+            
             # Build status list for prompt
             status_list = "\n".join([f"- {name}: {desc}" for name, desc in valid_statuses.items()])
             
@@ -163,6 +235,7 @@ class LeadAutoStatusService:
 
 **סיכום/תמלול השיחה:**
 {conversation_text}
+{current_status_info}{call_history_info}
 
 **הנחיות מורחבות (חכם ביותר!):**
 🎯 **מטרה: למצוא את ההתאמה הכי טובה בין הסיכום לסטטוסים!**
@@ -173,6 +246,17 @@ class LeadAutoStatusService:
    📋 **מילות מפתח לזיהוי (דוגמאות):**
    - אם בסיכום: "תא קולי" / "משיבון" → חפש סטטוס עם "voicemail", "תא_קולי", "משיבון_קולי", "answering_machine"
    - אם בסיכום: "לא נענה" / "לא ענה" → חפש סטטוס עם "no_answer", "אין_מענה", "לא_ענה", "unanswered"
+   
+   🔢 **פרוגרסיה חכמה של אין מענה (חשוב מאוד!):**
+   - אם יש מספר סטטוסים: `no_answer`, `no_answer_2`, `no_answer_3` או `אין מענה`, `אין מענה 2`, `אין מענה 3`
+   - בדוק איזה ניסיון זה (ראשון, שני, שלישי)
+   - העדף סטטוס עם המספר המתאים!
+   - **דוגמאות:**
+     * ניסיון ראשון + יש `no_answer` → בחר `no_answer`
+     * ניסיון שני + יש `no_answer_2` → בחר `no_answer_2`
+     * ניסיון שלישי + יש `no_answer_3` → בחר `no_answer_3`
+     * אם אין סטטוס מספרי → בחר את הבסיסי (`no_answer`)
+   
    - אם בסיכום: "ניתק" / "התנתק" → חפש סטטוס עם "disconnect", "ניתק", "hung_up", "terminated"
    - אם בסיכום: "ניתק באמצע" → חפש סטטוס עם "mid_call", "באמצע", "partial", "incomplete"
    - אם בסיכום: "התחיל להקריא מספר" → חפש סטטוס עם "number_announcement", "automated", "הקראת_מספר"
