@@ -534,15 +534,13 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     """
     Build NAME_ANCHOR message for conversation injection.
     
-    This creates a SHORT system message that tells the AI:
-    1. The customer's actual name (if available)
-    2. The customer's gender (if detected)
-    3. Whether to use the name (based on business prompt)
+    This creates a COMPACT system message providing:
+    1. Customer name (if available)
+    2. Customer gender (for Hebrew grammar)
+    3. Name usage policy status
     
-    Gender helps AI use appropriate Hebrew grammar and forms of address.
-    
-    IMPORTANT: Keep this SHORT and FACTUAL. Do NOT repeat instructions that are
-    already in the universal system prompt (lines 380-395 in realtime_prompt_builder.py).
+    CRITICAL: Keep SHORT - detailed rules are in universal system prompt.
+    This is pure factual data, not instructions.
     
     Args:
         customer_name: The customer's name (None if not available)
@@ -550,51 +548,39 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
         customer_gender: The customer's detected gender ("male", "female", or None)
     
     Returns:
-        Formatted NAME_ANCHOR message text (SHORT!)
+        Compact CRM context message (pure data, no instructions)
     """
-    # Build gender info line with instructions
-    gender_line = ""
+    # Build gender info - just the fact, not instructions
+    gender_info = ""
     if customer_gender == "male":
-        gender_line = f"Customer gender: זכר (male) - Use masculine Hebrew forms.\n"
+        gender_info = "זכר (male)"
     elif customer_gender == "female":
-        gender_line = f"Customer gender: נקבה (female) - Use feminine Hebrew forms.\n"
+        gender_info = "נקבה (female)"
     else:
-        # Gender unknown - instruct AI to use neutral language
-        gender_line = f"Customer gender: לא ידוע (unknown) - Use NEUTRAL/GENERAL Hebrew forms. Do NOT guess. If needed, you may politely ask.\n"
+        gender_info = "unknown"
     
-    if customer_name and use_name_policy:
-        # EXPLICIT: Make it crystal clear that name MUST be used
-        return (
-            f"[CRM Context]\n"
-            f"Customer name: {customer_name}\n"
-            f"{gender_line}"
-            f"Name usage policy: ENABLED - Business prompt requests using this name.\n"
-            f"ACTION REQUIRED: Use '{customer_name}' naturally throughout the conversation."
-        )
-    elif customer_name and not use_name_policy:
-        # Name available but business doesn't want it used
-        return (
-            f"[CRM Context]\n"
-            f"Customer name: {customer_name}\n"
-            f"{gender_line}"
-            f"Name usage policy: DISABLED - Do not use this name in conversation."
-        )
-    elif not customer_name and use_name_policy:
-        # Business wants name but it's not available
-        return (
-            f"[CRM Context]\n"
-            f"Customer name: NOT AVAILABLE\n"
-            f"{gender_line}"
-            f"Name usage policy: REQUESTED BUT UNAVAILABLE - Continue without name."
-        )
+    # Build compact message with just the facts
+    parts = ["[CRM Context]"]
+    
+    if customer_name:
+        parts.append(f"Name: {customer_name}")
     else:
-        # No name and not requested - minimal context
-        return (
-            f"[CRM Context]\n"
-            f"Customer name: NOT AVAILABLE\n"
-            f"{gender_line if gender_line else ''}"
-            f"Name usage policy: NOT REQUESTED"
-        )
+        parts.append("Name: not available")
+    
+    parts.append(f"Gender: {gender_info}")
+    
+    if use_name_policy and customer_name:
+        # Explicit mandatory action when name usage is enabled AND name exists
+        parts.append("Policy: USE name (business prompt requests it)")
+        parts.append(f"ACTION: Address customer as '{customer_name}' naturally throughout conversation")
+    elif use_name_policy and not customer_name:
+        parts.append("Policy: name requested but not available - continue without name")
+    elif not use_name_policy and customer_name:
+        parts.append("Policy: do NOT use name in conversation")
+    else:
+        parts.append("Policy: name not requested")
+    
+    return "\n".join(parts)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -840,23 +826,17 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- Avoid artificial or overly formal phrasing.\n"
         "\n"
         "Customer Name Usage:\n"
-        "- CRITICAL: When a customer name exists, it will be provided explicitly as a real value in the conversation context (e.g., 'Customer name: <actual_name>'). This is REAL DATA, not a placeholder or concept.\n"
-        "- Never read CRM/system context aloud. Treat CRM context messages as private metadata.\n"
-        "- RULE: Use the CUSTOMER's name (not the business name) ONLY if the Business Prompt requests name usage.\n"
-        "- IMPORTANT: 'שם' or 'name' in the Business Prompt ALWAYS refers to the CUSTOMER's name, NEVER the business name.\n"
-        "- Name usage instructions may appear in various forms (watch for these phrases):\n"
-        "  Hebrew: 'השתמש בשם', 'תשתמש בשם', 'פנה בשמו', 'קרא לו בשם', 'לפנות בשם'\n"
-        "  Conditional: 'אם קיים שם', 'במידה וקיים שם', 'אם יש שם'\n"
-        "  English: 'use name', 'use their name', 'address by name', 'call by name'\n"
-        "- RULE: Any Business Prompt mentioning 'שם' with action verbs like השתמש/תשתמש/פנה/קרא means USE the CUSTOMER's NAME.\n"
-        "- If the Business Prompt contains ANY phrase about using/addressing/calling with the customer's name → USE it naturally throughout the conversation.\n"
-        "- When instructed to use the name AND a customer name is available in conversation context:\n"
-        "  Use the ACTUAL name value naturally throughout the entire conversation.\n"
-        "- Integrate the customer's name in speech freely and humanly:\n"
-        "  in greeting, explanations, and summaries - without fixed patterns and without excessive repetition.\n"
-        "- Do NOT say words like 'Customer name', 'שם הלקוח', 'CRM Context' - use the ACTUAL customer name only.\n"
-        "- Do NOT ask what the name is and do NOT invent a name.\n"
-        "- If no name is available - continue the conversation normally without mentioning a name.\n"
+        "- Customer names are provided in CRM Context messages (private metadata - never read aloud).\n"
+        "- Follow the Business Prompt's name usage policy explicitly.\n"
+        "- When name usage is enabled AND a name exists: use it naturally throughout the conversation.\n"
+        "- Never ask for the name or invent one - use only what's provided.\n"
+        "- If no name is available, continue normally without mentioning it.\n"
+        "\n"
+        "Business Scope:\n"
+        "- Focus on the business services and topics in the Business Prompt.\n"
+        "- If a question seems clearly outside your business domain: gently guide back to your services.\n"
+        "- Use judgment - customers may ask indirectly about relevant topics.\n"
+        "- Behave as a trained business employee, not a general AI assistant.\n"
         "\n"
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
         "Truth: the transcript is the single source of truth; never invent details; if unclear, politely ask the customer to repeat. "
