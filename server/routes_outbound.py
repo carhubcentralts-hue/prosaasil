@@ -1072,7 +1072,8 @@ def get_imported_leads():
     
     try:
         page = max(1, int(request.args.get('page', 1)))
-        page_size = min(100, max(1, int(request.args.get('page_size', 50))))
+        # 🔥 FIX: Increase max page size to 10,000 for project creation
+        page_size = min(10000, max(1, int(request.args.get('page_size', 50))))
         list_id = request.args.get('list_id', type=int)
         search = request.args.get('search', '').strip()
         statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
@@ -1644,7 +1645,8 @@ def get_recent_calls():
     
     try:
         page = max(1, int(request.args.get('page', 1)))
-        page_size = min(100, max(1, int(request.args.get('page_size', 50))))
+        # 🔥 FIX: Increase max page size to 10,000 for better UI experience
+        page_size = min(10000, max(1, int(request.args.get('page_size', 50))))
         status_filter = request.args.get('status', '').strip()
         search = request.args.get('search', '').strip()
         run_id = request.args.get('run_id', type=int)

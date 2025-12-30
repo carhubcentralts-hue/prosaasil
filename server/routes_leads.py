@@ -251,7 +251,9 @@ def list_leads():
         from_date = request.args.get('from', '')
         to_date = request.args.get('to', '')
         page = int(request.args.get('page', 1))
-        page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
+        # 🔥 FIX: Increase max page size to 10,000 for project creation
+        # This allows fetching all leads for a project (up to 10,000 limit)
+        page_size = min(int(request.args.get('pageSize', 50)), 10000)  # Max 10,000 per page
         
         # Apply filters
         if statuses_filter:
