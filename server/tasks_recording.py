@@ -1437,6 +1437,14 @@ def _handle_failed_call(call_log, call_status, db):
     try:
         from server.models_sql import Lead, LeadActivity, LeadStatus
         
+        log.info(f"[FAILED_CALL] 🔍 Starting handler for {call_status} call {call_log.call_sid} (lead_id={call_log.lead_id})")
+        
+        # 🔥 DUPLICATION PROTECTION: Check if already processed
+        # If summary already exists, this call was already handled - skip!
+        if call_log.summary and len(call_log.summary.strip()) > 0:
+            log.info(f"[FAILED_CALL] ⏭️ Summary already exists for call {call_log.call_sid}: '{call_log.summary[:50]}...' - SKIPPING to avoid duplicates")
+            return
+        
         # 1. Create simple summary based on call status
         status_summaries = {
             "no-answer": "שיחה לא נענתה - אין מענה",
@@ -1447,18 +1455,21 @@ def _handle_failed_call(call_log, call_status, db):
         
         summary = status_summaries.get(call_status, f"שיחה לא הושלמה - {call_status}")
         
-        # Only update if summary doesn't already exist (avoid duplicates)
-        if not call_log.summary or len(call_log.summary.strip()) == 0:
-            call_log.summary = summary
-            log.info(f"[FAILED_CALL] ✅ Created summary for call {call_log.call_sid}: '{summary}'")
-        else:
-            log.info(f"[FAILED_CALL] ⏭️ Summary already exists for call {call_log.call_sid}, skipping")
+        # Set summary on call_log
+        call_log.summary = summary
+        log.info(f"[FAILED_CALL] 📝 Created summary for call {call_log.call_sid}: '{summary}'")
+        
+        # 🔥 COMMIT SUMMARY FIRST - ensures it's saved even if status update fails
+        db.session.commit()
+        log.info(f"[FAILED_CALL] ✅ Summary committed to database for call {call_log.call_sid}")
         
         # 2. Get the lead
         lead = Lead.query.get(call_log.lead_id)
         if not lead:
-            log.warning(f"[FAILED_CALL] Lead {call_log.lead_id} not found for call {call_log.call_sid}")
+            log.warning(f"[FAILED_CALL] ⚠️ Lead {call_log.lead_id} not found for call {call_log.call_sid} - summary created but status not updated")
             return
+        
+        log.info(f"[FAILED_CALL] 👤 Found lead {lead.id} with current status: {lead.status}")
         
         # 3. Update lead status using smart auto-status service
         from server.services.lead_auto_status_service import suggest_lead_status_from_call
@@ -1471,6 +1482,8 @@ def _handle_failed_call(call_log, call_status, db):
             call_transcript=None,  # No transcript for failed calls
             call_duration=call_log.duration or 0
         )
+        
+        log.info(f"[FAILED_CALL] 🤖 Auto-status service suggested: {suggested_status}")
         
         # 4. Apply status change with validation
         if suggested_status:
@@ -1493,21 +1506,18 @@ def _handle_failed_call(call_log, call_status, db):
                     "from": old_status,
                     "to": suggested_status,
                     "source": f"auto_{call_status}_{call_log.direction or 'unknown'}",
-                    "call_sid": call_log.call_sid
+                    "call_sid": call_log.call_sid,
+                    "reason": f"Failed call: {call_status}"
                 }
                 activity.at = datetime.utcnow()
                 db.session.add(activity)
                 
                 db.session.commit()
-                log.info(f"[FAILED_CALL] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status}")
+                log.info(f"[FAILED_CALL] ✅ SUCCESS! Updated lead {lead.id} status: {old_status} → {suggested_status}")
             else:
-                log.warning(f"[FAILED_CALL] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id}")
-                # Still commit the summary even if status update fails
-                db.session.commit()
+                log.warning(f"[FAILED_CALL] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - summary created but status not updated")
         else:
-            log.info(f"[FAILED_CALL] ℹ️ No confident status match for lead {lead.id}, keeping current status")
-            # Still commit the summary
-            db.session.commit()
+            log.info(f"[FAILED_CALL] ℹ️ No confident status match for lead {lead.id} - summary created, keeping current status '{lead.status}'")
             
     except Exception as e:
         log.error(f"[FAILED_CALL] ❌ Error handling failed call {call_log.call_sid}: {e}")
