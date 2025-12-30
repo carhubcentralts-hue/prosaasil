@@ -84,6 +84,15 @@ interface ImportedLeadsResponse {
   items: ImportedLead[];
 }
 
+interface ImportList {
+  id: number;
+  name: string;
+  file_name: string | null;
+  total_leads: number;
+  current_leads: number;
+  created_at: string | null;
+}
+
 type TabType = 'system' | 'active' | 'imported' | 'recent' | 'projects';
 
 // Default number of available call slots when counts haven't loaded yet
@@ -162,6 +171,7 @@ export function OutboundCallsPage() {
   // Imported leads state
   const [selectedImportedLeads, setSelectedImportedLeads] = useState<Set<number>>(new Set());
   const [importedSearchQuery, setImportedSearchQuery] = useState('');
+  const [selectedImportListId, setSelectedImportListId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showImportResult, setShowImportResult] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -332,7 +342,7 @@ export function OutboundCallsPage() {
   }, []); // Run once on mount
 
   const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
-    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses],
+    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses, selectedImportListId],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(currentPage),
@@ -350,7 +360,22 @@ export function OutboundCallsPage() {
         });
       }
 
+      // ✅ Add import list filter
+      if (selectedImportListId) {
+        params.append('list_id', String(selectedImportListId));
+      }
+
       return await http.get(`/api/outbound/import-leads?${params.toString()}`);
+    },
+    enabled: activeTab === 'imported',
+    retry: 1,
+  });
+
+  // Query for import lists
+  const { data: importListsData, isLoading: importListsLoading } = useQuery<{ lists: ImportList[] }>({
+    queryKey: ['/api/outbound/import-lists'],
+    queryFn: async () => {
+      return await http.get('/api/outbound/import-lists');
     },
     enabled: activeTab === 'imported',
     retry: 1,
@@ -1591,6 +1616,27 @@ export function OutboundCallsPage() {
           <div className="sticky top-0 z-30 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                {/* Import List Filter */}
+                <div className="w-full sm:w-48">
+                  <Select
+                    value={selectedImportListId?.toString() || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedImportListId(value ? parseInt(value) : null);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full"
+                    data-testid="imported-list-filter"
+                  >
+                    <option value="">כל רשימות הייבוא</option>
+                    {(importListsData?.lists || []).map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name} ({list.current_leads})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                {/* Status Filter */}
                 <div className="w-full sm:w-48">
                   <MultiStatusSelect
                     statuses={statuses}
@@ -1709,6 +1755,25 @@ export function OutboundCallsPage() {
                       )}
                     </Button>
                   )}
+                  <div className="w-48">
+                    <Select
+                      value={selectedImportListId?.toString() || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setSelectedImportListId(value ? parseInt(value) : null);
+                        setCurrentPage(1);
+                      }}
+                      className="w-full"
+                      data-testid="imported-table-list-filter"
+                    >
+                      <option value="">כל רשימות הייבוא</option>
+                      {(importListsData?.lists || []).map((list) => (
+                        <option key={list.id} value={list.id}>
+                          {list.name} ({list.current_leads})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                   <div className="w-48">
                     <MultiStatusSelect
                       statuses={statuses}
