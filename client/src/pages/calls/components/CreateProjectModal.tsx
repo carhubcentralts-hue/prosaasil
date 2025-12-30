@@ -158,11 +158,6 @@ export function CreateProjectModal({
       return;
     }
 
-    if (selectedLeadIds.size === 0) {
-      alert('יש לבחור לפחות ליד אחד לפרויקט');
-      return;
-    }
-
     try {
       setCreating(true);
       await onCreate(projectName, projectDescription, Array.from(selectedLeadIds));
