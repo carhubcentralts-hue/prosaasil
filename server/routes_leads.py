@@ -330,6 +330,7 @@ def list_leads():
                 "phone_e164": lead.phone_e164,
                 "display_phone": lead.display_phone,
                 "email": lead.email,
+                "gender": lead.gender,
                 "status": lead.status,
                 "source": normalize_source(lead.source),
                 "owner_user_id": lead.owner_user_id,
@@ -607,6 +608,7 @@ def get_lead_detail(lead_id):
             "phone_e164": lead.phone_e164,
             "display_phone": lead.display_phone,
             "email": lead.email,
+            "gender": lead.gender,
             "status": lead.status,
             "source": normalize_source(lead.source),
             "external_id": lead.external_id,
@@ -663,7 +665,7 @@ def update_lead(lead_id):
     changes = {}
     
     # Update allowed fields
-    updateable_fields = ['first_name', 'last_name', 'phone_e164', 'email', 'owner_user_id', 'tags', 'notes']
+    updateable_fields = ['first_name', 'last_name', 'phone_e164', 'email', 'gender', 'owner_user_id', 'tags', 'notes']
     
     for field in updateable_fields:
         if field in data:
@@ -700,6 +702,7 @@ def update_lead(lead_id):
             "last_name": lead.last_name,
             "phone_e164": lead.phone_e164,
             "email": lead.email,
+            "gender": lead.gender,
             "status": lead.status,
             "source": normalize_source(lead.source),
             "owner_user_id": lead.owner_user_id,

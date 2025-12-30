@@ -1142,6 +1142,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     log.warning(f"[LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found")
             
             # If no lead_id on CallLog, fall back to creating/finding by phone (legacy behavior)
+            customer = None
+            was_created = False
+            ci = None  # Will be initialized when needed
+            
             if not lead and from_number and call_log and call_log.business_id:
                 print(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
                 ci = CustomerIntelligence(call_log.business_id)
@@ -1159,9 +1163,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if lead:
                     call_log.lead_id = lead.id
                     log.info(f"✅ Linked call {call_sid} to lead {lead.id}")
+            
+            # 🔥 FIX: Process lead updates for ALL leads (existing or newly created)
+            if lead and call_log and call_log.business_id:
+                # Initialize CustomerIntelligence if not already done
+                if ci is None:
+                    ci = CustomerIntelligence(call_log.business_id)
                 
                 # 🆕 POST-CALL: Update Lead with extracted service/city (if extraction succeeded)
-                if lead and (extracted_service or extracted_city):
+                if extracted_service or extracted_city:
                     # Only update if fields are empty OR confidence is high (> 0.8)
                     update_service = False
                     update_city = False
@@ -1245,6 +1255,69 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 else:
                     log.info(f"[AutoStatus] ℹ️ No confident status match for lead {lead.id} - keeping status as '{old_status}'")
                 
+                # 4.5. ✨ Auto-detect and update gender from conversation/name
+                # 🔥 NEW: Auto-detect gender if not already set or detected from conversation
+                try:
+                    from server.services.realtime_prompt_builder import detect_gender_from_conversation, detect_gender_from_name
+                    
+                    detected_gender = None
+                    detection_source = None
+                    
+                    # Priority 1: Check if gender stated in conversation (most reliable)
+                    if final_transcript:
+                        detected_gender = detect_gender_from_conversation(final_transcript)
+                        if detected_gender:
+                            detection_source = "conversation"
+                            log.info(f"[GENDER] 🎯 Detected from conversation: {detected_gender} for lead {lead.id}")
+                    
+                    # Priority 2: Detect from first_name if not detected from conversation
+                    if not detected_gender and lead.first_name:
+                        detected_gender = detect_gender_from_name(lead.first_name)
+                        if detected_gender:
+                            detection_source = "name"
+                            log.info(f"[GENDER] 🎯 Detected from name '{lead.first_name}': {detected_gender} for lead {lead.id}")
+                    
+                    # Update gender if detected and not already set, or if detected from conversation (override)
+                    if detected_gender:
+                        should_update = False
+                        
+                        # Always update if detected from conversation (most reliable)
+                        if detection_source == "conversation":
+                            should_update = True
+                            log.info(f"[GENDER] Will update from conversation-based detection")
+                        # Update if not currently set
+                        elif not lead.gender:
+                            should_update = True
+                            log.info(f"[GENDER] Will update (gender not set)")
+                        
+                        if should_update:
+                            old_gender = lead.gender
+                            lead.gender = detected_gender
+                            log.info(f"[GENDER] ✅ Updated lead {lead.id} gender: {old_gender or 'None'} → {detected_gender} (source: {detection_source})")
+                            
+                            # Create activity for gender update
+                            from server.models_sql import LeadActivity
+                            activity = LeadActivity()
+                            activity.lead_id = lead.id
+                            activity.type = "gender_updated"
+                            activity.payload = {
+                                "from": old_gender,
+                                "to": detected_gender,
+                                "source": f"auto_{detection_source}",
+                                "call_sid": call_sid
+                            }
+                            activity.at = datetime.utcnow()
+                            db.session.add(activity)
+                        else:
+                            log.info(f"[GENDER] ℹ️ Keeping existing gender '{lead.gender}' for lead {lead.id} (source was: {detection_source})")
+                    else:
+                        log.info(f"[GENDER] ℹ️ Could not detect gender for lead {lead.id}")
+                        
+                except Exception as e:
+                    log.error(f"[GENDER] Error detecting/updating gender for lead {lead.id}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
                 # 5. ✨ שמירת הסיכום בליד + עדכון last_contact_at + last_call_direction
                 lead.summary = summary  # סיכום קצר (10-30 מילים)
                 lead.last_contact_at = datetime.utcnow()  # Update last contact time
@@ -1270,7 +1343,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 
                 db.session.commit()
                 
-                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Final status: {lead.status}")
+                # Log with customer info if available (from creation/lookup), otherwise just log lead info
+                if customer:
+                    log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Final status: {lead.status}")
+                else:
+                    log.info(f"🎯 Call processed with AI for lead {lead.id}, Final status: {lead.status}")
                 log.info(f"📋 Summary: {conversation_summary.get('summary', 'N/A')}")
                 log.info(f"🎭 Intent: {conversation_summary.get('intent', 'N/A')}")
                 log.info(f"⚡ Next action: {conversation_summary.get('next_action', 'N/A')}")
