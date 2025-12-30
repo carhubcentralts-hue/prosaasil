@@ -162,9 +162,11 @@ export function CreateProjectModal({
       setCreating(true);
       await onCreate(projectName, projectDescription, Array.from(selectedLeadIds));
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating project:', error);
-      alert('שגיאה ביצירת הפרויקט');
+      // Show detailed error message from backend
+      const errorMessage = error?.response?.data?.error || error?.message || 'שגיאה לא ידועה';
+      alert(`שגיאה ביצירת הפרויקט:\n${errorMessage}`);
     } finally {
       setCreating(false);
     }

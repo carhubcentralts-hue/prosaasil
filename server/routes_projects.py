@@ -194,8 +194,16 @@ def create_project():
     
     except Exception as e:
         db.session.rollback()
+        error_msg = str(e)
+        
+        # Provide helpful error message if tables don't exist
+        if 'outbound_projects' in error_msg and 'does not exist' in error_msg:
+            error_msg = 'טבלת הפרויקטים לא קיימת במסד הנתונים. יש להריץ מיגרציות: ./run_migrations.sh או python -m server.db_migrate'
+        elif 'project_leads' in error_msg and 'does not exist' in error_msg:
+            error_msg = 'טבלת קישורי הלידים לפרויקטים לא קיימת. יש להריץ מיגרציות: ./run_migrations.sh'
+        
         log.error(f"Error creating project: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': error_msg}), 500
 
 
 @projects_bp.route('/api/projects/<int:project_id>', methods=['GET'])
