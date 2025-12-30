@@ -2997,6 +2997,7 @@ class MediaStreamHandler:
                 # Per OpenAI best practices: Keep prompt simple and neutral
                 # Don't instruct model to skip/omit - let VAD threshold handle false triggers
                 transcription_prompt=(
+                    # EN: "Accurate transcription in Israeli Hebrew. Transcribe only what was actually said."
                     "תמלול מדויק בעברית ישראלית. "
                     "תמלל רק מה שנאמר בפועל."
                 ),
