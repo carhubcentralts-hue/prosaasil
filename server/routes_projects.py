@@ -134,7 +134,7 @@ def create_project():
         
         log.info(f"[Projects] create_project: Using tenant_id={tenant_id}")
         
-        user_id = g.user.get('id') if hasattr(g, 'user') and g.user else None
+        user_id = g.user.get('id') if hasattr(g, 'user') and g.user is not None else None
         
         data = request.get_json()
         name = data.get('name', '').strip()
