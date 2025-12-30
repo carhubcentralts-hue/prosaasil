@@ -1211,14 +1211,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # Get call direction from call_log
                 call_direction = call_log.direction if call_log else "inbound"
                 
-                # Use new auto-status service
+                # Use new auto-status service with call duration for smart no-summary handling
                 from server.services.lead_auto_status_service import suggest_lead_status_from_call
                 suggested_status = suggest_lead_status_from_call(
                     tenant_id=call_log.business_id,
                     lead_id=lead.id,
                     call_direction=call_direction,
                     call_summary=summary,  # AI-generated summary
-                    call_transcript=final_transcript or ""  # 🔥 FIX: Only recording transcript
+                    call_transcript=final_transcript or "",  # 🔥 FIX: Only recording transcript
+                    call_duration=call_log.duration  # 🆕 Pass duration for smart no-summary logic
                 )
                 
                 # Apply status change with validation
