@@ -961,6 +961,28 @@ export function OutboundCallsPage() {
 
   const statuses = statusesData || [];
   
+  // Calculate status counts from currently loaded leads
+  // Note: These are counts from current page only, real totals would require a separate API call
+  const calculateStatusCounts = (leadsList: Lead[]) => {
+    const counts: Record<string, number> = {};
+    statuses.forEach(status => {
+      counts[status.name] = 0;
+    });
+    leadsList.forEach(lead => {
+      const status = lead.status?.toLowerCase() || 'new';
+      if (counts[status] !== undefined) {
+        counts[status]++;
+      }
+    });
+    return counts;
+  };
+
+  // For now, show counts based on loaded leads
+  // In a future enhancement, fetch real counts from backend
+  const systemLeadsStatusCounts = calculateStatusCounts(systemLeads);
+  const activeLeadsStatusCounts = calculateStatusCounts(activeLeads);
+  const importedLeadsStatusCounts = calculateStatusCounts(importedLeadsAsLeads);
+  
   // Defensive guard: Ensure selections are always Sets (fix for runtime errors)
   const safeSelectedLeads = selectedLeads instanceof Set ? selectedLeads : new Set(Array.isArray(selectedLeads) ? selectedLeads : []);
   const safeSelectedImportedLeads = selectedImportedLeads instanceof Set ? selectedImportedLeads : new Set(Array.isArray(selectedImportedLeads) ? selectedImportedLeads : []);
@@ -1327,6 +1349,8 @@ export function OutboundCallsPage() {
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
                     updatingStatusLeadId={updatingStatusLeadId}
+                    statusCounts={systemLeadsStatusCounts}
+                    totalLeads={totalSystemLeads}
                   />
                 </div>
               )}
@@ -1512,6 +1536,8 @@ export function OutboundCallsPage() {
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
                     updatingStatusLeadId={updatingStatusLeadId}
+                    statusCounts={activeLeadsStatusCounts}
+                    totalLeads={totalActiveLeads}
                   />
                 </div>
               )}
@@ -1821,6 +1847,8 @@ export function OutboundCallsPage() {
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
                     updatingStatusLeadId={updatingStatusLeadId}
+                    statusCounts={importedLeadsStatusCounts}
+                    totalLeads={totalImported}
                   />
                 </div>
               )}
