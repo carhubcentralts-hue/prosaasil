@@ -1779,7 +1779,12 @@ class CallContext:
         self.lead_full_name = lead.full_name if lead else None
         self.lead_first_name = lead.first_name if lead else None
         self.lead_phone = lead.phone_e164 if lead else None
-        self.lead_customer_name = lead.customer_name if lead else None
+        # 🔥 FIX: Use defensive getattr - Lead model doesn't have customer_name field
+        # Try first_name (most common), then full_name, with None fallback
+        self.lead_customer_name = (
+            getattr(lead, "first_name", None) or 
+            getattr(lead, "full_name", None)
+        ) if lead else None
         self.lead_gender = getattr(lead, 'gender', None) if lead else None
         self.lead_tenant_id = lead.tenant_id if lead else None
         
