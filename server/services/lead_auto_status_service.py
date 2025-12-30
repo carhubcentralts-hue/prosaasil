@@ -4,9 +4,13 @@ Automatically suggests lead status based on call outcome (inbound + outbound)
 Dynamic mapping using structured extraction + keyword scoring
 """
 import logging
+import re
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+# Configuration constants
+CALL_HISTORY_LIMIT = 10  # Number of previous calls to check for no-answer progression
 
 
 class LeadAutoStatusService:
@@ -438,16 +442,7 @@ class LeadAutoStatusService:
             previous_calls = CallLog.query.filter_by(
                 business_id=tenant_id,
                 lead_id=lead_id
-            ).order_by(CallLog.created_at.desc()).limit(10).all()  # Check last 10 calls
-            
-            # Count how many were no-answer (based on duration < 5 seconds or status contains no_answer)
-            no_answer_count = 0
-            for call in previous_calls:
-                # Check if it was a no-answer based on duration or status
-                if call.duration and call.duration < 5:
-                    no_answer_count += 1
-                # Also check if lead's previous status was no_answer variant
-                # (This is checked via lead status history in the next section)
+            ).order_by(CallLog.created_at.desc()).limit(CALL_HISTORY_LIMIT).all()
             
             # Get lead's current status to check if it's already a no-answer variant
             from server.models_sql import Lead
@@ -460,7 +455,6 @@ class LeadAutoStatusService:
                     'לא ענה' in status_lower):
                     # Lead is currently in a no-answer state
                     # Extract number if present (e.g., "no_answer_2" → 2, "אין מענה 3" → 3)
-                    import re
                     numbers = re.findall(r'\d+', lead.status)
                     if numbers:
                         current_attempt = int(numbers[-1])  # Take last number found
