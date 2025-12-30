@@ -2,15 +2,43 @@
 Lead Auto Status Service
 Automatically suggests lead status based on call outcome (inbound + outbound)
 Dynamic mapping using structured extraction + keyword scoring
+Enhanced with smart status equivalence checking to avoid unnecessary changes
 """
 import logging
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
 log = logging.getLogger(__name__)
 
 # Configuration constants
 CALL_HISTORY_LIMIT = 10  # Number of previous calls to check for no-answer progression
+
+# Status family/group definitions for equivalence checking
+# Statuses in the same group are semantically similar
+STATUS_FAMILIES = {
+    'NO_ANSWER': ['no_answer', 'no answer', 'אין מענה', 'לא ענה', 'לא נענה', 'unanswered', 
+                  'voicemail', 'תא קולי', 'משיבון', 'busy', 'תפוס', 'קו תפוס', 'failed', 'נכשל'],
+    'INTERESTED': ['interested', 'hot', 'warm', 'מעוניין', 'חם', 'מתעניין', 'פוטנציאל'],
+    'QUALIFIED': ['qualified', 'appointment', 'meeting', 'נקבע', 'פגישה', 'מוכשר', 'סגירה'],
+    'NOT_RELEVANT': ['not_relevant', 'not_interested', 'לא רלוונטי', 'לא מעוניין', 'להסיר', 'חסום', 'lost', 'אובדן'],
+    'FOLLOW_UP': ['follow_up', 'callback', 'חזרה', 'תזכורת', 'תחזור', 'מאוחר יותר'],
+    'CONTACTED': ['contacted', 'answered', 'נוצר קשר', 'נענה', 'ענה'],
+    'ATTEMPTING': ['attempting', 'trying', 'ניסיון', 'בניסיון', 'מנסה'],
+    'NEW': ['new', 'חדש', 'fresh', 'lead']
+}
+
+# Status progression order - higher number = more advanced in sales funnel
+# Statuses with same score are considered equivalent
+STATUS_PROGRESSION_SCORE = {
+    'NO_ANSWER': 1,
+    'ATTEMPTING': 2,
+    'CONTACTED': 3,
+    'NOT_RELEVANT': 3,  # Negative outcome, but contacted
+    'FOLLOW_UP': 4,
+    'INTERESTED': 5,
+    'QUALIFIED': 6,
+    'NEW': 0  # Starting point
+}
 
 
 class LeadAutoStatusService:
@@ -905,6 +933,176 @@ class LeadAutoStatusService:
         
         # No specific status found - let it fall through
         log.info(f"[AutoStatus] Longer disconnect ({call_duration}s): no specific status found, will use default logic")
+        return None
+    
+    def _get_status_family(self, status_name: str) -> Optional[str]:
+        """
+        Determine which family/group a status belongs to based on its name and patterns
+        
+        Args:
+            status_name: Status name to classify
+            
+        Returns:
+            Family name (e.g., 'NO_ANSWER', 'INTERESTED') or None
+        """
+        if not status_name:
+            return None
+        
+        status_lower = status_name.lower()
+        
+        # Check each family's patterns
+        for family_name, patterns in STATUS_FAMILIES.items():
+            for pattern in patterns:
+                if pattern in status_lower or status_lower in pattern:
+                    return family_name
+        
+        return None
+    
+    def _get_status_progression_score(self, status_name: str) -> int:
+        """
+        Get the progression score for a status (how advanced it is in the sales funnel)
+        
+        Args:
+            status_name: Status name
+            
+        Returns:
+            Score (0-6), higher = more advanced
+        """
+        family = self._get_status_family(status_name)
+        return STATUS_PROGRESSION_SCORE.get(family, 0)
+    
+    def _is_no_answer_progression(self, current_status: str, suggested_status: str) -> bool:
+        """
+        Check if this is a valid no-answer progression (no_answer → no_answer_2 → no_answer_3)
+        
+        Args:
+            current_status: Current lead status
+            suggested_status: Suggested new status
+            
+        Returns:
+            True if this is a valid no-answer progression
+        """
+        # Both must be in NO_ANSWER family
+        if self._get_status_family(current_status) != 'NO_ANSWER':
+            return False
+        if self._get_status_family(suggested_status) != 'NO_ANSWER':
+            return False
+        
+        # Extract numbers from both statuses
+        current_numbers = re.findall(r'\d+', current_status)
+        suggested_numbers = re.findall(r'\d+', suggested_status)
+        
+        current_num = int(current_numbers[-1]) if current_numbers else 1
+        suggested_num = int(suggested_numbers[-1]) if suggested_numbers else 1
+        
+        # Valid progression: suggested number should be higher
+        return suggested_num > current_num
+    
+    def should_change_status(
+        self, 
+        current_status: Optional[str], 
+        suggested_status: Optional[str],
+        tenant_id: int
+    ) -> Tuple[bool, str]:
+        """
+        🆕 CRITICAL: Decide whether to change status based on smart equivalence checking
+        
+        This is the KEY improvement - we don't change status unnecessarily!
+        
+        Rules:
+        1. If no suggested status, don't change
+        2. If no current status (new lead), always change
+        3. If statuses are identical, don't change
+        4. If statuses are in same family AND same progression level, don't change
+        5. If statuses are in same family AND suggested is progression (no_answer → no_answer_2), change
+        6. If suggested status is lower progression than current, don't change (downgrade)
+        7. If suggested status is higher progression, change (upgrade)
+        8. Default: change (be conservative, allow the change)
+        
+        Args:
+            current_status: Lead's current status
+            suggested_status: Newly suggested status
+            tenant_id: Business ID
+            
+        Returns:
+            Tuple of (should_change: bool, reason: str)
+        """
+        # Rule 1: No suggested status
+        if not suggested_status:
+            return False, "No suggested status"
+        
+        # Rule 2: No current status (new lead or first status assignment)
+        if not current_status:
+            return True, "No current status - first assignment"
+        
+        # Rule 3: Identical statuses
+        if current_status.lower() == suggested_status.lower():
+            return False, f"Already in status '{current_status}'"
+        
+        # Get status families and progression scores
+        current_family = self._get_status_family(current_status)
+        suggested_family = self._get_status_family(suggested_status)
+        current_score = self._get_status_progression_score(current_status)
+        suggested_score = self._get_status_progression_score(suggested_status)
+        
+        log.info(f"[StatusCompare] Current: '{current_status}' (family={current_family}, score={current_score})")
+        log.info(f"[StatusCompare] Suggested: '{suggested_status}' (family={suggested_family}, score={suggested_score})")
+        
+        # Rule 4 & 5: Same family - check for progression
+        if current_family and current_family == suggested_family:
+            # Special case: NO_ANSWER progression (no_answer → no_answer_2)
+            if current_family == 'NO_ANSWER':
+                if self._is_no_answer_progression(current_status, suggested_status):
+                    return True, f"Valid no-answer progression: {current_status} → {suggested_status}"
+                else:
+                    return False, f"Same no-answer family without valid progression"
+            
+            # For other families, if scores are same, don't change
+            if current_score == suggested_score:
+                return False, f"Same family '{current_family}' and progression level ({current_score})"
+        
+        # Rule 6: Don't downgrade (suggested is lower progression)
+        if suggested_score < current_score:
+            # Exception: NOT_RELEVANT can override any status (customer explicitly rejected)
+            if suggested_family == 'NOT_RELEVANT':
+                return True, f"Customer explicitly not interested - override '{current_status}'"
+            
+            return False, f"Would downgrade from {current_family}(score={current_score}) to {suggested_family}(score={suggested_score})"
+        
+        # Rule 7: Upgrade (suggested is higher progression)
+        if suggested_score > current_score:
+            return True, f"Upgrade from {current_family}(score={current_score}) to {suggested_family}(score={suggested_score})"
+        
+        # Rule 8: Default - allow change if we're not sure
+        # This handles edge cases and statuses not in our families
+        return True, f"Allowing change (families differ or not classified)"
+    
+    def _get_full_status_info(self, tenant_id: int, status_name: str) -> Optional[dict]:
+        """
+        Get full information about a status (label, description) for better matching
+        
+        Args:
+            tenant_id: Business ID
+            status_name: Status name to look up
+            
+        Returns:
+            Dict with status info or None
+        """
+        from server.models_sql import LeadStatus
+        
+        status_obj = LeadStatus.query.filter_by(
+            business_id=tenant_id,
+            name=status_name,
+            is_active=True
+        ).first()
+        
+        if status_obj:
+            return {
+                'name': status_obj.name,
+                'label': status_obj.label,
+                'description': status_obj.description
+            }
+        
         return None
 
 
