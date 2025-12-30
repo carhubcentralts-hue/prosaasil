@@ -636,7 +636,13 @@ def process_recording_async(form_data):
                 except Exception:
                     pass
             
-            summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
+            summary = summarize_conversation(
+                source_text_for_summary, 
+                call_sid, 
+                business_type, 
+                business_name,
+                call_duration=call_log.duration if call_log else audio_duration_sec  # 🆕 Pass duration for smart summary!
+            )
             # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
             if not DEBUG:
                 if summary and len(summary.strip()) > 0:
