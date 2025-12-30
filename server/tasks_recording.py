@@ -1235,7 +1235,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 should_change, change_reason = auto_status_service.should_change_status(
                     current_status=old_status,
                     suggested_status=suggested_status,
-                    tenant_id=call_log.business_id
+                    tenant_id=call_log.business_id,
+                    call_summary=summary  # 🔥 Pass call summary for context-aware decision!
                 )
                 
                 if should_change and suggested_status:
@@ -1503,7 +1504,8 @@ def _handle_failed_call(call_log, call_status, db):
         should_change, change_reason = auto_status_service.should_change_status(
             current_status=old_status,
             suggested_status=suggested_status,
-            tenant_id=call_log.business_id
+            tenant_id=call_log.business_id,
+            call_summary=summary  # 🔥 Pass call summary for context-aware decision!
         )
         
         # 4. Apply status change with validation
