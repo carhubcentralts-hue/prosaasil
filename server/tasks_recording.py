@@ -1144,6 +1144,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             # If no lead_id on CallLog, fall back to creating/finding by phone (legacy behavior)
             customer = None
             was_created = False
+            ci = None  # Will be initialized when needed
+            
             if not lead and from_number and call_log and call_log.business_id:
                 print(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
                 ci = CustomerIntelligence(call_log.business_id)
@@ -1165,7 +1167,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             # 🔥 FIX: Process lead updates for ALL leads (existing or newly created)
             if lead and call_log and call_log.business_id:
                 # Initialize CustomerIntelligence if not already done
-                if 'ci' not in locals():
+                if ci is None:
                     ci = CustomerIntelligence(call_log.business_id)
                 
                 # 🆕 POST-CALL: Update Lead with extracted service/city (if extraction succeeded)
