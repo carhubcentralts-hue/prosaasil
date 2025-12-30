@@ -12,27 +12,13 @@ from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
-# - Server parses date/time deterministically after STT_FINAL
-# - Server checks availability + schedules (DB) and injects an exact sentence to speak
-# - When enabled for appointment calls, we disable Realtime auto-response creation and manually
-#   trigger response.create after server decisions.
-# 
 # ⚠️⚠️⚠️ PERMANENTLY DISABLED ⚠️⚠️⚠️
-# DO NOT ENABLE! Causes conflicts with Realtime tools.
 # Appointments MUST use Realtime tools (check_availability, schedule_appointment).
-# This flag exists only for backward compatibility and will be removed.
-# 
 # CORRECT WAY: Use OpenAI Realtime API tools for appointment scheduling
 SERVER_FIRST_SCHEDULING = False  # HARDCODED FALSE - DO NOT USE ENV VAR
 
 # 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
 DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
-
-# 🚫 LOOP DETECTION: Disabled by default - wrap all loop-detect logic behind this flag
-ENABLE_LOOP_DETECT = False
-
-# 🚫 LEGACY CITY/SERVICE LOGIC: Disabled - no mid-call city/service inference
-ENABLE_LEGACY_CITY_LOGIC = False
 
 # ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
