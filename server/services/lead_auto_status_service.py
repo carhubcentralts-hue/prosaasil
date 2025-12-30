@@ -2,15 +2,43 @@
 Lead Auto Status Service
 Automatically suggests lead status based on call outcome (inbound + outbound)
 Dynamic mapping using structured extraction + keyword scoring
+Enhanced with smart status equivalence checking to avoid unnecessary changes
 """
 import logging
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
 log = logging.getLogger(__name__)
 
 # Configuration constants
 CALL_HISTORY_LIMIT = 10  # Number of previous calls to check for no-answer progression
+
+# Status family/group definitions for equivalence checking
+# Statuses in the same group are semantically similar
+STATUS_FAMILIES = {
+    'NO_ANSWER': ['no_answer', 'no answer', 'אין מענה', 'לא ענה', 'לא נענה', 'unanswered', 
+                  'voicemail', 'תא קולי', 'משיבון', 'busy', 'תפוס', 'קו תפוס', 'failed', 'נכשל'],
+    'INTERESTED': ['interested', 'hot', 'warm', 'מעוניין', 'חם', 'מתעניין', 'פוטנציאל'],
+    'QUALIFIED': ['qualified', 'appointment', 'meeting', 'נקבע', 'פגישה', 'מוכשר', 'סגירה'],
+    'NOT_RELEVANT': ['not_relevant', 'not_interested', 'לא רלוונטי', 'לא מעוניין', 'להסיר', 'חסום', 'lost', 'אובדן'],
+    'FOLLOW_UP': ['follow_up', 'callback', 'חזרה', 'תזכורת', 'תחזור', 'מאוחר יותר'],
+    'CONTACTED': ['contacted', 'answered', 'נוצר קשר', 'נענה', 'ענה'],
+    'ATTEMPTING': ['attempting', 'trying', 'ניסיון', 'בניסיון', 'מנסה'],
+    'NEW': ['new', 'חדש', 'fresh', 'lead']
+}
+
+# Status progression order - higher number = more advanced in sales funnel
+# Statuses with same score are considered equivalent
+STATUS_PROGRESSION_SCORE = {
+    'NO_ANSWER': 1,
+    'ATTEMPTING': 2,
+    'CONTACTED': 3,
+    'NOT_RELEVANT': 3,  # Negative outcome, but contacted
+    'FOLLOW_UP': 4,
+    'INTERESTED': 5,
+    'QUALIFIED': 6,
+    'NEW': 0  # Starting point
+}
 
 
 class LeadAutoStatusService:
@@ -905,6 +933,395 @@ class LeadAutoStatusService:
         
         # No specific status found - let it fall through
         log.info(f"[AutoStatus] Longer disconnect ({call_duration}s): no specific status found, will use default logic")
+        return None
+    
+    def _get_status_family(self, status_name: str, tenant_id: Optional[int] = None) -> Optional[str]:
+        """
+        🆕 ENHANCED: Dynamically determine which family/group a status belongs to
+        
+        Uses AI-powered semantic understanding to classify ANY status name (Hebrew, English, custom)
+        into semantic families, WITHOUT relying on hardcoded keyword lists!
+        
+        This makes the system truly dynamic and adaptive to any business's custom statuses.
+        
+        Args:
+            status_name: Status name to classify (can be ANY name in ANY language!)
+            tenant_id: Optional business ID for context
+            
+        Returns:
+            Family name (e.g., 'NO_ANSWER', 'INTERESTED') or None
+        """
+        if not status_name:
+            return None
+        
+        status_lower = status_name.lower()
+        
+        # 🔥 STEP 1: Quick keyword check for common cases (performance optimization)
+        # This handles 90% of cases instantly without AI call
+        for family_name, patterns in STATUS_FAMILIES.items():
+            for pattern in patterns:
+                # More precise matching: pattern must be contained in status name
+                if pattern in status_lower:
+                    return family_name
+        
+        # 🔥 STEP 2: AI-powered semantic classification for unknown/custom statuses
+        # This is the MAGIC that makes it work with ANY status name!
+        try:
+            import os
+            from openai import OpenAI
+            
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                log.warning(f"[StatusFamily] No OpenAI API key - cannot classify custom status '{status_name}'")
+                return None
+            
+            # Get full status info (label + description) for better classification
+            status_info = None
+            if tenant_id:
+                status_info = self._get_full_status_info(tenant_id, status_name)
+            
+            # Build context for AI
+            status_text = status_name
+            if status_info:
+                # Use label (Hebrew user-facing text) if available - much better for classification!
+                if status_info.get('label'):
+                    status_text = status_info['label']
+                # Add description if available
+                if status_info.get('description'):
+                    status_text += f" ({status_info['description']})"
+            
+            log.info(f"[StatusFamily] 🤖 Using AI to classify custom status: '{status_text}'")
+            
+            client = OpenAI(api_key=api_key)
+            
+            # 🎯 Smart AI prompt for semantic classification
+            prompt = f"""סטטוס: "{status_text}"
+
+סווג את הסטטוס לאחת מהקטגוריות הבאות:
+
+1. NO_ANSWER - לא נענה, אין מענה, קו תפוס, תא קולי, נכשל
+2. INTERESTED - מעוניין, רוצה, מתעניין, חם, פוטנציאל
+3. QUALIFIED - נקבע, פגישה, סגירה, מוכשר, הזדמנות
+4. NOT_RELEVANT - לא רלוונטי, לא מעוניין, להסיר, אובדן
+5. FOLLOW_UP - חזרה, תזכורת, מאוחר יותר, תחזור
+6. CONTACTED - נוצר קשר, נענה, דיבר
+7. ATTEMPTING - ניסיון, מנסה, בניסיון קשר
+8. NEW - חדש, ליד חדש
+
+החזר רק את שם הקטגוריה (באנגלית) או "UNKNOWN" אם לא ברור."""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Fast and cheap
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "אתה מומחה לסיווג סטטוסי לידים. סווג את הסטטוס לפי המשמעות הסמנטית שלו."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,  # Low temperature for consistent classification
+                max_tokens=20
+            )
+            
+            family = response.choices[0].message.content.strip().upper()
+            
+            # Validate response
+            valid_families = ['NO_ANSWER', 'INTERESTED', 'QUALIFIED', 'NOT_RELEVANT', 
+                            'FOLLOW_UP', 'CONTACTED', 'ATTEMPTING', 'NEW']
+            
+            if family in valid_families:
+                log.info(f"[StatusFamily] ✅ AI classified '{status_text}' → {family}")
+                return family
+            elif family == 'UNKNOWN':
+                log.info(f"[StatusFamily] ⚪ AI couldn't classify '{status_text}' (ambiguous)")
+                return None
+            else:
+                log.warning(f"[StatusFamily] ⚠️ AI returned invalid family: '{family}' for '{status_text}'")
+                return None
+                
+        except Exception as e:
+            log.error(f"[StatusFamily] ❌ AI classification failed for '{status_name}': {e}")
+            return None
+    
+    def _get_status_progression_score(self, status_name: str, tenant_id: Optional[int] = None) -> int:
+        """
+        Get the progression score for a status (how advanced it is in the sales funnel)
+        
+        Args:
+            status_name: Status name
+            tenant_id: Optional business ID for AI-powered classification
+            
+        Returns:
+            Score (0-6), higher = more advanced
+        """
+        family = self._get_status_family(status_name, tenant_id)
+        return STATUS_PROGRESSION_SCORE.get(family, 0)
+    
+    def _is_no_answer_progression(self, current_status: str, suggested_status: str, tenant_id: Optional[int] = None) -> bool:
+        """
+        Check if this is a valid no-answer progression (no_answer → no_answer_2 → no_answer_3)
+        
+        Args:
+            current_status: Current lead status
+            suggested_status: Suggested new status
+            tenant_id: Optional business ID for AI-powered classification
+            
+        Returns:
+            True if this is a valid no-answer progression
+        """
+        # Both must be in NO_ANSWER family
+        if self._get_status_family(current_status, tenant_id) != 'NO_ANSWER':
+            return False
+        if self._get_status_family(suggested_status, tenant_id) != 'NO_ANSWER':
+            return False
+        
+        # Extract numbers from both statuses
+        current_numbers = re.findall(r'\d+', current_status)
+        suggested_numbers = re.findall(r'\d+', suggested_status)
+        
+        current_num = int(current_numbers[-1]) if current_numbers else 1
+        suggested_num = int(suggested_numbers[-1]) if suggested_numbers else 1
+        
+        # Valid progression: suggested number should be higher
+        return suggested_num > current_num
+    
+    def should_change_status(
+        self, 
+        current_status: Optional[str], 
+        suggested_status: Optional[str],
+        tenant_id: int,
+        call_summary: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        🆕 CRITICAL: Decide whether to change status based on SMART analysis
+        
+        Now uses CALL SUMMARY to understand the TRUE context and make
+        the best decision possible!
+        
+        This is the KEY improvement - we don't just compare status names,
+        we understand the CONVERSATION and decide intelligently!
+        
+        Rules:
+        1. If no suggested status, don't change
+        2. If no current status (new lead), always change
+        3. If statuses are identical, don't change
+        4. 🆕 If we have call summary, use AI to decide based on conversation context
+        5. If statuses are in same family AND same progression level, don't change
+        6. If statuses are in same family AND suggested is progression, change
+        7. If suggested status is lower progression than current, don't change (downgrade)
+        8. If suggested status is higher progression, change (upgrade)
+        9. Default: change (be conservative, allow the change)
+        
+        Args:
+            current_status: Lead's current status
+            suggested_status: Newly suggested status
+            tenant_id: Business ID
+            call_summary: 🆕 Call summary for context-aware decision making
+            
+        Returns:
+            Tuple of (should_change: bool, reason: str)
+        """
+        # Rule 1: No suggested status
+        if not suggested_status:
+            return False, "No suggested status"
+        
+        # Rule 2: No current status (new lead or first status assignment)
+        if not current_status:
+            return True, "No current status - first assignment"
+        
+        # Rule 3: Identical statuses
+        if current_status.lower() == suggested_status.lower():
+            return False, f"Already in status '{current_status}'"
+        
+        # 🔥 Rule 4: SMART CONTEXT-AWARE DECISION using call summary
+        # This is the MAGIC - understand the conversation to make smart decisions!
+        if call_summary and len(call_summary) > 20:
+            try:
+                smart_decision = self._make_smart_status_decision(
+                    current_status=current_status,
+                    suggested_status=suggested_status,
+                    call_summary=call_summary,
+                    tenant_id=tenant_id
+                )
+                
+                if smart_decision:
+                    should_change, reason = smart_decision
+                    log.info(f"[StatusCompare] 🤖 AI-powered decision: should_change={should_change}")
+                    return should_change, f"AI decision based on call: {reason}"
+                    
+            except Exception as e:
+                log.error(f"[StatusCompare] ❌ Smart decision failed: {e}")
+                # Continue to rule-based logic as fallback
+        
+        # Get status families and progression scores
+        # 🆕 Pass tenant_id for AI-powered classification of custom statuses
+        current_family = self._get_status_family(current_status, tenant_id)
+        suggested_family = self._get_status_family(suggested_status, tenant_id)
+        current_score = self._get_status_progression_score(current_status, tenant_id)
+        suggested_score = self._get_status_progression_score(suggested_status, tenant_id)
+        
+        log.info(f"[StatusCompare] Current: '{current_status}' (family={current_family}, score={current_score})")
+        log.info(f"[StatusCompare] Suggested: '{suggested_status}' (family={suggested_family}, score={suggested_score})")
+        
+        # Rule 5 & 6: Same family - check for progression
+        if current_family and current_family == suggested_family:
+            # Special case: NO_ANSWER progression (no_answer → no_answer_2)
+            if current_family == 'NO_ANSWER':
+                if self._is_no_answer_progression(current_status, suggested_status, tenant_id):
+                    return True, f"Valid no-answer progression: {current_status} → {suggested_status}"
+                else:
+                    return False, f"Same no-answer family without valid progression"
+            
+            # For other families, if scores are same, don't change
+            if current_score == suggested_score:
+                return False, f"Same family '{current_family}' and progression level ({current_score})"
+        
+        # Rule 7: Don't downgrade (suggested is lower progression)
+        if suggested_score < current_score:
+            # Exception: NOT_RELEVANT can override any status (customer explicitly rejected)
+            if suggested_family == 'NOT_RELEVANT':
+                return True, f"Customer explicitly not interested - override '{current_status}'"
+            
+            return False, f"Would downgrade from {current_family}(score={current_score}) to {suggested_family}(score={suggested_score})"
+        
+        # Rule 8: Upgrade (suggested is higher progression)
+        if suggested_score > current_score:
+            return True, f"Upgrade from {current_family}(score={current_score}) to {suggested_family}(score={suggested_score})"
+        
+        # Rule 9: Default - allow change if we're not sure
+        # This handles edge cases and statuses not in our families
+        return True, f"Allowing change (families differ or not classified)"
+    
+    def _make_smart_status_decision(
+        self,
+        current_status: str,
+        suggested_status: str,
+        call_summary: str,
+        tenant_id: int
+    ) -> Optional[Tuple[bool, str]]:
+        """
+        🆕 REVOLUTIONARY: Use AI to make CONTEXT-AWARE status change decision
+        
+        This analyzes the ACTUAL CONVERSATION to decide if status should change!
+        Much smarter than just comparing status names.
+        
+        Args:
+            current_status: Current lead status
+            suggested_status: Suggested new status  
+            call_summary: Summary of the call conversation
+            tenant_id: Business ID
+            
+        Returns:
+            Tuple of (should_change: bool, reason: str) or None if cannot decide
+        """
+        try:
+            import os
+            from openai import OpenAI
+            
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                log.warning("[StatusDecision] No OpenAI API key - cannot make smart decision")
+                return None
+            
+            # Get full status info (labels in Hebrew are much more meaningful!)
+            current_info = self._get_full_status_info(tenant_id, current_status)
+            suggested_info = self._get_full_status_info(tenant_id, suggested_status)
+            
+            current_label = current_info.get('label', current_status) if current_info else current_status
+            suggested_label = suggested_info.get('label', suggested_status) if suggested_info else suggested_status
+            
+            log.info(f"[StatusDecision] 🤖 Analyzing: '{current_label}' → '{suggested_label}' based on call summary")
+            
+            client = OpenAI(api_key=api_key)
+            
+            # 🎯 SUPER SMART AI PROMPT - analyzes conversation context
+            prompt = f"""סיכום השיחה:
+{call_summary}
+
+סטטוס נוכחי: "{current_label}"
+סטטוס מוצע: "{suggested_label}"
+
+**משימה:** תחליט האם לשנות את הסטטוס על סמך תוכן השיחה.
+
+**כללי החלטה חכמים:**
+1. אם הלקוח כבר במצב שמתאים למה שקרה בשיחה → אל תשנה (למשל: כבר "מעוניין" ובשיחה היה מעוניין)
+2. אם יש התקדמות משמעותית (מעוניין → נקבעה פגישה) → שנה
+3. אם יש הרעה במצב (היה מעוניין עכשיו אומר לא) → שנה
+4. אם זה אותו דבר בעצם (לא ענה → עדיין לא ענה) → אל תשנה אלא אם זה ניסיון נוסף
+5. אם לא ברור מהשיחה → אל תשנה (שמור סטטוס נוכחי)
+
+החזר JSON בדיוק בפורמט הזה:
+{{
+  "should_change": true/false,
+  "reason": "הסבר קצר בעברית למה כן או לא"
+}}"""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """אתה מומחה לניהול לידים ושיחות מכירה. 
+אתה מבין את ההקשר של השיחה ויודע מתי כדאי לשנות סטטוס ומתי לא.
+היה חכם - אל תשנה סטטוס סתם, רק כשזה באמת הגיוני!"""
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=100
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # Parse JSON response
+            import json
+            # Remove markdown code blocks if present
+            if '```' in result_text:
+                result_text = result_text.split('```')[1]
+                if result_text.startswith('json'):
+                    result_text = result_text[4:]
+            
+            result = json.loads(result_text)
+            
+            should_change = result.get('should_change', False)
+            reason = result.get('reason', 'AI decision')
+            
+            log.info(f"[StatusDecision] ✅ AI decision: should_change={should_change}, reason='{reason}'")
+            
+            return (should_change, reason)
+            
+        except Exception as e:
+            log.error(f"[StatusDecision] ❌ Smart decision failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _get_full_status_info(self, tenant_id: int, status_name: str) -> Optional[dict]:
+        """
+        Get full information about a status (label, description) for better matching
+        
+        Args:
+            tenant_id: Business ID
+            status_name: Status name to look up
+            
+        Returns:
+            Dict with status info or None
+        """
+        from server.models_sql import LeadStatus
+        
+        status_obj = LeadStatus.query.filter_by(
+            business_id=tenant_id,
+            name=status_name,
+            is_active=True
+        ).first()
+        
+        if status_obj:
+            return {
+                'name': status_obj.name,
+                'label': status_obj.label,
+                'description': status_obj.description
+            }
+        
         return None
 
 

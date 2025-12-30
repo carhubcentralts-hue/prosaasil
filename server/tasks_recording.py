@@ -1218,7 +1218,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 call_direction = call_log.direction if call_log else "inbound"
                 
                 # Use new auto-status service with call duration for smart no-summary handling
-                from server.services.lead_auto_status_service import suggest_lead_status_from_call
+                from server.services.lead_auto_status_service import suggest_lead_status_from_call, get_auto_status_service
                 suggested_status = suggest_lead_status_from_call(
                     tenant_id=call_log.business_id,
                     lead_id=lead.id,
@@ -1228,9 +1228,18 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     call_duration=call_log.duration  # 🆕 Pass duration for smart no-summary logic
                 )
                 
-                # Apply status change with validation
+                # 🆕 CRITICAL: Smart status change validation - don't change unnecessarily!
+                # Check if we should actually change the status
                 old_status = lead.status
-                if suggested_status:
+                auto_status_service = get_auto_status_service()
+                should_change, change_reason = auto_status_service.should_change_status(
+                    current_status=old_status,
+                    suggested_status=suggested_status,
+                    tenant_id=call_log.business_id,
+                    call_summary=summary  # 🔥 Pass call summary for context-aware decision!
+                )
+                
+                if should_change and suggested_status:
                     # Extra safety: validate status exists for this business
                     from server.models_sql import LeadStatus
                     valid_status = LeadStatus.query.filter_by(
@@ -1251,14 +1260,18 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                             "from": old_status,
                             "to": suggested_status,
                             "source": f"auto_{call_direction}",
-                            "call_sid": call_sid
+                            "call_sid": call_sid,
+                            "reason": change_reason  # 🆕 Log why we changed
                         }
                         activity.at = datetime.utcnow()
                         db.session.add(activity)
                         
-                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status} (source: {call_direction})")
+                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status} (reason: {change_reason})")
                     else:
                         log.warning(f"[AutoStatus] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - skipping status change")
+                elif suggested_status:
+                    # We have a suggested status but decided not to change
+                    log.info(f"[AutoStatus] ⏭️  Keeping lead {lead.id} at status '{old_status}' (suggested '{suggested_status}' but {change_reason})")
                 else:
                     log.info(f"[AutoStatus] ℹ️ No confident status match for lead {lead.id} - keeping status as '{old_status}'")
                 
@@ -1472,7 +1485,7 @@ def _handle_failed_call(call_log, call_status, db):
         log.info(f"[FAILED_CALL] 👤 Found lead {lead.id} with current status: {lead.status}")
         
         # 3. Update lead status using smart auto-status service
-        from server.services.lead_auto_status_service import suggest_lead_status_from_call
+        from server.services.lead_auto_status_service import suggest_lead_status_from_call, get_auto_status_service
         
         suggested_status = suggest_lead_status_from_call(
             tenant_id=call_log.business_id,
@@ -1485,8 +1498,18 @@ def _handle_failed_call(call_log, call_status, db):
         
         log.info(f"[FAILED_CALL] 🤖 Auto-status service suggested: {suggested_status}")
         
+        # 🆕 CRITICAL: Smart status change validation - don't change unnecessarily!
+        old_status = lead.status
+        auto_status_service = get_auto_status_service()
+        should_change, change_reason = auto_status_service.should_change_status(
+            current_status=old_status,
+            suggested_status=suggested_status,
+            tenant_id=call_log.business_id,
+            call_summary=summary  # 🔥 Pass call summary for context-aware decision!
+        )
+        
         # 4. Apply status change with validation
-        if suggested_status:
+        if should_change and suggested_status:
             # Validate status exists for this business
             valid_status = LeadStatus.query.filter_by(
                 business_id=call_log.business_id,
@@ -1495,7 +1518,6 @@ def _handle_failed_call(call_log, call_status, db):
             ).first()
             
             if valid_status:
-                old_status = lead.status
                 lead.status = suggested_status
                 
                 # Create activity for auto status change
@@ -1507,17 +1529,20 @@ def _handle_failed_call(call_log, call_status, db):
                     "to": suggested_status,
                     "source": f"auto_{call_status}_{call_log.direction or 'unknown'}",
                     "call_sid": call_log.call_sid,
-                    "reason": f"Failed call: {call_status}"
+                    "reason": f"Failed call: {call_status} - {change_reason}"  # 🆕 Include change reason
                 }
                 activity.at = datetime.utcnow()
                 db.session.add(activity)
                 
                 db.session.commit()
-                log.info(f"[FAILED_CALL] ✅ SUCCESS! Updated lead {lead.id} status: {old_status} → {suggested_status}")
+                log.info(f"[FAILED_CALL] ✅ SUCCESS! Updated lead {lead.id} status: {old_status} → {suggested_status} (reason: {change_reason})")
             else:
                 log.warning(f"[FAILED_CALL] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - summary created but status not updated")
+        elif suggested_status:
+            # We have a suggested status but decided not to change
+            log.info(f"[FAILED_CALL] ⏭️  Keeping lead {lead.id} at status '{old_status}' (suggested '{suggested_status}' but {change_reason})")
         else:
-            log.info(f"[FAILED_CALL] ℹ️ No confident status match for lead {lead.id} - summary created, keeping current status '{lead.status}'")
+            log.info(f"[FAILED_CALL] ℹ️ No confident status match for lead {lead.id} - summary created, keeping current status '{old_status}'")
             
     except Exception as e:
         log.error(f"[FAILED_CALL] ❌ Error handling failed call {call_log.call_sid}: {e}")
