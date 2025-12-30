@@ -19,13 +19,12 @@ projects_bp = Blueprint('projects', __name__)
 def list_projects():
     """List all projects for the current tenant"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] list_projects: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] list_projects: Using tenant_id={tenant_id}")
         
         # Get pagination params
@@ -127,13 +126,12 @@ def list_projects():
 def create_project():
     """Create a new project"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] create_project: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] create_project: Using tenant_id={tenant_id}")
         
         user_id = g.user.id if hasattr(g, 'user') else None
@@ -226,13 +224,12 @@ def create_project():
 def get_project(project_id):
     """Get project details with leads and statistics"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] get_project: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] get_project: Using tenant_id={tenant_id}")
         
         # Get project info
@@ -324,13 +321,12 @@ def get_project(project_id):
 def add_leads_to_project(project_id):
     """Add leads to an existing project"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] add_leads_to_project: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] add_leads_to_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
@@ -390,13 +386,12 @@ def add_leads_to_project(project_id):
 def remove_leads_from_project(project_id):
     """Remove leads from a project"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] remove_leads_from_project: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] remove_leads_from_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
@@ -445,13 +440,12 @@ def remove_leads_from_project(project_id):
 def update_project(project_id):
     """Update project details"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] update_project: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] update_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant
@@ -520,13 +514,12 @@ def update_project(project_id):
 def delete_project(project_id):
     """Delete a project"""
     try:
-        # Use get_current_tenant() instead of g.tenant_id
-        tenant = get_current_tenant()
-        if not tenant:
+        # Use get_current_tenant() to safely get tenant ID
+        tenant_id = get_current_tenant()
+        if not tenant_id:
             log.error("[Projects] delete_project: No tenant found")
             return jsonify({'success': False, 'error': 'Tenant not found'}), 401
         
-        tenant_id = tenant.id if hasattr(tenant, 'id') else tenant
         log.info(f"[Projects] delete_project: Using tenant_id={tenant_id}")
         
         # Verify project exists and belongs to tenant

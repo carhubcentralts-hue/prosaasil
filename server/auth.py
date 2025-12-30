@@ -23,30 +23,32 @@ def get_current_tenant():
     4. None for system_admin without impersonation
     
     Returns:
-        int or None: The tenant ID, or None if system_admin without tenant
+        int or None: The tenant ID (always an integer), or None if system_admin without tenant
     """
     # Priority 1: Use g.tenant if available (set by @require_api_auth) - MOST RELIABLE
     if hasattr(g, 'tenant') and g.tenant is not None:
-        log.debug(f"get_current_tenant(): Using g.tenant={g.tenant}")
-        return g.tenant
+        tenant_id = g.tenant.id if hasattr(g.tenant, 'id') else g.tenant
+        log.debug(f"get_current_tenant(): Using g.tenant={tenant_id}")
+        return int(tenant_id) if tenant_id else None
     
     # Priority 2: Check if impersonating (for system_admin)
     if session.get('impersonating') and session.get('impersonated_tenant_id'):
-        tenant = session['impersonated_tenant_id']
-        log.debug(f"get_current_tenant(): Impersonating tenant_id={tenant}")
-        return tenant
+        tenant_id = session['impersonated_tenant_id']
+        log.debug(f"get_current_tenant(): Impersonating tenant_id={tenant_id}")
+        return int(tenant_id) if tenant_id else None
     
     # Priority 3: Fallback to impersonated session WITHOUT flag (backward compat)
     impersonated_id = session.get('impersonated_tenant_id')
     if impersonated_id:
         log.debug(f"get_current_tenant(): Using impersonated_tenant_id={impersonated_id}")
-        return impersonated_id
+        return int(impersonated_id)
     
     # Priority 4: Get from user session - try both session keys
     user = session.get('user') or session.get('al_user')
     if user and user.get('business_id'):
-        log.debug(f"get_current_tenant(): Using user.business_id={user.get('business_id')}")
-        return user.get('business_id')
+        business_id = user.get('business_id')
+        log.debug(f"get_current_tenant(): Using user.business_id={business_id}")
+        return int(business_id) if business_id else None
     
     # No tenant found - OK for system_admin, error for others
     user_role = user.get('role') if user else None
