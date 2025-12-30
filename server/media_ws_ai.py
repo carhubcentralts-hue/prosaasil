@@ -2766,10 +2766,12 @@ class MediaStreamHandler:
         logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
-        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
+        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=None, tool_choice="auto", force=False):
             """Send session.update event with specified configuration
             
             Args:
+                tools: Optional list of Realtime API tools (for appointments)
+                tool_choice: Tool selection mode ("auto", "none", or specific tool)
                 force: Set to True to bypass hash check (for retry)
             """
             # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
@@ -2821,6 +2823,8 @@ class MediaStreamHandler:
                     "אל תנחש, אל תשלים, אל תמציא מילים. "
                     "העדף דיוק על פני שלמות."
                 ),
+                tools=tools,  # 🔥 NEW: Include tools in first session.update
+                tool_choice=tool_choice if tools else None,  # Only set if tools exist
                 force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
             )
         
@@ -3360,6 +3364,33 @@ class MediaStreamHandler:
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
             # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 0.5: Build tools BEFORE session.update (must be included in FIRST update!)
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
+            # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
+            # 🔥 CRITICAL FIX: Tools MUST be included in FIRST session.update to avoid losing context!
+            # Sending a second session.update later causes OpenAI to reset the conversation context!
+            realtime_tools = []
+            tool_choice = "auto"
+            
+            try:
+                logger.debug(f"[REALTIME] Building tools for call...")
+                realtime_tools = self._build_realtime_tools_for_call()
+                logger.debug(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
+                
+                if realtime_tools:
+                    print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)} (will be sent in FIRST session.update)")
+                    logger.debug(f"[TOOLS][REALTIME] Tools will be included in initial session configuration")
+                else:
+                    print(f"[TOOLS][REALTIME] NO tools for this call (disabled or not applicable)")
+                    
+            except Exception as tools_error:
+                logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
+                import traceback
+                traceback.print_exc()
+                realtime_tools = []  # Safe fallback - no tools
+            
+            # ═══════════════════════════════════════════════════════════════════════
             # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
             # ═══════════════════════════════════════════════════════════════════════
             _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
@@ -3384,7 +3415,15 @@ class MediaStreamHandler:
             
             # Send initial session configuration
             _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
-            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens)
+            
+            # 🔥 CRITICAL: Clear event and flags before sending session.update
+            # This ensures we wait for THIS session.updated, not a stale one
+            self._session_config_confirmed = False
+            self._session_config_failed = False
+            self._session_config_event.clear()  # Clear any previous event
+            _orig_print(f"🔄 [SESSION] Cleared session flags - waiting for fresh confirmation", flush=True)
+            
+            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice)
             _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
@@ -3415,7 +3454,7 @@ class MediaStreamHandler:
                     retried = True
                     _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
                     # 🔥 FIX 3: Pass force=True to bypass hash check on retry
-                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=True)
+                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, force=True)
                     _orig_print(f"📤 [SESSION] Retry session.update sent with force=True - continuing to wait", flush=True)
                 
                 if elapsed > max_wait:
@@ -3849,60 +3888,6 @@ class MediaStreamHandler:
                 # Start the watchdog
                 asyncio.create_task(_greeting_audio_timeout_watchdog())
             
-            # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
-            # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
-            # 🔥 FIX: Wrap in try/except to prevent crashes - realtime should continue even if tools fail
-            realtime_tools = []
-            # 🔥 CRITICAL FIX: Define tool_choice BEFORE any closure to avoid scope errors
-            tool_choice = "auto"
-            
-            try:
-                logger.debug(f"[REALTIME] Building tools for call...")
-                realtime_tools = self._build_realtime_tools_for_call()
-                logger.debug(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
-            except Exception as tools_error:
-                logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
-                import traceback
-                traceback.print_exc()
-                realtime_tools = []  # Safe fallback - no tools
-            
-            if realtime_tools:
-                # 🔥 FIX: Appointment tools are enabled - SEND THEM TO SESSION!
-                print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)}")
-                logger.debug(f"[TOOLS][REALTIME] Sending {len(realtime_tools)} tools to session")
-                
-                # Wait for greeting to complete before adding tools (avoid interference)
-                async def _load_appointment_tool():
-                    try:
-                        wait_start = time.time()
-                        max_wait_seconds = 15
-                        
-                        while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                            await asyncio.sleep(0.1)
-                        
-                        print(f"🔧 [TOOLS][REALTIME] Sending session.update with {len(realtime_tools)} tools...")
-                        await client.send_event({
-                            "type": "session.update",
-                            "session": {
-                                "tools": realtime_tools,
-                                "tool_choice": tool_choice
-                            }
-                        })
-                        print(f"✅ [TOOLS][REALTIME] Appointment tools registered in session successfully!")
-                        logger.debug(f"[TOOLS][REALTIME] Tools successfully added to session")
-                        
-                    except Exception as e:
-                        print(f"❌ [TOOLS][REALTIME] FAILED to register tools: {e}")
-                        logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
-                        import traceback
-                        traceback.print_exc()
-                
-                asyncio.create_task(_load_appointment_tool())
-            else:
-                # No tools for this call - pure conversation mode
-                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.debug(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-            
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -4144,8 +4129,12 @@ class MediaStreamHandler:
                     if not _session_wait_logged:
                         _orig_print(f"⏸️ [AUDIO_GATE] Queuing audio - waiting for session.updated confirmation", flush=True)
                         _session_wait_logged = True
-                    await asyncio.sleep(0.05)  # Wait 50ms and check again
-                    continue
+                    # 🔥 PERFORMANCE: Use event wait instead of polling
+                    try:
+                        await asyncio.wait_for(self._session_config_event.wait(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        continue  # Timeout - check again
+                    # Event was set - continue to send audio
                 elif _session_wait_logged:
                     _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
                     _session_wait_logged = False  # Reset for next check
