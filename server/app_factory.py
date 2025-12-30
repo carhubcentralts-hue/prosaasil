@@ -515,9 +515,11 @@ def create_app():
         
         # 🔒 CRITICAL: Cleanup stuck jobs on startup to prevent blocking
         # This runs immediately after blueprint registration
+        # Must run in app context since cleanup_stuck_dialing_jobs expects it
         try:
             logger.info("[STARTUP] Running cleanup_stuck_dialing_jobs on startup...")
-            cleanup_stuck_dialing_jobs()
+            with app.app_context():
+                cleanup_stuck_dialing_jobs()
             logger.info("[STARTUP] ✅ Cleanup complete")
         except Exception as e:
             logger.error(f"[STARTUP] ⚠️ Cleanup failed: {e}")

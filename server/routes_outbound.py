@@ -2257,51 +2257,52 @@ def cleanup_stuck_dialing_jobs():
     - System restart left jobs in active state
     
     🔒 CRITICAL: Reset ALL stuck jobs on startup to prevent blocking new calls
+    
+    NOTE: This function assumes it's called from within an app context
+    (either during app startup or from a request handler)
     """
-    from server.app_factory import get_process_app
     from server.models_sql import OutboundCallJob
     from datetime import datetime, timedelta
     from sqlalchemy import text
     
-    app = get_process_app()
-    
-    with app.app_context():
-        try:
-            # 🔥 FIX: On startup, reset ALL jobs stuck in 'dialing' state
-            # Don't wait 5 minutes - clean immediately to prevent blocking
-            result_dialing = db.session.execute(text("""
-                UPDATE outbound_call_jobs 
-                SET status='failed',
-                    error_message='System restart - job was stuck in dialing state',
-                    completed_at=NOW()
-                WHERE status='dialing'
-                    AND twilio_call_sid IS NULL
-            """))
-            
-            # 🔥 FIX: Also reset jobs in 'calling' state that are old (>10 minutes)
-            # These are likely calls that ended but webhook never arrived
-            cutoff_time = datetime.utcnow() - timedelta(minutes=10)
-            result_calling = db.session.execute(text("""
-                UPDATE outbound_call_jobs 
-                SET status='failed',
-                    error_message='Call timeout - no status update received',
-                    completed_at=NOW()
-                WHERE status='calling'
-                    AND started_at < :cutoff_time
-            """), {"cutoff_time": cutoff_time})
-            
-            db.session.commit()
-            
-            total_cleaned = result_dialing.rowcount + result_calling.rowcount
-            if total_cleaned > 0:
-                log.info(f"[CLEANUP] ✅ Reset {result_dialing.rowcount} stuck 'dialing' jobs and {result_calling.rowcount} stuck 'calling' jobs")
-            
-            return total_cleaned
-            
-        except Exception as e:
-            log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
-            db.session.rollback()
-            return 0
+    # 🔥 FIX: Don't call get_process_app() - assume we're already in app context
+    # This prevents circular dependency when called from create_app()
+    try:
+        # 🔥 FIX: On startup, reset ALL jobs stuck in 'dialing' state
+        # Don't wait 5 minutes - clean immediately to prevent blocking
+        result_dialing = db.session.execute(text("""
+            UPDATE outbound_call_jobs 
+            SET status='failed',
+                error_message='System restart - job was stuck in dialing state',
+                completed_at=NOW()
+            WHERE status='dialing'
+                AND twilio_call_sid IS NULL
+        """))
+        
+        # 🔥 FIX: Also reset jobs in 'calling' state that are old (>10 minutes)
+        # These are likely calls that ended but webhook never arrived
+        cutoff_time = datetime.utcnow() - timedelta(minutes=10)
+        result_calling = db.session.execute(text("""
+            UPDATE outbound_call_jobs 
+            SET status='failed',
+                error_message='Call timeout - no status update received',
+                completed_at=NOW()
+            WHERE status='calling'
+                AND started_at < :cutoff_time
+        """), {"cutoff_time": cutoff_time})
+        
+        db.session.commit()
+        
+        total_cleaned = result_dialing.rowcount + result_calling.rowcount
+        if total_cleaned > 0:
+            log.info(f"[CLEANUP] ✅ Reset {result_dialing.rowcount} stuck 'dialing' jobs and {result_calling.rowcount} stuck 'calling' jobs")
+        
+        return total_cleaned
+        
+    except Exception as e:
+        log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
+        db.session.rollback()
+        return 0
 
 
 @outbound_bp.route("/api/outbound/cleanup-stuck-jobs", methods=["POST"])
