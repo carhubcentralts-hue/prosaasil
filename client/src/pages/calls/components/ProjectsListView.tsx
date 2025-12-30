@@ -10,7 +10,8 @@ import {
   Clock,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  XCircle
 } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';
 import { Card } from '../../../shared/components/ui/Card';
@@ -90,25 +91,36 @@ export function ProjectsListView({
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
-        <p className="text-sm text-gray-500">טוען פרויקטים...</p>
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="relative">
+          <Loader2 className="h-16 w-16 animate-spin text-blue-600 mb-4" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Folder className="h-8 w-8 text-blue-400 opacity-50" />
+          </div>
+        </div>
+        <p className="text-base text-gray-600 font-medium mt-2">טוען פרויקטים...</p>
+        <p className="text-sm text-gray-400 mt-1">אנא המתן</p>
       </div>
     );
   }
 
   if (projects.length === 0) {
     return (
-      <div className="text-center py-16">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-blue-50 mb-6">
-          <FolderOpen className="h-10 w-10 text-blue-600" />
+      <div className="text-center py-20">
+        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-blue-50 to-blue-100 mb-6 shadow-sm">
+          <FolderOpen className="h-12 w-12 text-blue-600" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">אין פרויקטים עדיין</h3>
-        <p className="text-gray-600 mb-8 max-w-md mx-auto">
-          צור פרויקט חדש כדי לארגן לידים לקבוצות ולעקוב אחר התקדמות השיחות
+        <h3 className="text-xl font-bold text-gray-900 mb-3">אין פרויקטים עדיין</h3>
+        <p className="text-gray-600 mb-10 max-w-md mx-auto leading-relaxed">
+          צור פרויקט חדש כדי לארגן לידים לקבוצות ולעקוב אחר התקדמות השיחות בצורה מסודרת ויעילה
         </p>
-        <Button onClick={onCreateProject} size="lg" data-testid="button-create-first-project">
-          <FolderOpen className="h-5 w-5 ml-2" />
+        <Button 
+          onClick={onCreateProject} 
+          size="lg" 
+          data-testid="button-create-first-project"
+          className="shadow-lg hover:shadow-xl transition-all duration-200 px-8 py-3"
+        >
+          <FolderOpen className="h-6 w-6 ml-2" />
           צור פרויקט ראשון
         </Button>
       </div>
@@ -116,102 +128,151 @@ export function ProjectsListView({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Create Project Button */}
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold text-gray-900">הפרויקטים שלי</h2>
-        <Button onClick={onCreateProject} data-testid="button-create-project">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">הפרויקטים שלי</h2>
+          <p className="text-sm text-gray-500 mt-1">נהל וארגן את הלידים שלך בפרויקטים</p>
+        </div>
+        <Button 
+          onClick={onCreateProject} 
+          data-testid="button-create-project"
+          className="shadow-md hover:shadow-lg transition-all duration-200"
+        >
           <FolderOpen className="h-5 w-5 ml-2" />
           פרויקט חדש
         </Button>
       </div>
 
-      {/* Projects Grid - Cards on mobile and desktop */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Projects Grid - Beautiful Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.map((project) => {
           const hasStarted = project.stats !== null && project.stats !== undefined;
+          const successRate = hasStarted && project.stats && project.stats.total_calls > 0
+            ? Math.round((project.stats.answered / project.stats.total_calls) * 100)
+            : 0;
           
           return (
             <Card 
               key={project.id} 
-              className="p-5 hover:shadow-lg transition-all duration-200 cursor-pointer border-2 hover:border-blue-200"
+              className="p-6 hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 hover:border-blue-300 bg-gradient-to-br from-white to-gray-50 group"
               data-testid={`project-card-${project.id}`}
             >
-              {/* Header: Name + Status */}
-              <div className="flex items-start justify-between gap-3 mb-4">
+              {/* Header: Name + Status Badge */}
+              <div className="flex items-start justify-between gap-3 mb-5">
                 <div 
-                  className="flex-1 min-w-0 cursor-pointer"
+                  className="flex-1 min-w-0 cursor-pointer group-hover:scale-[1.02] transition-transform duration-200"
                   onClick={() => onOpenProject(project.id)}
                 >
-                  <h3 className="font-semibold text-gray-900 truncate text-base mb-1">
-                    {project.name}
-                  </h3>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Folder className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                    <h3 className="font-bold text-gray-900 truncate text-lg">
+                      {project.name}
+                    </h3>
+                  </div>
                   {project.description && (
-                    <p className="text-sm text-gray-500 line-clamp-2 mt-1">
+                    <p className="text-sm text-gray-600 line-clamp-2 mt-1 leading-relaxed">
                       {project.description}
                     </p>
                   )}
                 </div>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 ${getStatusColor(project.status)}`}>
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 shadow-sm ${getStatusColor(project.status)}`}>
                   {getStatusIcon(project.status)}
                   {getStatusLabel(project.status)}
                 </span>
               </div>
 
-              {/* Leads Count */}
-              <div className="flex items-center gap-2 text-sm text-gray-600 mb-4 pb-4 border-b border-gray-100">
-                <Users className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                <span className="font-semibold text-gray-900">{project.total_leads}</span>
-                <span>לידים בפרויקט</span>
+              {/* Leads Count - Prominent Display */}
+              <div className="flex items-center gap-3 text-sm mb-5 pb-5 border-b-2 border-gray-200">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 border-2 border-blue-100">
+                  <Users className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <div className="font-bold text-2xl text-gray-900">{project.total_leads}</div>
+                  <div className="text-xs text-gray-500 font-medium">לידים בפרויקט</div>
+                </div>
               </div>
 
-              {/* Statistics - Only if project has started */}
-              {hasStarted && project.stats ? (
-                <div className="space-y-3 mb-4">
-                  <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    סטטיסטיקות שיחות
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border border-gray-100">
-                      <span className="text-gray-600">סה"כ שיחות</span>
-                      <span className="font-semibold text-gray-900">{project.stats.total_calls}</span>
+              {/* Statistics - Enhanced Display */}
+              {hasStarted && project.stats && project.stats.total_calls > 0 ? (
+                <div className="space-y-3 mb-5">
+                  {/* Success Rate Bar */}
+                  <div className="mb-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-semibold text-gray-700">אחוז הצלחה</span>
+                      <span className="text-lg font-bold text-green-600">{successRate}%</span>
                     </div>
-                    <div className="flex items-center justify-between p-2.5 bg-green-50 rounded-lg border border-green-100">
-                      <span className="text-green-700">נענו</span>
-                      <span className="font-semibold text-green-700">{project.stats.answered}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-2.5 bg-yellow-50 rounded-lg border border-yellow-100">
-                      <span className="text-yellow-700">לא נענו</span>
-                      <span className="font-semibold text-yellow-700">{project.stats.no_answer}</span>
-                    </div>
-                    <div className="flex items-center justify-between p-2.5 bg-red-50 rounded-lg border border-red-100">
-                      <span className="text-red-700">נכשל</span>
-                      <span className="font-semibold text-red-700">{project.stats.failed}</span>
+                    <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-500 shadow-sm"
+                        style={{ width: `${successRate}%` }}
+                      />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-700 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
-                    <Clock className="h-3 w-3 text-blue-600" />
-                    <span className="font-medium">זמן שיחה:</span>
-                    <span className="font-semibold text-blue-700">{formatDuration(project.stats.total_duration)}</span>
+
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="flex flex-col p-3 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 shadow-sm">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Phone className="h-3.5 w-3.5 text-gray-600" />
+                        <span className="text-gray-600 font-medium">סה"כ שיחות</span>
+                      </div>
+                      <span className="font-bold text-xl text-gray-900">{project.stats.total_calls}</span>
+                    </div>
+                    <div className="flex flex-col p-3 bg-gradient-to-br from-green-50 to-green-100 rounded-xl border border-green-200 shadow-sm">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <CheckCircle className="h-3.5 w-3.5 text-green-700" />
+                        <span className="text-green-700 font-medium">נענו</span>
+                      </div>
+                      <span className="font-bold text-xl text-green-700">{project.stats.answered}</span>
+                    </div>
+                    <div className="flex flex-col p-3 bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl border border-yellow-200 shadow-sm">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <AlertCircle className="h-3.5 w-3.5 text-yellow-700" />
+                        <span className="text-yellow-700 font-medium">לא נענו</span>
+                      </div>
+                      <span className="font-bold text-xl text-yellow-700">{project.stats.no_answer}</span>
+                    </div>
+                    <div className="flex flex-col p-3 bg-gradient-to-br from-red-50 to-red-100 rounded-xl border border-red-200 shadow-sm">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <XCircle className="h-3.5 w-3.5 text-red-700" />
+                        <span className="text-red-700 font-medium">נכשל</span>
+                      </div>
+                      <span className="font-bold text-xl text-red-700">{project.stats.failed}</span>
+                    </div>
+                  </div>
+
+                  {/* Call Duration */}
+                  <div className="flex items-center gap-2 text-sm p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-sm">
+                    <Clock className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                    <span className="font-medium text-gray-700">זמן שיחה כולל:</span>
+                    <span className="font-bold text-blue-700 mr-auto">{formatDuration(project.stats.total_duration)}</span>
                   </div>
                 </div>
+              ) : hasStarted ? (
+                <div className="text-xs text-gray-500 italic mb-5 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl text-center border border-gray-200 shadow-sm">
+                  <Clock className="h-5 w-5 text-gray-400 mx-auto mb-2" />
+                  <div className="font-medium">הפרויקט התחיל אך אין שיחות עדיין</div>
+                </div>
               ) : (
-                <div className="text-xs text-gray-500 italic mb-4 p-3 bg-gray-50 rounded-lg text-center border border-gray-100">
-                  💡 לא התחילו שיחות - סטטיסטיקות יופיעו לאחר תחילת שיחות
+                <div className="text-xs text-gray-500 italic mb-5 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl text-center border border-blue-200 shadow-sm">
+                  <PlayCircle className="h-5 w-5 text-blue-600 mx-auto mb-2" />
+                  <div className="font-medium text-blue-700">טרם החלו שיחות</div>
+                  <div className="text-xs text-gray-600 mt-1">סטטיסטיקות יופיעו לאחר תחילת שיחות</div>
                 </div>
               )}
 
               {/* Action Buttons */}
-              <div className="flex gap-2">
+              <div className="flex gap-3 mb-4">
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={() => onOpenProject(project.id)}
-                  className="flex-1 min-h-[44px] font-medium"
+                  className="flex-1 min-h-[48px] font-semibold shadow-md hover:shadow-lg transition-all duration-200 group-hover:scale-[1.02]"
                   data-testid={`button-open-project-${project.id}`}
                 >
-                  <FolderOpen className="h-4 w-4 ml-1" />
+                  <FolderOpen className="h-4 w-4 ml-2" />
                   פתח פרויקט
                 </Button>
                 <Button
@@ -223,7 +284,7 @@ export function ProjectsListView({
                     onDeleteProject(project.id);
                   }}
                   disabled={deletingId === project.id}
-                  className="min-h-[44px] min-w-[44px]"
+                  className="min-h-[48px] min-w-[48px] shadow-md hover:shadow-lg transition-all duration-200"
                   data-testid={`button-delete-project-${project.id}`}
                 >
                   {deletingId === project.id ? (
@@ -234,13 +295,16 @@ export function ProjectsListView({
                 </Button>
               </div>
 
-              {/* Created Date */}
-              <div className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-                <span>נוצר {formatDate(project.created_at)}</span>
+              {/* Footer: Created Date + Status Indicator */}
+              <div className="text-xs text-gray-500 pt-4 border-t border-gray-200 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3 w-3" />
+                  <span>נוצר {formatDate(project.created_at)}</span>
+                </div>
                 {project.status === 'active' && (
-                  <span className="inline-flex items-center gap-1 text-green-600">
-                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                    פעיל
+                  <span className="inline-flex items-center gap-1.5 text-green-600 font-medium">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-lg shadow-green-500/50"></span>
+                    פעיל כעת
                   </span>
                 )}
               </div>

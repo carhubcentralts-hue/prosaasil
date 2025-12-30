@@ -423,7 +423,7 @@ export function OutboundCallsPage() {
   const [projectsStatusFilter, setProjectsStatusFilter] = useState('');
   const projectsPageSize = 50;
   
-  const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useQuery({
+  const { data: projectsData, isLoading: projectsLoading, error: projectsError, refetch: refetchProjects } = useQuery({
     queryKey: ['/api/projects', projectsPage, projectsSearch, projectsStatusFilter],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -445,7 +445,7 @@ export function OutboundCallsPage() {
     retry: 1,
   });
 
-  const projects: Project[] = projectsData?.items || [];
+  const projects: Project[] = Array.isArray(projectsData?.items) ? projectsData.items : [];
   const totalProjects = projectsData?.total || 0;
   const totalProjectsPages = Math.ceil(totalProjects / projectsPageSize);
 
@@ -2361,6 +2361,25 @@ export function OutboundCallsPage() {
       {/* Projects Tab */}
       {!showResults && activeTab === 'projects' && (
         <div className="space-y-4">
+          {projectsError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+              <XCircle className="h-5 w-5 text-red-600" />
+              <div className="flex-1">
+                <span className="text-red-800 font-medium">שגיאה בטעינת פרויקטים</span>
+                <p className="text-red-600 text-sm mt-1">
+                  {projectsError instanceof Error ? projectsError.message : 'אנא נסה שוב מאוחר יותר'}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => refetchProjects()}
+                className="flex-shrink-0"
+              >
+                נסה שוב
+              </Button>
+            </div>
+          )}
           {selectedProjectId ? (
             <ProjectDetailView
               projectId={selectedProjectId}
