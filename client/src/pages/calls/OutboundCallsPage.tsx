@@ -18,7 +18,8 @@ import {
   LayoutGrid,
   List,
   StopCircle,
-  Clock
+  Clock,
+  FolderOpen
 } from 'lucide-react';
 import { formatDateOnly, formatDate } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
@@ -31,6 +32,9 @@ import { StatusDropdownWithWebhook } from '../../shared/components/ui/StatusDrop
 import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
+import { ProjectsListView } from './components/ProjectsListView';
+import { ProjectDetailView } from './components/ProjectDetailView';
+import { CreateProjectModal } from './components/CreateProjectModal';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
 import type { LeadStatusConfig } from '../../shared/types/status';
 
@@ -80,7 +84,7 @@ interface ImportedLeadsResponse {
   items: ImportedLead[];
 }
 
-type TabType = 'system' | 'active' | 'imported' | 'recent';
+type TabType = 'system' | 'active' | 'imported' | 'recent' | 'projects';
 
 // Default number of available call slots when counts haven't loaded yet
 const DEFAULT_AVAILABLE_SLOTS = 3;
@@ -102,6 +106,22 @@ interface RecentCall {
   summary: string | null;
 }
 
+interface Project {
+  id: number;
+  name: string;
+  description?: string;
+  status: 'draft' | 'active' | 'completed' | 'paused';
+  created_at: string;
+  total_leads: number;
+  stats?: {
+    total_calls: number;
+    answered: number;
+    no_answer: number;
+    failed: number;
+    total_duration: number;
+  } | null;
+}
+
 export function OutboundCallsPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -117,7 +137,7 @@ export function OutboundCallsPage() {
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
     const tabParam = sp.get('tab') as TabType | null;
-    if (tabParam && ['system', 'active', 'imported', 'recent'].includes(tabParam)) {
+    if (tabParam && ['system', 'active', 'imported', 'recent', 'projects'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [location.search]);
@@ -368,6 +388,42 @@ export function OutboundCallsPage() {
   const recentCalls: RecentCall[] = recentCallsData?.items || [];
   const totalRecentCalls = recentCallsData?.total || 0;
   const totalRecentPages = Math.ceil(totalRecentCalls / recentCallsPageSize);
+
+  // Query for projects
+  const [projectsPage, setProjectsPage] = useState(1);
+  const [projectsSearch, setProjectsSearch] = useState('');
+  const [projectsStatusFilter, setProjectsStatusFilter] = useState('');
+  const projectsPageSize = 50;
+  
+  const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useQuery({
+    queryKey: ['/api/projects', projectsPage, projectsSearch, projectsStatusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(projectsPage),
+        page_size: String(projectsPageSize),
+      });
+      
+      if (projectsSearch) {
+        params.append('search', projectsSearch);
+      }
+      
+      if (projectsStatusFilter) {
+        params.append('status', projectsStatusFilter);
+      }
+
+      return await http.get(`/api/projects?${params.toString()}`);
+    },
+    enabled: activeTab === 'projects',
+    retry: 1,
+  });
+
+  const projects: Project[] = projectsData?.items || [];
+  const totalProjects = projectsData?.total || 0;
+  const totalProjectsPages = Math.ceil(totalProjects / projectsPageSize);
+
+  // Project view state
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
 
   const systemLeads = Array.isArray(leadsData?.leads) ? leadsData.leads : [];
   const activeLeads = Array.isArray(activeLeadsData?.leads) ? activeLeadsData.leads : [];
@@ -861,27 +917,27 @@ export function OutboundCallsPage() {
   }, []);
 
   return (
-    <div className="p-6 space-y-6" dir="rtl">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-full overflow-x-hidden" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <PhoneOutgoing className="h-8 w-8 text-blue-600" />
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">שיחות יוצאות</h1>
-            <p className="text-sm text-gray-500">לידים שמקורם משיחות יוצאות + ניהול רשימות ייבוא</p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <PhoneOutgoing className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 flex-shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">שיחות יוצאות</h1>
+            <p className="text-xs sm:text-sm text-gray-500 line-clamp-1">לידים שמקורם משיחות יוצאות + ניהול רשימות ייבוא</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
           {/* Stop Queue Button */}
           {activeRunId && queueStatus && (
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                  <div className="text-sm">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
+                  <div className="text-xs sm:text-sm min-w-0">
                     <div className="font-medium text-blue-900">תור פעיל</div>
-                    <div className="text-blue-600">
+                    <div className="text-blue-600 truncate">
                       בתור: {queueStatus.queued} | מתבצע: {queueStatus.in_progress} | הושלם: {queueStatus.completed}
                       {queueStatus.failed > 0 && ` | נכשל: ${queueStatus.failed}`}
                     </div>
@@ -892,7 +948,7 @@ export function OutboundCallsPage() {
                 variant="destructive"
                 size="sm"
                 onClick={handleStopQueue}
-                className="flex items-center gap-2"
+                className="flex items-center justify-center gap-2 min-h-[44px] w-full sm:w-auto"
                 data-testid="button-stop-queue"
               >
                 <StopCircle className="h-4 w-4" />
@@ -903,13 +959,13 @@ export function OutboundCallsPage() {
           
           {/* View Mode Toggle */}
           {(activeTab === 'system' || activeTab === 'active' || activeTab === 'imported') && !showResults && (
-            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-full sm:w-auto">
               <button
                 onClick={() => {
                   console.log('[OutboundCallsPage] Switching to Kanban view');
                   setViewMode('kanban');
                 }}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                   viewMode === 'kanban'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -917,14 +973,14 @@ export function OutboundCallsPage() {
                 data-testid="button-kanban-view"
               >
                 <LayoutGrid className="h-4 w-4" />
-                Kanban
+                <span className="hidden sm:inline">Kanban</span>
               </button>
               <button
                 onClick={() => {
                   console.log('[OutboundCallsPage] Switching to Table view');
                   setViewMode('table');
                 }}
-                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                className={`flex-1 sm:flex-none px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                   viewMode === 'table'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -932,22 +988,26 @@ export function OutboundCallsPage() {
                 data-testid="button-table-view"
               >
                 <List className="h-4 w-4" />
-                רשימה
+                <span className="hidden sm:inline">רשימה</span>
               </button>
             </div>
           )}
           
           {counts && (
-            <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-100 px-4 py-2 rounded-lg">
-              <Phone className="h-4 w-4" />
-              <span>
-                שיחות פעילות: {counts.active_total}/{counts.max_total}
-              </span>
-              <span className="mx-2">|</span>
-              <PhoneOutgoing className="h-4 w-4" />
-              <span>
-                יוצאות: {counts.active_outbound}/{counts.max_outbound}
-              </span>
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-600 bg-gray-100 px-3 sm:px-4 py-2 rounded-lg w-full sm:w-auto">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="whitespace-nowrap">
+                  שיחות פעילות: {counts.active_total}/{counts.max_total}
+                </span>
+              </div>
+              <span className="hidden sm:inline mx-2">|</span>
+              <div className="flex items-center gap-1 sm:gap-2">
+                <PhoneOutgoing className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="whitespace-nowrap">
+                  יוצאות: {counts.active_outbound}/{counts.max_outbound}
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -973,9 +1033,9 @@ export function OutboundCallsPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex overflow-x-auto border-b border-gray-200 -mx-4 sm:mx-0 px-4 sm:px-0 scrollbar-hide">
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'system'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -989,11 +1049,12 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4" />
-            לידים במערכת
+            <span className="hidden sm:inline">לידים במערכת</span>
+            <span className="sm:hidden">במערכת</span>
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'active'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1007,11 +1068,12 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <PhoneOutgoing className="h-4 w-4" />
-            לידים לשיחות יוצאות
+            <span className="hidden sm:inline">לידים לשיחות יוצאות</span>
+            <span className="sm:hidden">יוצאות</span>
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'imported'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1025,7 +1087,8 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-4 w-4" />
-            רשימת ייבוא לשיחות יוצאות
+            <span className="hidden sm:inline">רשימת ייבוא לשיחות יוצאות</span>
+            <span className="sm:hidden">ייבוא</span>
             {totalImported > 0 && (
               <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
                 {totalImported}
@@ -1034,7 +1097,7 @@ export function OutboundCallsPage() {
           </div>
         </button>
         <button
-          className={`px-6 py-3 font-medium text-sm transition-colors ${
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'recent'
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -1048,12 +1111,31 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            שיחות אחרונות
+            <span className="hidden sm:inline">שיחות אחרונות</span>
+            <span className="sm:hidden">אחרונות</span>
             {totalRecentCalls > 0 && (
               <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
                 {totalRecentCalls}
               </span>
             )}
+          </div>
+        </button>
+        <button
+          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
+            activeTab === 'projects'
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+          onClick={() => {
+            setActiveTab('projects');
+            setShowResults(false);
+            setCallResults([]);
+          }}
+          data-testid="tab-projects"
+        >
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4" />
+            פרויקטים
           </div>
         </button>
       </div>
@@ -1785,13 +1867,13 @@ export function OutboundCallsPage() {
       {!showResults && activeTab === 'recent' && (
         <div className="space-y-4">
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Clock className="h-5 w-5" />
                 שיחות אחרונות ({totalRecentCalls})
               </h3>
-              <div className="flex items-center gap-3">
-                <div className="relative">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                <div className="relative w-full sm:w-48">
                   <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     placeholder="חיפוש..."
@@ -1800,7 +1882,7 @@ export function OutboundCallsPage() {
                       setRecentCallsSearch(e.target.value);
                       setRecentCallsPage(1);
                     }}
-                    className="pr-10 w-48"
+                    className="pr-10 w-full"
                     data-testid="input-recent-calls-search"
                   />
                 </div>
@@ -1813,6 +1895,7 @@ export function OutboundCallsPage() {
                       refetchRecentCalls();
                     }}
                     data-testid="button-show-all-calls"
+                    className="w-full sm:w-auto"
                   >
                     הצג את כל השיחות
                   </Button>
@@ -1830,7 +1913,8 @@ export function OutboundCallsPage() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                {/* Desktop Table View - Hidden on mobile */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b">
@@ -1943,19 +2027,126 @@ export function OutboundCallsPage() {
                   </table>
                 </div>
 
+                {/* Mobile Card View - Visible only on mobile */}
+                <div className="md:hidden space-y-3">
+                  {recentCalls.map((call) => {
+                    const duration = call.duration 
+                      ? `${Math.floor(call.duration / 60)}:${(call.duration % 60).toString().padStart(2, '0')}`
+                      : '-';
+                    
+                    const getCallStatusColor = (status: string) => {
+                      if (status === 'completed' || status === 'answered') return 'bg-green-100 text-green-800';
+                      if (status === 'no-answer' || status === 'busy') return 'bg-yellow-100 text-yellow-800';
+                      if (status === 'failed') return 'bg-red-100 text-red-800';
+                      return 'bg-gray-100 text-gray-800';
+                    };
+
+                    const getCallStatusLabel = (status: string) => {
+                      if (status === 'completed' || status === 'answered') return 'נענה';
+                      if (status === 'no-answer') return 'לא נענה';
+                      if (status === 'busy') return 'תפוס';
+                      if (status === 'failed') return 'נכשל';
+                      return status;
+                    };
+                    
+                    return (
+                      <div
+                        key={call.call_sid}
+                        className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        data-testid={`recent-call-card-${call.call_sid}`}
+                      >
+                        {/* Header: Phone/Name + Call Status */}
+                        <div 
+                          className="flex items-start justify-between gap-3 mb-3 cursor-pointer"
+                          onClick={() => {
+                            if (call.lead_id) {
+                              handleLeadClick(call.lead_id);
+                            }
+                          }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-base font-medium text-gray-900 truncate">
+                              {call.lead_name || `ליד #${call.lead_id}` || 'לקוח אלמוני'}
+                            </p>
+                            <p className="text-sm text-gray-500 truncate" dir="ltr">{call.to_number || '-'}</p>
+                          </div>
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getCallStatusColor(call.status)}`}>
+                            {getCallStatusLabel(call.status)}
+                          </span>
+                        </div>
+
+                        {/* Details Row: Duration + Time */}
+                        <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-gray-400" />
+                            <span className="font-medium">{duration}</span>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            {call.started_at ? formatDate(call.started_at) : '-'}
+                          </span>
+                        </div>
+
+                        {/* Lead Status - if available */}
+                        {call.lead_id && call.lead_status && (
+                          <div className="mb-3 pb-3 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                            <div className="text-xs text-gray-500 mb-1">סטטוס ליד</div>
+                            <StatusDropdownWithWebhook
+                              leadId={call.lead_id}
+                              currentStatus={call.lead_status}
+                              statuses={statuses}
+                              onStatusChange={async (newStatus) => await handleStatusChange(call.lead_id!, newStatus)}
+                              source="recent_calls_tab"
+                              hasWebhook={hasWebhook}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+
+                        {/* Recording + Summary */}
+                        {(call.recording_url || call.summary || call.transcript) && (
+                          <div className="space-y-2">
+                            {call.recording_url && (
+                              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={`/api/calls/${call.call_sid}/download`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 active:bg-blue-200 transition-colors min-h-[44px]"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  הורד הקלטה
+                                </a>
+                              </div>
+                            )}
+                            {(call.summary || call.transcript) && (
+                              <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg">
+                                <div className="font-medium text-gray-700 mb-1">סיכום:</div>
+                                <p className="line-clamp-2">
+                                  {call.summary || call.transcript || '-'}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Pagination */}
                 {totalRecentPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm text-gray-500">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
+                    <div className="text-sm text-gray-500 order-2 sm:order-1">
                       עמוד {recentCallsPage} מתוך {totalRecentPages}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full sm:w-auto order-1 sm:order-2">
                       <Button
                         variant="secondary"
                         size="sm"
                         onClick={() => setRecentCallsPage(p => Math.max(1, p - 1))}
                         disabled={recentCallsPage === 1}
                         data-testid="button-prev-recent-page"
+                        className="flex-1 sm:flex-none min-h-[44px]"
                       >
                         הקודם
                       </Button>
@@ -1965,6 +2156,7 @@ export function OutboundCallsPage() {
                         onClick={() => setRecentCallsPage(p => Math.min(totalRecentPages, p + 1))}
                         disabled={recentCallsPage === totalRecentPages}
                         data-testid="button-next-recent-page"
+                        className="flex-1 sm:flex-none min-h-[44px]"
                       >
                         הבא
                       </Button>
@@ -1975,6 +2167,100 @@ export function OutboundCallsPage() {
             )}
           </Card>
         </div>
+      )}
+
+      {/* Projects Tab */}
+      {!showResults && activeTab === 'projects' && (
+        <div className="space-y-4">
+          {selectedProjectId ? (
+            <ProjectDetailView
+              projectId={selectedProjectId}
+              onBack={() => {
+                setSelectedProjectId(null);
+                refetchProjects();
+              }}
+              onStartCalls={(leadIds) => {
+                // Use existing bulk call mutation
+                startCallsMutation.mutate({ lead_ids: leadIds });
+              }}
+              statuses={statuses}
+              hasWebhook={hasWebhook}
+            />
+          ) : (
+            <>
+              <ProjectsListView
+                projects={projects}
+                loading={projectsLoading}
+                onCreateProject={() => setShowCreateProject(true)}
+                onOpenProject={(projectId) => setSelectedProjectId(projectId)}
+                onDeleteProject={async (projectId) => {
+                  if (confirm('האם אתה בטוח שברצונך למחוק את הפרויקט?')) {
+                    try {
+                      await http.delete(`/api/projects/${projectId}`);
+                      refetchProjects();
+                    } catch (error) {
+                      console.error('Error deleting project:', error);
+                      alert('שגיאה במחיקת הפרויקט');
+                    }
+                  }
+                }}
+              />
+
+              {/* Pagination */}
+              {totalProjectsPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-gray-100">
+                  <div className="text-sm text-gray-500 order-2 sm:order-1">
+                    עמוד {projectsPage} מתוך {totalProjectsPages}
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto order-1 sm:order-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setProjectsPage(p => Math.max(1, p - 1))}
+                      disabled={projectsPage === 1}
+                      data-testid="button-prev-projects-page"
+                      className="flex-1 sm:flex-none min-h-[44px]"
+                    >
+                      הקודם
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setProjectsPage(p => Math.min(totalProjectsPages, p + 1))}
+                      disabled={projectsPage === totalProjectsPages}
+                      data-testid="button-next-projects-page"
+                      className="flex-1 sm:flex-none min-h-[44px]"
+                    >
+                      הבא
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Create Project Modal */}
+      {showCreateProject && (
+        <CreateProjectModal
+          onClose={() => setShowCreateProject(false)}
+          onCreate={async (name, description, leadIds) => {
+            try {
+              await http.post('/api/projects', {
+                name,
+                description,
+                lead_ids: leadIds
+              });
+              setShowCreateProject(false);
+              refetchProjects();
+            } catch (error) {
+              console.error('Error creating project:', error);
+              throw error;
+            }
+          }}
+          statuses={statuses}
+        />
       )}
 
       {/* Delete Confirmation Modal */}

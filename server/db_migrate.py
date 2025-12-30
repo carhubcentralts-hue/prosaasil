@@ -1701,6 +1701,87 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 54: Projects for Outbound Calls
+        # 🎯 PURPOSE: Enable grouping leads into projects with call tracking and statistics
+        # Projects = Container for leads + call history + stats (only after calls start)
+        if not check_table_exists('outbound_projects'):
+            checkpoint("Migration 54: Creating outbound_projects table")
+            try:
+                checkpoint("  → Creating outbound_projects table...")
+                db.session.execute(text("""
+                    CREATE TABLE outbound_projects (
+                        id SERIAL PRIMARY KEY,
+                        tenant_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        status VARCHAR(50) DEFAULT 'draft',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        started_at TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        created_by INTEGER REFERENCES users(id)
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_projects_tenant_id ON outbound_projects(tenant_id)"))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_projects_status ON outbound_projects(status)"))
+                checkpoint("  ✅ outbound_projects table created")
+                
+                # Junction table for project-lead relationships
+                checkpoint("  → Creating project_leads junction table...")
+                db.session.execute(text("""
+                    CREATE TABLE project_leads (
+                        id SERIAL PRIMARY KEY,
+                        project_id INTEGER NOT NULL REFERENCES outbound_projects(id) ON DELETE CASCADE,
+                        lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        call_attempts INTEGER DEFAULT 0,
+                        last_call_at TIMESTAMP,
+                        last_call_status VARCHAR(50),
+                        total_call_duration INTEGER DEFAULT 0,
+                        UNIQUE(project_id, lead_id)
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_project_leads_project_id ON project_leads(project_id)"))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_project_leads_lead_id ON project_leads(lead_id)"))
+                checkpoint("  ✅ project_leads junction table created")
+                
+                migrations_applied.append('create_outbound_projects_tables')
+                checkpoint("✅ Migration 54 completed - Projects tables created")
+            except Exception as e:
+                log.error(f"❌ Migration 54 failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Migration 54b: Add project_id to call_log for project statistics
+        if check_table_exists('call_log') and not check_column_exists('call_log', 'project_id'):
+            checkpoint("Migration 54b: Adding project_id to call_log")
+            try:
+                checkpoint("  → Adding project_id to call_log...")
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL"))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_call_log_project_id ON call_log(project_id)"))
+                checkpoint("  ✅ call_log.project_id added")
+                migrations_applied.append('add_call_log_project_id')
+                checkpoint("✅ Migration 54b completed - project tracking in calls")
+            except Exception as e:
+                log.error(f"❌ Migration 54b failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Migration 54c: Add project_id to outbound_call_jobs for bulk operations
+        if check_table_exists('outbound_call_jobs') and not check_column_exists('outbound_call_jobs', 'project_id'):
+            checkpoint("Migration 54c: Adding project_id to outbound_call_jobs")
+            try:
+                checkpoint("  → Adding project_id to outbound_call_jobs...")
+                db.session.execute(text("ALTER TABLE outbound_call_jobs ADD COLUMN project_id INTEGER REFERENCES outbound_projects(id) ON DELETE SET NULL"))
+                db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_call_jobs_project_id ON outbound_call_jobs(project_id)"))
+                checkpoint("  ✅ outbound_call_jobs.project_id added")
+                migrations_applied.append('add_outbound_call_jobs_project_id')
+                checkpoint("✅ Migration 54c completed - project tracking in bulk jobs")
+            except Exception as e:
+                log.error(f"❌ Migration 54c failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

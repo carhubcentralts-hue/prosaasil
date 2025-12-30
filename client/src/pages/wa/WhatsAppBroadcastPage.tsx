@@ -367,6 +367,16 @@ export function WhatsAppBroadcastPage() {
       console.log('📤 Sending broadcast:', payloadDebug);
       console.log('📋 Full payload keys:', Array.from(formData.keys()));
       
+      // 🔥 NEW: Debug FormData content
+      console.log('🔍 FormData debug:');
+      for (const [key, value] of formData.entries()) {
+        if (key === 'csv_file') {
+          console.log(`  ${key}: [File: ${(value as File).name}]`);
+        } else {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
+      
       const response = await http.post<{ 
         success?: boolean;
         ok?: boolean;
