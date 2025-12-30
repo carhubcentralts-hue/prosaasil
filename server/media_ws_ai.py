@@ -160,6 +160,12 @@ OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 # Set to True = Use LEGACY NLP parsing (DEPRECATED)
 ENABLE_LEGACY_TOOLS = False  # ✅ MODERN SYSTEM ACTIVE - Realtime Tools only!
 
+# 🔥 FIX: Loop detection disabled (was causing false positives)
+ENABLE_LOOP_DETECT = False  # ✅ DISABLED - Loops handled by OpenAI naturally
+
+# 🔥 FIX: Legacy city/service logic disabled (MODERN system handles via post-call summary)
+ENABLE_LEGACY_CITY_LOGIC = False  # ✅ DISABLED - City extraction happens post-call
+
 # 🔍 OVERRIDE: Allow env var to switch model if needed
 _env_model = os.getenv("OPENAI_REALTIME_MODEL")
 if _env_model:
@@ -5039,6 +5045,8 @@ class MediaStreamHandler:
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
                                 
                                 # 🔥 BUSINESS_PROMPT LOG: Track business prompt injection
+                                # 🔥 FIX: Ensure call_direction is always initialized before use
+                                call_direction = getattr(self, 'call_direction', 'inbound')
                                 prompt_source = 'outbound_ai_prompt' if call_direction == 'outbound' else 'ai_prompt'
                                 logger.info(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}")
                                 _orig_print(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}", flush=True)

@@ -257,7 +257,7 @@ def get_business_policy(
                 logger.info(f"✅ Using opening_hours_json from BusinessSettings (source of truth)")
             else:
                 # 🔥 FALLBACK: Use Business.working_hours only if opening_hours_json is NULL
-                logger.warning(f"⚠️ opening_hours_json is NULL for business {business_id} - fallback to working_hours")
+                logger.info(f"ℹ️ opening_hours_json is NULL for business {business_id} - fallback to working_hours")
                 hours_found = False
                 try:
                     from server.models_sql import Business
