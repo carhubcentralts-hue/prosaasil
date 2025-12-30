@@ -77,10 +77,33 @@ interface BroadcastCampaign {
   total_recipients: number;
   sent_count: number;
   failed_count: number;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'stopped' | 'partial';
   created_at: string;
   created_by: string;
+  stopped_by?: string;
 }
+
+// Hebrew status labels
+const STATUS_LABELS: Record<string, string> = {
+  'pending': 'ממתין',
+  'running': 'רץ',
+  'completed': 'הושלם',
+  'failed': 'נכשל',
+  'paused': 'מושהה',
+  'stopped': 'נעצר',
+  'partial': 'חלקי'
+};
+
+// Status badge variants
+const STATUS_VARIANTS: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info'> = {
+  'pending': 'warning',
+  'running': 'info',
+  'completed': 'success',
+  'failed': 'destructive',
+  'paused': 'warning',
+  'stopped': 'default',
+  'partial': 'warning'
+};
 
 export function WhatsAppBroadcastPage() {
   const [activeTab, setActiveTab] = useState<'send' | 'history' | 'templates'>('send');
@@ -114,6 +137,10 @@ export function WhatsAppBroadcastPage() {
   // Campaign history
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState<number | null>(null);
+  const [campaignDetails, setCampaignDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [stoppingCampaign, setStoppingCampaign] = useState<number | null>(null);
   
   // ✅ FIX: Auto-refresh for running campaigns
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -168,6 +195,42 @@ export function WhatsAppBroadcastPage() {
       console.error('Error loading campaigns:', error);
     } finally {
       setLoadingCampaigns(false);
+    }
+  };
+
+  const loadCampaignDetails = async (campaignId: number) => {
+    try {
+      setLoadingDetails(true);
+      const response = await http.get<any>(`/api/whatsapp/broadcasts/${campaignId}`);
+      setCampaignDetails(response);
+    } catch (error) {
+      console.error('Error loading campaign details:', error);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleStopCampaign = async (campaignId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך לעצור את התפוצה?')) {
+      return;
+    }
+
+    try {
+      setStoppingCampaign(campaignId);
+      const response = await http.post<any>(`/api/whatsapp/broadcasts/${campaignId}/stop`, {});
+      
+      if (response.success) {
+        alert(`התפוצה נעצרה בהצלחה!\n\nנשלחו: ${response.sent_count}\nנכשלו: ${response.failed_count}\nנותרו: ${response.remaining}`);
+        // Reload campaigns to show updated status
+        await loadCampaigns();
+      } else {
+        alert('שגיאה בעצירת התפוצה: ' + (response.message || 'שגיאה לא ידועה'));
+      }
+    } catch (error: any) {
+      console.error('Error stopping campaign:', error);
+      alert('שגיאה בעצירת התפוצה: ' + (error.message || 'שגיאה לא ידועה'));
+    } finally {
+      setStoppingCampaign(null);
     }
   };
 
@@ -965,8 +1028,15 @@ export function WhatsAppBroadcastPage() {
               {campaigns.map(campaign => (
                 <div key={campaign.id} className="border border-slate-200 rounded-lg p-4">
                   <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <h3 className="font-medium text-slate-900">תפוצה #{campaign.id}</h3>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium text-slate-900">תפוצה #{campaign.id}</h3>
+                        <Badge 
+                          variant={STATUS_VARIANTS[campaign.status] || 'default'}
+                        >
+                          {STATUS_LABELS[campaign.status] || campaign.status}
+                        </Badge>
+                      </div>
                       <p className="text-sm text-slate-500">
                         {new Date(campaign.created_at).toLocaleDateString('he-IL', {
                           day: 'numeric',
@@ -977,17 +1047,41 @@ export function WhatsAppBroadcastPage() {
                           timeZone: 'Asia/Jerusalem'
                         })}
                       </p>
+                      {campaign.stopped_by && (
+                        <p className="text-xs text-orange-600 mt-1">
+                          נעצר על ידי {campaign.stopped_by}
+                        </p>
+                      )}
                     </div>
-                    <Badge 
-                      variant={
-                        campaign.status === 'completed' ? 'success' :
-                        campaign.status === 'running' ? 'info' :
-                        campaign.status === 'failed' ? 'destructive' :
-                        'warning'
-                      }
-                    >
-                      {campaign.status}
-                    </Badge>
+                    <div className="flex gap-2">
+                      {(campaign.status === 'running' || campaign.status === 'pending') && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleStopCampaign(campaign.id)}
+                          disabled={stoppingCampaign === campaign.id}
+                        >
+                          {stoppingCampaign === campaign.id ? (
+                            <>
+                              <RefreshCw className="h-3 w-3 ml-1 animate-spin" />
+                              עוצר...
+                            </>
+                          ) : (
+                            'עצור תפוצה'
+                          )}
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedCampaign(campaign.id);
+                          loadCampaignDetails(campaign.id);
+                        }}
+                      >
+                        פרטים
+                      </Button>
+                    </div>
                   </div>
                   
                   <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
@@ -1020,6 +1114,159 @@ export function WhatsAppBroadcastPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {/* Campaign Details Modal */}
+      {selectedCampaign && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setSelectedCampaign(null)}>
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-200">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-semibold">פרטי תפוצה #{selectedCampaign}</h2>
+                <button
+                  onClick={() => setSelectedCampaign(null)}
+                  className="text-slate-500 hover:text-slate-700"
+                >
+                  <XCircle className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              {loadingDetails ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="h-8 w-8 animate-spin mx-auto text-slate-400" />
+                  <p className="text-sm text-slate-500 mt-2">טוען פרטים...</p>
+                </div>
+              ) : campaignDetails ? (
+                <div className="space-y-6">
+                  {/* Summary */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <Card className="p-4">
+                      <div className="text-sm text-slate-500">סה"כ נמענים</div>
+                      <div className="text-2xl font-bold text-slate-900">{campaignDetails.total_recipients}</div>
+                    </Card>
+                    <Card className="p-4">
+                      <div className="text-sm text-green-600">נשלחו בהצלחה</div>
+                      <div className="text-2xl font-bold text-green-600">{campaignDetails.sent_count}</div>
+                    </Card>
+                    <Card className="p-4">
+                      <div className="text-sm text-red-600">נכשלו</div>
+                      <div className="text-2xl font-bold text-red-600">{campaignDetails.failed_count}</div>
+                    </Card>
+                  </div>
+
+                  {/* Recipient Filters */}
+                  <div className="flex gap-2 border-b border-slate-200 pb-2">
+                    <button
+                      className={`px-4 py-2 rounded-md text-sm font-medium ${
+                        !campaignDetails.status_filter
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                      onClick={() => {
+                        setCampaignDetails({ ...campaignDetails, status_filter: null });
+                        loadCampaignDetails(selectedCampaign);
+                      }}
+                    >
+                      הכל ({campaignDetails.total_recipients})
+                    </button>
+                    <button
+                      className="px-4 py-2 rounded-md text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200"
+                      onClick={() => {
+                        setCampaignDetails({ ...campaignDetails, status_filter: 'sent' });
+                        // Would need to implement filtered loading
+                      }}
+                    >
+                      נשלחו ({campaignDetails.sent_count})
+                    </button>
+                    <button
+                      className="px-4 py-2 rounded-md text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200"
+                      onClick={() => {
+                        setCampaignDetails({ ...campaignDetails, status_filter: 'failed' });
+                        // Would need to implement filtered loading
+                      }}
+                    >
+                      נכשלו ({campaignDetails.failed_count})
+                    </button>
+                  </div>
+
+                  {/* Recipients List */}
+                  <div>
+                    <h3 className="font-semibold mb-3">רשימת נמענים</h3>
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">טלפון</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">שם</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">סטטוס</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">שגיאה</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">נשלח</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-slate-200">
+                          {campaignDetails.recipients && campaignDetails.recipients.length > 0 ? (
+                            campaignDetails.recipients.map((recipient: any, idx: number) => (
+                              <tr key={idx}>
+                                <td className="px-4 py-3 text-sm text-slate-900">{recipient.phone}</td>
+                                <td className="px-4 py-3 text-sm text-slate-600">{recipient.lead_name || '-'}</td>
+                                <td className="px-4 py-3">
+                                  <Badge
+                                    variant={
+                                      recipient.status === 'sent' || recipient.status === 'delivered' ? 'success' :
+                                      recipient.status === 'failed' ? 'destructive' :
+                                      'warning'
+                                    }
+                                  >
+                                    {recipient.status === 'sent' ? 'נשלח' :
+                                     recipient.status === 'delivered' ? 'נמסר' :
+                                     recipient.status === 'failed' ? 'נכשל' :
+                                     recipient.status === 'queued' ? 'בתור' : recipient.status}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-red-600">
+                                  {recipient.error ? (
+                                    <span className="truncate max-w-xs block" title={recipient.error}>
+                                      {recipient.error}
+                                    </span>
+                                  ) : '-'}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-slate-500">
+                                  {recipient.sent_at ? new Date(recipient.sent_at).toLocaleTimeString('he-IL', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  }) : '-'}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                                אין נמענים להצגה
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination info */}
+                    {campaignDetails.pagination && campaignDetails.pagination.total > campaignDetails.pagination.per_page && (
+                      <div className="mt-4 text-sm text-slate-500 text-center">
+                        מציג {Math.min(campaignDetails.pagination.per_page, campaignDetails.pagination.total)} מתוך {campaignDetails.pagination.total} נמענים
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-500">
+                  שגיאה בטעינת הפרטים
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Templates Tab */}

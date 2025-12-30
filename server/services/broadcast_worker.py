@@ -21,11 +21,15 @@ class BroadcastWorker:
     def __init__(self, broadcast_id: int):
         self.broadcast_id = broadcast_id
         self.broadcast = None
-        # ✅ FIX: Rate limit 1-3 msgs per second (prevent blocking)
-        self.rate_limit = float(os.getenv('BROADCAST_RATE_LIMIT', '2.0'))  # msgs per second
+        # ✅ FIX: Rate limit - 30 messages every 3 seconds = 10 msgs/sec
+        # This is optimized to avoid blocking while being fast
+        self.rate_limit = float(os.getenv('BROADCAST_RATE_LIMIT', '10.0'))  # msgs per second
+        self.batch_size = 30  # Send in batches of 30
+        self.batch_delay = 3.0  # Wait 3 seconds between batches
         self.max_retries = int(os.getenv('BROADCAST_MAX_RETRIES', '3'))
         # ✅ FIX: Add random delay to avoid patterns (0.1-0.3s)
         self.random_delay_range = (0.1, 0.3)
+        self.stop_requested = False
         
     def process_campaign(self):
         """Main entry point - process entire campaign"""
@@ -54,14 +58,25 @@ class BroadcastWorker:
             
             log.info(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} queued_recipients={len(recipients)}")
             
-            # Process each recipient
+            # Process each recipient in batches
+            # ✅ FIX: Smart rate limiting - 30 msgs every 3 seconds
             for idx, recipient in enumerate(recipients, 1):
+                # Check if stop was requested
+                if self._check_stop_requested():
+                    log.info(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} stopped_by_user at {idx}/{len(recipients)}")
+                    break
+                
                 self._process_recipient(recipient, idx, len(recipients))
                 
-                # ✅ FIX: Throttle with base delay + random jitter
-                base_delay = 1.0 / self.rate_limit
-                random_jitter = random.uniform(*self.random_delay_range)
-                time.sleep(base_delay + random_jitter)
+                # ✅ FIX: Smart throttling - batch-based
+                # Every 30 messages, wait 3 seconds. Otherwise minimal delay.
+                if idx % self.batch_size == 0:
+                    log.info(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} batch_complete={idx} waiting={self.batch_delay}s")
+                    time.sleep(self.batch_delay)
+                else:
+                    # Small delay between individual messages within batch
+                    random_jitter = random.uniform(*self.random_delay_range)
+                    time.sleep(random_jitter)
             
             # Update campaign status
             self._finalize_campaign()
@@ -143,6 +158,19 @@ class BroadcastWorker:
             self.broadcast.failed_count += 1
             db.session.commit()
     
+    def _check_stop_requested(self):
+        """Check if the broadcast was stopped by user"""
+        try:
+            # Refresh broadcast from DB to check latest status
+            db.session.refresh(self.broadcast)
+            if self.broadcast.status == 'stopped':
+                self.stop_requested = True
+                return True
+            return False
+        except Exception as e:
+            log.warning(f"[WA_BROADCAST] Error checking stop status: {e}")
+            return False
+    
     def _finalize_campaign(self):
         """Update campaign final status"""
         remaining = WhatsAppBroadcastRecipient.query.filter_by(
@@ -150,15 +178,17 @@ class BroadcastWorker:
             status='queued'
         ).count()
         
-        if remaining == 0:
-            if self.broadcast.failed_count == 0:
-                self.broadcast.status = 'completed'
-            elif self.broadcast.sent_count > 0:
-                self.broadcast.status = 'partial'
+        # Don't change status if already stopped by user
+        if self.broadcast.status != 'stopped':
+            if remaining == 0:
+                if self.broadcast.failed_count == 0:
+                    self.broadcast.status = 'completed'
+                elif self.broadcast.sent_count > 0:
+                    self.broadcast.status = 'partial'
+                else:
+                    self.broadcast.status = 'failed'
             else:
-                self.broadcast.status = 'failed'
-        else:
-            self.broadcast.status = 'paused'
+                self.broadcast.status = 'paused'
         
         self.broadcast.completed_at = datetime.utcnow()
         db.session.commit()

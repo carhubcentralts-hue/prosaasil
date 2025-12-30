@@ -2655,11 +2655,11 @@ def create_broadcast():
 @require_api_auth(['system_admin', 'owner', 'admin'])
 def get_broadcast_status(broadcast_id):
     """
-    Get real-time status of a broadcast campaign
+    Get real-time status of a broadcast campaign with detailed recipient information
     """
     try:
         from server.routes_crm import get_business_id
-        from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient
+        from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Lead
         
         business_id = get_business_id()
         
@@ -2668,21 +2668,42 @@ def get_broadcast_status(broadcast_id):
             business_id=business_id
         ).first_or_404()
         
-        # Get detailed recipient status
-        recipients = WhatsAppBroadcastRecipient.query.filter_by(
+        # Get detailed recipient status (paginated)
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        status_filter = request.args.get('status')  # optional filter: sent, failed, queued
+        
+        recipients_query = WhatsAppBroadcastRecipient.query.filter_by(
             broadcast_id=broadcast_id
-        ).all()
+        )
+        
+        # Apply status filter if provided
+        if status_filter:
+            recipients_query = recipients_query.filter_by(status=status_filter)
+        
+        # Paginate
+        recipients_paginated = recipients_query.paginate(page=page, per_page=per_page, error_out=False)
         
         recipient_details = []
-        for r in recipients:
+        for r in recipients_paginated.items:
+            # Try to get lead name if available
+            lead_name = None
+            if r.lead_id:
+                lead = Lead.query.get(r.lead_id)
+                if lead:
+                    lead_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+            
             recipient_details.append({
                 'phone': r.phone,
+                'lead_name': lead_name,
                 'status': r.status,
                 'error': r.error_message,
-                'sent_at': r.sent_at.isoformat() if r.sent_at else None
+                'sent_at': r.sent_at.isoformat() if r.sent_at else None,
+                'delivered_at': r.delivered_at.isoformat() if r.delivered_at else None
             })
         
         creator = User.query.get(broadcast.created_by) if broadcast.created_by else None
+        stopper = User.query.get(broadcast.stopped_by) if hasattr(broadcast, 'stopped_by') and broadcast.stopped_by else None
         
         return jsonify({
             'id': broadcast.id,
@@ -2693,10 +2714,72 @@ def get_broadcast_status(broadcast_id):
             'sent_count': broadcast.sent_count,
             'failed_count': broadcast.failed_count,
             'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
+            'started_at': broadcast.started_at.isoformat() if hasattr(broadcast, 'started_at') and broadcast.started_at else None,
+            'completed_at': broadcast.completed_at.isoformat() if hasattr(broadcast, 'completed_at') and broadcast.completed_at else None,
             'created_by': creator.name if creator else 'לא ידוע',
-            'recipients': recipient_details
+            'stopped_by': stopper.name if stopper else None,
+            'recipients': recipient_details,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': recipients_paginated.total,
+                'pages': recipients_paginated.pages
+            }
         }), 200
         
     except Exception as e:
         log.error(f"Error fetching broadcast status: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@whatsapp_bp.route('/broadcasts/<int:broadcast_id>/stop', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def stop_broadcast(broadcast_id):
+    """
+    Stop a running broadcast campaign
+    """
+    try:
+        from server.routes_crm import get_business_id
+        from server.models_sql import WhatsAppBroadcast
+        
+        business_id = get_business_id()
+        user = session.get('al_user') or session.get('user', {})
+        user_id = user.get('id')
+        
+        broadcast = WhatsAppBroadcast.query.filter_by(
+            id=broadcast_id,
+            business_id=business_id
+        ).first_or_404()
+        
+        # Check if broadcast can be stopped
+        if broadcast.status not in ['pending', 'running', 'queued']:
+            return jsonify({
+                'success': False,
+                'message': f'לא ניתן לעצור תפוצה עם סטטוס {broadcast.status}'
+            }), 400
+        
+        # Mark as stopped
+        broadcast.status = 'stopped'
+        if hasattr(broadcast, 'stopped_by'):
+            broadcast.stopped_by = user_id
+        if hasattr(broadcast, 'stopped_at'):
+            broadcast.stopped_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        log.info(f"[WA_BROADCAST] broadcast_id={broadcast_id} stopped by user_id={user_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'התפוצה נעצרה בהצלחה',
+            'status': broadcast.status,
+            'sent_count': broadcast.sent_count,
+            'failed_count': broadcast.failed_count,
+            'remaining': broadcast.total_recipients - broadcast.sent_count - broadcast.failed_count
+        }), 200
+        
+    except Exception as e:
+        log.error(f"Error stopping broadcast: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
