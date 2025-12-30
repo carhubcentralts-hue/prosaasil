@@ -155,6 +155,22 @@ class LeadAutoStatusService:
         
         return {s.name: (s.description or s.name) for s in statuses}
     
+    def _get_valid_statuses_full(self, tenant_id: int) -> list:
+        """
+        Get full status objects for tenant (including name, label, description)
+        Used for smart matching against Hebrew/multilingual labels
+        
+        Returns: List of LeadStatus objects
+        """
+        from server.models_sql import LeadStatus
+        
+        statuses = LeadStatus.query.filter_by(
+            business_id=tenant_id,
+            is_active=True
+        ).all()
+        
+        return statuses
+    
     def _suggest_status_with_ai(
         self, 
         conversation_text: str, 
@@ -578,12 +594,15 @@ class LeadAutoStatusService:
         valid_statuses_dict: dict
     ) -> Optional[str]:
         """
-        🆕 Smart no-answer status progression
+        🆕 Smart no-answer status progression with SMART MULTILINGUAL MATCHING
         
         Handles intelligent status progression for no-answer calls:
         - First no-answer: → "no_answer" or "no_answer_1" 
         - Second no-answer: → "no_answer_2" (if exists)
         - Third no-answer: → "no_answer_3" (if exists)
+        
+        🆕 ENHANCED: Searches across status name, label, AND description fields
+        to find Hebrew/multilingual matches like "אין מענה", "לא נענה", etc.
         
         Falls back gracefully if only some no-answer statuses exist.
         
@@ -599,27 +618,63 @@ class LeadAutoStatusService:
         
         valid_statuses_set = set(valid_statuses_dict.keys())
         
+        # 🆕 CRITICAL FIX: Get full status objects to check ALL fields (name, label, description)
+        full_statuses = self._get_valid_statuses_full(tenant_id)
+        
         # Find available no-answer statuses in this business
         # Check for: no_answer, no_answer_1, no_answer_2, no_answer_3, אין מענה, אין מענה 2, אין מענה 3
         # 🆕 ALSO include: busy, תפוס, failed, נכשל (they're all types of no-answer!)
+        # 🆕 SMART: Check name, label, AND description fields!
         available_no_answer_statuses = []
+        status_match_info = {}  # Track which field matched for logging
         
-        for status_name in valid_statuses_set:
-            status_lower = status_name.lower()
-            # Match variations: no_answer, busy, failed, אין מענה, תפוס, etc.
-            if ('no_answer' in status_lower or 
-                'no answer' in status_lower or 
-                'אין מענה' in status_lower or
-                'לא ענה' in status_lower or
-                'busy' in status_lower or
-                'תפוס' in status_lower or
-                'failed' in status_lower or
-                'נכשל' in status_lower):
-                available_no_answer_statuses.append(status_name)
+        # Keywords to search for across all fields
+        no_answer_keywords = [
+            'no_answer', 'no answer', 'אין מענה', 'לא ענה', 'לא נענה',
+            'busy', 'תפוס', 'קו תפוס', 'failed', 'נכשל', 'שיחה נכשלה',
+            'unanswered', 'not answered', 'didnt answer', "didn't answer"
+        ]
+        
+        for status in full_statuses:
+            # Combine all searchable text: name, label, description
+            searchable_text = ""
+            matched_in = []
+            
+            # Check name field
+            if status.name:
+                name_lower = status.name.lower()
+                if any(kw in name_lower for kw in no_answer_keywords):
+                    matched_in.append("name")
+                searchable_text += name_lower + " "
+            
+            # 🆕 CRITICAL: Check label field (user-visible text, often in Hebrew!)
+            if status.label:
+                label_lower = status.label.lower()
+                if any(kw in label_lower for kw in no_answer_keywords):
+                    matched_in.append("label")
+                searchable_text += label_lower + " "
+            
+            # Check description field
+            if status.description:
+                desc_lower = status.description.lower()
+                if any(kw in desc_lower for kw in no_answer_keywords):
+                    matched_in.append("description")
+                searchable_text += desc_lower
+            
+            # If any field matched, add this status
+            if matched_in:
+                available_no_answer_statuses.append(status.name)
+                status_match_info[status.name] = {
+                    'fields': matched_in,
+                    'label': status.label,
+                    'name': status.name
+                }
+                log.info(f"[AutoStatus] 🎯 Found no-answer status: '{status.name}' (label: '{status.label}', matched in: {', '.join(matched_in)})")
         
         if not available_no_answer_statuses:
             log.warning(f"[AutoStatus] ⚠️ No 'no_answer' status available for business {tenant_id}!")
-            log.info(f"[AutoStatus] 📋 Available statuses: {', '.join(list(valid_statuses_set)[:10])}")
+            log.info(f"[AutoStatus] 📋 Available statuses (first 10): {', '.join(list(valid_statuses_set)[:10])}")
+            log.info(f"[AutoStatus] 💡 TIP: Create a status with label 'אין מענה' or 'no answer' to enable auto-status for no-answer calls")
             return None
         
         log.info(f"[AutoStatus] 🔍 Found {len(available_no_answer_statuses)} no-answer statuses: {', '.join(available_no_answer_statuses)}")
@@ -652,34 +707,59 @@ class LeadAutoStatusService:
             log.info(f"[AutoStatus] 🔢 Found {no_answer_call_count} previous no-answer calls for lead {lead_id}")
             
             # Get lead's current status to check if it's already a no-answer variant
-            from server.models_sql import Lead
+            from server.models_sql import Lead, LeadStatus
             lead = Lead.query.filter_by(id=lead_id).first()
             
             # Determine next attempt based on BOTH history and current status
             next_attempt = 1  # Default
             
             if lead and lead.status:
-                status_lower = lead.status.lower()
-                if ('no_answer' in status_lower or 
-                    'no answer' in status_lower or 
-                    'אין מענה' in status_lower or
-                    'לא ענה' in status_lower or
-                    'busy' in status_lower or
-                    'תפוס' in status_lower):
-                    # Lead is currently in a no-answer/busy state
-                    # Extract number if present (e.g., "no_answer_2" → 2, "אין מענה 3" → 3)
-                    numbers = re.findall(r'\d+', lead.status)
-                    if numbers:
-                        current_attempt = int(numbers[-1])  # Take last number found
+                # 🆕 CRITICAL: Check if current status is a no-answer status
+                # Need to check BOTH the status name AND its label
+                current_status_obj = LeadStatus.query.filter_by(
+                    business_id=tenant_id,
+                    name=lead.status,
+                    is_active=True
+                ).first()
+                
+                is_no_answer_status = False
+                current_attempt = 1
+                
+                # Check if status name OR label contains no-answer keywords
+                status_name_lower = lead.status.lower()
+                status_label_lower = (current_status_obj.label.lower() if current_status_obj and current_status_obj.label else '')
+                
+                # Combine both for checking
+                combined_text = status_name_lower + ' ' + status_label_lower
+                
+                if ('no_answer' in combined_text or 
+                    'no answer' in combined_text or 
+                    'אין מענה' in combined_text or
+                    'לא ענה' in combined_text or
+                    'לא נענה' in combined_text or
+                    'busy' in combined_text or
+                    'תפוס' in combined_text):
+                    is_no_answer_status = True
+                    
+                    # Extract number from BOTH name and label
+                    numbers_in_name = re.findall(r'\d+', lead.status)
+                    numbers_in_label = re.findall(r'\d+', status_label_lower)
+                    
+                    # Prefer label number over name number
+                    if numbers_in_label:
+                        current_attempt = int(numbers_in_label[-1])
+                    elif numbers_in_name:
+                        current_attempt = int(numbers_in_name[-1])
                     else:
                         current_attempt = 1  # First no-answer (no number = attempt 1)
                     
                     # Determine next attempt
                     next_attempt = current_attempt + 1
                     
-                    log.info(f"[AutoStatus] 👤 Lead {lead_id} currently at no-answer status '{lead.status}' (attempt {current_attempt})")
+                    log.info(f"[AutoStatus] 👤 Lead {lead_id} currently at no-answer status '{lead.status}' (label: '{status_label_lower}', attempt {current_attempt})")
                     log.info(f"[AutoStatus] ➡️  Next attempt will be: {next_attempt}")
-                else:
+                
+                if not is_no_answer_status:
                     # Not currently no-answer, but check history
                     # If we have no-answer calls in history, start from attempt based on count
                     if no_answer_call_count > 0:
@@ -698,38 +778,56 @@ class LeadAutoStatusService:
                     next_attempt = 1
                 log.info(f"[AutoStatus] ⚠️  Lead {lead_id} has no status yet, using attempt: {next_attempt}")
             
-            # Now find the appropriate status based on attempt number
-            # Sort available statuses to prefer numbered ones
-            sorted_statuses = sorted(available_no_answer_statuses)
+            # 🆕 SMART NUMBER EXTRACTION: Extract numbers from both name AND label
+            # Build map: {attempt_number: status_name}
+            status_by_attempt = {}
+            
+            for status_name in available_no_answer_statuses:
+                # Get the full status object to check label
+                status_obj = next((s for s in full_statuses if s.name == status_name), None)
+                if not status_obj:
+                    continue
+                
+                # Extract numbers from name AND label
+                numbers_in_name = re.findall(r'\d+', status_name)
+                numbers_in_label = re.findall(r'\d+', status_obj.label or '')
+                
+                # Combine all found numbers (prefer label over name)
+                all_numbers = numbers_in_label + numbers_in_name
+                
+                if all_numbers:
+                    # Take the first (or last) number found - represents the attempt
+                    attempt_num = int(all_numbers[0])
+                    status_by_attempt[attempt_num] = status_name
+                    log.info(f"[AutoStatus] 🔢 Mapped attempt {attempt_num} → status '{status_name}' (label: '{status_obj.label}')")
+                else:
+                    # No number in name or label - this is the base status (attempt 1)
+                    if 1 not in status_by_attempt:
+                        status_by_attempt[1] = status_name
+                        log.info(f"[AutoStatus] 🔢 Mapped base status (attempt 1) → '{status_name}' (label: '{status_obj.label}')")
+            
+            log.info(f"[AutoStatus] 📊 Available attempt mapping: {status_by_attempt}")
             
             # Try to find status matching the attempt number
-            # Priority: exact match (no_answer_2) > base status (no_answer)
             target_status = None
             
-            if next_attempt == 1:
-                # First attempt - use base "no_answer" or "no_answer_1"
-                for status in sorted_statuses:
-                    status_lower = status.lower()
-                    # Prefer exact "no_answer" without number, or "no_answer_1"
-                    if (status_lower == 'no_answer' or 
-                        status_lower == 'no answer' or
-                        status_lower == 'אין מענה' or
-                        status_lower == 'לא ענה' or
-                        '1' in status_lower):
-                        target_status = status
-                        break
-            else:
-                # 2nd, 3rd attempt - try to find numbered status
-                for status in sorted_statuses:
-                    # Check if status contains the target attempt number
-                    if str(next_attempt) in status:
-                        target_status = status
-                        break
+            # Priority 1: Exact match for attempt number
+            if next_attempt in status_by_attempt:
+                target_status = status_by_attempt[next_attempt]
+                log.info(f"[AutoStatus] ✅ Found exact match for attempt {next_attempt}: '{target_status}'")
             
-            # Fallback: if no exact match, use any available no-answer status
+            # Priority 2: If no exact match, use highest available attempt that's <= next_attempt
+            if not target_status:
+                available_attempts = sorted([k for k in status_by_attempt.keys() if k <= next_attempt], reverse=True)
+                if available_attempts:
+                    fallback_attempt = available_attempts[0]
+                    target_status = status_by_attempt[fallback_attempt]
+                    log.info(f"[AutoStatus] 📌 No exact match for attempt {next_attempt}, using closest: attempt {fallback_attempt} → '{target_status}'")
+            
+            # Priority 3: If still nothing, just use first available no-answer status
             if not target_status and available_no_answer_statuses:
                 target_status = available_no_answer_statuses[0]
-                log.info(f"[AutoStatus] No exact match for attempt {next_attempt}, using fallback: {target_status}")
+                log.info(f"[AutoStatus] 🔄 Fallback: using first available no-answer status: '{target_status}'")
             
             if target_status:
                 log.info(f"[AutoStatus] Smart progression: attempt {next_attempt} → '{target_status}'")
