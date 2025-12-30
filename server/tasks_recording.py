@@ -1416,6 +1416,110 @@ def _identify_business_for_call(to_number, from_number):
     print("❌ לא נמצא עסק פעיל במערכת - recording יישמר ללא שיוך עסק")
     return None
 
+
+def _handle_failed_call(call_log, call_status, db):
+    """
+    🆕 CRITICAL FIX: Handle failed calls (no-answer, busy, failed, canceled)
+    Create summary and update lead status
+    
+    When a call fails (not answered, busy, failed, canceled), there's NO recording and NO transcript,
+    but we still need to:
+    1. Create a summary stating the reason (e.g., "לא נענה", "תפוס", etc.)
+    2. Update the lead status with smart progression (no_answer → no_answer_2 → no_answer_3)
+    
+    This ensures EVERY call gets a summary and status update, even if it failed!
+    
+    Args:
+        call_log: CallLog object for the failed call
+        call_status: The call status (no-answer, busy, failed, canceled)
+        db: Database session
+    """
+    try:
+        from server.models_sql import Lead, LeadActivity, LeadStatus
+        
+        # 1. Create simple summary based on call status
+        status_summaries = {
+            "no-answer": "שיחה לא נענתה - אין מענה",
+            "busy": "שיחה לא נענתה - קו תפוס",
+            "failed": "שיחה נכשלה - לא הצליח להתקשר",
+            "canceled": "שיחה בוטלה"
+        }
+        
+        summary = status_summaries.get(call_status, f"שיחה לא הושלמה - {call_status}")
+        
+        # Only update if summary doesn't already exist (avoid duplicates)
+        if not call_log.summary or len(call_log.summary.strip()) == 0:
+            call_log.summary = summary
+            log.info(f"[FAILED_CALL] ✅ Created summary for call {call_log.call_sid}: '{summary}'")
+        else:
+            log.info(f"[FAILED_CALL] ⏭️ Summary already exists for call {call_log.call_sid}, skipping")
+        
+        # 2. Get the lead
+        lead = Lead.query.get(call_log.lead_id)
+        if not lead:
+            log.warning(f"[FAILED_CALL] Lead {call_log.lead_id} not found for call {call_log.call_sid}")
+            return
+        
+        # 3. Update lead status using smart auto-status service
+        from server.services.lead_auto_status_service import suggest_lead_status_from_call
+        
+        suggested_status = suggest_lead_status_from_call(
+            tenant_id=call_log.business_id,
+            lead_id=lead.id,
+            call_direction=call_log.direction or "outbound",
+            call_summary=summary,
+            call_transcript=None,  # No transcript for failed calls
+            call_duration=call_log.duration or 0
+        )
+        
+        # 4. Apply status change with validation
+        if suggested_status:
+            # Validate status exists for this business
+            valid_status = LeadStatus.query.filter_by(
+                business_id=call_log.business_id,
+                name=suggested_status,
+                is_active=True
+            ).first()
+            
+            if valid_status:
+                old_status = lead.status
+                lead.status = suggested_status
+                
+                # Create activity for auto status change
+                activity = LeadActivity()
+                activity.lead_id = lead.id
+                activity.type = "status_change"
+                activity.payload = {
+                    "from": old_status,
+                    "to": suggested_status,
+                    "source": f"auto_{call_status}_{call_log.direction or 'unknown'}",
+                    "call_sid": call_log.call_sid
+                }
+                activity.at = datetime.utcnow()
+                db.session.add(activity)
+                
+                db.session.commit()
+                log.info(f"[FAILED_CALL] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status}")
+            else:
+                log.warning(f"[FAILED_CALL] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id}")
+                # Still commit the summary even if status update fails
+                db.session.commit()
+        else:
+            log.info(f"[FAILED_CALL] ℹ️ No confident status match for lead {lead.id}, keeping current status")
+            # Still commit the summary
+            db.session.commit()
+            
+    except Exception as e:
+        log.error(f"[FAILED_CALL] ❌ Error handling failed call {call_log.call_sid}: {e}")
+        import traceback
+        traceback.print_exc()
+        # Rollback on error
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
 def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
     """
     שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106
@@ -1490,6 +1594,14 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
                 db.session.commit()
                 log.info("PostgreSQL call status UPDATED: %s -> %s (duration=%s, direction=%s)", 
                         call_sid, status, duration, call_log.direction)
+                
+                # 🆕 CRITICAL FIX: Handle failed calls (no-answer, busy, failed, canceled)
+                # For these calls, there's NO recording, so we need to handle them here
+                # to ensure EVERY call gets a summary and status update!
+                if status in ["no-answer", "busy", "failed", "canceled"] and call_log.lead_id:
+                    log.info(f"[FAILED_CALL] Handling {status} call for {call_sid} (lead_id={call_log.lead_id})")
+                    _handle_failed_call(call_log, status, db)
+                    
             else:
                 # Call log doesn't exist, but this is just a status update webhook
                 # Log warning - call log should have been created in incoming_call or outbound_call
