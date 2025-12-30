@@ -16,7 +16,8 @@ log = logging.getLogger(__name__)
 MAX_OUTBOUND_CALLS_PER_BUSINESS = 3
 MAX_TOTAL_CALLS_PER_BUSINESS = 5
 
-ACTIVE_CALL_STATUSES = ['initiated', 'ringing', 'in-progress', 'queued', 'in_progress']
+# 🔥 FIX: Terminal call statuses that indicate call has ended
+# These are the definitive statuses from Twilio that mean the call is complete
 TERMINAL_CALL_STATUSES = ['completed', 'busy', 'no-answer', 'canceled', 'failed', 'ended', 'hangup']
 
 # 🔥 FIX: Reduce max call age to 10 minutes (calls shouldn't last longer than this)

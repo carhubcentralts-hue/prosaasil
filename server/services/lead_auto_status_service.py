@@ -431,7 +431,12 @@ class LeadAutoStatusService:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.5,  # Medium temperature for smart pattern recognition
+                # 🔥 Temperature = 0.5 for better semantic understanding:
+                # - 0.3 was too rigid - missed valid semantic connections
+                # - 0.5 allows AI to recognize patterns like "מעוניין" ↔ "interested_hot"
+                # - Still consistent enough to avoid hallucinations
+                # - Better at matching Hebrew summaries to English status names
+                temperature=0.5,
                 max_tokens=50  # Just need the status name
             )
             
