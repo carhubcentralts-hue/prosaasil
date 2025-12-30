@@ -504,6 +504,8 @@ class OpenAIRealtimeClient:
         temperature: float = 0.18,
         max_tokens: int = 300,
         transcription_prompt: str = "",  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
+        tools: list = None,  # 🔥 NEW: Realtime API tools (for appointments)
+        tool_choice: str = None,  # 🔥 NEW: Tool selection mode ("auto", "none", or specific tool)
         force: bool = False  # 🔥 FIX 3: Force resend even if hash matches (for retry)
     ):
         """
@@ -606,9 +608,14 @@ class OpenAIRealtimeClient:
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.debug(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
         
-        # ⭐ BUILD 350: NO TOOLS for phone calls - pure conversation mode
-        # All field extraction (service, city, details) happens ONLY from summary at end of call
-        # Appointment scheduling uses simple keyword detection, NOT Realtime Tools
+        # 🔥 NEW: Add tools if provided (for appointments)
+        # Tools MUST be included in the FIRST session.update to avoid context loss!
+        # Sending tools in a second session.update causes OpenAI to reset conversation context
+        if tools:
+            session_config["tools"] = tools
+            if tool_choice:
+                session_config["tool_choice"] = tool_choice
+            logger.debug(f"✅ [TOOLS] Including {len(tools)} tools in session config (tool_choice={tool_choice})")
         
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format

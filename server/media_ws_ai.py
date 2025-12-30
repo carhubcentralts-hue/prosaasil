@@ -2299,6 +2299,7 @@ class MediaStreamHandler:
         # 🔥 SESSION CONFIGURATION VALIDATION: Track session.update success/failure
         self._session_config_confirmed = False  # True when session.updated received
         self._session_config_failed = False  # True when session.update error received
+        self._session_config_event = asyncio.Event()  # Event for efficient waiting (no polling)
         
         # 🔥 CALL METRICS: Performance tracking counters
         self._barge_in_event_count = 0  # Count of barge-in events during call
@@ -2765,10 +2766,12 @@ class MediaStreamHandler:
         logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
-        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
+        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=None, tool_choice="auto", force=False):
             """Send session.update event with specified configuration
             
             Args:
+                tools: Optional list of Realtime API tools (for appointments)
+                tool_choice: Tool selection mode ("auto", "none", or specific tool)
                 force: Set to True to bypass hash check (for retry)
             """
             # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
@@ -2820,6 +2823,8 @@ class MediaStreamHandler:
                     "אל תנחש, אל תשלים, אל תמציא מילים. "
                     "העדף דיוק על פני שלמות."
                 ),
+                tools=tools,  # 🔥 NEW: Include tools in first session.update
+                tool_choice=tool_choice if tools else None,  # Only set if tools exist
                 force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
             )
         
@@ -3359,6 +3364,33 @@ class MediaStreamHandler:
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
             # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 0.5: Build tools BEFORE session.update (must be included in FIRST update!)
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
+            # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
+            # 🔥 CRITICAL FIX: Tools MUST be included in FIRST session.update to avoid losing context!
+            # Sending a second session.update later causes OpenAI to reset the conversation context!
+            realtime_tools = []
+            tool_choice = "auto"
+            
+            try:
+                logger.debug(f"[REALTIME] Building tools for call...")
+                realtime_tools = self._build_realtime_tools_for_call()
+                logger.debug(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
+                
+                if realtime_tools:
+                    print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)} (will be sent in FIRST session.update)")
+                    logger.debug(f"[TOOLS][REALTIME] Tools will be included in initial session configuration")
+                else:
+                    print(f"[TOOLS][REALTIME] NO tools for this call (disabled or not applicable)")
+                    
+            except Exception as tools_error:
+                logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
+                import traceback
+                traceback.print_exc()
+                realtime_tools = []  # Safe fallback - no tools
+            
+            # ═══════════════════════════════════════════════════════════════════════
             # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
             # ═══════════════════════════════════════════════════════════════════════
             _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
@@ -3383,11 +3415,19 @@ class MediaStreamHandler:
             
             # Send initial session configuration
             _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
-            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens)
+            
+            # 🔥 CRITICAL: Clear event and flags before sending session.update
+            # This ensures we wait for THIS session.updated, not a stale one
+            self._session_config_confirmed = False
+            self._session_config_failed = False
+            self._session_config_event.clear()  # Clear any previous event
+            _orig_print(f"🔄 [SESSION] Cleared session flags - waiting for fresh confirmation", flush=True)
+            
+            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice)
             _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 STEP 3: Extended timeout with retry logic
+            # 🔥 STEP 3: Event-driven wait for session.updated confirmation
             # ═══════════════════════════════════════════════════════════════════════
             # CRITICAL: Wait for session.updated confirmation before proceeding
             # This prevents race condition where response.create is sent before session is configured
@@ -3398,7 +3438,9 @@ class MediaStreamHandler:
             retry_at = 3.0  # Retry after 3 seconds if no response
             retried = False
             
-            while not getattr(self, '_session_config_confirmed', False):
+            # 🔥 PERFORMANCE FIX: Use event-driven wait instead of polling
+            # This eliminates CPU waste and reduces latency from 50ms to <1ms
+            while True:
                 # Check if session configuration failed
                 if getattr(self, '_session_config_failed', False):
                     _orig_print(f"🚨 [SESSION] Configuration FAILED - aborting call", flush=True)
@@ -3412,15 +3454,27 @@ class MediaStreamHandler:
                     retried = True
                     _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
                     # 🔥 FIX 3: Pass force=True to bypass hash check on retry
-                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=True)
+                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, force=True)
                     _orig_print(f"📤 [SESSION] Retry session.update sent with force=True - continuing to wait", flush=True)
                 
                 if elapsed > max_wait:
                     _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - aborting", flush=True)
                     raise RuntimeError(f"Session configuration timeout after {max_wait}s - cannot proceed")
                 
-                # Wait a bit and check again
-                await asyncio.sleep(0.05)  # 50ms polling
+                # 🔥 PERFORMANCE: Use event-driven wait with timeout
+                # This is MUCH faster than polling (reacts instantly, no CPU waste)
+                remaining_time = max_wait - elapsed
+                try:
+                    # Wait for event with timeout (returns True if set, False if timeout)
+                    await asyncio.wait_for(
+                        self._session_config_event.wait(),
+                        timeout=min(0.1, remaining_time)  # Check every 100ms for failure/timeout
+                    )
+                    # Event was set - session confirmed!
+                    break
+                except asyncio.TimeoutError:
+                    # Timeout - check flags and retry logic in next iteration
+                    continue
             
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
@@ -3834,60 +3888,6 @@ class MediaStreamHandler:
                 # Start the watchdog
                 asyncio.create_task(_greeting_audio_timeout_watchdog())
             
-            # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
-            # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
-            # 🔥 FIX: Wrap in try/except to prevent crashes - realtime should continue even if tools fail
-            realtime_tools = []
-            # 🔥 CRITICAL FIX: Define tool_choice BEFORE any closure to avoid scope errors
-            tool_choice = "auto"
-            
-            try:
-                logger.debug(f"[REALTIME] Building tools for call...")
-                realtime_tools = self._build_realtime_tools_for_call()
-                logger.debug(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
-            except Exception as tools_error:
-                logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
-                import traceback
-                traceback.print_exc()
-                realtime_tools = []  # Safe fallback - no tools
-            
-            if realtime_tools:
-                # 🔥 FIX: Appointment tools are enabled - SEND THEM TO SESSION!
-                print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)}")
-                logger.debug(f"[TOOLS][REALTIME] Sending {len(realtime_tools)} tools to session")
-                
-                # Wait for greeting to complete before adding tools (avoid interference)
-                async def _load_appointment_tool():
-                    try:
-                        wait_start = time.time()
-                        max_wait_seconds = 15
-                        
-                        while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                            await asyncio.sleep(0.1)
-                        
-                        print(f"🔧 [TOOLS][REALTIME] Sending session.update with {len(realtime_tools)} tools...")
-                        await client.send_event({
-                            "type": "session.update",
-                            "session": {
-                                "tools": realtime_tools,
-                                "tool_choice": tool_choice
-                            }
-                        })
-                        print(f"✅ [TOOLS][REALTIME] Appointment tools registered in session successfully!")
-                        logger.debug(f"[TOOLS][REALTIME] Tools successfully added to session")
-                        
-                    except Exception as e:
-                        print(f"❌ [TOOLS][REALTIME] FAILED to register tools: {e}")
-                        logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
-                        import traceback
-                        traceback.print_exc()
-                
-                asyncio.create_task(_load_appointment_tool())
-            else:
-                # No tools for this call - pure conversation mode
-                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.debug(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-            
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -4129,8 +4129,12 @@ class MediaStreamHandler:
                     if not _session_wait_logged:
                         _orig_print(f"⏸️ [AUDIO_GATE] Queuing audio - waiting for session.updated confirmation", flush=True)
                         _session_wait_logged = True
-                    await asyncio.sleep(0.05)  # Wait 50ms and check again
-                    continue
+                    # 🔥 PERFORMANCE: Use event wait instead of polling
+                    try:
+                        await asyncio.wait_for(self._session_config_event.wait(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        continue  # Timeout - check again
+                    # Event was set - continue to send audio
                 elif _session_wait_logged:
                     _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
                     _session_wait_logged = False  # Reset for next check
@@ -5355,14 +5359,27 @@ class MediaStreamHandler:
                         self._session_config_failed = True
                 
                 # ═══════════════════════════════════════════════════════════════════════
-                # 🔥 STEP 4: session.created FALLBACK - If session.created arrives but not session.updated
+                # 🔥 STEP 4: session.created - Log only, DO NOT use as fallback
+                # ═══════════════════════════════════════════════════════════════════════
+                # CRITICAL FIX: session.created shows the INITIAL/DEFAULT state BEFORE session.update is applied
+                # OpenAI sends events in this order:
+                # 1. session.created (default config, no instructions)
+                # 2. [client sends session.update]
+                # 3. session.updated (confirmed config with instructions)
+                # 
+                # If response.create happens between session.created and session.updated, it uses DEFAULT settings:
+                # - No instructions (AI doesn't follow prompt)
+                # - Default language (English instead of Hebrew)
+                # - Wrong audio format (PCM16 instead of g711_ulaw)
+                # 
+                # NEVER accept session.created as confirmation - only session.updated is valid!
                 # ═══════════════════════════════════════════════════════════════════════
                 if event_type == "session.created":
-                    _orig_print(f"📋 [SESSION] session.created received", flush=True)
+                    _orig_print(f"📋 [SESSION] session.created received (baseline state - NOT confirmed)", flush=True)
                     session_data = event.get("session", {})
                     
-                    # If we haven't received session.updated yet, validate session.created config
-                    # Some OpenAI versions may not send session.updated for default configs
+                    # Log session.created for debugging, but NEVER set _session_config_confirmed
+                    # This event shows the state BEFORE session.update is applied
                     if not getattr(self, '_session_config_confirmed', False):
                         output_format = session_data.get("output_audio_format", "unknown")
                         input_format = session_data.get("input_audio_format", "unknown")
@@ -5372,48 +5389,8 @@ class MediaStreamHandler:
                         transcription = session_data.get("input_audio_transcription") or {}
                         turn_detection = session_data.get("turn_detection", {})
                         
-                        _orig_print(f"🔍 [SESSION] session.created config: input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
-                        
-                        # 🔥 SAME VALIDATION AS session.updated - critical settings must match!
-                        MIN_INSTRUCTION_LENGTH = 50  # Minimum length to consider instructions valid (not default/empty)
-                        validation_ok = True
-                        
-                        # Validate audio formats
-                        if output_format != "g711_ulaw":
-                            _orig_print(f"❌ [SESSION.CREATED] Wrong output format: {output_format} (expected g711_ulaw)", flush=True)
-                            validation_ok = False
-                        if input_format != "g711_ulaw":
-                            _orig_print(f"❌ [SESSION.CREATED] Wrong input format: {input_format} (expected g711_ulaw)", flush=True)
-                            validation_ok = False
-                        
-                        # Validate instructions
-                        if not instructions or len(instructions) < MIN_INSTRUCTION_LENGTH:
-                            _orig_print(f"❌ [SESSION.CREATED] Instructions too short: {len(instructions)} chars (min {MIN_INSTRUCTION_LENGTH})", flush=True)
-                            validation_ok = False
-                        
-                        # Validate transcription (safely handle None case)
-                        if not transcription or transcription.get("model") != "gpt-4o-transcribe":
-                            _orig_print(f"❌ [SESSION.CREATED] Transcription not configured: {transcription}", flush=True)
-                            validation_ok = False
-                        # Only check language if transcription has a model configured
-                        elif "language" in transcription and transcription.get("language") != "he":
-                            _orig_print(f"⚠️ [SESSION.CREATED] Transcription language not Hebrew: {transcription.get('language')}", flush=True)
-                        
-                        # Validate turn detection
-                        if not turn_detection or turn_detection.get("type") != "server_vad":
-                            _orig_print(f"❌ [SESSION.CREATED] Turn detection not configured: {turn_detection}", flush=True)
-                            validation_ok = False
-                        
-                        # 🔥 FIX 4: Treat session.created as baseline, not fatal
-                        # session.created shows the INITIAL state (before session.update is applied)
-                        # Don't fatal on it - just log and continue waiting for session.updated
-                        if validation_ok:
-                            _orig_print(f"✅ [SESSION.CREATED] Full validation passed - accepting as fallback", flush=True)
-                            _orig_print(f"✅ [SESSION.CREATED] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
-                            self._session_config_confirmed = True
-                        else:
-                            _orig_print(f"⚠️ [SESSION.CREATED] Validation failed (baseline state) - waiting for session.updated", flush=True)
-                            _orig_print(f"⚠️ [SESSION.CREATED] This is normal - session.created shows defaults before session.update applies", flush=True)
+                        _orig_print(f"🔍 [SESSION.CREATED] Baseline config (BEFORE session.update): input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
+                        _orig_print(f"⏳ [SESSION.CREATED] Waiting for session.updated to confirm configuration...", flush=True)
                 
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
@@ -5499,6 +5476,8 @@ class MediaStreamHandler:
                         _orig_print(f"🚨 [SESSION] Configuration INVALID - do NOT proceed with response.create!", flush=True)
                     else:
                         self._session_config_confirmed = True
+                        # 🔥 PERFORMANCE: Set event to wake up waiting coroutines instantly
+                        self._session_config_event.set()
                         _orig_print(f"✅ [SESSION] All validations passed - safe to proceed with response.create", flush=True)
                         _orig_print(f"✅ [SESSION] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
                         logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
