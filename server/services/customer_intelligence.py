@@ -67,11 +67,12 @@ class CustomerIntelligence:
                 was_created = True
                 log.info(f"🆕 Created new customer: {customer.name} ({phone_e164})")
             
-            # ✅ חפש ליד קיים לפי מספר מנורמל - מונע כפילויות!
+            # ✅ חפש ליד קיים לפי מספר מנורמל בלבד - מונע כפילויות!
+            # 🔥 SIMPLIFIED: Just check by phone number, no status filtering
             existing_lead = Lead.query.filter_by(
                 tenant_id=self.business_id,
                 phone_e164=phone_e164  # ✅ משתמש במספר מנורמל!
-            ).filter(Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])).first()
+            ).order_by(Lead.updated_at.desc()).first()
             
             if not existing_lead:
                 lead = self._create_lead_from_whatsapp(customer, message_text)
@@ -384,11 +385,10 @@ class CustomerIntelligence:
     def _create_new_customer_and_lead(self, phone: str, call_sid: str, extracted_info: Dict) -> Tuple[Customer, Lead]:
         """צור לקוח וליד חדשים"""
         # ✅ בדיקה כפולה: וודא שאין ליד קיים לפני יצירה
+        # 🔥 SIMPLIFIED: Just check by phone number, no status filtering
         existing_lead = Lead.query.filter_by(
             tenant_id=self.business_id,
             phone_e164=phone
-        ).filter(
-            Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])
         ).order_by(Lead.updated_at.desc()).first()
         
         # אם יש ליד קיים - רק צור לקוח ועדכן ליד
@@ -481,13 +481,11 @@ class CustomerIntelligence:
     
     def _update_or_create_lead_for_existing_customer(self, customer: Customer, call_sid: str, extracted_info: Dict) -> Lead:
         """עדכן או צור ליד עבור לקוח קיים"""
-        # ✅ חפש ליד פעיל קיים לאותו מספר טלפון (לא לפי call_sid!)
-        # מחפשים לידים פעילים בלבד (לא won/lost/unqualified)
+        # ✅ חפש ליד קיים לאותו מספר טלפון בלבד (לא לפי call_sid!)
+        # 🔥 SIMPLIFIED: Just check by phone number, no status filtering
         existing_lead = Lead.query.filter_by(
             tenant_id=self.business_id,
             phone_e164=customer.phone_e164
-        ).filter(
-            Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])
         ).order_by(Lead.updated_at.desc()).first()
         
         if existing_lead:
