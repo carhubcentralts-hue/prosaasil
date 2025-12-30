@@ -26,6 +26,7 @@ interface OutboundKanbanColumnProps {
   onClearSelection?: () => void;
   showCallableOnly?: boolean;
   callableLeadIds?: Set<number>;
+  realCount?: number; // Real total count from server (if available)
 }
 
 export function OutboundKanbanColumn({
@@ -38,7 +39,8 @@ export function OutboundKanbanColumn({
   onSelectAll,
   onClearSelection,
   showCallableOnly = false,
-  callableLeadIds = new Set()
+  callableLeadIds = new Set(),
+  realCount
 }: OutboundKanbanColumnProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: status.name,
@@ -143,7 +145,10 @@ export function OutboundKanbanColumn({
               {status.label}
             </h3>
             <span className={`text-sm ${textColorClass} opacity-75`}>
-              ({leads.length})
+              ({realCount !== undefined ? realCount : leads.length})
+              {realCount !== undefined && realCount > leads.length && (
+                <span className="text-xs"> • {leads.length} בעמוד</span>
+              )}
             </span>
           </div>
           <div className="flex items-center gap-2">

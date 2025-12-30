@@ -84,6 +84,15 @@ interface ImportedLeadsResponse {
   items: ImportedLead[];
 }
 
+interface ImportList {
+  id: number;
+  name: string;
+  file_name: string | null;
+  total_leads: number;
+  current_leads: number;
+  created_at: string | null;
+}
+
 type TabType = 'system' | 'active' | 'imported' | 'recent' | 'projects';
 
 // Default number of available call slots when counts haven't loaded yet
@@ -158,10 +167,14 @@ export function OutboundCallsPage() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [callResults, setCallResults] = useState<CallResult[]>([]);
+  const [systemLeadsPage, setSystemLeadsPage] = useState(1);
+  const [activeLeadsPage, setActiveLeadsPage] = useState(1);
+  const systemLeadsPageSize = 50;
   
   // Imported leads state
   const [selectedImportedLeads, setSelectedImportedLeads] = useState<Set<number>>(new Set());
   const [importedSearchQuery, setImportedSearchQuery] = useState('');
+  const [selectedImportListId, setSelectedImportListId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showImportResult, setShowImportResult] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -228,11 +241,11 @@ export function OutboundCallsPage() {
   }, []);
 
   const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery({
-    queryKey: ['/api/leads', 'system', searchQuery, selectedStatuses],
+    queryKey: ['/api/leads', 'system', searchQuery, selectedStatuses, systemLeadsPage],
     queryFn: async () => {
       const params = new URLSearchParams({
-        page: '1',
-        pageSize: '100',
+        page: String(systemLeadsPage),
+        pageSize: String(systemLeadsPageSize),
       });
       
       if (searchQuery) {
@@ -250,24 +263,24 @@ export function OutboundCallsPage() {
     },
     enabled: activeTab === 'system',
     select: (data: any) => {
-      if (!data) return { leads: [] };
+      if (!data) return { leads: [], total: 0 };
       // Try different response formats for backward compatibility
-      if (Array.isArray(data)) return { leads: data };
-      if (data.items && Array.isArray(data.items)) return { leads: data.items };
-      if (data.leads && Array.isArray(data.leads)) return { leads: data.leads };
-      return { leads: [] };
+      if (Array.isArray(data)) return { leads: data, total: data.length };
+      if (data.items && Array.isArray(data.items)) return { leads: data.items, total: data.total || data.items.length };
+      if (data.leads && Array.isArray(data.leads)) return { leads: data.leads, total: data.total || data.leads.length };
+      return { leads: [], total: 0 };
     },
     retry: 1,
   });
 
   // Query for active outbound leads (leads assigned to outbound campaign)
   const { data: activeLeadsData, isLoading: activeLoading, error: activeError } = useQuery({
-    queryKey: ['/api/leads', 'active-outbound', searchQuery, selectedStatuses],
+    queryKey: ['/api/leads', 'active-outbound', searchQuery, selectedStatuses, activeLeadsPage],
     queryFn: async () => {
       const params = new URLSearchParams({
         direction: 'outbound',
-        page: '1',
-        pageSize: '100',
+        page: String(activeLeadsPage),
+        pageSize: String(systemLeadsPageSize),
       });
       
       if (searchQuery) {
@@ -285,11 +298,11 @@ export function OutboundCallsPage() {
     },
     enabled: activeTab === 'active',
     select: (data: any) => {
-      if (!data) return { leads: [] };
-      if (Array.isArray(data)) return { leads: data };
-      if (data.items && Array.isArray(data.items)) return { leads: data.items };
-      if (data.leads && Array.isArray(data.leads)) return { leads: data.leads };
-      return { leads: [] };
+      if (!data) return { leads: [], total: 0 };
+      if (Array.isArray(data)) return { leads: data, total: data.length };
+      if (data.items && Array.isArray(data.items)) return { leads: data.items, total: data.total || data.items.length };
+      if (data.leads && Array.isArray(data.leads)) return { leads: data.leads, total: data.total || data.leads.length };
+      return { leads: [], total: 0 };
     },
     retry: 1,
   });
@@ -332,7 +345,7 @@ export function OutboundCallsPage() {
   }, []); // Run once on mount
 
   const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
-    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses],
+    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses, selectedImportListId],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(currentPage),
@@ -350,7 +363,22 @@ export function OutboundCallsPage() {
         });
       }
 
+      // ✅ Add import list filter
+      if (selectedImportListId) {
+        params.append('list_id', String(selectedImportListId));
+      }
+
       return await http.get(`/api/outbound/import-leads?${params.toString()}`);
+    },
+    enabled: activeTab === 'imported',
+    retry: 1,
+  });
+
+  // Query for import lists
+  const { data: importListsData, isLoading: importListsLoading } = useQuery<{ lists: ImportList[] }>({
+    queryKey: ['/api/outbound/import-lists'],
+    queryFn: async () => {
+      return await http.get('/api/outbound/import-lists');
     },
     enabled: activeTab === 'imported',
     retry: 1,
@@ -430,6 +458,8 @@ export function OutboundCallsPage() {
   const importedLeads = importedLeadsData?.items || [];
   const totalImported = importedLeadsData?.total || 0;
   const importLimit = importedLeadsData?.limit || 5000;
+  const totalSystemLeads = leadsData?.total || 0;
+  const totalActiveLeads = activeLeadsData?.total || 0;
 
   // Convert imported leads to Lead format for display in Kanban/List views
   // ✅ Robust conversion that handles all field mappings properly
@@ -819,7 +849,8 @@ export function OutboundCallsPage() {
   };
 
   const handleSelectAllInStatuses = async () => {
-    // Select all leads matching the selected statuses (across pagination)
+    // Toggle: Select all leads matching the selected statuses (across pagination)
+    // If all are already selected, deselect them instead
     if (selectedStatuses.length === 0) {
       alert('יש לבחור לפחות סטטוס אחד');
       return;
@@ -831,22 +862,47 @@ export function OutboundCallsPage() {
         search: activeTab === 'imported' ? importedSearchQuery : searchQuery,
         tab: activeTab,
         source: '', // Can be extended if needed
-        direction: activeTab === 'active' ? 'outbound' : ''
+        direction: activeTab === 'active' ? 'outbound' : '',
+        list_id: activeTab === 'imported' ? selectedImportListId : undefined
       });
 
       const leadIds = response.lead_ids || [];
       
-      if (activeTab === 'imported') {
-        setSelectedImportedLeads(new Set(leadIds));
+      // Check if all these leads are already selected
+      const currentSelection = activeTab === 'imported' ? selectedImportedLeads : selectedLeads;
+      const allSelected = leadIds.length > 0 && leadIds.every((id: number) => currentSelection.has(id));
+      
+      if (allSelected) {
+        // Deselect all
+        if (activeTab === 'imported') {
+          setSelectedImportedLeads(new Set());
+        } else {
+          setSelectedLeads(new Set());
+        }
+        console.log(`[OutboundCallsPage] ✅ Deselected all leads from ${selectedStatuses.length} statuses`);
       } else {
-        setSelectedLeads(new Set(leadIds));
+        // Select all
+        if (activeTab === 'imported') {
+          setSelectedImportedLeads(new Set(leadIds));
+        } else {
+          setSelectedLeads(new Set(leadIds));
+        }
+        console.log(`[OutboundCallsPage] ✅ Selected ${leadIds.length} leads from ${selectedStatuses.length} statuses`);
       }
-
-      console.log(`[OutboundCallsPage] ✅ Selected ${leadIds.length} leads from ${selectedStatuses.length} statuses`);
     } catch (error) {
       console.error('[OutboundCallsPage] ❌ Failed to select leads by status:', error);
       alert('שגיאה בבחירת לידים');
     }
+  };
+
+  // Helper to check if all leads in current filtered view are selected
+  const areAllFilteredLeadsSelected = () => {
+    const currentLeads = activeTab === 'imported' ? importedLeadsAsLeads : (activeTab === 'active' ? activeLeads : systemLeads);
+    const currentSelection = activeTab === 'imported' ? selectedImportedLeads : selectedLeads;
+    
+    if (currentLeads.length === 0) return false;
+    
+    return currentLeads.every((lead: Lead) => currentSelection.has(lead.id));
   };
 
   const handleClearSelection = () => {
@@ -904,6 +960,28 @@ export function OutboundCallsPage() {
   const totalPages = Math.ceil(totalImported / pageSize);
 
   const statuses = statusesData || [];
+  
+  // Calculate status counts from currently loaded leads
+  // Note: These are counts from current page only, real totals would require a separate API call
+  const calculateStatusCounts = (leadsList: Lead[]) => {
+    const counts: Record<string, number> = {};
+    statuses.forEach(status => {
+      counts[status.name] = 0;
+    });
+    leadsList.forEach(lead => {
+      const status = lead.status?.toLowerCase() || 'new';
+      if (counts[status] !== undefined) {
+        counts[status]++;
+      }
+    });
+    return counts;
+  };
+
+  // For now, show counts based on loaded leads
+  // In a future enhancement, fetch real counts from backend
+  const systemLeadsStatusCounts = calculateStatusCounts(systemLeads);
+  const activeLeadsStatusCounts = calculateStatusCounts(activeLeads);
+  const importedLeadsStatusCounts = calculateStatusCounts(importedLeadsAsLeads);
   
   // Defensive guard: Ensure selections are always Sets (fix for runtime errors)
   const safeSelectedLeads = selectedLeads instanceof Set ? selectedLeads : new Set(Array.isArray(selectedLeads) ? selectedLeads : []);
@@ -1271,6 +1349,8 @@ export function OutboundCallsPage() {
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
                     updatingStatusLeadId={updatingStatusLeadId}
+                    statusCounts={systemLeadsStatusCounts}
+                    totalLeads={totalSystemLeads}
                   />
                 </div>
               )}
@@ -1283,7 +1363,10 @@ export function OutboundCallsPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                בחירת לידים ({safeSelectedLeads.size})
+                לידים במערכת ({totalSystemLeads} כולל)
+                {safeSelectedLeads.size > 0 && (
+                  <span className="text-blue-600"> • {safeSelectedLeads.size} נבחרו</span>
+                )}
               </h3>
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 {viewMode === 'table' && (
@@ -1319,51 +1402,82 @@ export function OutboundCallsPage() {
                 {searchQuery ? 'לא נמצאו לידים מתאימים' : 'אין לידים עם מספר טלפון'}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
-                {filteredLeads.slice(0, 50).map((lead: Lead) => {
-                  const isSelected = safeSelectedLeads.has(lead.id);
-                  
-                  return (
-                  <div
-                    key={lead.id}
-                    className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                      isSelected
-                        ? 'bg-blue-50 border-blue-300'
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
-                    } cursor-pointer`}
-                    data-testid={`lead-select-${lead.id}`}
-                  >
-                    <div 
-                      className="flex-1"
-                      onClick={() => handleLeadClick(lead.id)}
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
+                  {filteredLeads.map((lead: Lead) => {
+                    const isSelected = safeSelectedLeads.has(lead.id);
+                    
+                    return (
+                    <div
+                      key={lead.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                        isSelected
+                          ? 'bg-blue-50 border-blue-300'
+                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                      } cursor-pointer`}
+                      data-testid={`lead-select-${lead.id}`}
                     >
-                      <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
-                      <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
+                      <div 
+                        className="flex-1"
+                        onClick={() => handleLeadClick(lead.id)}
+                      >
+                        <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
+                        <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {/* ✅ Editable status dropdown */}
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <StatusDropdownWithWebhook
+                            leadId={lead.id}
+                            currentStatus={lead.status}
+                            statuses={statuses}
+                            onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
+                            source="outbound_calls"
+                            hasWebhook={hasWebhook}
+                            size="sm"
+                          />
+                        </div>
+                        <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
+                          {isSelected ? (
+                            <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
+                          ) : (
+                            <div className="h-5 w-5 border-2 border-gray-300 rounded cursor-pointer"></div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {/* ✅ Editable status dropdown */}
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <StatusDropdownWithWebhook
-                          leadId={lead.id}
-                          currentStatus={lead.status}
-                          statuses={statuses}
-                          onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
-                          source="outbound_calls"
-                          hasWebhook={hasWebhook}
-                          size="sm"
-                        />
-                      </div>
-                      <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
-                        {isSelected ? (
-                          <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
-                        ) : (
-                          <div className="h-5 w-5 border-2 border-gray-300 rounded cursor-pointer"></div>
-                        )}
-                      </div>
+                  );})}
+                </div>
+
+                {/* Pagination */}
+                {totalSystemLeads > systemLeadsPageSize && (
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <div className="text-sm text-gray-500">
+                      עמוד {systemLeadsPage} מתוך {Math.ceil(totalSystemLeads / systemLeadsPageSize)}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSystemLeadsPage(p => Math.max(1, p - 1))}
+                        disabled={systemLeadsPage === 1}
+                        data-testid="button-prev-system-page"
+                      >
+                        הקודם
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSystemLeadsPage(p => Math.min(Math.ceil(totalSystemLeads / systemLeadsPageSize), p + 1))}
+                        disabled={systemLeadsPage >= Math.ceil(totalSystemLeads / systemLeadsPageSize)}
+                        data-testid="button-next-system-page"
+                      >
+                        הבא
+                      </Button>
                     </div>
                   </div>
-                );})}
-              </div>
+                )}
+              </>
             )}
           </Card>
           )}
@@ -1422,6 +1536,8 @@ export function OutboundCallsPage() {
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
                     updatingStatusLeadId={updatingStatusLeadId}
+                    statusCounts={activeLeadsStatusCounts}
+                    totalLeads={totalActiveLeads}
                   />
                 </div>
               )}
@@ -1434,7 +1550,7 @@ export function OutboundCallsPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <PhoneOutgoing className="h-5 w-5" />
-                לידים פעילים לשיחות יוצאות
+                לידים פעילים לשיחות יוצאות ({totalActiveLeads} כולל)
               </h3>
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <div className="w-full sm:w-48">
@@ -1468,33 +1584,64 @@ export function OutboundCallsPage() {
                 {searchQuery ? 'לא נמצאו לידים מתאימים' : 'אין לידים פעילים לשיחות יוצאות'}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
-                {filteredLeads.slice(0, 50).map((lead: Lead) => (
-                  <div
-                    key={lead.id}
-                    className="flex items-center justify-between p-3 rounded-lg border transition-colors bg-white border-gray-200 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => handleLeadClick(lead.id)}
-                    data-testid={`active-lead-${lead.id}`}
-                  >
-                    <div className="flex-1">
-                      <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
-                      <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
+                  {filteredLeads.map((lead: Lead) => (
+                    <div
+                      key={lead.id}
+                      className="flex items-center justify-between p-3 rounded-lg border transition-colors bg-white border-gray-200 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => handleLeadClick(lead.id)}
+                      data-testid={`active-lead-${lead.id}`}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
+                        <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
+                      </div>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        {/* ✅ Editable status dropdown */}
+                        <StatusDropdownWithWebhook
+                          leadId={lead.id}
+                          currentStatus={lead.status}
+                          statuses={statuses}
+                          onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
+                          source="outbound_calls"
+                          hasWebhook={hasWebhook}
+                          size="sm"
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      {/* ✅ Editable status dropdown */}
-                      <StatusDropdownWithWebhook
-                        leadId={lead.id}
-                        currentStatus={lead.status}
-                        statuses={statuses}
-                        onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
-                        source="outbound_calls"
-                        hasWebhook={hasWebhook}
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalActiveLeads > systemLeadsPageSize && (
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <div className="text-sm text-gray-500">
+                      עמוד {activeLeadsPage} מתוך {Math.ceil(totalActiveLeads / systemLeadsPageSize)}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
                         size="sm"
-                      />
+                        onClick={() => setActiveLeadsPage(p => Math.max(1, p - 1))}
+                        disabled={activeLeadsPage === 1}
+                        data-testid="button-prev-active-page"
+                      >
+                        הקודם
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setActiveLeadsPage(p => Math.min(Math.ceil(totalActiveLeads / systemLeadsPageSize), p + 1))}
+                        disabled={activeLeadsPage >= Math.ceil(totalActiveLeads / systemLeadsPageSize)}
+                        data-testid="button-next-active-page"
+                      >
+                        הבא
+                      </Button>
                     </div>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </Card>
           )}
@@ -1591,6 +1738,27 @@ export function OutboundCallsPage() {
           <div className="sticky top-0 z-30 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                {/* Import List Filter */}
+                <div className="w-full sm:w-48">
+                  <Select
+                    value={selectedImportListId?.toString() || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedImportListId(value ? parseInt(value) : null);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full"
+                    data-testid="imported-list-filter"
+                  >
+                    <option value="">כל רשימות הייבוא</option>
+                    {(importListsData?.lists || []).map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name} ({list.current_leads})
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                {/* Status Filter */}
                 <div className="w-full sm:w-48">
                   <MultiStatusSelect
                     statuses={statuses}
@@ -1679,6 +1847,8 @@ export function OutboundCallsPage() {
                     onSelectAll={handleSelectAll}
                     onClearSelection={handleClearSelection}
                     updatingStatusLeadId={updatingStatusLeadId}
+                    statusCounts={importedLeadsStatusCounts}
+                    totalLeads={totalImported}
                   />
                 </div>
               )}
@@ -1709,6 +1879,25 @@ export function OutboundCallsPage() {
                       )}
                     </Button>
                   )}
+                  <div className="w-48">
+                    <Select
+                      value={selectedImportListId?.toString() || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setSelectedImportListId(value ? parseInt(value) : null);
+                        setCurrentPage(1);
+                      }}
+                      className="w-full"
+                      data-testid="imported-table-list-filter"
+                    >
+                      <option value="">כל רשימות הייבוא</option>
+                      {(importListsData?.lists || []).map((list) => (
+                        <option key={list.id} value={list.id}>
+                          {list.name} ({list.current_leads})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                   <div className="w-48">
                     <MultiStatusSelect
                       statuses={statuses}

@@ -41,10 +41,16 @@ export function CreateProjectModal({
   const [importLeads, setImportLeads] = useState<any[]>([]);
   const [loadingImportLeads, setLoadingImportLeads] = useState(false);
   const [importLeadsSearch, setImportLeadsSearch] = useState('');
+  const [selectedImportListId, setSelectedImportListId] = useState<number | null>(null);
+  const [selectedImportStatusFilters, setSelectedImportStatusFilters] = useState<string[]>([]);
   
   // Selection state
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
+
+  // Import lists state
+  const [importLists, setImportLists] = useState<any[]>([]);
+  const [loadingImportLists, setLoadingImportLists] = useState(false);
 
   // Load system leads
   useEffect(() => {
@@ -58,7 +64,14 @@ export function CreateProjectModal({
     if (leadSource === 'import' && step === 'leads') {
       loadImportLeads();
     }
-  }, [leadSource, step, importLeadsSearch]);
+  }, [leadSource, step, importLeadsSearch, selectedImportListId, selectedImportStatusFilters]);
+
+  // Load import lists
+  useEffect(() => {
+    if (leadSource === 'import' && step === 'leads') {
+      loadImportLists();
+    }
+  }, [leadSource, step]);
 
   const loadSystemLeads = async () => {
     try {
@@ -100,12 +113,34 @@ export function CreateProjectModal({
         params.append('search', importLeadsSearch);
       }
 
+      if (selectedImportListId) {
+        params.append('list_id', String(selectedImportListId));
+      }
+
+      if (selectedImportStatusFilters.length > 0) {
+        selectedImportStatusFilters.forEach(status => {
+          params.append('statuses[]', status);
+        });
+      }
+
       const response = await http.get(`/api/outbound/import-leads?${params.toString()}`);
       setImportLeads(response.items || []);
     } catch (error) {
       console.error('Error loading import leads:', error);
     } finally {
       setLoadingImportLeads(false);
+    }
+  };
+
+  const loadImportLists = async () => {
+    try {
+      setLoadingImportLists(true);
+      const response = await http.get('/api/outbound/import-lists');
+      setImportLists(response.lists || []);
+    } catch (error) {
+      console.error('Error loading import lists:', error);
+    } finally {
+      setLoadingImportLists(false);
     }
   };
 
@@ -171,6 +206,28 @@ export function CreateProjectModal({
       setSelectedLeadIds(new Set(leadIds));
     } catch (error) {
       console.error('Error selecting leads by status:', error);
+      alert('שגיאה בבחירת לידים');
+    }
+  };
+
+  const handleSelectImportByStatus = async () => {
+    if (selectedImportStatusFilters.length === 0) {
+      alert('יש לבחור לפחות סטטוס אחד');
+      return;
+    }
+
+    try {
+      const response = await http.post('/api/leads/select-ids', {
+        statuses: selectedImportStatusFilters,
+        search: importLeadsSearch,
+        tab: 'imported',
+        list_id: selectedImportListId
+      });
+
+      const leadIds = response.lead_ids || [];
+      setSelectedLeadIds(new Set(leadIds));
+    } catch (error) {
+      console.error('Error selecting import leads by status:', error);
       alert('שגיאה בבחירת לידים');
     }
   };
@@ -299,6 +356,47 @@ export function CreateProjectModal({
                       onClick={handleSelectByStatus}
                       className="whitespace-nowrap"
                       data-testid="button-select-by-status"
+                    >
+                      בחר הכל בסטטוסים
+                    </Button>
+                  )}
+                </>
+              )}
+              {leadSource === 'import' && (
+                <>
+                  <div className="flex-1">
+                    <select
+                      value={selectedImportListId?.toString() || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setSelectedImportListId(value ? parseInt(value) : null);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      data-testid="import-list-filter"
+                    >
+                      <option value="">כל רשימות הייבוא</option>
+                      {importLists.map((list: any) => (
+                        <option key={list.id} value={list.id}>
+                          {list.name} ({list.current_leads})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <MultiStatusSelect
+                      statuses={statuses}
+                      selectedStatuses={selectedImportStatusFilters}
+                      onChange={setSelectedImportStatusFilters}
+                      placeholder="סנן לפי סטטוס"
+                      data-testid="import-status-filter"
+                    />
+                  </div>
+                  {selectedImportStatusFilters.length > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={handleSelectImportByStatus}
+                      className="whitespace-nowrap"
+                      data-testid="button-select-import-by-status"
                     >
                       בחר הכל בסטטוסים
                     </Button>

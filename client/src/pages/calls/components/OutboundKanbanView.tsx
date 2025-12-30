@@ -48,6 +48,8 @@ interface OutboundKanbanViewProps {
   onSelectAll?: (leadIds: number[]) => void;
   onClearSelection?: () => void;
   updatingStatusLeadId?: number;
+  statusCounts?: Record<string, number>; // Real total counts per status
+  totalLeads?: number; // Total leads across all statuses
 }
 
 export function OutboundKanbanView({
@@ -60,7 +62,9 @@ export function OutboundKanbanView({
   onStatusChange,
   onSelectAll,
   onClearSelection,
-  updatingStatusLeadId
+  updatingStatusLeadId,
+  statusCounts,
+  totalLeads
 }: OutboundKanbanViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -359,6 +363,7 @@ export function OutboundKanbanView({
                   selectedLeadIds={selectedLeadIds}
                   onSelectAll={onSelectAll}
                   onClearSelection={onClearSelection}
+                  realCount={statusCounts?.[status.name]}
                 >
                   <SortableContext
                     items={leadIds}
