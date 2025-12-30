@@ -4,7 +4,11 @@ This test ensures that the get_project endpoint works correctly
 with the CONCAT_WS fix for full_name column
 """
 import os
-import pytest
+from pathlib import Path
+
+# Get project root directory
+PROJECT_ROOT = Path(__file__).parent
+ROUTES_PROJECTS_PATH = PROJECT_ROOT / 'server' / 'routes_projects.py'
 
 
 def test_project_full_name_query_syntax():
@@ -16,7 +20,7 @@ def test_project_full_name_query_syntax():
     os.environ['MIGRATION_MODE'] = '1'
     
     # Read the routes_projects.py file
-    with open('/home/runner/work/prosaasil/prosaasil/server/routes_projects.py', 'r') as f:
+    with open(ROUTES_PROJECTS_PATH, 'r') as f:
         content = f.read()
     
     # Verify that the old problematic pattern is NOT present
