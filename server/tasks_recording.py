@@ -1142,6 +1142,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     log.warning(f"[LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found")
             
             # If no lead_id on CallLog, fall back to creating/finding by phone (legacy behavior)
+            customer = None
+            was_created = False
             if not lead and from_number and call_log and call_log.business_id:
                 print(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
                 ci = CustomerIntelligence(call_log.business_id)
@@ -1159,9 +1161,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if lead:
                     call_log.lead_id = lead.id
                     log.info(f"✅ Linked call {call_sid} to lead {lead.id}")
+            
+            # 🔥 FIX: Process lead updates for ALL leads (existing or newly created)
+            if lead and call_log and call_log.business_id:
+                # Initialize CustomerIntelligence if not already done
+                if 'ci' not in locals():
+                    ci = CustomerIntelligence(call_log.business_id)
                 
                 # 🆕 POST-CALL: Update Lead with extracted service/city (if extraction succeeded)
-                if lead and (extracted_service or extracted_city):
+                if extracted_service or extracted_city:
                     # Only update if fields are empty OR confidence is high (> 0.8)
                     update_service = False
                     update_city = False
@@ -1270,7 +1278,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 
                 db.session.commit()
                 
-                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Final status: {lead.status}")
+                # Log with customer info if available (from creation/lookup), otherwise just log lead info
+                if customer:
+                    log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Final status: {lead.status}")
+                else:
+                    log.info(f"🎯 Call processed with AI for lead {lead.id}, Final status: {lead.status}")
                 log.info(f"📋 Summary: {conversation_summary.get('summary', 'N/A')}")
                 log.info(f"🎭 Intent: {conversation_summary.get('intent', 'N/A')}")
                 log.info(f"⚡ Next action: {conversation_summary.get('next_action', 'N/A')}")
