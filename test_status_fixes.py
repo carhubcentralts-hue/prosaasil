@@ -127,8 +127,9 @@ def test_project_limit_fix():
     """
     print("\n\nTesting project limit fix...")
     
-    # Read the CreateProjectModal file
-    modal_path = "/home/runner/work/prosaasil/prosaasil/client/src/pages/calls/components/CreateProjectModal.tsx"
+    # Read the CreateProjectModal file - use relative path from this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    modal_path = os.path.join(script_dir, "client/src/pages/calls/components/CreateProjectModal.tsx")
     
     try:
         with open(modal_path, 'r') as f:
