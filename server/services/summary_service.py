@@ -182,6 +182,8 @@ def summarize_conversation(
                 disconnect_hint = "\n🔍 שיחה קצרה-בינונית - בדוק אם היה ניתוק מהיר"
             elif 30 <= call_duration <= 60:
                 disconnect_hint = "\n🔍 שיחה בינונית - בדוק אם ניתק באמצע שיחה"
+            else:
+                disconnect_hint = "\n🔍 שיחה ארוכה - ככל הנראה שיחה מלאה"
         
         prompt = f"""סכם את השיחה בצורה אמיתית, מדויקת ואובייקטיבית.
 

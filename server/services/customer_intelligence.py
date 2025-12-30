@@ -388,11 +388,12 @@ class CustomerIntelligence:
     def _create_new_customer_and_lead(self, phone: str, call_sid: str, extracted_info: Dict) -> Tuple[Customer, Lead]:
         """צור לקוח וליד חדשים"""
         # ✅ בדיקה כפולה: וודא שאין ליד קיים לפני יצירה
+        # 🔥 FIX: Check for ANY open lead, not just specific statuses
         existing_lead = Lead.query.filter_by(
             tenant_id=self.business_id,
             phone_e164=phone
         ).filter(
-            Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])
+            ~Lead.status.in_(['won', 'lost', 'closed', 'unqualified', 'archived'])
         ).order_by(Lead.updated_at.desc()).first()
         
         # אם יש ליד קיים - רק צור לקוח ועדכן ליד
