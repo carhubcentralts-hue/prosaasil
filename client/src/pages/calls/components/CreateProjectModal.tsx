@@ -78,7 +78,7 @@ export function CreateProjectModal({
       setLoadingSystemLeads(true);
       const params = new URLSearchParams({
         page: '1',
-        pageSize: '100',
+        pageSize: '5000',  // Increased to 5000 to allow more leads
       });
       
       if (systemLeadsSearch) {
@@ -106,7 +106,7 @@ export function CreateProjectModal({
       setLoadingImportLeads(true);
       const params = new URLSearchParams({
         page: '1',
-        page_size: '100',
+        page_size: '5000',  // Increased to 5000 to allow more leads
       });
       
       if (importLeadsSearch) {
