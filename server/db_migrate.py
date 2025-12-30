@@ -1801,6 +1801,38 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 56: Add stopped_by and stopped_at columns to whatsapp_broadcasts
+        # 🔥 CRITICAL FIX: These columns are defined in WhatsAppBroadcast model but missing from DB
+        # Fixes: psycopg2.errors.UndefinedColumn: column "stopped_by" of relation "whatsapp_broadcasts" does not exist
+        if check_table_exists('whatsapp_broadcasts'):
+            checkpoint("Migration 56: Adding stopped_by and stopped_at to whatsapp_broadcasts")
+            try:
+                # Add stopped_by column if missing
+                if not check_column_exists('whatsapp_broadcasts', 'stopped_by'):
+                    checkpoint("  → Adding stopped_by to whatsapp_broadcasts...")
+                    db.session.execute(text("""
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN stopped_by INTEGER REFERENCES users(id)
+                    """))
+                    checkpoint("  ✅ whatsapp_broadcasts.stopped_by added")
+                    migrations_applied.append('add_whatsapp_broadcasts_stopped_by')
+                
+                # Add stopped_at column if missing
+                if not check_column_exists('whatsapp_broadcasts', 'stopped_at'):
+                    checkpoint("  → Adding stopped_at to whatsapp_broadcasts...")
+                    db.session.execute(text("""
+                        ALTER TABLE whatsapp_broadcasts 
+                        ADD COLUMN stopped_at TIMESTAMP
+                    """))
+                    checkpoint("  ✅ whatsapp_broadcasts.stopped_at added")
+                    migrations_applied.append('add_whatsapp_broadcasts_stopped_at')
+                
+                checkpoint("✅ Migration 56 completed - WhatsApp broadcast stop functionality columns added")
+            except Exception as e:
+                log.error(f"❌ Migration 56 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
