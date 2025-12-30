@@ -52,10 +52,37 @@ class LeadAutoStatusService:
             log.warning(f"No valid statuses found for tenant {tenant_id}")
             return None
         
+        # 🆕 CRITICAL FIX: Handle no-answer calls with smart progression!
+        # Check BOTH duration and summary content to catch all no-answer cases
+        text_to_analyze = call_summary if call_summary else call_transcript
+        
+        # Method 1: Check for 0-3 second duration (very short = likely no answer)
+        is_very_short_call = call_duration is not None and call_duration < 3
+        
+        # Method 2: Check for explicit no-answer indicators in summary/transcript
+        no_answer_indicators = [
+            'לא נענה', 'לא ענה', 'אין מענה', 'no answer', 'unanswered', 
+            'didn\'t answer', 'did not answer', 'לא השיב', 'לא הגיב',
+            'ניתוק מיידי', 'immediate disconnect', '0 שניות', '1 שנייה', '2 שניות',
+            'שיחה לא נענתה'  # Direct match for our summary service output
+        ]
+        has_no_answer_indicator = False
+        if text_to_analyze:
+            text_lower = text_to_analyze.lower()
+            has_no_answer_indicator = any(indicator in text_lower for indicator in no_answer_indicators)
+        
+        # If EITHER condition is true → handle as no-answer with smart progression
+        if is_very_short_call or has_no_answer_indicator:
+            reason = "duration < 3s" if is_very_short_call else "no-answer indicator in text"
+            log.info(f"[AutoStatus] Detected no-answer call for lead {lead_id} ({reason})")
+            suggested = self._handle_no_answer_with_progression(tenant_id, lead_id, valid_statuses_dict)
+            if suggested:
+                log.info(f"[AutoStatus] ✅ No-answer progression suggested '{suggested}' for lead {lead_id}")
+                return suggested
+        
         # 🆕 SIMPLIFIED SMART LOGIC: Always use summary/transcript (now always available!)
         # The summary now includes duration and disconnect reason for ALL calls,
         # so we don't need complex duration-based logic anymore!
-        text_to_analyze = call_summary if call_summary else call_transcript
         
         # Priority 0: Use AI to intelligently determine status (MAIN PATH)
         # This is the SMART method that actually understands the conversation
