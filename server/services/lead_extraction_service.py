@@ -10,20 +10,9 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-# 🔥 BUILD 342: Business vocabulary for better Hebrew transcription
-# Common service types and Israeli cities to improve STT accuracy
-HEBREW_BUSINESS_VOCABULARY = {
-    "services": [
-        "פורץ מנעולים", "חשמלאי", "אינסטלטור", "נקיון", "שרברב",
-        "מנעולן", "טכנאי", "תיקון", "התקנה", "שירות", "בדיקה"
-    ],
-    "cities": [
-        "תל אביב", "ירושלים", "חיפה", "באר שבע", "פתח תקווה",
-        "ראשון לציון", "אשדוד", "נתניה", "בני ברק", "חולון",
-        "רמת גן", "בת ים", "הרצליה", "כפר סבא", "מודיעין",
-        "בית שאן", "מצפה רמון", "אילת", "טבריה", "צפת"
-    ]
-}
+# 🔥 REMOVED: Business vocabulary hardcoding removed - let Whisper work naturally!
+# Hardcoded vocabulary can cause incorrect word substitutions and confuse the model.
+# Better to let the model transcribe accurately without biasing it toward specific terms.
 
 # Service canonicalization mapping - normalize specific services to canonical categories
 # Maps specific service mentions to their canonical business category
@@ -529,35 +518,60 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 logger.info(f"[OFFLINE_STT] Trying model: {model}")
                 print(f"[OFFLINE_STT] Attempting transcription with {model_desc}")
                 
-                # 🔥 BUILD 342: Enhanced prompt with business vocabulary hints
-                # Build prompt dynamically from vocabulary constants
-                services_text = ", ".join(HEBREW_BUSINESS_VOCABULARY["services"][:5])  # First 5 services
-                cities_text = ", ".join(HEBREW_BUSINESS_VOCABULARY["cities"][:10])     # First 10 cities
-                
-                business_vocabulary_prompt = (
-                    f"תמלל מילה במילה שיחת טלפון בעברית בין לקוח לנציג שירות. "
-                    f"תכתוב בעברית תקנית עם פיסוק. "
-                    f"השיחה עוסקת בבקשת שירות (למשל: {services_text}) "
-                    f"ומיקום (ערים בישראל כמו: {cities_text}). "
-                    f"אל תוסיף או תמציא מידע שלא נאמר."
+                # 🔥 CLEAN & SIMPLE: Natural Hebrew prompt without hardcoded vocabulary
+                # Let Whisper transcribe accurately without biasing toward specific terms
+                clean_hebrew_prompt = (
+                    "זוהי שיחת טלפון בעברית ישראלית. "
+                    "תמלל בדיוק מילה במילה כפי שנאמר, בעברית תקנית עם פיסוק מדויק. "
+                    "אל תשנה, תתקן או תמציא מילים - תמלל בדיוק מה שנשמע."
                 )
                 
-                # 🔥 BUILD 342: Use converted file if available (WAV 16kHz mono)
-                with open(file_to_transcribe, 'rb') as audio_file:
-                    transcript_response = client.audio.transcriptions.create(
-                        model=model,
-                        file=audio_file,
-                        language="he",  # Hebrew
-                        temperature=0,  # Most deterministic/accurate
-                        response_format="text",  # Plain text output
-                        prompt=business_vocabulary_prompt
-                    )
+                # 🔥 ENHANCED: Use verbose_json for better quality with segments
+                # This provides timestamps and segment-level information that improves accuracy
                 
-                # Extract text
+                # Try to add timestamp_granularities if supported (newer API versions)
+                try:
+                    # Try with segment-level timestamps for maximum accuracy
+                    try:
+                        with open(file_to_transcribe, 'rb') as audio_file:
+                            transcript_response = client.audio.transcriptions.create(
+                                model=model,
+                                file=audio_file,
+                                language="he",
+                                temperature=0,
+                                response_format="verbose_json",
+                                prompt=clean_hebrew_prompt,
+                                timestamp_granularities=["segment"]
+                            )
+                        logger.info(f"[OFFLINE_STT] Using timestamp_granularities for enhanced accuracy")
+                    except Exception:
+                        # Fallback: timestamp_granularities not supported, use basic verbose_json
+                        logger.info(f"[OFFLINE_STT] timestamp_granularities not supported, using basic verbose_json")
+                        with open(file_to_transcribe, 'rb') as audio_file:
+                            transcript_response = client.audio.transcriptions.create(
+                                model=model,
+                                file=audio_file,
+                                language="he",
+                                temperature=0,
+                                response_format="verbose_json",
+                                prompt=clean_hebrew_prompt
+                            )
+                except Exception as file_error:
+                    logger.error(f"[OFFLINE_STT] File handling error: {file_error}")
+                    raise
+                
+                # Extract text from verbose_json response
                 if isinstance(transcript_response, str):
                     transcript_text = transcript_response.strip()
+                elif hasattr(transcript_response, 'text'):
+                    transcript_text = transcript_response.text.strip()
+                elif hasattr(transcript_response, 'segments'):
+                    # Build transcript from segments for maximum accuracy
+                    segments = transcript_response.segments
+                    transcript_text = " ".join(seg.get('text', '').strip() for seg in segments).strip()
+                    logger.info(f"[OFFLINE_STT] Reconstructed from {len(segments)} segments")
                 else:
-                    transcript_text = transcript_response.text.strip() if hasattr(transcript_response, 'text') else str(transcript_response).strip()
+                    transcript_text = str(transcript_response).strip()
                 
                 # Success with this model!
                 logger.info(f"[OFFLINE_STT] ✅ Success with {model}: {len(transcript_text)} chars")
