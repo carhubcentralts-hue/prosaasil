@@ -1782,6 +1782,25 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 55: Add delivered_at column to whatsapp_broadcast_recipients
+        # 🔥 CRITICAL FIX: This column is defined in WhatsappBroadcastRecipient model but missing from DB
+        # Fixes: psycopg2.errors.UndefinedColumn: column "delivered_at" of relation "whatsapp_broadcast_recipients" does not exist
+        if check_table_exists('whatsapp_broadcast_recipients') and not check_column_exists('whatsapp_broadcast_recipients', 'delivered_at'):
+            checkpoint("Migration 55: Adding delivered_at to whatsapp_broadcast_recipients")
+            try:
+                checkpoint("  → Adding delivered_at to whatsapp_broadcast_recipients...")
+                db.session.execute(text("""
+                    ALTER TABLE whatsapp_broadcast_recipients 
+                    ADD COLUMN delivered_at TIMESTAMP
+                """))
+                checkpoint("  ✅ whatsapp_broadcast_recipients.delivered_at added")
+                migrations_applied.append('add_whatsapp_broadcast_recipients_delivered_at')
+                checkpoint("✅ Migration 55 completed - WhatsApp broadcast delivery tracking column added")
+            except Exception as e:
+                log.error(f"❌ Migration 55 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
