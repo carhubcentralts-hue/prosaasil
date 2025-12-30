@@ -2299,6 +2299,7 @@ class MediaStreamHandler:
         # 🔥 SESSION CONFIGURATION VALIDATION: Track session.update success/failure
         self._session_config_confirmed = False  # True when session.updated received
         self._session_config_failed = False  # True when session.update error received
+        self._session_config_event = asyncio.Event()  # Event for efficient waiting (no polling)
         
         # 🔥 CALL METRICS: Performance tracking counters
         self._barge_in_event_count = 0  # Count of barge-in events during call
@@ -3387,7 +3388,7 @@ class MediaStreamHandler:
             _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 STEP 3: Extended timeout with retry logic
+            # 🔥 STEP 3: Event-driven wait for session.updated confirmation
             # ═══════════════════════════════════════════════════════════════════════
             # CRITICAL: Wait for session.updated confirmation before proceeding
             # This prevents race condition where response.create is sent before session is configured
@@ -3398,7 +3399,9 @@ class MediaStreamHandler:
             retry_at = 3.0  # Retry after 3 seconds if no response
             retried = False
             
-            while not getattr(self, '_session_config_confirmed', False):
+            # 🔥 PERFORMANCE FIX: Use event-driven wait instead of polling
+            # This eliminates CPU waste and reduces latency from 50ms to <1ms
+            while True:
                 # Check if session configuration failed
                 if getattr(self, '_session_config_failed', False):
                     _orig_print(f"🚨 [SESSION] Configuration FAILED - aborting call", flush=True)
@@ -3419,8 +3422,20 @@ class MediaStreamHandler:
                     _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - aborting", flush=True)
                     raise RuntimeError(f"Session configuration timeout after {max_wait}s - cannot proceed")
                 
-                # Wait a bit and check again
-                await asyncio.sleep(0.05)  # 50ms polling
+                # 🔥 PERFORMANCE: Use event-driven wait with timeout
+                # This is MUCH faster than polling (reacts instantly, no CPU waste)
+                remaining_time = max_wait - elapsed
+                try:
+                    # Wait for event with timeout (returns True if set, False if timeout)
+                    await asyncio.wait_for(
+                        self._session_config_event.wait(),
+                        timeout=min(0.1, remaining_time)  # Check every 100ms for failure/timeout
+                    )
+                    # Event was set - session confirmed!
+                    break
+                except asyncio.TimeoutError:
+                    # Timeout - check flags and retry logic in next iteration
+                    continue
             
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
@@ -5355,14 +5370,27 @@ class MediaStreamHandler:
                         self._session_config_failed = True
                 
                 # ═══════════════════════════════════════════════════════════════════════
-                # 🔥 STEP 4: session.created FALLBACK - If session.created arrives but not session.updated
+                # 🔥 STEP 4: session.created - Log only, DO NOT use as fallback
+                # ═══════════════════════════════════════════════════════════════════════
+                # CRITICAL FIX: session.created shows the INITIAL/DEFAULT state BEFORE session.update is applied
+                # OpenAI sends events in this order:
+                # 1. session.created (default config, no instructions)
+                # 2. [client sends session.update]
+                # 3. session.updated (confirmed config with instructions)
+                # 
+                # If response.create happens between session.created and session.updated, it uses DEFAULT settings:
+                # - No instructions (AI doesn't follow prompt)
+                # - Default language (English instead of Hebrew)
+                # - Wrong audio format (PCM16 instead of g711_ulaw)
+                # 
+                # NEVER accept session.created as confirmation - only session.updated is valid!
                 # ═══════════════════════════════════════════════════════════════════════
                 if event_type == "session.created":
-                    _orig_print(f"📋 [SESSION] session.created received", flush=True)
+                    _orig_print(f"📋 [SESSION] session.created received (baseline state - NOT confirmed)", flush=True)
                     session_data = event.get("session", {})
                     
-                    # If we haven't received session.updated yet, validate session.created config
-                    # Some OpenAI versions may not send session.updated for default configs
+                    # Log session.created for debugging, but NEVER set _session_config_confirmed
+                    # This event shows the state BEFORE session.update is applied
                     if not getattr(self, '_session_config_confirmed', False):
                         output_format = session_data.get("output_audio_format", "unknown")
                         input_format = session_data.get("input_audio_format", "unknown")
@@ -5372,48 +5400,8 @@ class MediaStreamHandler:
                         transcription = session_data.get("input_audio_transcription") or {}
                         turn_detection = session_data.get("turn_detection", {})
                         
-                        _orig_print(f"🔍 [SESSION] session.created config: input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
-                        
-                        # 🔥 SAME VALIDATION AS session.updated - critical settings must match!
-                        MIN_INSTRUCTION_LENGTH = 50  # Minimum length to consider instructions valid (not default/empty)
-                        validation_ok = True
-                        
-                        # Validate audio formats
-                        if output_format != "g711_ulaw":
-                            _orig_print(f"❌ [SESSION.CREATED] Wrong output format: {output_format} (expected g711_ulaw)", flush=True)
-                            validation_ok = False
-                        if input_format != "g711_ulaw":
-                            _orig_print(f"❌ [SESSION.CREATED] Wrong input format: {input_format} (expected g711_ulaw)", flush=True)
-                            validation_ok = False
-                        
-                        # Validate instructions
-                        if not instructions or len(instructions) < MIN_INSTRUCTION_LENGTH:
-                            _orig_print(f"❌ [SESSION.CREATED] Instructions too short: {len(instructions)} chars (min {MIN_INSTRUCTION_LENGTH})", flush=True)
-                            validation_ok = False
-                        
-                        # Validate transcription (safely handle None case)
-                        if not transcription or transcription.get("model") != "gpt-4o-transcribe":
-                            _orig_print(f"❌ [SESSION.CREATED] Transcription not configured: {transcription}", flush=True)
-                            validation_ok = False
-                        # Only check language if transcription has a model configured
-                        elif "language" in transcription and transcription.get("language") != "he":
-                            _orig_print(f"⚠️ [SESSION.CREATED] Transcription language not Hebrew: {transcription.get('language')}", flush=True)
-                        
-                        # Validate turn detection
-                        if not turn_detection or turn_detection.get("type") != "server_vad":
-                            _orig_print(f"❌ [SESSION.CREATED] Turn detection not configured: {turn_detection}", flush=True)
-                            validation_ok = False
-                        
-                        # 🔥 FIX 4: Treat session.created as baseline, not fatal
-                        # session.created shows the INITIAL state (before session.update is applied)
-                        # Don't fatal on it - just log and continue waiting for session.updated
-                        if validation_ok:
-                            _orig_print(f"✅ [SESSION.CREATED] Full validation passed - accepting as fallback", flush=True)
-                            _orig_print(f"✅ [SESSION.CREATED] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
-                            self._session_config_confirmed = True
-                        else:
-                            _orig_print(f"⚠️ [SESSION.CREATED] Validation failed (baseline state) - waiting for session.updated", flush=True)
-                            _orig_print(f"⚠️ [SESSION.CREATED] This is normal - session.created shows defaults before session.update applies", flush=True)
+                        _orig_print(f"🔍 [SESSION.CREATED] Baseline config (BEFORE session.update): input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
+                        _orig_print(f"⏳ [SESSION.CREATED] Waiting for session.updated to confirm configuration...", flush=True)
                 
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
@@ -5499,6 +5487,8 @@ class MediaStreamHandler:
                         _orig_print(f"🚨 [SESSION] Configuration INVALID - do NOT proceed with response.create!", flush=True)
                     else:
                         self._session_config_confirmed = True
+                        # 🔥 PERFORMANCE: Set event to wake up waiting coroutines instantly
+                        self._session_config_event.set()
                         _orig_print(f"✅ [SESSION] All validations passed - safe to proceed with response.create", flush=True)
                         _orig_print(f"✅ [SESSION] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
                         logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
