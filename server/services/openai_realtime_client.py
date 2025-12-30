@@ -543,15 +543,17 @@ class OpenAIRealtimeClient:
                     silence_duration_ms = SERVER_VAD_SILENCE_MS
                 if prefix_padding_ms is None:
                     prefix_padding_ms = SERVER_VAD_PREFIX_PADDING_MS
-                logger.debug(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
+                # 🔥 INFO level (not DEBUG): VAD config is critical for production debugging
+                # Only logged once per session, helps diagnose false positive issues
+                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
             except ImportError:
                 # Fallback if config not available
                 if vad_threshold is None:
-                    vad_threshold = 0.60
+                    vad_threshold = 0.85  # Match default from config
                 if silence_duration_ms is None:
-                    silence_duration_ms = 900
+                    silence_duration_ms = 600  # Match default from config (was 900)
                 if prefix_padding_ms is None:
-                    prefix_padding_ms = 400
+                    prefix_padding_ms = 300  # Match default from config (was 400)
                 logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
         # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW
         # Per הנחיה: Use Realtime capabilities, no local noise-floor guards

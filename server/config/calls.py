@@ -42,53 +42,52 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 STABLE VAD CONFIGURATION - Production-ready values for Hebrew calls
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE - CONSERVATIVE APPROACH:
-# - threshold 0.82: GRADUAL REDUCTION - easier to catch quiet speech without too much noise
-#   (reduced from 0.88 → 0.82 instead of aggressive 0.78 jump)
-#   Start with conservative change, can reduce further if needed
-# - silence_duration_ms 600: HEBREW-SAFE - doesn't cut off natural pauses
-#   (reduced from 650ms → 600ms for slightly faster response, safe for Hebrew)
+# TUNING RATIONALE - FALSE POSITIVE REDUCTION:
+# - threshold 0.85: INCREASED from 0.82 to reduce false triggers from background noise
+#   Production logs showed frequent false positives ("בבקשה", "שלום") when user NOT speaking
+#   0.85 provides better balance: catches real speech, ignores background noise
+# - silence_duration_ms 600: HEBREW-SAFE - doesn't cut off natural pauses (unchanged)
 # - prefix_padding_ms 300: Standard padding for Hebrew syllables (unchanged)
 # - create_response: true (automatic response generation on turn end)
 #
 # 🎯 HYSTERESIS APPROACH:
 # OpenAI's server_vad has built-in hysteresis:
-# - 0.82 start threshold: Lower to catch quiet callers
-# - Implicit higher continue threshold: Reduces false cut-offs from noise
+# - 0.85 start threshold: Higher to avoid false triggers from ambient noise
+# - Implicit higher continue threshold: Maintains speech detection once started
 #
 # 🎯 ENV OVERRIDE: Can be tuned in production without code changes
-# export SERVER_VAD_THRESHOLD=0.85  # Increase if too many false triggers
-# export SERVER_VAD_THRESHOLD=0.78  # Decrease if still missing quiet speech
+# export SERVER_VAD_THRESHOLD=0.88  # Further increase if still too many false triggers
+# export SERVER_VAD_THRESHOLD=0.82  # Decrease if missing too much quiet speech
 # export SERVER_VAD_SILENCE_MS=550  # Faster response (test with Hebrew first!)
 # export SERVER_VAD_SILENCE_MS=700  # Safer for Hebrew natural pauses
 #
 # ⚠️ MONITORING REQUIRED:
-# - If too many false triggers → increase to 0.85-0.88
-# - If missing quiet speech ("כן", "לא") → decrease gradually to 0.78-0.75
+# - If still false triggers → increase to 0.88 (more conservative)
+# - If missing quiet speech ("כן", "לא") → decrease gradually to 0.82-0.80
 # - If cutting off Hebrew speech → increase silence_ms to 650-700
 # - If feels sluggish → can try 550ms (test carefully!)
 #
-# Current conservative settings (0.82/600ms/300ms) provide:
-# ✅ Better transcription than 0.88 (catches more nuanced speech)
-# ✅ Not as aggressive as 0.78 (reduces false triggers)
+# Current settings (0.85/600ms/300ms) provide:
+# ✅ Reduced false positives from background noise (main fix)
+# ✅ Still catches real speech including quiet speakers
 # ✅ Hebrew-safe silence duration (600ms handles natural pauses)
-# ✅ Easier barge-in without excessive sensitivity
+# ✅ Better barge-in accuracy without false interruptions
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 
 # Read from environment with validation
-_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.82")
+_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.85")
 _vad_silence_str = os.getenv("SERVER_VAD_SILENCE_MS", "600")
 
 try:
     SERVER_VAD_THRESHOLD = float(_vad_threshold_str)
     # Validate bounds: 0.0 to 1.0
     if not 0.0 <= SERVER_VAD_THRESHOLD <= 1.0:
-        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.82")
-        SERVER_VAD_THRESHOLD = 0.82
+        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.85")
+        SERVER_VAD_THRESHOLD = 0.85
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.82")
-    SERVER_VAD_THRESHOLD = 0.82
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.85")
+    SERVER_VAD_THRESHOLD = 0.85
 
 try:
     SERVER_VAD_SILENCE_MS = int(_vad_silence_str)
@@ -118,25 +117,26 @@ VAD_ADAPTIVE_CAP = 120.0        # Maximum adaptive threshold
 VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 GREETING FIX: BALANCED ECHO GATE - Protect greeting from false triggers
+# 🔥 GREETING FIX: INCREASED ECHO GATE - Stronger protection from false triggers
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (based on log analysis):
-# - RMS 200: Balanced sensitivity - real speech passes, echo/noise blocked
-#   (was 150 - too low, caused greeting interruption from background noise)
-# - Frames 5: Requires 100ms of consistent audio (prevents single-frame noise spikes)
-#   (was 4 - too low, allowed brief echo to trigger false speech_started)
+# TUNING RATIONALE (based on production log analysis):
+# - RMS 250: Higher threshold reduces false positives from background noise
+#   (was 200 - still allowed some ambient noise to trigger speech_started)
+# - Frames 6: Requires 120ms of consistent audio (stronger noise rejection)
+#   (was 5 - allowed briefer noise bursts to pass through)
 #
-# Log analysis showed:
-# ❌ Greeting interrupted by echo/ambient noise (RMS < 200)
-# ❌ speech_started fired within first 200ms of greeting (before real user speech)
+# Production log analysis showed:
+# ❌ Greeting interrupted by background noise (RMS ~200-226)
+# ❌ speech_started fired during first 3 seconds with minimal frames
+# ❌ User claims NOT speaking but system detected "שלום" / "בבקשה"
 #
-# Current balanced setting (200.0/5 frames) provides:
-# ✅ Greeting protection - ignores echo and background noise
-# ✅ Natural interruption - real user speech (RMS > 200) can still interrupt
-# ✅ Consistent greeting delivery - completes unless user truly speaks
+# Current strengthened setting (250.0/6 frames) provides:
+# ✅ Stronger greeting protection - filters out more background noise
+# ✅ Natural interruption still works - real user speech (RMS > 250) passes
+# ✅ More consistent greeting delivery - fewer false interruptions
 # ═══════════════════════════════════════════════════════════════════════════════
-ECHO_GATE_MIN_RMS = 200.0       # Balanced: real speech without echo/noise false triggers
-ECHO_GATE_MIN_FRAMES = 5        # Requires 100ms consistent audio (prevents greeting interruption)
+ECHO_GATE_MIN_RMS = 250.0       # Increased: stronger protection from background noise
+ECHO_GATE_MIN_FRAMES = 6        # Increased: requires 120ms consistent audio (was 5/100ms)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 GREETING FIX: BALANCED BARGE-IN - Protect greeting, allow natural interruption
