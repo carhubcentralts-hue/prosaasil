@@ -4817,6 +4817,35 @@ class MediaStreamHandler:
             print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
             return False
     
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 TOOL RESPONSE TRIGGER - Wrapper for tool/function handlers
+    # ═══════════════════════════════════════════════════════════════════════════════
+    async def trigger_response_from_tool(self, client, tool_name: str, *, force: bool = False) -> bool:
+        """
+        🎯 Tool handlers MUST call this instead of direct response.create.
+        
+        This ensures ALL safety guards apply to tool responses:
+        1. Session gate (session.updated confirmed)
+        2. User speaking check (don't interrupt user)
+        3. Hangup/closing checks (don't waste tokens)
+        4. Consistent cost tracking and logging
+        
+        Args:
+            client: The realtime client
+            tool_name: Name of the tool (e.g., "save_lead_info", "check_availability")
+            force: If True, bypass lifecycle locks (rarely needed for tools)
+            
+        Returns:
+            True if response was triggered, False if blocked by guards
+            
+        Examples:
+            await self.trigger_response_from_tool(client, "save_lead_info")
+            await self.trigger_response_from_tool(client, "schedule_appointment")
+        """
+        # Reuse existing trigger_response with all its guards
+        # Log format: TOOL_<name> for easy identification in logs
+        return await self.trigger_response(f"TOOL_{tool_name}", client, is_greeting=False, force=force)
+    
     async def _ensure_name_anchor_present(self, client):
         """
         Ensure NAME_ANCHOR is present after PROMPT_UPGRADE or other context changes.
@@ -13452,6 +13481,10 @@ class MediaStreamHandler:
         
         When AI calls save_lead_info, we extract the fields and update lead_capture_state.
         No fuzzy matching, no word lists - just trust what OpenAI extracted!
+        
+        ⚠️ CRITICAL: ALL response.create calls in this function MUST use trigger_response_from_tool()
+        DO NOT use client.send_event({"type": "response.create"}) directly!
+        This ensures session gate, user_speaking, hangup checks, and cost tracking apply.
         """
         import json
         
@@ -13482,8 +13515,10 @@ class MediaStreamHandler:
                     }
                 })
                 
-                # Trigger response to continue conversation - 🔥 USE GATE
-                await self.trigger_response("SAVE_LEAD_SUCCESS", client, force=False)
+                # Trigger response to continue conversation - 🔥 USE WRAPPER
+                triggered = await self.trigger_response_from_tool(client, "save_lead_info", force=False)
+                if not triggered:
+                    print(f"⚠️ [TOOL] save_lead_info response blocked by guard")
                 
                 # Check if all fields are captured
                 self._check_lead_complete()
@@ -13498,7 +13533,8 @@ class MediaStreamHandler:
                         "output": json.dumps({"success": False, "error": str(e)})
                     }
                 })
-                await client.send_event({"type": "response.create"})
+                # 🔥 USE WRAPPER - Even on error, need response
+                await self.trigger_response_from_tool(client, "save_lead_info_error", force=False)
         
         elif function_name == "check_availability":
             # 🔥 CHECK AVAILABILITY: Must be called before offering times
@@ -13522,7 +13558,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "check_availability_success", force=False)
                     return
                 
                 # 🔥 CRITICAL: Verify call_goal is appointment
@@ -13541,7 +13577,7 @@ class MediaStreamHandler:
                             }, ensure_ascii=False)
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown_success", force=False)
                     return
                 
                 # Extract parameters (may be Hebrew, server will normalize)
@@ -13581,7 +13617,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown", force=False)
                     return
                 
                 # Call calendar_find_slots implementation
@@ -13635,7 +13671,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         return
                     
                     normalized_date_iso = date_res.date_iso
@@ -13705,7 +13741,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         return
                     
                     # Normalize preferred time (optional)
@@ -13808,7 +13844,7 @@ class MediaStreamHandler:
                             }
                         )
                     
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown", force=False)
                     
                 except Exception as slots_error:
                     print(f"❌ [CHECK_AVAIL] Failed to check slots: {slots_error}")
@@ -13845,7 +13881,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown", force=False)
                     
             except json.JSONDecodeError as e:
                 print(f"❌ [CHECK_AVAIL] Failed to parse arguments: {e}")
@@ -13857,7 +13893,7 @@ class MediaStreamHandler:
                         "output": json.dumps({"success": False, "error": str(e)})
                     }
                 })
-                await client.send_event({"type": "response.create"})
+                await self.trigger_response_from_tool(client, "unknown_success", force=False)
         
         elif function_name == "schedule_appointment":
             # 🔥 APPOINTMENT SCHEDULING: Goal-based with structured errors
@@ -13880,7 +13916,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "schedule_appointment_success", force=False)
                     return
                 
                 # Check if already created appointment in this session
@@ -13897,7 +13933,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown_success", force=False)
                     return
                 
                 # 🔥 CRITICAL: Check call_goal is appointment
@@ -13917,7 +13953,7 @@ class MediaStreamHandler:
                             }, ensure_ascii=False)
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown", force=False)
                     return
                 
                 # 🔥 STEP 2: Extract and validate fields
@@ -13960,7 +13996,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown", force=False)
                     return
                 
                 if not appointment_date_raw or not appointment_time_raw:
@@ -13993,7 +14029,7 @@ class MediaStreamHandler:
                             },
                         }
                     )
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown", force=False)
                     return
                 
                 print(f"📅 [APPOINTMENT] Inputs: name={customer_name}, phone={customer_phone}, date='{appointment_date_raw}', time='{appointment_time_raw}'")
@@ -14052,7 +14088,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         return
                     
                     time_res = resolve_hebrew_time(appointment_time_raw)
@@ -14087,7 +14123,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         return
                     
                     normalized_date_iso = date_res.date_iso
@@ -14153,7 +14189,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         return
 
                     # ✅ SOFT RULE: Prefer prior check_availability, but never hard-block.
@@ -14265,7 +14301,7 @@ class MediaStreamHandler:
                                 },
                             }
                         )
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         return
                     
                     # Parse and localize datetime
@@ -14395,7 +14431,7 @@ class MediaStreamHandler:
                                 }, ensure_ascii=False)
                             }
                         })
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown", force=False)
                         
                     elif isinstance(result, dict):
                         # Dict result (error or legacy format)
@@ -14429,7 +14465,7 @@ class MediaStreamHandler:
                                     }, ensure_ascii=False)
                                 }
                             })
-                            await client.send_event({"type": "response.create"})
+                            await self.trigger_response_from_tool(client, "unknown", force=False)
                         else:
                             # Error in dict
                             error_code = result.get("error", "unknown_error")
@@ -14470,7 +14506,7 @@ class MediaStreamHandler:
                                     },
                                 }
                             )
-                            await client.send_event({"type": "response.create"})
+                            await self.trigger_response_from_tool(client, "unknown", force=False)
                     else:
                         # Unexpected format
                         print(f"❌ [APPOINTMENT] Unexpected result type: {type(result)}")
@@ -14485,7 +14521,7 @@ class MediaStreamHandler:
                                 })
                             }
                         })
-                        await client.send_event({"type": "response.create"})
+                        await self.trigger_response_from_tool(client, "unknown_success", force=False)
                         
                 except (ValueError, AttributeError) as parse_error:
                     print(f"❌ [APPOINTMENT] Error creating appointment: {parse_error}")
@@ -14502,7 +14538,7 @@ class MediaStreamHandler:
                             })
                         }
                     })
-                    await client.send_event({"type": "response.create"})
+                    await self.trigger_response_from_tool(client, "unknown_success", force=False)
                     
             except json.JSONDecodeError as e:
                 print(f"❌ [APPOINTMENT] Failed to parse arguments: {e}")
@@ -14517,7 +14553,7 @@ class MediaStreamHandler:
                         })
                     }
                 })
-                await client.send_event({"type": "response.create"})
+                await self.trigger_response_from_tool(client, "unknown_success", force=False)
         
         else:
             print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
