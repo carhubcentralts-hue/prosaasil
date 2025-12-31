@@ -3437,67 +3437,47 @@ class MediaStreamHandler:
                 pass
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
-            # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
-            # This eliminates 500-2000ms DB query latency from async loop!
-            # After greeting, we can send full prompt via session.update if needed
+            # 🔥 LATENCY-FIRST: FULL PROMPT ONLY from the very first second
+            # Strategy: Load pre-built FULL prompt from registry (built in webhook)
+            # Send IMMEDIATELY in session.update - AI is "loaded" before first word
+            # NO COMPACT, NO UPGRADE, NO PROMPT REPLACEMENT mid-conversation
             # ═══════════════════════════════════════════════════════════════════════
-            
-            # 🔥 PROMPT STRATEGY: COMPACT for fast greeting, FULL after first response
-            # Strategy: Use pre-built COMPACT from registry → greeting in <2s
-            #           Then upgrade to pre-built FULL after first response completes
             
             from server.stream_state import stream_registry
             
-            # Step 1: Load COMPACT prompt from registry (built in webhook - ZERO latency!)
-            compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
-            
-            # Step 2: Load FULL BUSINESS prompt from registry (for post-greeting injection)
+            # Step 1: Load FULL BUSINESS prompt from registry (built in webhook - ZERO latency!)
             full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
             
-            # Step 3: Fallback - build if not in registry (should rarely happen)
-            if not compact_prompt or not full_prompt:
-                print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
-                # 🔥 LOG: Direction being used for prompt building
-                print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
+            # Step 2: Fallback - build if not in registry (should rarely happen)
+            if not full_prompt:
+                print(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - building now (SLOW PATH)")
+                print(f"🔍 [PROMPT_DEBUG] Building FULL prompt for call_direction={call_direction}")
                 try:
                     from server.services.realtime_prompt_builder import (
-                        build_compact_greeting_prompt,
                         build_full_business_prompt,
                     )
                     app = _get_flask_app()
                     with app.app_context():
-                        if not compact_prompt:
-                            compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
-                        if not full_prompt:
-                            full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
+                        full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
+                        print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
                 except Exception as prompt_err:
-                    print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
+                    print(f"❌ [PROMPT] Failed to build FULL prompt: {prompt_err}")
                     import traceback
                     traceback.print_exc()
                     # Last resort fallback
-                    if not compact_prompt:
-                        # Business-only fallback for COMPACT (no global/system rules).
-                        # Prefer DB greeting text if available, else short business greeting.
-                        if greeting_text and str(greeting_text).strip():
-                            compact_prompt = str(greeting_text).strip()
-                        else:
-                            compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
                     if not full_prompt:
-                        full_prompt = compact_prompt
+                        if greeting_text and str(greeting_text).strip():
+                            full_prompt = str(greeting_text).strip()
+                        else:
+                            full_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
             else:
-                print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
-                print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
-                print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
+                print(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
+                print(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
                 
                 # 🔥 HARD LOCK: Verify call_direction matches pre-built prompt
                 # If mismatch detected - LOG WARNING but DO NOT REBUILD
-                # The call continues with the already-loaded prompt
                 prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
                 if prompt_direction_check != call_direction:
-                    # 🔥 CRITICAL: DO NOT REBUILD - just log and continue
                     print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt direction mismatch detected!")
                     print(f"   Expected: {call_direction}, Pre-built for: {prompt_direction_check}")
                     print(f"   ❌ NOT rebuilding - continuing with pre-built prompt (HARD LOCK)")
@@ -3506,14 +3486,10 @@ class MediaStreamHandler:
                     print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
                     _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
             
-            # Use compact for initial greeting (fast!)
-            greeting_prompt_to_use = compact_prompt
-            print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
-            logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
-            
-            # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
-            self._full_prompt_for_upgrade = full_prompt
-            self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
+            # Use FULL prompt immediately - no compact, no upgrade
+            greeting_prompt_to_use = full_prompt
+            print(f"🎯 [LATENCY-FIRST] Using FULL prompt from start: {len(greeting_prompt_to_use)} chars")
+            logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=FULL_ONLY")
             
             # 🔥 NEW: Update agent_context with business prompt
             try:
@@ -3529,12 +3505,13 @@ class MediaStreamHandler:
             elif full_prompt:
                 logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL BUSINESS prompt")
             
-            print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
+            print(f"📊 [PROMPT STATS] full={len(full_prompt)} chars (SENT ONCE at start)")
             
-            # 🔥 FINAL LOCK: No extra greeting logic.
-            # COMPACT already includes the business opening (from business prompt excerpt) and how to start.
+            # 🔥 FINAL: Set greeting prompt to FULL
+            # No compact, no upgrade - AI gets full context from the start
             greeting_prompt = greeting_prompt_to_use
             has_custom_greeting = True
+
             
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
@@ -3831,8 +3808,9 @@ class MediaStreamHandler:
                 # Step 1: Detect name usage policy from business prompt (once per session)
                 from server.services.realtime_prompt_builder import detect_name_usage_policy
                 
-                # Use the FULL business prompt for policy detection (more accurate)
-                business_prompt_for_policy = full_prompt if full_prompt else compact_prompt
+                # Use the FULL business prompt for policy detection
+                # (no compact prompt anymore - we use FULL from the start)
+                business_prompt_for_policy = full_prompt
                 use_name_policy, matched_phrase = detect_name_usage_policy(business_prompt_for_policy)
                 
                 # Store policy in session (persistent across PROMPT_UPGRADE)
@@ -5172,171 +5150,9 @@ class MediaStreamHandler:
                             # Cleanup
                             del self._response_tracking[resp_id]
                         
-                        # 🔥 PROMPT UPGRADE: After first response, upgrade from COMPACT to FULL prompt
-                        # This happens automatically after greeting completes, giving AI full context
-                        # 🔥 ANTI-DUPLICATE: Only inject FULL business prompt once
-                        if (self._using_compact_greeting and 
-                            self._full_prompt_for_upgrade and
-                            not getattr(self, '_prompt_upgraded_to_full', False)):
-                            
-                            try:
-                                full_prompt = self._full_prompt_for_upgrade
-                                upgrade_time = time.time()
-                                
-                                # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for business prompt
-                                import hashlib
-                                full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
-                                
-                                # Check if this business prompt was already injected
-                                existing_business_hash = getattr(self, '_business_prompt_hash', None)
-                                if existing_business_hash == full_prompt_hash:
-                                    print(f"ℹ️ [PROMPT UPGRADE] Skip duplicate - business prompt hash={full_prompt_hash} already injected")
-                                    logger.warning(f"[PROMPT UPGRADE] Skipping duplicate business prompt injection hash={full_prompt_hash}")
-                                    self._prompt_upgraded_to_full = True
-                                    continue  # Skip to next iteration
-                                
-                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
-                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
-                                
-                                # ✅ Per CRITICAL directive:
-                                # FULL prompt must NOT be sent as session.instructions (system).
-                                # Instead, inject it as internal context AFTER the call has started.
-                                # This avoids heavy system prompts that can delay or silence first audio.
-                                def _chunk_text(s: str, chunk_size: int = 2500):
-                                    s = s or ""
-                                    # Avoid literal escaped newlines leaking as "\\n"
-                                    s = s.replace("\\n", "\n")
-                                    if len(s) <= chunk_size:
-                                        return [s]
-                                    chunks = []
-                                    i = 0
-                                    while i < len(s):
-                                        j = min(i + chunk_size, len(s))
-                                        # Try to cut on paragraph boundary if possible
-                                        cut = s.rfind("\n\n", i, j)
-                                        if cut != -1 and cut > i + int(chunk_size * 0.5):
-                                            j = cut + 2
-                                        chunks.append(s[i:j].strip())
-                                        i = j
-                                    return [c for c in chunks if c]
-
-                                # Sanitize FULL chunks too (not for length, but to remove TTS-hostile symbols/newlines).
-                                try:
-                                    from server.services.realtime_prompt_builder import (
-                                        sanitize_realtime_instructions,
-                                        FULL_PROMPT_MAX_CHARS,
-                                    )
-                                except Exception:
-                                    sanitize_realtime_instructions = None  # type: ignore
-
-                                for idx, chunk in enumerate(_chunk_text(full_prompt), start=1):
-                                    cleaned = chunk
-                                    if sanitize_realtime_instructions:
-                                        # Keep chunks reasonably sized; don't enforce 1000 here (this is NOT instructions).
-                                        cleaned = sanitize_realtime_instructions(chunk, max_chars=FULL_PROMPT_MAX_CHARS)
-
-                                    # IMPORTANT: FULL BUSINESS prompt must NOT be sent as session.instructions at any stage.
-                                    # Inject it as a conversation system message AFTER greeting so it does not delay T0 audio.
-                                    await client.send_event(
-                                        {
-                                            "type": "conversation.item.create",
-                                            "item": {
-                                                "type": "message",
-                                                "role": "system",
-                                                "content": [
-                                                    {
-                                                        "type": "input_text",
-                                                        "text": f"[BUSINESS PROMPT {idx}] {cleaned}",
-                                                    }
-                                                ],
-                                            },
-                                        }
-                                    )
-                                
-                                self._prompt_upgraded_to_full = True
-                                self._business_prompt_hash = full_prompt_hash
-                                self._business_items_count = 1  # One FULL business prompt injected
-                                upgrade_duration = int((time.time() - upgrade_time) * 1000)
-                                
-                                # 🔥 BUSINESS_PROMPT LOG: Track business prompt injection
-                                # 🔥 FIX: Ensure call_direction is always initialized before use
-                                call_direction = getattr(self, 'call_direction', 'inbound')
-                                prompt_source = 'outbound_ai_prompt' if call_direction == 'outbound' else 'ai_prompt'
-                                logger.info(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}")
-                                _orig_print(f"[BUSINESS_PROMPT] injected length={len(full_prompt)} hash={full_prompt_hash} source={prompt_source}", flush=True)
-                                
-                                print(f"✅ [PROMPT UPGRADE] Expanded to FULL in {upgrade_duration}ms (hash={full_prompt_hash})")
-                                print(f"   └─ This is a planned EXPANSION, not a rebuild - same direction/business")
-                                _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
-                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms hash={full_prompt_hash}")
-                                
-                                # 🔥 PROMPT_SUMMARY: Update after upgrade
-                                system_count = getattr(self, '_system_items_count', 0)
-                                business_count = getattr(self, '_business_items_count', 0)
-                                name_count = getattr(self, '_name_anchor_count', 0)
-                                system_hash = getattr(self, '_system_prompt_hash', 'none')
-                                business_hash = getattr(self, '_business_prompt_hash', 'none')
-                                name_hash = getattr(self, '_name_anchor_hash', 'none')
-                                
-                                _orig_print(f"[PROMPT_SUMMARY] system={system_count} business={business_count} name_anchor={name_count} hashes: sys={system_hash}, biz={business_hash}, name={name_hash}", flush=True)
-                                logger.info(f"[PROMPT_SUMMARY] After upgrade: system={system_count}, business={business_count}, name_anchor={name_count}")
-                                
-                                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                                # 🔥 NAME ANCHOR: Ensure it's still present after PROMPT_UPGRADE
-                                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                                try:
-                                    await self._ensure_name_anchor_present(client)
-                                except Exception as anchor_err:
-                                    logger.error(f"[NAME_ANCHOR] Failed to ensure NAME_ANCHOR after upgrade: {anchor_err}")
-                                
-                                # 🔥 DEPRECATED: Old CRM context injection - replaced by NAME_ANCHOR
-                                # This code is kept for backward compatibility but should not run
-                                # if NAME_ANCHOR is working correctly
-                                if hasattr(self, '_pending_crm_context_inject') and self._pending_crm_context_inject:
-                                    customer_name_value = self._pending_crm_context_inject
-                                    
-                                    # Check if already injected
-                                    if not hasattr(self, '_customer_name_injected') or self._customer_name_injected != customer_name_value:
-                                        self._pending_crm_context_inject = None  # Clear to avoid re-injection
-                                        
-                                        try:
-                                            # Use simple format (no long labels)
-                                            def _format_crm_context_message(customer_name: str) -> str:
-                                                """Format CRM context message for Realtime API injection."""
-                                                return f"Customer name: {customer_name}"
-                                            
-                                            crm_context_text = _format_crm_context_message(customer_name_value)
-                                            
-                                            await client.send_event(
-                                                {
-                                                    "type": "conversation.item.create",
-                                                    "item": {
-                                                        "type": "message",
-                                                        "role": "system",
-                                                        "content": [
-                                                            {
-                                                                "type": "input_text",
-                                                                "text": crm_context_text,
-                                                            }
-                                                        ],
-                                                    },
-                                                }
-                                            )
-                                            # 🔥 Mark as injected to prevent duplicates
-                                            self._customer_name_injected = customer_name_value
-                                            print(f"✅ [CRM_CONTEXT] Injected pending customer name: '{customer_name_value}'")
-                                            logger.info(f"[CRM_CONTEXT] Injected pending customer_name='{customer_name_value}'")
-                                        except Exception as inject_err:
-                                            logger.error(f"[CRM_CONTEXT] Failed to inject pending name: {inject_err}")
-                                    else:
-                                        print(f"ℹ️ [CRM_CONTEXT] Customer name already injected, skipping: '{customer_name_value}'")
-                                        self._pending_crm_context_inject = None  # Clear flag
-                                
-                            except Exception as upgrade_err:
-                                logger.error(f"❌ [PROMPT UPGRADE] Failed to expand prompt: {upgrade_err}")
-                                import traceback
-                                traceback.print_exc()
-                                # Don't fail the call if upgrade fails - compact prompt is still functional
+                        # 🔥 LATENCY-FIRST: No prompt upgrade logic needed
+                        # FULL prompt was already sent in session.update at the start
+                        # AI has full context from the very first word - nothing to upgrade
                         
                         # 🔥 PROMPT-ONLY: Handle OpenAI server_error with retry + graceful failure
                         if status == "failed":

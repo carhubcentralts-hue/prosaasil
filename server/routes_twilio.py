@@ -570,13 +570,12 @@ def incoming_call():
     if business_id:
         stream.parameter(name="business_id", value=str(business_id))
     
-    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
-    # WebSocket connection depends on fast TwiML response
+    # 🔥 LATENCY-FIRST: Build ONLY FULL PROMPT - no compact, no upgrade
+    # FULL PROMPT is sent immediately in session.update for fastest response
     def _prebuild_prompts_async(call_sid, business_id):
-        """Background thread to pre-build prompts - doesn't block webhook response"""
+        """Background thread to pre-build FULL prompt - doesn't block webhook response"""
         try:
             from server.services.realtime_prompt_builder import (
-                build_compact_greeting_prompt,
                 build_full_business_prompt,
             )
             from server.stream_state import stream_registry
@@ -585,17 +584,13 @@ def incoming_call():
             # 🔥 BUG FIX: Wrap with app context for database queries
             app = get_process_app()
             with app.app_context():
-                # Build COMPACT prompt (800 chars) - for INSTANT greeting
-                compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
-                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-                
-                # Build FULL BUSINESS prompt (business-only) - for post-greeting injection
-                # IMPORTANT: Never store/send global system rules inside this "full" prompt.
+                # Build FULL BUSINESS prompt ONLY - sent immediately in session.update
+                # NO COMPACT PROMPT - AI gets full context from the very first word
                 full_prompt = build_full_business_prompt(business_id, call_direction="inbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
                 
                 # Avoid noisy stdout in production (can spike I/O/CPU under load).
-                logger.debug("[PROMPT] Pre-built inbound prompts: compact_len=%s full_len=%s", len(compact_prompt), len(full_prompt))
+                logger.debug("[PROMPT] Pre-built inbound FULL prompt: len=%s", len(full_prompt))
         except Exception as e:
             logger.debug(f"[PROMPT] Background inbound prompt build failed (fallback to async build): {e}")
     
@@ -735,13 +730,12 @@ def outbound_call():
     if template_id:
         stream.parameter(name="template_id", value=template_id)
     
-    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
-    # WebSocket connection depends on fast TwiML response
+    # 🔥 LATENCY-FIRST: Build ONLY FULL PROMPT - no compact, no upgrade
+    # FULL PROMPT is sent immediately in session.update for fastest response
     def _prebuild_prompts_async_outbound(call_sid, business_id):
-        """Background thread to pre-build outbound prompts - doesn't block webhook response"""
+        """Background thread to pre-build FULL prompt - doesn't block webhook response"""
         try:
             from server.services.realtime_prompt_builder import (
-                build_compact_greeting_prompt,
                 build_full_business_prompt,
             )
             from server.stream_state import stream_registry
@@ -750,17 +744,13 @@ def outbound_call():
             # 🔥 BUG FIX: Wrap with app context for database queries
             app = get_process_app()
             with app.app_context():
-                # Build COMPACT prompt (800 chars) - for INSTANT greeting
-                compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
-                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-                
-                # Build FULL BUSINESS prompt (business-only) - for post-greeting injection
-                # IMPORTANT: Never store/send global system rules inside this "full" prompt.
+                # Build FULL BUSINESS prompt ONLY - sent immediately in session.update
+                # NO COMPACT PROMPT - AI gets full context from the very first word
                 full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
                 
                 # Avoid noisy stdout in production (can spike I/O/CPU under load).
-                logger.debug("[PROMPT] Pre-built outbound prompts: compact_len=%s full_len=%s", len(compact_prompt), len(full_prompt))
+                logger.debug("[PROMPT] Pre-built outbound FULL prompt: len=%s", len(full_prompt))
         except Exception as e:
             logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
     
