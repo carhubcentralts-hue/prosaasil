@@ -11,6 +11,7 @@ import os
 import json
 import asyncio
 import logging
+import builtins
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,6 +23,9 @@ else:
         websockets = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# Use original print for critical logging (bypasses DEBUG gating)
+_orig_print = builtins.print
 
 # Production mode control
 IS_PROD = os.getenv("DEBUG", "1") == "1"  # DEBUG=1 means production
@@ -54,25 +58,27 @@ def _sanitize_text_for_realtime(text: str, max_chars: int) -> str:
 def _sanitize_event_payload_for_realtime(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Sanitize any text-bearing payload BEFORE it reaches the websocket:
-    - session.update.session.instructions (<=1000)
-    - response.create.response.instructions (<=1000) if ever used
-    - conversation.item.create content text (voice-friendly, not capped to 1000)
+    - session.update.session.instructions (up to 8000 chars for FULL business prompt)
+    - response.create.response.instructions (up to 8000 chars)
+    - conversation.item.create content text (voice-friendly, up to 8000 chars)
     """
     try:
         event_type = event.get("type", "")
         if event_type == "session.update":
             session = event.get("session")
             if isinstance(session, dict) and "instructions" in session:
+                # 🔥 FIX: Allow FULL business prompt (up to 8000 chars) in session instructions
                 session["instructions"] = _sanitize_text_for_realtime(
                     str(session.get("instructions") or ""),
-                    max_chars=1000
+                    max_chars=8000
                 )
         elif event_type == "response.create":
             resp = event.get("response")
             if isinstance(resp, dict) and "instructions" in resp:
+                # 🔥 FIX: Allow larger instructions in response.create if needed
                 resp["instructions"] = _sanitize_text_for_realtime(
                     str(resp.get("instructions") or ""),
-                    max_chars=1000
+                    max_chars=8000
                 )
         elif event_type == "conversation.item.create":
             item = event.get("item")
@@ -526,12 +532,11 @@ class OpenAIRealtimeClient:
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
             force: Force resend even if hash matches (set to True during retry)
         """
-        # 🔥 CRITICAL: Realtime instructions MUST be short and voice-friendly.
-        # Enforce hard cap here (in addition to caller-side sanitization).
-        #
-        # NOTE: Greeting instructions should still be kept small upstream (e.g. 800 chars),
-        # and FULL prompts should NOT be sent as system instructions (inject as internal context instead).
-        instructions = _sanitize_text_for_realtime(instructions, max_chars=1000)
+        # 🔥 CRITICAL FIX: Allow FULL business prompt (up to 8000 chars) to be sent.
+        # The architecture was changed to "LATENCY-FIRST: FULL PROMPT ONLY from the very first second"
+        # so we need to support the full prompt size here.
+        # The caller already sanitizes with FULL_PROMPT_MAX_CHARS (8000), so we respect that limit.
+        instructions = _sanitize_text_for_realtime(instructions, max_chars=8000)
 
         # 🔥 BUILD 341: Use tuned defaults from config
         if vad_threshold is None or silence_duration_ms is None or prefix_padding_ms is None:
@@ -648,6 +653,12 @@ class OpenAIRealtimeClient:
         
         # Send session.update and store config for validation
         self._pending_session_config = session_config.copy()  # Store for validation
+        
+        # 🔒 CHECK 3: Log last 200 chars of instructions to verify client-side marker
+        instructions_preview = instructions[-200:] if len(instructions) > 200 else instructions
+        logger.info(f"[PAYLOAD_PREVIEW] Last 200 chars of instructions being sent: ...{instructions_preview}")
+        _orig_print(f"[PAYLOAD_PREVIEW] instructions_len={len(instructions)} last_200_chars=...{instructions_preview[-100:]}", flush=True)
+        
         await self.send_event({
             "type": "session.update",
             "session": session_config
