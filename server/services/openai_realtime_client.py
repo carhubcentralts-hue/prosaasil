@@ -11,6 +11,7 @@ import os
 import json
 import asyncio
 import logging
+import builtins
 from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,6 +23,9 @@ else:
         websockets = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# Use original print for critical logging (bypasses DEBUG gating)
+_orig_print = builtins.print
 
 # Production mode control
 IS_PROD = os.getenv("DEBUG", "1") == "1"  # DEBUG=1 means production
@@ -649,6 +653,12 @@ class OpenAIRealtimeClient:
         
         # Send session.update and store config for validation
         self._pending_session_config = session_config.copy()  # Store for validation
+        
+        # 🔒 CHECK 3: Log last 200 chars of instructions to verify client-side marker
+        instructions_preview = instructions[-200:] if len(instructions) > 200 else instructions
+        logger.info(f"[PAYLOAD_PREVIEW] Last 200 chars of instructions being sent: ...{instructions_preview}")
+        _orig_print(f"[PAYLOAD_PREVIEW] instructions_len={len(instructions)} last_200_chars=...{instructions_preview[-100:]}", flush=True)
+        
         await self.send_event({
             "type": "session.update",
             "session": session_config

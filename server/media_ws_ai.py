@@ -2954,16 +2954,22 @@ class MediaStreamHandler:
         logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
-        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=None, tool_choice="auto", force=False):
+        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=None, tool_choice="auto", force=False, send_reason="initial"):
             """Send session.update event with specified configuration
             
             Args:
                 tools: Optional list of Realtime API tools (for appointments)
                 tool_choice: Tool selection mode ("auto", "none", or specific tool)
                 force: Set to True to bypass hash check (for retry)
+                send_reason: Reason for send ("initial" or "retry")
             """
             # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
             # Sanitize + hard cap to prevent silent starts / long delays.
+            
+            # 🔒 CHECK 2: Calculate hash BEFORE sanitization
+            import hashlib
+            hash_before = hashlib.md5((greeting_prompt or "").encode()).hexdigest()[:8]
+            
             try:
                 from server.services.realtime_prompt_builder import (
                     sanitize_realtime_instructions,
@@ -2984,6 +2990,9 @@ class MediaStreamHandler:
             except Exception as _sanitize_err:
                 # Never block the call on sanitizer issues; proceed with original prompt.
                 _orig_print(f"⚠️ [PROMPT_SANITIZE] Failed: {_sanitize_err}", flush=True)
+            
+            # 🔒 CHECK 2: Calculate hash AFTER sanitization
+            hash_after = hashlib.md5((greeting_prompt or "").encode()).hexdigest()[:8]
 
             # 🔥 SERVER-FIRST: For appointment calls we disable auto response creation so the server
             # can decide when/how to respond (verbatim injection after scheduling).
@@ -2992,7 +3001,17 @@ class MediaStreamHandler:
             self._server_first_scheduling_enabled = bool(SERVER_FIRST_SCHEDULING and call_goal == "appointment")
             self._manual_response_turns_enabled = bool(manual_turns)
 
-            await client.configure_session(
+            # 🔒 CHECK 2: Log detailed send information
+            _orig_print(
+                f"[SESSION_SEND] send_reason={send_reason} force={force} "
+                f"hash_before={hash_before} hash_after={hash_after} "
+                f"len={len(greeting_prompt)}",
+                flush=True
+            )
+            
+            # Call configure_session which has its own hash-based deduplication
+            # It will return True if sent or skipped (via dedup)
+            dedup_result = await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
@@ -3014,6 +3033,19 @@ class MediaStreamHandler:
                 tool_choice=tool_choice if tools else None,  # Only set if tools exist
                 force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
             )
+            
+            # 🔒 CHECK 2: Log if deduplication skipped the send
+            # Note: configure_session returns True whether it sent or skipped
+            # We need to check the client's internal state to know if it was skipped
+            dedup_skipped = hasattr(client, '_last_instructions_hash') and not force and client._last_instructions_hash == hash_after
+            
+            _orig_print(
+                f"[SESSION_SEND_RESULT] send_reason={send_reason} dedup_skipped={dedup_skipped} "
+                f"hash={hash_after}",
+                flush=True
+            )
+            
+            return dedup_result
         
         client = None
         call_start_time = time.time()
@@ -3602,7 +3634,7 @@ class MediaStreamHandler:
             self._session_config_event.clear()  # Clear any previous event
             _orig_print(f"🔄 [SESSION] Cleared session flags - waiting for fresh confirmation", flush=True)
             
-            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice)
+            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, send_reason="initial")
             _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
             # 🔒 PROMPT INTEGRITY: Store business prompt hash for final verification
@@ -3637,7 +3669,7 @@ class MediaStreamHandler:
                     retried = True
                     _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
                     # 🔥 FIX 3: Pass force=True to bypass hash check on retry
-                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, force=True)
+                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, force=True, send_reason="retry")
                     _orig_print(f"📤 [SESSION] Retry session.update sent with force=True - continuing to wait", flush=True)
                 
                 if elapsed > max_wait:
@@ -4245,17 +4277,18 @@ class MediaStreamHandler:
             
             # 🔒 FINAL PROMPT INTEGRITY SUMMARY
             # This log confirms that prompts were sent exactly once with no duplications
+            # NOTE: system=universal in our architecture (same prompt injected once)
             system_injected = 1 if getattr(self, '_global_system_prompt_injected', False) else 0
             name_injected = 1 if getattr(self, '_name_anchor_hash', None) else 0
             business_hash = getattr(self, '_business_prompt_hash', 'none')
             
             _orig_print(
-                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal={system_injected} "
+                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal=0 "
                 f"business=1 name_anchor={name_injected} business_hash={business_hash}",
                 flush=True
             )
             logger.info(
-                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal={system_injected} "
+                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal=0 "
                 f"business=1 name_anchor={name_injected}"
             )
             
