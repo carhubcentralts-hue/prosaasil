@@ -2406,7 +2406,7 @@ class MediaStreamHandler:
         # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Aggressive disconnect features
         # ═══════════════════════════════════════════════════════════════════════════
         self._call_started_ts = time.time()  # Track call start for 10-second voicemail window
-        self._last_user_activity_ts = time.time()  # Track last user activity for silence watchdog
+        self._last_activity_ts = time.time()  # Track last activity (user OR bot) for silence watchdog
         self._silence_watchdog_running = True  # Flag to control watchdog thread
         self._silence_watchdog_task = None  # Asyncio task for silence monitoring
 
@@ -2487,10 +2487,10 @@ class MediaStreamHandler:
     
     async def _silence_watchdog(self):
         """
-        🔥 SILENCE WATCHDOG: Monitor user activity and disconnect after 20 seconds of silence
+        🔥 SILENCE WATCHDOG: Monitor conversation activity and disconnect after 20 seconds of silence
         
         Runs continuously, checking every 1 second.
-        Disconnects call if 20+ seconds pass without user activity.
+        Disconnects call if 20+ seconds pass without ANY activity (user OR bot).
         
         Authority level: Non-blocking, bypasses queues/locks for reliable disconnection.
         """
@@ -2498,11 +2498,11 @@ class MediaStreamHandler:
             while self._silence_watchdog_running:
                 await asyncio.sleep(1)
                 
-                idle = time.time() - self._last_user_activity_ts
+                idle = time.time() - self._last_activity_ts
                 if idle >= 20.0:
                     # 🔥 ONE-LINE LOG: Production visibility for watchdog triggers
-                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP")
-                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP", flush=True)
+                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP")
+                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP", flush=True)
                     
                     # Stop watchdog before triggering hangup to prevent race conditions
                     self._silence_watchdog_running = False
@@ -5670,7 +5670,7 @@ class MediaStreamHandler:
                     
                     # 🔥 SILENCE WATCHDOG: Update activity timestamp on VAD detection (not just transcription)
                     # This ensures watchdog tracks actual audio activity, not just completed transcripts
-                    self._last_user_activity_ts = time.time()
+                    self._last_activity_ts = time.time()
                     
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
@@ -5964,6 +5964,10 @@ class MediaStreamHandler:
                         self.has_pending_ai_response = True
                         self.last_ai_audio_ts = now
                         self._last_ai_audio_ts = now  # For echo detection
+                        
+                        # 🔥 SILENCE WATCHDOG: Update activity timestamp when bot speaks
+                        # This prevents watchdog from disconnecting during active bot responses
+                        self._last_activity_ts = now
                         
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
@@ -6882,128 +6886,24 @@ class MediaStreamHandler:
                         should_hangup = False
                         hangup_reason = ""
                         
-                        # 🔥 BUILD 309: Check confirm_before_hangup setting from call config
-                        # If False, allow hangup without user confirmation (just goodbye)
-                        confirm_required = getattr(self, 'confirm_before_hangup', True)
+                        # 🔥 CRITICAL FIX: Hangup ONLY when BOT says goodbye (not when user says goodbye)
+                        # Disconnect conditions for NORMAL CONVERSATION:
+                        # 1. BOT says goodbye (ביי/להתראות) - ALWAYS disconnect
+                        # 2. OR 20 seconds of complete silence (handled by watchdog)
+                        # 3. OR Voicemail detected (handled separately)
+                        # 
+                        # User saying goodbye does NOT trigger disconnect - bot must respond and say goodbye!
+                        # This prevents premature disconnects when user says goodbye but conversation should continue.
                         
-                        # 🔥 BUILD 170.5: Hangup only when proper conditions are met
-                        # Case 1: User explicitly said goodbye - always allow hangup after AI responds
-                        if self.goodbye_detected and ai_polite_closing_detected:
-                            hangup_reason = "user_goodbye"
+                        # ONLY CONDITION: BOT said goodbye - always disconnect
+                        if ai_polite_closing_detected:
+                            hangup_reason = "bot_goodbye"
                             should_hangup = True
-                            print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
+                            print(f"✅ [HANGUP] Bot said goodbye (ביי/להתראות) - disconnecting")
+                            print(f"📞 [HANGUP] This is the ONLY normal disconnect condition - bot must say goodbye!")
                         
-                        # Case 2: Lead fully captured AND setting enabled
-                        # 🔥 BUILD 309: respect confirm_before_hangup setting!
-                        elif self.auto_end_after_lead_capture and self.lead_captured and ai_polite_closing_detected:
-                            if confirm_required and not self.verification_confirmed:
-                                # Confirmation required but not received yet - AI should ask
-                                print(f"⏳ [HANGUP] Lead captured but confirm_before_hangup=True - waiting for user confirmation")
-                            else:
-                                hangup_reason = "lead_captured_confirmed" if self.verification_confirmed else "lead_captured_auto"
-                                should_hangup = True
-                                print(f"✅ [HANGUP] Lead captured + {'confirmed' if self.verification_confirmed else 'auto (no confirm required)'} - disconnecting")
-                        
-                        # Case 3: User explicitly confirmed details in summary
-                        elif self.verification_confirmed and ai_polite_closing_detected:
-                            hangup_reason = "user_verified"
-                            should_hangup = True
-                            print(f"✅ [HANGUP] User confirmed all details - disconnecting")
-                        
-                        # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
-                        # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
-                        # 🔥 FIX: In SIMPLE_MODE, respect call_goal and auto_end_on_goodbye toggle
-                        # 🔥 SMART ENDING: Allow AI to end conversation intelligently when appropriate
-                        elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
-                            call_goal = getattr(self, 'call_goal', 'lead_only')
-                            
-                            # 🔥 FIX: In SIMPLE_MODE, behavior depends on call_goal
-                            if SIMPLE_MODE:
-                                print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured} user_said_goodbye={self.user_said_goodbye}")
-                                if call_goal in ('lead_only', 'collect_details_only'):
-                                    # 🔥 SMART ENDING LOGIC: Allow AI to end conversation when appropriate
-                                    # Check if conversation has meaningful content (at least 2 user-AI exchanges)
-                                    user_messages = len([m for m in self.conversation_history if m.get("speaker") == "user"])
-                                    has_meaningful_conversation = user_messages >= 2
-                                    
-                                    # Allow hangup if:
-                                    # 1. User explicitly said goodbye, OR
-                                    # 2. AI politely closed after meaningful conversation (smart ending)
-                                    if self.user_said_goodbye or has_meaningful_conversation:
-                                        hangup_reason = "ai_smart_ending" if not self.user_said_goodbye else "ai_goodbye_simple_mode_lead_only"
-                                        should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, reason={hangup_reason}")
-                                        if not self.user_said_goodbye:
-                                            print(f"   Smart ending: AI ended conversation after {user_messages} user messages")
-                                    else:
-                                        # Too early - need more conversation
-                                        print(f"🔒 [GOODBYE] will_hangup=False - conversation too short (user_messages={user_messages})")
-                                        print(f"   AI polite closing detected, but need more conversation first")
-                                elif call_goal == 'appointment':
-                                    # For appointments: Check if conversation is complete
-                                    user_messages = len([m for m in self.conversation_history if m.get("speaker") == "user"])
-                                    has_meaningful_conversation = user_messages >= 2
-                                    
-                                    # Check if appointment was created
-                                    crm_ctx = getattr(self, 'crm_context', None)
-                                    appointment_created = crm_ctx and crm_ctx.has_appointment_created if crm_ctx else False
-                                    
-                                    # Allow hangup if:
-                                    # 1. User explicitly said goodbye, OR
-                                    # 2. AI closed after appointment was created/attempted, OR
-                                    # 3. AI closed after meaningful conversation (user declined or doesn't want appointment)
-                                    if self.user_said_goodbye:
-                                        hangup_reason = "ai_goodbye_simple_mode_appointment_user"
-                                        should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, user said goodbye")
-                                    elif appointment_created or (has_meaningful_conversation and self.lead_captured):
-                                        hangup_reason = "ai_smart_ending_appointment"
-                                        should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, smart ending (appt={appointment_created}, lead={self.lead_captured})")
-                                    elif has_meaningful_conversation:
-                                        # User had conversation but may have declined - allow AI to end gracefully
-                                        hangup_reason = "ai_smart_ending_appointment_declined"
-                                        should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, conversation complete (user_messages={user_messages})")
-                                    else:
-                                        # Too early - need more conversation
-                                        print(f"🔒 [GOODBYE] will_hangup=False - appointment mode, conversation too short")
-                                        print(f"   user_messages={user_messages}, lead_captured={self.lead_captured}")
-                                else:
-                                    # Unknown goal - use smart ending logic
-                                    user_messages = len([m for m in self.conversation_history if m.get("speaker") == "user"])
-                                    has_meaningful_conversation = user_messages >= 2
-                                    
-                                    if self.user_said_goodbye or has_meaningful_conversation:
-                                        hangup_reason = "ai_smart_ending_unknown_goal"
-                                        should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, smart ending")
-                                    else:
-                                        print(f"🔒 [GOODBYE] will_hangup=False - unknown goal, conversation too short")
-                            # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
-                            elif not self.required_lead_fields:
-                                hangup_reason = "ai_goodbye_prompt_only"
-                                should_hangup = True
-                                print(f"✅ [HANGUP PROMPT-ONLY] AI said goodbye with auto_end_on_goodbye=True + user has spoken - disconnecting")
-                            else:
-                                # Legacy mode: Additional guard for required fields
-                                has_meaningful_interaction = (
-                                    self.verification_confirmed or 
-                                    self.lead_captured or 
-                                    len(self.conversation_history) >= 4  # At least 2 exchanges
-                                )
-                                if has_meaningful_interaction:
-                                    hangup_reason = "ai_goodbye_auto_end"
-                                    should_hangup = True
-                                    print(f"✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True + user interaction - disconnecting")
-                        
-                        # Log when AI says closing but we're blocking hangup
-                        elif ai_polite_closing_detected:
-                            print(f"🔒 [HANGUP BLOCKED] AI said closing phrase but conditions not met:")
-                            print(f"   goodbye_detected={self.goodbye_detected}")
-                            print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
-                            print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}, lead_captured={self.lead_captured}")
-                            print(f"   verification_confirmed={self.verification_confirmed}")
+                        # NOTE: All conditions below are UNREACHABLE because ai_polite_closing_detected
+                        # always triggers the condition above. The bot MUST say goodbye to disconnect.
                         
                         # 🔧 NEW FIX: Guard against hangup while user is speaking
                         # In SIMPLE_MODE, check if user is currently speaking or just started
@@ -7145,8 +7045,8 @@ class MediaStreamHandler:
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Update activity tracking
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Update last user activity timestamp for silence watchdog
-                    self._last_user_activity_ts = time.time()
+                    # Update last activity timestamp for silence watchdog
+                    self._last_activity_ts = time.time()
                     
                     # Check for voicemail/answering machine (first 10 seconds only)
                     await self._maybe_hangup_voicemail(text)
