@@ -5229,7 +5229,6 @@ class MediaStreamHandler:
                                         _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
                                     else:
                                         _orig_print(f"❌ [SERVER_ERROR] Graceful failure blocked by gate", flush=True)
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
