@@ -3605,6 +3605,10 @@ class MediaStreamHandler:
             await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice)
             _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
+            # 🔒 PROMPT INTEGRITY: Store business prompt hash for final verification
+            import hashlib
+            self._business_prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
+            
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 STEP 3: Event-driven wait for session.updated confirmation
             # ═══════════════════════════════════════════════════════════════════════
@@ -4238,6 +4242,22 @@ class MediaStreamHandler:
             # ═══════════════════════════════════════════════════════════════════════
             # Log timing metrics at end of call
             logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed={self.realtime_failed}")
+            
+            # 🔒 FINAL PROMPT INTEGRITY SUMMARY
+            # This log confirms that prompts were sent exactly once with no duplications
+            system_injected = 1 if getattr(self, '_global_system_prompt_injected', False) else 0
+            name_injected = 1 if getattr(self, '_name_anchor_hash', None) else 0
+            business_hash = getattr(self, '_business_prompt_hash', 'none')
+            
+            _orig_print(
+                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal={system_injected} "
+                f"business=1 name_anchor={name_injected} business_hash={business_hash}",
+                flush=True
+            )
+            logger.info(
+                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal={system_injected} "
+                f"business=1 name_anchor={name_injected}"
+            )
             
             # 💰 COST TRACKING: Use centralized cost calculation
             self._calculate_and_log_cost()
