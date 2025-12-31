@@ -2963,18 +2963,18 @@ class MediaStreamHandler:
             try:
                 from server.services.realtime_prompt_builder import (
                     sanitize_realtime_instructions,
-                    COMPACT_GREETING_MAX_CHARS,
+                    FULL_PROMPT_MAX_CHARS,
                 )
                 original_len = len(greeting_prompt or "")
-                # Greeting must be compact for fast first audio.
+                # 🔥 LATENCY-FIRST: Use FULL prompt from start (no compact anymore)
                 greeting_prompt = sanitize_realtime_instructions(
                     greeting_prompt or "",
-                    max_chars=COMPACT_GREETING_MAX_CHARS
+                    max_chars=FULL_PROMPT_MAX_CHARS
                 )
                 sanitized_len = len(greeting_prompt)
                 if sanitized_len != original_len:
                     _orig_print(
-                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap={COMPACT_GREETING_MAX_CHARS})",
+                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap={FULL_PROMPT_MAX_CHARS})",
                         flush=True,
                     )
             except Exception as _sanitize_err:
