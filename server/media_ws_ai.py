@@ -2268,6 +2268,10 @@ class MediaStreamHandler:
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
         
+        # 🔥 LATENCY THRESHOLD: Max acceptable time from session.updated to greeting
+        # Used for monitoring and alerting on slow initialization  
+        self.MAX_SESSION_TO_GREETING_MS = 100  # milliseconds
+        
         # 🔥 PERFORMANCE OPTIMIZATION: Call Cache System
         # Load all DB data once at start, never query again during call
         # Eliminates 17 queries (~200ms) → 1 batch query (~15ms) = 92% improvement
@@ -3989,7 +3993,7 @@ class MediaStreamHandler:
                 
                 # 🔥 LATENCY METRIC: session.updated → greeting time
                 session_to_greeting_ms = int((t_speak - t_session_confirmed) * 1000)
-                _orig_print(f"⏱️ [LATENCY] session.updated → greeting = {session_to_greeting_ms}ms (should be <100ms)", flush=True)
+                _orig_print(f"⏱️ [LATENCY] session.updated → greeting = {session_to_greeting_ms}ms (should be <{self.MAX_SESSION_TO_GREETING_MS}ms)", flush=True)
 
                 # ═══════════════════════════════════════════════════════════════════════
                 # 🔥 PART D: Detailed timing breakdown for latency analysis
@@ -4832,7 +4836,9 @@ class MediaStreamHandler:
         
         Args:
             client: The realtime client
-            tool_name: Name of the tool (e.g., "save_lead_info", "check_availability")
+            tool_name: Descriptive tool name for logging (e.g., "save_lead_info", 
+                      "check_availability_success", "schedule_appointment_disabled").
+                      Should be specific, not generic like "FUNCTION_CALL".
             force: If True, bypass lifecycle locks (rarely needed for tools)
             
         Returns:
@@ -4840,7 +4846,8 @@ class MediaStreamHandler:
             
         Examples:
             await self.trigger_response_from_tool(client, "save_lead_info")
-            await self.trigger_response_from_tool(client, "schedule_appointment")
+            await self.trigger_response_from_tool(client, "check_availability_success")
+            await self.trigger_response_from_tool(client, "schedule_appointment_disabled")
         """
         # Reuse existing trigger_response with all its guards
         # Log format: TOOL_<name> for easy identification in logs
