@@ -3448,28 +3448,20 @@ class MediaStreamHandler:
             # Step 1: Load FULL BUSINESS prompt from registry (built in webhook - ZERO latency!)
             full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
             
-            # Step 2: Fallback - build if not in registry (should rarely happen)
+            # Step 2: Fallback - use last cached or minimal (NO DB QUERY during WS!)
             if not full_prompt:
-                print(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - building now (SLOW PATH)")
-                print(f"🔍 [PROMPT_DEBUG] Building FULL prompt for call_direction={call_direction}")
-                try:
-                    from server.services.realtime_prompt_builder import (
-                        build_full_business_prompt,
-                    )
-                    app = _get_flask_app()
-                    with app.app_context():
-                        full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
-                        print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
-                except Exception as prompt_err:
-                    print(f"❌ [PROMPT] Failed to build FULL prompt: {prompt_err}")
-                    import traceback
-                    traceback.print_exc()
-                    # Last resort fallback
-                    if not full_prompt:
-                        if greeting_text and str(greeting_text).strip():
-                            full_prompt = str(greeting_text).strip()
-                        else:
-                            full_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
+                print(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - using fallback (NO DB QUERY)")
+                print(f"🔍 [PROMPT_DEBUG] Missing prebuilt for call_direction={call_direction}")
+                # 🔥 LATENCY-FIRST: DO NOT build from DB during WS connection!
+                # Use greeting text or minimal fallback instead
+                if greeting_text and str(greeting_text).strip():
+                    full_prompt = str(greeting_text).strip()
+                    print(f"✅ [PROMPT] Using greeting text as fallback: {len(full_prompt)} chars")
+                else:
+                    full_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור? תגיד לי במה אוכל לעזור לך."
+                    print(f"✅ [PROMPT] Using minimal fallback: {len(full_prompt)} chars")
+                # Log warning - this shouldn't happen in production
+                logger.warning(f"[PROMPT] Missing prebuilt prompt for call_sid={self.call_sid[:8] if self.call_sid else 'N/A'} - using fallback")
             else:
                 print(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
                 print(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
@@ -3661,6 +3653,9 @@ class MediaStreamHandler:
             
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
+            
+            # 🔥 NEW: Mark timestamp for latency measurement
+            t_session_confirmed = time.time()
 
             # ─────────────────────────────────────────────────────────────────────
             # ✅ PROMPT SEPARATION ENFORCEMENT:
@@ -3991,6 +3986,10 @@ class MediaStreamHandler:
             if triggered:
                 t_speak = time.time()
                 total_openai_ms = (t_speak - t_start) * 1000
+                
+                # 🔥 LATENCY METRIC: session.updated → greeting time
+                session_to_greeting_ms = int((t_speak - t_session_confirmed) * 1000)
+                _orig_print(f"⏱️ [LATENCY] session.updated → greeting = {session_to_greeting_ms}ms (should be <100ms)", flush=True)
 
                 # ═══════════════════════════════════════════════════════════════════════
                 # 🔥 PART D: Detailed timing breakdown for latency analysis
@@ -5180,12 +5179,12 @@ class MediaStreamHandler:
                                     retry_msg = "[SYSTEM] Technical error occurred. Please retry your last response."
                                     await self._send_text_to_ai(retry_msg)
                                     
-                                    # Trigger new response
-                                    try:
-                                        await client.send_event({"type": "response.create"})
+                                    # Trigger new response - 🔥 USE GATE
+                                    triggered = await self.trigger_response("SERVER_ERROR_RETRY", client, force=False)
+                                    if triggered:
                                         _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
-                                    except Exception as retry_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                    else:
+                                        _orig_print(f"❌ [SERVER_ERROR] Retry blocked by gate", flush=True)
                                 
                                 else:
                                     # Already retried or call too long - graceful failure
@@ -5195,11 +5194,12 @@ class MediaStreamHandler:
                                     failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
                                     await self._send_text_to_ai(failure_msg)
                                     
-                                    # Trigger final response
-                                    try:
-                                        await client.send_event({"type": "response.create"})
+                                    # Trigger final response - 🔥 USE GATE
+                                    triggered = await self.trigger_response("SERVER_ERROR_GRACEFUL", client, force=False)
+                                    if triggered:
                                         _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
-                                    except Exception as fail_err:
+                                    else:
+                                        _orig_print(f"❌ [SERVER_ERROR] Graceful failure blocked by gate", flush=True)
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
@@ -13482,8 +13482,8 @@ class MediaStreamHandler:
                     }
                 })
                 
-                # Trigger response to continue conversation
-                await client.send_event({"type": "response.create"})
+                # Trigger response to continue conversation - 🔥 USE GATE
+                await self.trigger_response("SAVE_LEAD_SUCCESS", client, force=False)
                 
                 # Check if all fields are captured
                 self._check_lead_complete()
