@@ -729,8 +729,8 @@ _MARKDOWN_FENCE_RE = re.compile(r"```[\s\S]*?```", flags=re.MULTILINE)
 # - Compact greeting prompt (sent as session.update.instructions): MUST be business-only.
 #   Per CRITICAL prompt-separation requirement, keep it ~300–400 chars (sanitized excerpt).
 # - Full prompt (NEVER sent as session.update.instructions): can be larger (injected later as messages).
-COMPACT_GREETING_MAX_CHARS = 420
-FULL_PROMPT_MAX_CHARS = 8000
+COMPACT_GREETING_MAX_CHARS = 420  # Legacy - not used anymore (LATENCY-FIRST)
+FULL_PROMPT_MAX_CHARS = 8000  # ⚠️ This is a LIMIT, not a target! Keep actual prompts 2000-4000 chars for best performance
 
 
 def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
