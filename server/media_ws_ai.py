@@ -2406,7 +2406,7 @@ class MediaStreamHandler:
         # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Aggressive disconnect features
         # ═══════════════════════════════════════════════════════════════════════════
         self._call_started_ts = time.time()  # Track call start for 10-second voicemail window
-        self._last_user_activity_ts = time.time()  # Track last user activity for silence watchdog
+        self._last_activity_ts = time.time()  # Track last activity (user OR bot) for silence watchdog
         self._silence_watchdog_running = True  # Flag to control watchdog thread
         self._silence_watchdog_task = None  # Asyncio task for silence monitoring
 
@@ -2487,10 +2487,10 @@ class MediaStreamHandler:
     
     async def _silence_watchdog(self):
         """
-        🔥 SILENCE WATCHDOG: Monitor user activity and disconnect after 20 seconds of silence
+        🔥 SILENCE WATCHDOG: Monitor conversation activity and disconnect after 20 seconds of silence
         
         Runs continuously, checking every 1 second.
-        Disconnects call if 20+ seconds pass without user activity.
+        Disconnects call if 20+ seconds pass without ANY activity (user OR bot).
         
         Authority level: Non-blocking, bypasses queues/locks for reliable disconnection.
         """
@@ -2498,11 +2498,11 @@ class MediaStreamHandler:
             while self._silence_watchdog_running:
                 await asyncio.sleep(1)
                 
-                idle = time.time() - self._last_user_activity_ts
+                idle = time.time() - self._last_activity_ts
                 if idle >= 20.0:
                     # 🔥 ONE-LINE LOG: Production visibility for watchdog triggers
-                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP")
-                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s -> IMMEDIATE_HANGUP", flush=True)
+                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP")
+                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP", flush=True)
                     
                     # Stop watchdog before triggering hangup to prevent race conditions
                     self._silence_watchdog_running = False
@@ -5670,7 +5670,7 @@ class MediaStreamHandler:
                     
                     # 🔥 SILENCE WATCHDOG: Update activity timestamp on VAD detection (not just transcription)
                     # This ensures watchdog tracks actual audio activity, not just completed transcripts
-                    self._last_user_activity_ts = time.time()
+                    self._last_activity_ts = time.time()
                     
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
@@ -5964,6 +5964,10 @@ class MediaStreamHandler:
                         self.has_pending_ai_response = True
                         self.last_ai_audio_ts = now
                         self._last_ai_audio_ts = now  # For echo detection
+                        
+                        # 🔥 SILENCE WATCHDOG: Update activity timestamp when bot speaks
+                        # This prevents watchdog from disconnecting during active bot responses
+                        self._last_activity_ts = now
                         
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
@@ -6886,12 +6890,17 @@ class MediaStreamHandler:
                         # If False, allow hangup without user confirmation (just goodbye)
                         confirm_required = getattr(self, 'confirm_before_hangup', True)
                         
-                        # 🔥 BUILD 170.5: Hangup only when proper conditions are met
-                        # Case 1: User explicitly said goodbye - always allow hangup after AI responds
-                        if self.goodbye_detected and ai_polite_closing_detected:
-                            hangup_reason = "user_goodbye"
+                        # 🔥 CRITICAL FIX: Hangup only when BOT says goodbye (not when user says goodbye)
+                        # Disconnect conditions:
+                        # 1. BOT says goodbye (ai_polite_closing_detected) - always disconnect
+                        # 2. OR 20 seconds of silence (handled by watchdog)
+                        # User saying goodbye does NOT trigger disconnect - bot must say goodbye
+                        
+                        # Case 1: BOT said goodbye - always allow hangup (user goodbye is irrelevant)
+                        if ai_polite_closing_detected:
+                            hangup_reason = "bot_goodbye"
                             should_hangup = True
-                            print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
+                            print(f"✅ [HANGUP] Bot said goodbye - disconnecting")
                         
                         # Case 2: Lead fully captured AND setting enabled
                         # 🔥 BUILD 309: respect confirm_before_hangup setting!
@@ -7145,8 +7154,8 @@ class MediaStreamHandler:
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 VOICEMAIL DETECTION & SILENCE WATCHDOG: Update activity tracking
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Update last user activity timestamp for silence watchdog
-                    self._last_user_activity_ts = time.time()
+                    # Update last activity timestamp for silence watchdog
+                    self._last_activity_ts = time.time()
                     
                     # Check for voicemail/answering machine (first 10 seconds only)
                     await self._maybe_hangup_voicemail(text)
