@@ -9819,7 +9819,10 @@ class MediaStreamHandler:
                         
                         # ⛔ CRITICAL: Cannot proceed without business_id - reject call immediately
                         # Attempting to continue would risk cross-business contamination
-                        _orig_print(f"❌ [BUSINESS_ISOLATION] Call REJECTED - cannot identify business for to={self.to_number}", flush=True)
+                        # Mask phone number for security (only show last 4 digits)
+                        to_num = getattr(self, 'to_number', 'unknown')
+                        to_num_masked = f"***{to_num[-4:]}" if to_num and len(to_num) >= 4 else "unknown"
+                        _orig_print(f"❌ [BUSINESS_ISOLATION] Call REJECTED - cannot identify business for to={to_num_masked}", flush=True)
                         
                         # Send immediate hangup to Twilio
                         try:
