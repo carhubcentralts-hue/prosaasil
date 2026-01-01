@@ -9815,10 +9815,20 @@ class MediaStreamHandler:
                     except Exception as e:
                         import traceback
                         logger.error(f"[CALL-ERROR] Business identification failed: {e}")
-                        # Use helper with force_greeting=True to ensure greeting fires
-                        self._set_safe_business_defaults(force_greeting=True)
-                        greet = None  # AI will improvise
-                        self._prebuilt_prompt = None  # Async loop will build it
+                        logger.error(f"[CALL-ERROR] Traceback: {traceback.format_exc()}")
+                        
+                        # ⛔ CRITICAL: Cannot proceed without business_id - reject call immediately
+                        # Attempting to continue would risk cross-business contamination
+                        _orig_print(f"❌ [BUSINESS_ISOLATION] Call REJECTED - cannot identify business for to={self.to_number}", flush=True)
+                        
+                        # Send immediate hangup to Twilio
+                        try:
+                            self._immediate_hangup(reason="business_identification_failed")
+                        except Exception as hangup_err:
+                            logger.error(f"[CALL-ERROR] Failed to send hangup: {hangup_err}")
+                        
+                        # Stop processing this call
+                        return
                     
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
                     if not USE_REALTIME_API:
