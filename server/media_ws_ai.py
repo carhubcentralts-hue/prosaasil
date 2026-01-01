@@ -2505,12 +2505,14 @@ class MediaStreamHandler:
         - This is the watchdog's job
         
         🔥 KEY: "Silence" means NO bot activity:
-        - If bot is speaking (audio in queues) → NOT silent, reset counter
+        - EVERY iteration checks if bot is speaking (audio in queues)
+        - If bot is speaking → IMMEDIATELY reset activity timestamp (not just at 20s threshold)
         - If bot just finished speaking → Start counting from that moment
         - If user speaks → Reset counter (via _last_activity_ts update)
         
         This prevents false disconnects during:
         - Long AI responses (audio still playing)
+        - AI responses that start near the 20-second mark
         - Audio drain period (after response.done)
         - Active conversation (user or bot speaking)
         
@@ -2519,6 +2521,21 @@ class MediaStreamHandler:
         try:
             while self._silence_watchdog_running:
                 await asyncio.sleep(1)
+                
+                # 🔥 CRITICAL FIX: Check if AI is speaking FIRST, before calculating idle time
+                # This ensures that AI speech ALWAYS resets the activity timer, preventing false disconnects
+                # The issue: Previously checked queues only AFTER idle >= 20s, which meant if AI started
+                # speaking at 19s, the watchdog would still disconnect at 20s
+                q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                total_queued = q1_size + tx_size
+                
+                # If bot is actively speaking (audio in queues), reset activity timestamp
+                if total_queued > 0:
+                    self._last_activity_ts = time.time()
+                    if DEBUG:
+                        logger.debug(f"[WATCHDOG] bot still speaking ({total_queued} frames queued) - activity timestamp reset")
+                    continue
                 
                 idle = time.time() - self._last_activity_ts
                 
@@ -2538,22 +2555,6 @@ class MediaStreamHandler:
                             logger.debug(f"[WATCHDOG] idle={idle:.1f}s but pending_hangup=True - polite hangup in progress")
                         else:
                             _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but polite hangup in progress - allowing completion", flush=True)
-                        continue
-                    
-                    # Check 3: Audio still in queues (bot currently speaking or draining)
-                    # This is CRITICAL - if bot is speaking, it's NOT silence!
-                    q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
-                    tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
-                    total_queued = q1_size + tx_size
-                    
-                    if total_queued > 0:
-                        if DEBUG:
-                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but {total_queued} audio frames queued (q1={q1_size}, tx={tx_size}) - bot still speaking")
-                        else:
-                            _orig_print(f"🔊 [WATCHDOG] idle={idle:.1f}s but bot still speaking ({total_queued} frames) - NOT silent", flush=True)
-                        # 🔥 CRITICAL: Update activity timestamp because bot is ACTIVELY speaking
-                        # This resets the silence counter to prevent false disconnect
-                        self._last_activity_ts = time.time()
                         continue
                     
                     # All checks passed:
@@ -6038,7 +6039,7 @@ class MediaStreamHandler:
                         self.last_ai_audio_ts = now
                         self._last_ai_audio_ts = now  # For echo detection
                         
-                        # 🔥 SILENCE WATCHDOG: Update activity timestamp when bot speaks
+                        # 🔥 SILENCE WATCHDOG: Update activity timestamp when bot speaks (response.audio.delta)
                         # This prevents watchdog from disconnecting during active bot responses
                         self._last_activity_ts = now
                         
