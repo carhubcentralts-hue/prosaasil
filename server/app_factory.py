@@ -596,8 +596,9 @@ def create_app():
     def _req_timing(resp):
         if hasattr(g, '_request_start'):
             duration = _time.time() - g._request_start
-            # Only log slow API requests (>1s)
-            if duration > 1.0 and request.path.startswith('/api/'):
+            # 🔥 FIX: Only log REALLY slow API requests (>3s) to reduce spam
+            # Per user: "SLOW_API: להשאיר WARN רק אם באמת איטי (למשל > 3s), לא 1.3s"
+            if duration > 3.0 and request.path.startswith('/api/'):
                 current_app.logger.warning(f"SLOW_API: {request.method} {request.path} took {duration:.2f}s")
         return resp
     

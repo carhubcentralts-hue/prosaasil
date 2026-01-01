@@ -29,11 +29,9 @@ DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 
-# 🔥 NEW: Granular logging flags for production debugging
-# These allow enabling specific verbose logs without flooding production
-LOG_REALTIME_EVENTS = os.getenv("LOG_REALTIME_EVENTS", "0") == "1"  # OpenAI Realtime API events
-LOG_AUDIO_CHUNKS = os.getenv("LOG_AUDIO_CHUNKS", "0") == "1"  # Audio chunk transmission logs
-LOG_TRANSCRIPT_DELTAS = os.getenv("LOG_TRANSCRIPT_DELTAS", "0") == "1"  # Transcript delta events
+# 🔥 REMOVED: Extra debug flags - use only DEBUG=0 or DEBUG=1
+# Per user requirement: "שיש כמה שפחות לוגים בdebug 1!!!!"
+# All verbose logging is now controlled by DEBUG flag only
 
 _orig_print = builtins.print
 
@@ -2520,6 +2518,12 @@ class MediaStreamHandler:
         """
         try:
             while self._silence_watchdog_running:
+                # 🔥 CRITICAL: "CALL END = שקט" - Stop watchdog when call ends
+                if self.closed or getattr(self, 'call_state', None) in (CallState.CLOSING, CallState.ENDED):
+                    logger.debug(f"[WATCHDOG] Stopping - call ended")
+                    self._silence_watchdog_running = False
+                    return
+                
                 await asyncio.sleep(1)
                 
                 # 🔥 CRITICAL FIX: Check if AI is speaking FIRST, before calculating idle time
@@ -5445,9 +5449,14 @@ class MediaStreamHandler:
                         # 🔥 FIX: Update activity timestamp for transcript deltas to prevent watchdog false positives
                         # The AI is actively transcribing its speech, so the call is definitely not idle
                         self._last_activity_ts = time.time()
-                        _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
+                        # 🔥 FIX: Gate transcript delta spam - only log in DEVELOPMENT (DEBUG=0)
+                        # DEBUG=1 → production (quiet), DEBUG=0 → development (verbose)
+                        if not DEBUG:
+                            _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                     else:
-                        _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
+                        # 🔥 FIX: Gate other realtime event logs - only log in DEVELOPMENT (DEBUG=0)
+                        if not DEBUG:
+                            _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
                 # ✅ CRITICAL FIX: Handle response.cancelled event explicitly
                 # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
@@ -10259,26 +10268,20 @@ class MediaStreamHandler:
                         # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
                         if should_send_audio:
                             try:
-                                # 🔍 DEBUG: Log first few frames from Twilio (only if LOG_AUDIO_CHUNKS enabled)
+                                # 🔍 DEBUG: Log first few frames from Twilio (only in development mode)
                                 if not hasattr(self, '_twilio_audio_chunks_sent'):
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
-                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation (first 3 frames only, or if LOG_AUDIO_CHUNKS=1)
-                                if self._twilio_audio_chunks_sent <= 3 or LOG_AUDIO_CHUNKS:
-                                    # Only log first 3 frames by default, or all frames if explicit flag is set
-                                    if self._twilio_audio_chunks_sent <= 3:
-                                        first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                        mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
-                                        guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
-                                        print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
-                                        if LOG_AUDIO_CHUNKS:
-                                            print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
-                                    elif LOG_AUDIO_CHUNKS and self._twilio_audio_chunks_sent % 100 == 0:
-                                        # When LOG_AUDIO_CHUNKS=1, throttle to every 100th frame after initial burst
-                                        first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                        mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
-                                        print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
+                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation (first 3 frames only in dev)
+                                # DEBUG=0 → development (verbose), DEBUG=1 → production (quiet)
+                                if not DEBUG and self._twilio_audio_chunks_sent <= 3:
+                                    # Only log first 3 frames in development mode
+                                    first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                    mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
+                                    guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
+                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
@@ -12464,11 +12467,14 @@ class MediaStreamHandler:
                 self._maybe_release_post_greeting_window("monitor_start")
             
             while True:
+                # 🔥 CRITICAL: "CALL END = שקט" - Stop ALL periodic loops when call ends
+                # Per user requirement: "כל task/loop שמדפיס מחזורית חייב לבדוק"
+                if self.closed or self.call_state in (CallState.CLOSING, CallState.ENDED):
+                    print(f"🔇 [SILENCE] Monitor exiting - call ended (state={self.call_state.value if hasattr(self, 'call_state') else 'unknown'})")
+                    return
+                
                 # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
                 # This prevents AI from speaking during the sleep window after goodbye
-                if self.closed:
-                    print(f"🔇 [SILENCE] Monitor exiting - session closed")
-                    return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
                     return
@@ -12479,8 +12485,8 @@ class MediaStreamHandler:
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
                 # 🔥 BUILD 339 CRITICAL: Check AGAIN after sleep (state may have changed during sleep)
-                if self.closed:
-                    print(f"🔇 [SILENCE] Monitor exiting - session closed (after sleep)")
+                if self.closed or self.call_state in (CallState.CLOSING, CallState.ENDED):
+                    print(f"🔇 [SILENCE] Monitor exiting - call ended after sleep")
                     return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
@@ -12505,12 +12511,33 @@ class MediaStreamHandler:
                 # If absolutely no activity (user speech_started OR AI audio.delta) for X seconds → hang up.
                 now_ts = time.time()
                 try:
+                    # 🔥 CRITICAL: Use multiple activity sources - take the MOST RECENT
                     last_user_voice = getattr(self, "_last_user_voice_started_ts", None)
                     last_ai_audio = getattr(self, "last_ai_audio_ts", None)
-                    last_activity = max([t for t in [last_user_voice, last_ai_audio] if t is not None] or [self._last_speech_time])
+                    last_general_activity = getattr(self, "_last_activity_ts", None)
+                    
+                    # Get the most recent activity timestamp from all sources
+                    # Fallback to now_ts if all sources are None (shouldn't happen, but defensive)
+                    all_timestamps = [t for t in [last_user_voice, last_ai_audio, last_general_activity, self._last_speech_time] if t is not None]
+                    last_activity = max(all_timestamps) if all_timestamps else now_ts
+                    
                     # 🔥 NEW REQUIREMENT: In SIMPLE_MODE, 20 seconds silence = immediate disconnect (no warnings)
                     hard_timeout = 20.0 if SIMPLE_MODE else float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
+                    # 🔥 CRITICAL: Check if audio is still in queues FIRST - AI is still speaking!
+                    # This prevents false timeouts during long AI responses when audio is buffered
+                    tx_queue_size = self.tx_q.qsize()
+                    realtime_queue_size = self.realtime_audio_out_queue.qsize()
+                    
+                    # 🔥 WATCHDOG PROTECTION: If audio in queues, AI is speaking - update activity timestamp!
+                    if tx_queue_size > 0 or realtime_queue_size > 0 or self.is_ai_speaking_event.is_set():
+                        # AI is actively speaking - reset the watchdog timer!
+                        # This gives the customer time to respond after AI finishes
+                        self._last_activity_ts = now_ts
+                        if _event_loop_rate_limiter.every("watchdog_reset", 3.0):
+                            print(f"⏳ [WATCHDOG] AI speaking (tx={tx_queue_size}, realtime={realtime_queue_size}, event={self.is_ai_speaking_event.is_set()}) - timer RESET")
+                    
+                    # Now check for timeout only after ensuring AI is not speaking
                     if (now_ts - last_activity) >= hard_timeout:
                         # 🔥 AUTO-DISCONNECT: 20 seconds of silence from both bot and customer
                         # This prevents wasted minutes on voicemail or prolonged silence
@@ -12522,6 +12549,8 @@ class MediaStreamHandler:
                             and not getattr(self, "_realtime_speech_active", False)
                             and not getattr(self, "user_speaking", False)
                             and not getattr(self, "waiting_for_dtmf", False)
+                            and tx_queue_size == 0  # 🔥 CRITICAL: No audio in TX queue
+                            and realtime_queue_size == 0  # 🔥 CRITICAL: No audio in realtime queue
                             and self.call_state == CallState.ACTIVE
                             and not self.hangup_triggered
                             and not getattr(self, "pending_hangup", False)
