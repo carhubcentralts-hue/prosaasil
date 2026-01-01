@@ -5449,11 +5449,12 @@ class MediaStreamHandler:
                         # 🔥 FIX: Update activity timestamp for transcript deltas to prevent watchdog false positives
                         # The AI is actively transcribing its speech, so the call is definitely not idle
                         self._last_activity_ts = time.time()
-                        # 🔥 FIX: Gate transcript delta spam - never log in production
+                        # 🔥 FIX: Gate transcript delta spam - only log in DEVELOPMENT (DEBUG=0)
+                        # DEBUG=1 → production (quiet), DEBUG=0 → development (verbose)
                         if not DEBUG:
                             _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                     else:
-                        # 🔥 FIX: Gate other realtime event logs - never log in production
+                        # 🔥 FIX: Gate other realtime event logs - only log in DEVELOPMENT (DEBUG=0)
                         if not DEBUG:
                             _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
@@ -10267,26 +10268,20 @@ class MediaStreamHandler:
                         # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
                         if should_send_audio:
                             try:
-                                # 🔍 DEBUG: Log first few frames from Twilio (only if LOG_AUDIO_CHUNKS enabled)
+                                # 🔍 DEBUG: Log first few frames from Twilio (only in development mode)
                                 if not hasattr(self, '_twilio_audio_chunks_sent'):
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
                                 # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation (first 3 frames only in dev)
+                                # DEBUG=0 → development (verbose), DEBUG=1 → production (quiet)
                                 if not DEBUG and self._twilio_audio_chunks_sent <= 3:
                                     # Only log first 3 frames in development mode
-                                    if self._twilio_audio_chunks_sent <= 3:
-                                        first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                        mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
-                                        guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
-                                        print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
-                                        if LOG_AUDIO_CHUNKS:
-                                            print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
-                                    elif LOG_AUDIO_CHUNKS and self._twilio_audio_chunks_sent % 100 == 0:
-                                        # When LOG_AUDIO_CHUNKS=1, throttle to every 100th frame after initial burst
-                                        first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                        mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
-                                        print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
+                                    first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                    mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
+                                    guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
+                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
