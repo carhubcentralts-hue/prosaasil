@@ -12509,18 +12509,33 @@ class MediaStreamHandler:
                 # If absolutely no activity (user speech_started OR AI audio.delta) for X seconds → hang up.
                 now_ts = time.time()
                 try:
+                    # 🔥 CRITICAL: Use multiple activity sources - take the MOST RECENT
                     last_user_voice = getattr(self, "_last_user_voice_started_ts", None)
                     last_ai_audio = getattr(self, "last_ai_audio_ts", None)
-                    last_activity = max([t for t in [last_user_voice, last_ai_audio] if t is not None] or [self._last_speech_time])
+                    last_general_activity = getattr(self, "_last_activity_ts", None)
+                    
+                    # Get the most recent activity timestamp from all sources
+                    all_timestamps = [t for t in [last_user_voice, last_ai_audio, last_general_activity, self._last_speech_time] if t is not None]
+                    last_activity = max(all_timestamps) if all_timestamps else self._last_speech_time
+                    
                     # 🔥 NEW REQUIREMENT: In SIMPLE_MODE, 20 seconds silence = immediate disconnect (no warnings)
                     hard_timeout = 20.0 if SIMPLE_MODE else float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
+                    # 🔥 CRITICAL: Check if audio is still in queues FIRST - AI is still speaking!
+                    # This prevents false timeouts during long AI responses when audio is buffered
+                    tx_queue_size = self.tx_q.qsize()
+                    realtime_queue_size = self.realtime_audio_out_queue.qsize()
+                    
+                    # 🔥 WATCHDOG PROTECTION: If audio in queues, AI is speaking - update activity timestamp!
+                    if tx_queue_size > 0 or realtime_queue_size > 0 or self.is_ai_speaking_event.is_set():
+                        # AI is actively speaking - reset the watchdog timer!
+                        # This gives the customer time to respond after AI finishes
+                        self._last_activity_ts = now_ts
+                        if _event_loop_rate_limiter.every("watchdog_reset", 5.0):
+                            print(f"⏳ [WATCHDOG] AI speaking (tx={tx_queue_size}, realtime={realtime_queue_size}, event={self.is_ai_speaking_event.is_set()}) - timer RESET")
+                    
+                    # Now check for timeout only after ensuring AI is not speaking
                     if (now_ts - last_activity) >= hard_timeout:
-                        # 🔥 FIX: Check if audio is still in TX queue - if so, AI is still speaking!
-                        # This prevents false timeouts during long AI responses when audio is buffered
-                        tx_queue_size = self.tx_q.qsize()
-                        realtime_queue_size = self.realtime_audio_out_queue.qsize()
-                        
                         # 🔥 AUTO-DISCONNECT: 20 seconds of silence from both bot and customer
                         # This prevents wasted minutes on voicemail or prolonged silence
                         # Only hang up when nothing is actively happening.
@@ -12531,8 +12546,8 @@ class MediaStreamHandler:
                             and not getattr(self, "_realtime_speech_active", False)
                             and not getattr(self, "user_speaking", False)
                             and not getattr(self, "waiting_for_dtmf", False)
-                            and tx_queue_size == 0  # 🔥 NEW: No audio in TX queue
-                            and realtime_queue_size == 0  # 🔥 NEW: No audio in realtime queue
+                            and tx_queue_size == 0  # 🔥 CRITICAL: No audio in TX queue
+                            and realtime_queue_size == 0  # 🔥 CRITICAL: No audio in realtime queue
                             and self.call_state == CallState.ACTIVE
                             and not self.hangup_triggered
                             and not getattr(self, "pending_hangup", False)
@@ -12546,13 +12561,6 @@ class MediaStreamHandler:
                                 transcript_text=f"No activity for {hard_timeout:.0f}s"
                             )
                             return
-                        elif tx_queue_size > 0 or realtime_queue_size > 0:
-                            # 🔥 FIX: Audio still in queue - reset activity timer to prevent false timeout
-                            # This handles the case where AI is speaking but watchdog only sees old timestamps
-                            if tx_queue_size > 0 or realtime_queue_size > 0:
-                                if not hasattr(self, '_queue_reset_logged'):
-                                    print(f"⏳ [WATCHDOG] Audio still in queue (tx={tx_queue_size}, realtime={realtime_queue_size}) - NOT timing out")
-                                    self._queue_reset_logged = True
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
 
