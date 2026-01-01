@@ -12515,8 +12515,9 @@ class MediaStreamHandler:
                     last_general_activity = getattr(self, "_last_activity_ts", None)
                     
                     # Get the most recent activity timestamp from all sources
+                    # Fallback to now_ts if all sources are None (shouldn't happen, but defensive)
                     all_timestamps = [t for t in [last_user_voice, last_ai_audio, last_general_activity, self._last_speech_time] if t is not None]
-                    last_activity = max(all_timestamps) if all_timestamps else self._last_speech_time
+                    last_activity = max(all_timestamps) if all_timestamps else now_ts
                     
                     # 🔥 NEW REQUIREMENT: In SIMPLE_MODE, 20 seconds silence = immediate disconnect (no warnings)
                     hard_timeout = 20.0 if SIMPLE_MODE else float(getattr(self, "_hard_silence_hangup_sec", 20.0))
@@ -12531,7 +12532,7 @@ class MediaStreamHandler:
                         # AI is actively speaking - reset the watchdog timer!
                         # This gives the customer time to respond after AI finishes
                         self._last_activity_ts = now_ts
-                        if _event_loop_rate_limiter.every("watchdog_reset", 5.0):
+                        if _event_loop_rate_limiter.every("watchdog_reset", 3.0):
                             print(f"⏳ [WATCHDOG] AI speaking (tx={tx_queue_size}, realtime={realtime_queue_size}, event={self.is_ai_speaking_event.is_set()}) - timer RESET")
                     
                     # Now check for timeout only after ensuring AI is not speaking
