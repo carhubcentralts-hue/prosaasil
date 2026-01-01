@@ -4063,6 +4063,9 @@ class MediaStreamHandler:
             logger.debug("[REALTIME] Audio/text tasks created successfully")
             
             # 🔥 SILENCE WATCHDOG: Start 20-second silence monitoring task
+            # Reset activity timestamp to start countdown from NOW (not from object creation)
+            # This ensures watchdog doesn't falsely disconnect during initial greeting/setup
+            self._last_activity_ts = time.time()
             logger.debug("[SILENCE_WATCHDOG] Starting silence watchdog task...")
             self._silence_watchdog_task = asyncio.create_task(self._silence_watchdog())
             logger.debug("[SILENCE_WATCHDOG] Watchdog task created successfully")
