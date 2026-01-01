@@ -5192,6 +5192,10 @@ class MediaStreamHandler:
                         elif not DEBUG and _event_loop_rate_limiter.every("audio_delta_print", 10.0):
                             _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
                     elif event_type == "response.done":
+                        # 🔥 FIX: Update activity timestamp when response completes
+                        # The AI just finished generating a complete response, so the call is active
+                        self._last_activity_ts = time.time()
+                        
                         response = event.get("response", {})
                         status = response.get("status", "?")
                         output = response.get("output", [])
@@ -5375,6 +5379,11 @@ class MediaStreamHandler:
                             'first_audio_ts': None
                         }
                         print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
+                    elif event_type == "response.audio_transcript.delta":
+                        # 🔥 FIX: Update activity timestamp for transcript deltas to prevent watchdog false positives
+                        # The AI is actively transcribing its speech, so the call is definitely not idle
+                        self._last_activity_ts = time.time()
+                        _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
@@ -6164,6 +6173,10 @@ class MediaStreamHandler:
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # 🔥 FIX: Update activity timestamp when audio or output item completes
+                    # The AI is finishing a response, so the call is definitely active
+                    self._last_activity_ts = time.time()
+                    
                     # 🎯 FIX: Track audio.done per response_id (for race condition handling)
                     if event_type == "response.audio.done":
                         done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
@@ -6337,6 +6350,10 @@ class MediaStreamHandler:
                             asyncio.create_task(delayed_hangup())
                 
                 elif event_type == "response.audio_transcript.done":
+                    # 🔥 FIX: Update activity timestamp when transcript completes
+                    # The AI just finished transcribing its speech, so the call is active
+                    self._last_activity_ts = time.time()
+                    
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
