@@ -2492,6 +2492,11 @@ class MediaStreamHandler:
         Runs continuously, checking every 1 second.
         Disconnects call if 20+ seconds pass without ANY activity (user OR bot).
         
+        🎯 SMART WATCHDOG: Considers "finishing states" to prevent false positives:
+        - If pending_hangup=True: Call is actively finishing (polite hangup in progress)
+        - If hangup_triggered=True: Hangup already triggered, no need to watchdog
+        - If queues have audio: Audio is still draining/playing, call is active
+        
         Authority level: Non-blocking, bypasses queues/locks for reliable disconnection.
         """
         try:
@@ -2500,7 +2505,39 @@ class MediaStreamHandler:
                 
                 idle = time.time() - self._last_activity_ts
                 if idle >= 20.0:
-                    # 🔥 ONE-LINE LOG: Production visibility for watchdog triggers
+                    # 🔥 SMART FIX: Check if call is in a "finishing" state before disconnecting
+                    # These states indicate the call is actively completing, not idle
+                    
+                    # Check 1: Polite hangup in progress (waiting for audio to complete)
+                    pending_hangup = getattr(self, 'pending_hangup', False)
+                    if pending_hangup:
+                        if DEBUG:
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but pending_hangup=True - call is finishing normally, skipping disconnect")
+                        else:
+                            _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but call is finishing (pending_hangup) - allowing completion", flush=True)
+                        continue
+                    
+                    # Check 2: Hangup already triggered (cleanup in progress)
+                    hangup_triggered = getattr(self, 'hangup_triggered', False)
+                    if hangup_triggered:
+                        if DEBUG:
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but hangup_triggered=True - hangup already initiated")
+                        continue
+                    
+                    # Check 3: Audio still in queues (draining/playing)
+                    # This handles the case where response.done fired but audio is still playing
+                    q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                    tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                    total_queued = q1_size + tx_size
+                    
+                    if total_queued > 0:
+                        if DEBUG:
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but {total_queued} audio frames still queued (q1={q1_size}, tx={tx_size}) - allowing drain")
+                        else:
+                            _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but audio draining ({total_queued} frames) - allowing playback", flush=True)
+                        continue
+                    
+                    # All checks passed - this is a TRUE idle situation, disconnect
                     logger.warning(f"[WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP")
                     _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP", flush=True)
                     
