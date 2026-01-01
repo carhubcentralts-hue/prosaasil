@@ -4063,6 +4063,9 @@ class MediaStreamHandler:
             logger.debug("[REALTIME] Audio/text tasks created successfully")
             
             # 🔥 SILENCE WATCHDOG: Start 20-second silence monitoring task
+            # Reset activity timestamp to start countdown from NOW (not from object creation)
+            # This ensures watchdog doesn't falsely disconnect during initial greeting/setup
+            self._last_activity_ts = time.time()
             logger.debug("[SILENCE_WATCHDOG] Starting silence watchdog task...")
             self._silence_watchdog_task = asyncio.create_task(self._silence_watchdog())
             logger.debug("[SILENCE_WATCHDOG] Watchdog task created successfully")
@@ -9812,10 +9815,23 @@ class MediaStreamHandler:
                     except Exception as e:
                         import traceback
                         logger.error(f"[CALL-ERROR] Business identification failed: {e}")
-                        # Use helper with force_greeting=True to ensure greeting fires
-                        self._set_safe_business_defaults(force_greeting=True)
-                        greet = None  # AI will improvise
-                        self._prebuilt_prompt = None  # Async loop will build it
+                        logger.error(f"[CALL-ERROR] Traceback: {traceback.format_exc()}")
+                        
+                        # ⛔ CRITICAL: Cannot proceed without business_id - reject call immediately
+                        # Attempting to continue would risk cross-business contamination
+                        # Mask phone number for security (only show last 4 digits)
+                        to_num = getattr(self, 'to_number', 'unknown')
+                        to_num_masked = f"***{to_num[-4:]}" if to_num and len(to_num) >= 4 else "unknown"
+                        _orig_print(f"❌ [BUSINESS_ISOLATION] Call REJECTED - cannot identify business for to={to_num_masked}", flush=True)
+                        
+                        # Send immediate hangup to Twilio
+                        try:
+                            self._immediate_hangup(reason="business_identification_failed")
+                        except Exception as hangup_err:
+                            logger.error(f"[CALL-ERROR] Failed to send hangup: {hangup_err}")
+                        
+                        # Stop processing this call
+                        return
                     
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
                     if not USE_REALTIME_API:
