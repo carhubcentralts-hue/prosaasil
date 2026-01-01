@@ -29,11 +29,9 @@ DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 
-# 🔥 NEW: Granular logging flags for production debugging
-# These allow enabling specific verbose logs without flooding production
-LOG_REALTIME_EVENTS = os.getenv("LOG_REALTIME_EVENTS", "0") == "1"  # OpenAI Realtime API events
-LOG_AUDIO_CHUNKS = os.getenv("LOG_AUDIO_CHUNKS", "0") == "1"  # Audio chunk transmission logs
-LOG_TRANSCRIPT_DELTAS = os.getenv("LOG_TRANSCRIPT_DELTAS", "0") == "1"  # Transcript delta events
+# 🔥 REMOVED: Extra debug flags - use only DEBUG=0 or DEBUG=1
+# Per user requirement: "שיש כמה שפחות לוגים בdebug 1!!!!"
+# All verbose logging is now controlled by DEBUG flag only
 
 _orig_print = builtins.print
 
@@ -5445,12 +5443,12 @@ class MediaStreamHandler:
                         # 🔥 FIX: Update activity timestamp for transcript deltas to prevent watchdog false positives
                         # The AI is actively transcribing its speech, so the call is definitely not idle
                         self._last_activity_ts = time.time()
-                        # 🔥 FIX: Gate transcript delta spam with LOG_TRANSCRIPT_DELTAS flag
-                        if LOG_TRANSCRIPT_DELTAS:
+                        # 🔥 FIX: Gate transcript delta spam - never log in production
+                        if not DEBUG:
                             _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                     else:
-                        # 🔥 FIX: Gate other realtime event logs with LOG_REALTIME_EVENTS flag
-                        if LOG_REALTIME_EVENTS:
+                        # 🔥 FIX: Gate other realtime event logs - never log in production
+                        if not DEBUG:
                             _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
                 # ✅ CRITICAL FIX: Handle response.cancelled event explicitly
@@ -10268,9 +10266,9 @@ class MediaStreamHandler:
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
-                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation (first 3 frames only, or if LOG_AUDIO_CHUNKS=1)
-                                if self._twilio_audio_chunks_sent <= 3 or LOG_AUDIO_CHUNKS:
-                                    # Only log first 3 frames by default, or all frames if explicit flag is set
+                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation (first 3 frames only in dev)
+                                if not DEBUG and self._twilio_audio_chunks_sent <= 3:
+                                    # Only log first 3 frames in development mode
                                     if self._twilio_audio_chunks_sent <= 3:
                                         first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
                                         mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"

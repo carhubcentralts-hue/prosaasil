@@ -183,11 +183,15 @@ def setup_logging():
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔇 SILENCE NOISY MODULES
     # ═══════════════════════════════════════════════════════════════════════════════
-    # List of noisy modules that spam logs
+    # List of noisy modules that spam logs in production
     noisy = [
         "server.media_ws_ai",
         "server.services.audio_dsp",
-        "server.services.openai_realtime_client",  # 🔥 Added
+        "server.services.openai_realtime_client",
+        "server.services.call_limiter",  # 🔥 Added: call_limiter spams "0 active calls"
+        "server.routes_leads",  # 🔥 Added: get_current_tenant spam
+        "server.routes_status_management",  # 🔥 Added: StatusAPI GET spam
+        "server.tasks_recording",  # 🔥 Added: "Found 0" spam
         "websockets",
         "urllib3",
         "httpx",
