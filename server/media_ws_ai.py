@@ -2518,6 +2518,12 @@ class MediaStreamHandler:
         """
         try:
             while self._silence_watchdog_running:
+                # 🔥 CRITICAL: "CALL END = שקט" - Stop watchdog when call ends
+                if self.closed or getattr(self, 'call_state', None) in (CallState.CLOSING, CallState.ENDED):
+                    logger.debug(f"[WATCHDOG] Stopping - call ended")
+                    self._silence_watchdog_running = False
+                    return
+                
                 await asyncio.sleep(1)
                 
                 # 🔥 CRITICAL FIX: Check if AI is speaking FIRST, before calculating idle time
@@ -12466,11 +12472,14 @@ class MediaStreamHandler:
                 self._maybe_release_post_greeting_window("monitor_start")
             
             while True:
+                # 🔥 CRITICAL: "CALL END = שקט" - Stop ALL periodic loops when call ends
+                # Per user requirement: "כל task/loop שמדפיס מחזורית חייב לבדוק"
+                if self.closed or self.call_state in (CallState.CLOSING, CallState.ENDED):
+                    print(f"🔇 [SILENCE] Monitor exiting - call ended (state={self.call_state.value if hasattr(self, 'call_state') else 'unknown'})")
+                    return
+                
                 # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
                 # This prevents AI from speaking during the sleep window after goodbye
-                if self.closed:
-                    print(f"🔇 [SILENCE] Monitor exiting - session closed")
-                    return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
                     return
@@ -12481,8 +12490,8 @@ class MediaStreamHandler:
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
                 # 🔥 BUILD 339 CRITICAL: Check AGAIN after sleep (state may have changed during sleep)
-                if self.closed:
-                    print(f"🔇 [SILENCE] Monitor exiting - session closed (after sleep)")
+                if self.closed or self.call_state in (CallState.CLOSING, CallState.ENDED):
+                    print(f"🔇 [SILENCE] Monitor exiting - call ended after sleep")
                     return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
