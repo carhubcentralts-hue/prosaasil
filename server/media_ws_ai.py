@@ -5445,9 +5445,13 @@ class MediaStreamHandler:
                         # 🔥 FIX: Update activity timestamp for transcript deltas to prevent watchdog false positives
                         # The AI is actively transcribing its speech, so the call is definitely not idle
                         self._last_activity_ts = time.time()
-                        _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
+                        # 🔥 FIX: Gate transcript delta spam with LOG_TRANSCRIPT_DELTAS flag
+                        if LOG_TRANSCRIPT_DELTAS:
+                            _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                     else:
-                        _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
+                        # 🔥 FIX: Gate other realtime event logs with LOG_REALTIME_EVENTS flag
+                        if LOG_REALTIME_EVENTS:
+                            _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
                 # ✅ CRITICAL FIX: Handle response.cancelled event explicitly
                 # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
@@ -12512,6 +12516,11 @@ class MediaStreamHandler:
                     hard_timeout = 20.0 if SIMPLE_MODE else float(getattr(self, "_hard_silence_hangup_sec", 20.0))
 
                     if (now_ts - last_activity) >= hard_timeout:
+                        # 🔥 FIX: Check if audio is still in TX queue - if so, AI is still speaking!
+                        # This prevents false timeouts during long AI responses when audio is buffered
+                        tx_queue_size = self.tx_q.qsize()
+                        realtime_queue_size = self.realtime_audio_out_queue.qsize()
+                        
                         # 🔥 AUTO-DISCONNECT: 20 seconds of silence from both bot and customer
                         # This prevents wasted minutes on voicemail or prolonged silence
                         # Only hang up when nothing is actively happening.
@@ -12522,6 +12531,8 @@ class MediaStreamHandler:
                             and not getattr(self, "_realtime_speech_active", False)
                             and not getattr(self, "user_speaking", False)
                             and not getattr(self, "waiting_for_dtmf", False)
+                            and tx_queue_size == 0  # 🔥 NEW: No audio in TX queue
+                            and realtime_queue_size == 0  # 🔥 NEW: No audio in realtime queue
                             and self.call_state == CallState.ACTIVE
                             and not self.hangup_triggered
                             and not getattr(self, "pending_hangup", False)
@@ -12535,6 +12546,13 @@ class MediaStreamHandler:
                                 transcript_text=f"No activity for {hard_timeout:.0f}s"
                             )
                             return
+                        elif tx_queue_size > 0 or realtime_queue_size > 0:
+                            # 🔥 FIX: Audio still in queue - reset activity timer to prevent false timeout
+                            # This handles the case where AI is speaking but watchdog only sees old timestamps
+                            if tx_queue_size > 0 or realtime_queue_size > 0:
+                                if not hasattr(self, '_queue_reset_logged'):
+                                    print(f"⏳ [WATCHDOG] Audio still in queue (tx={tx_queue_size}, realtime={realtime_queue_size}) - NOT timing out")
+                                    self._queue_reset_logged = True
                 except Exception as watchdog_err:
                     print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
 
