@@ -2290,6 +2290,8 @@ class MediaStreamHandler:
         self.auto_end_on_goodbye = True  # Default: auto-end on goodbye - NOW ENABLED BY DEFAULT - overwritten by CallConfig
         self.lead_captured = False  # Runtime state: tracks if all required lead info is collected
         self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
+        self.bot_said_goodbye = False  # 🔥 NEW: Tracks if BOT said goodbye (ביי/להתראות) - watchdog uses this
+        self.bot_said_goodbye_at = None  # 🔥 NEW: Timestamp when bot said goodbye
         self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
         self.hangup_triggered = False  # Runtime state: prevents multiple hangup attempts
         # 🎯 Polite hangup metadata (execute only after response.audio.done)
@@ -2487,15 +2489,30 @@ class MediaStreamHandler:
     
     async def _silence_watchdog(self):
         """
-        🔥 SILENCE WATCHDOG: Monitor conversation activity and disconnect after 20 seconds of silence
+        🔥 SMART SILENCE WATCHDOG: Intelligent conversation monitoring with context awareness
         
         Runs continuously, checking every 1 second.
-        Disconnects call if 20+ seconds pass without ANY activity (user OR bot).
         
-        🎯 SMART WATCHDOG: Considers "finishing states" to prevent false positives:
-        - If pending_hangup=True: Call is actively finishing (polite hangup in progress)
-        - If hangup_triggered=True: Hangup already triggered, no need to watchdog
-        - If queues have audio: Audio is still draining/playing, call is active
+        🎯 DISCONNECT LOGIC (OR not AND!):
+        The watchdog disconnects in ONE of these scenarios:
+        
+        SCENARIO 1: Bot said goodbye (ביי/להתראות)
+        - Bot must have said goodbye → Disconnect immediately after audio completes
+        - Handled by pending_hangup flow (not watchdog)
+        
+        SCENARIO 2: 20 seconds of TRUE silence (OR)
+        - 20+ seconds with NO activity (no bot speaking, no user speaking)
+        - This is the watchdog's job
+        
+        🔥 KEY: "Silence" means NO bot activity:
+        - If bot is speaking (audio in queues) → NOT silent, reset counter
+        - If bot just finished speaking → Start counting from that moment
+        - If user speaks → Reset counter (via _last_activity_ts update)
+        
+        This prevents false disconnects during:
+        - Long AI responses (audio still playing)
+        - Audio drain period (after response.done)
+        - Active conversation (user or bot speaking)
         
         Authority level: Non-blocking, bypasses queues/locks for reliable disconnection.
         """
@@ -2504,42 +2521,49 @@ class MediaStreamHandler:
                 await asyncio.sleep(1)
                 
                 idle = time.time() - self._last_activity_ts
+                
+                # 🔥 SMART LOGIC: Check for 20 seconds of TRUE silence
                 if idle >= 20.0:
-                    # 🔥 SMART FIX: Check if call is in a "finishing" state before disconnecting
-                    # These states indicate the call is actively completing, not idle
-                    
-                    # Check 1: Polite hangup in progress (waiting for audio to complete)
-                    pending_hangup = getattr(self, 'pending_hangup', False)
-                    if pending_hangup:
-                        if DEBUG:
-                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but pending_hangup=True - call is finishing normally, skipping disconnect")
-                        else:
-                            _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but call is finishing (pending_hangup) - allowing completion", flush=True)
-                        continue
-                    
-                    # Check 2: Hangup already triggered (cleanup in progress)
+                    # Check 1: Hangup already triggered (cleanup in progress)
                     hangup_triggered = getattr(self, 'hangup_triggered', False)
                     if hangup_triggered:
                         if DEBUG:
-                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but hangup_triggered=True - hangup already initiated")
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but hangup_triggered=True - already disconnecting")
                         continue
                     
-                    # Check 3: Audio still in queues (draining/playing)
-                    # This handles the case where response.done fired but audio is still playing
+                    # Check 2: Polite hangup already in progress (bot said goodbye, waiting for audio)
+                    pending_hangup = getattr(self, 'pending_hangup', False)
+                    if pending_hangup:
+                        if DEBUG:
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but pending_hangup=True - polite hangup in progress")
+                        else:
+                            _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but polite hangup in progress - allowing completion", flush=True)
+                        continue
+                    
+                    # Check 3: Audio still in queues (bot currently speaking or draining)
+                    # This is CRITICAL - if bot is speaking, it's NOT silence!
                     q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                     tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                     total_queued = q1_size + tx_size
                     
                     if total_queued > 0:
                         if DEBUG:
-                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but {total_queued} audio frames still queued (q1={q1_size}, tx={tx_size}) - allowing drain")
+                            logger.debug(f"[WATCHDOG] idle={idle:.1f}s but {total_queued} audio frames queued (q1={q1_size}, tx={tx_size}) - bot still speaking")
                         else:
-                            _orig_print(f"⏳ [WATCHDOG] idle={idle:.1f}s but audio draining ({total_queued} frames) - allowing playback", flush=True)
+                            _orig_print(f"🔊 [WATCHDOG] idle={idle:.1f}s but bot still speaking ({total_queued} frames) - NOT silent", flush=True)
+                        # 🔥 CRITICAL: Update activity timestamp because bot is ACTIVELY speaking
+                        # This resets the silence counter to prevent false disconnect
+                        self._last_activity_ts = time.time()
                         continue
                     
-                    # All checks passed - this is a TRUE idle situation, disconnect
-                    logger.warning(f"[WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP")
-                    _orig_print(f"🚨 [WATCHDOG] idle={idle:.1f}s (no user OR bot activity) -> IMMEDIATE_HANGUP", flush=True)
+                    # All checks passed:
+                    # - 20 seconds of TRUE silence (no bot speaking, no user speaking) ✅
+                    # - No audio in queues ✅
+                    # - No hangup in progress ✅
+                    # → Disconnect due to silence
+                    
+                    logger.warning(f"[WATCHDOG] {idle:.1f}s of true silence (no user OR bot activity) → DISCONNECT")
+                    _orig_print(f"🚨 [WATCHDOG] {idle:.1f}s of TRUE silence → DISCONNECT", flush=True)
                     
                     # Stop watchdog before triggering hangup to prevent race conditions
                     self._silence_watchdog_running = False
