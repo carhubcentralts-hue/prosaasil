@@ -814,18 +814,24 @@ export function BusinessAISettings() {
               <select
                 value={voiceLibrary.voiceId}
                 onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
+                style={{ 
+                  minWidth: '100%',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden'
+                }}
                 data-testid="select-voice"
               >
                 {voiceLibrary.availableVoices.map((voice) => (
-                  <option key={voice.id} value={voice.id}>
+                  <option key={voice.id} value={voice.id} title={voice.name || voice.id}>
                     {voice.name || voice.id}
                   </option>
                 ))}
               </select>
             )}
             <p className="text-xs text-slate-500 mt-1">
-              הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק
+              הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק (רק קולות Realtime נתמכים)
             </p>
           </div>
 

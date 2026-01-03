@@ -206,6 +206,84 @@ def update_business_ai_settings():
     }
 
 
+async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
+    """
+    Generate TTS preview using OpenAI Realtime API
+    Required for voices that don't support speech.create (e.g., cedar)
+    
+    Args:
+        voice_id: Voice ID (e.g., "cedar")
+        text: Text to convert to speech
+        
+    Returns:
+        Audio bytes (mp3 format)
+    """
+    from server.services.openai_realtime_client import OpenAIRealtimeClient
+    import asyncio
+    
+    audio_chunks = []
+    
+    try:
+        # Create Realtime client
+        client = OpenAIRealtimeClient(model="gpt-4o-mini-realtime-preview")
+        
+        # Connect to Realtime API
+        await client.connect()
+        
+        try:
+            # Configure session with voice and audio format
+            await client.send_event({
+                "type": "session.update",
+                "session": {
+                    "modalities": ["text", "audio"],
+                    "voice": voice_id,
+                    "output_audio_format": "mp3",
+                    "turn_detection": None  # Disable turn detection for preview
+                }
+            })
+            
+            # Send text for conversion to speech
+            await client.send_event({
+                "type": "response.create",
+                "response": {
+                    "modalities": ["audio"],
+                    "instructions": f"Say exactly: {text}"
+                }
+            })
+            
+            # Collect audio chunks
+            async for event in client.recv_events():
+                event_type = event.get("type", "")
+                
+                if event_type == "response.audio.delta":
+                    # Collect audio chunk
+                    delta = event.get("delta", "")
+                    if delta:
+                        audio_chunks.append(base64.b64decode(delta))
+                
+                elif event_type == "response.done":
+                    # Response complete
+                    break
+                
+                elif event_type == "error":
+                    error_msg = event.get("error", {}).get("message", "Unknown error")
+                    raise RuntimeError(f"Realtime API error: {error_msg}")
+        
+        finally:
+            # Always disconnect
+            await client.disconnect()
+        
+        # Combine audio chunks
+        if not audio_chunks:
+            raise RuntimeError("No audio generated")
+        
+        return b"".join(audio_chunks)
+    
+    except Exception as e:
+        logger.error(f"[TTS_PREVIEW] Realtime API failed: {e}")
+        raise
+
+
 @ai_system_bp.route('/api/ai/tts/preview', methods=['POST'])
 @api_handler
 def preview_tts():
@@ -213,6 +291,10 @@ def preview_tts():
     Preview TTS with specified text and voice
     Body: {"text": "שלום עולם", "voice_id": "cedar"}
     Returns: audio/mpeg (mp3) stream
+    
+    🔥 Supports both speech.create and Realtime API engines:
+    - speech_create: Standard TTS API (faster, most voices)
+    - realtime: Realtime API (required for cedar, ballad, coral, marin, sage, verse)
     """
     # Get business_id from session/JWT using robust resolution
     business_id = get_business_id_from_context()
@@ -249,23 +331,34 @@ def preview_tts():
     if len(text) > 400:
         return {"ok": False, "error": "text_too_long", "message": "Text must be at most 400 characters"}, 400
     
+    # Get voice metadata to determine preview engine
+    voice_metadata = OPENAI_VOICES_METADATA.get(voice_id, {})
+    preview_engine = voice_metadata.get("preview_engine", "speech_create")
+    
     # Log preview request
-    logger.info(f"[AI][TTS_PREVIEW] business_id={business_id} voice={voice_id} chars={len(text)}")
+    logger.info(f"[AI][TTS_PREVIEW] business_id={business_id} voice={voice_id} engine={preview_engine} chars={len(text)}")
     
     try:
-        # Use OpenAI TTS API to generate preview
-        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        audio_bytes = None
         
-        # Generate speech using TTS-1 model with specified voice
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice=voice_id,
-            input=text,
-            response_format="mp3"
-        )
-        
-        # Convert response to bytes
-        audio_bytes = response.content
+        if preview_engine == "realtime":
+            # Use Realtime API for cedar and other Realtime-only voices
+            import asyncio
+            audio_bytes = asyncio.run(_generate_preview_via_realtime(voice_id, text))
+        else:
+            # Use standard speech.create API
+            client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            
+            # Generate speech using TTS-1 model with specified voice
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice=voice_id,
+                input=text,
+                response_format="mp3"
+            )
+            
+            # Convert response to bytes
+            audio_bytes = response.content
         
         # Create BytesIO object for send_file
         audio_io = io.BytesIO(audio_bytes)
