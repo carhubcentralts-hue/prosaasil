@@ -281,6 +281,16 @@ class AuthService:
             plain_token = secrets.token_urlsafe(32)
             token_hash = hash_token(plain_token)
             
+            # 🔍 DEBUG: Log token generation details
+            logger.warning(
+                "[AUTH][RESET_DEBUG] token_generated user_id=%s token_len=%s token_first8=%s token_last8=%s hash8=%s",
+                user.id,
+                len(plain_token),
+                plain_token[:8],
+                plain_token[-8:],
+                token_hash[:8]
+            )
+            
             # Store hashed token in database
             user.reset_token_hash = token_hash
             user.reset_token_expiry = datetime.utcnow() + timedelta(minutes=PASSWORD_RESET_TOKEN_MINUTES)
@@ -317,6 +327,10 @@ class AuthService:
         Returns:
             User object if token is valid, None otherwise
         """
+        if not plain_token:
+            logger.warning("[AUTH] Invalid reset token - token is empty or None")
+            return None
+            
         token_hash = hash_token(plain_token)
         
         # Find user with this reset token
@@ -326,8 +340,17 @@ class AuthService:
         ).first()
         
         if not user:
-            logger.warning(f"[AUTH] Invalid reset token")
+            logger.warning("[AUTH] Invalid reset token - no matching user found")
             return None
+        
+        # 🔍 DEBUG: Log hash comparison details
+        logger.warning(
+            "[AUTH][RESET_DEBUG] stored_hash8=%s computed_hash8=%s used=%s exp=%s",
+            user.reset_token_hash[:8] if user.reset_token_hash else "None",
+            token_hash[:8],
+            user.reset_token_used,
+            user.reset_token_expiry
+        )
         
         # Check if token is expired
         if user.reset_token_expiry < datetime.utcnow():
