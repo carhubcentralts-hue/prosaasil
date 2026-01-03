@@ -64,6 +64,7 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot" element={<ForgotPasswordPage />} />
       <Route path="/reset" element={<ResetPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       {/* Protected Routes */}
       <Route
