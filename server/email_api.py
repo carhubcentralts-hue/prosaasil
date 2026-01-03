@@ -15,7 +15,7 @@ from server.auth_api import require_api_auth
 from server.services.email_service import get_email_service
 from server.models_sql import Lead, User
 from server.db import db
-from sqlalchemy import text, desc
+from sqlalchemy import text as sa_text, desc
 import logging
 from datetime import datetime, timedelta
 
@@ -350,7 +350,7 @@ def send_email_to_lead(lead_id):
         
         subject = data.get('subject', '').strip()
         html = data.get('html', '').strip()
-        text = data.get('text', '').strip() or None
+        plain_text = data.get('text', '').strip() or None
         
         if not subject or not html:
             return jsonify({'error': 'subject and html are required'}), 400
@@ -362,7 +362,7 @@ def send_email_to_lead(lead_id):
             to_email=to_email,
             subject=subject,
             html=html,
-            text=text,
+            plain_text=plain_text,
             lead_id=lead_id,
             created_by_user_id=user_id,
             meta={'source': 'lead_page'}
@@ -412,7 +412,7 @@ def get_lead_emails(lead_id):
         
         # Get emails for this lead
         result = db.session.execute(
-            text("""
+            sa_text("""
                 SELECT 
                     em.id, em.to_email, em.subject, em.status, em.error,
                     em.from_email, em.from_name, em.reply_to,
@@ -501,7 +501,7 @@ def list_email_messages():
         
         # Get total count
         count_result = db.session.execute(
-            text(f"SELECT COUNT(*) FROM email_messages em WHERE {where_clause}"),
+            sa_text(f"SELECT COUNT(*) FROM email_messages em WHERE {where_clause}"),
             params
         ).scalar()
         
@@ -509,7 +509,7 @@ def list_email_messages():
         offset = (page - 1) * per_page
         
         result = db.session.execute(
-            text(f"""
+            sa_text(f"""
                 SELECT 
                     em.id, em.to_email, em.subject, em.status, em.error,
                     em.from_email, em.from_name, em.reply_to,

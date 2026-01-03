@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
@@ -20,6 +20,24 @@ interface EmailMessage {
     name: string;
     email: string;
   };
+}
+
+interface Lead {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_e164: string;
+}
+
+interface EmailTemplate {
+  id: number;
+  name: string;
+  type: string;
+  subject_template: string;
+  html_template: string;
+  text_template: string;
+  is_active: boolean;
 }
 
 interface EmailSettings {
@@ -56,7 +74,7 @@ export function EmailsPage() {
   const [settings, setSettings] = useState<EmailSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'settings'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'templates' | 'settings'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -71,12 +89,47 @@ export function EmailsPage() {
   const [configured, setConfigured] = useState(false);
   const [sendgridAvailable, setSendgridAvailable] = useState(true);
   
+  // Compose email modal state
+  const [showComposeModal, setShowComposeModal] = useState(false);
+  const [composeMode, setComposeMode] = useState<'lead' | 'manual'>('lead');
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [manualEmail, setManualEmail] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailHtml, setEmailHtml] = useState('');
+  const [composeLoading, setComposeLoading] = useState(false);
+  const [leadSearchQuery, setLeadSearchQuery] = useState('');
+  const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
+  const [leadSearchLoading, setLeadSearchLoading] = useState(false);
+  
+  // Templates state
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<EmailTemplate | null>(null);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewSubject, setPreviewSubject] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  
   useEffect(() => {
     loadSettings();
     if (activeTab === 'all' || activeTab === 'sent') {
       loadEmails();
+    } else if (activeTab === 'templates') {
+      loadTemplates();
     }
   }, [activeTab, statusFilter, searchQuery]);
+  
+  // Debounced lead search
+  useEffect(() => {
+    if (leadSearchQuery.length >= 2) {
+      const timer = setTimeout(() => {
+        searchLeads();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setLeadSearchResults([]);
+    }
+  }, [leadSearchQuery]);
   
   const loadSettings = async () => {
     try {
@@ -173,6 +226,94 @@ export function EmailsPage() {
     }
   };
   
+  const loadTemplates = async () => {
+    try {
+      setTemplatesLoading(true);
+      const response = await axios.get('/api/email/templates');
+      setTemplates(response.data.templates || []);
+    } catch (err: any) {
+      console.error('Failed to load templates:', err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+  
+  const searchLeads = async () => {
+    try {
+      setLeadSearchLoading(true);
+      const response = await axios.get(`/api/leads?q=${encodeURIComponent(leadSearchQuery)}&pageSize=20`);
+      const leads = response.data.leads || [];
+      setLeadSearchResults(leads.map((l: any) => ({
+        id: l.id,
+        first_name: l.first_name || '',
+        last_name: l.last_name || '',
+        email: l.email || '',
+        phone_e164: l.phone_e164 || ''
+      })));
+    } catch (err: any) {
+      console.error('Failed to search leads:', err);
+    } finally {
+      setLeadSearchLoading(false);
+    }
+  };
+  
+  const handleComposeEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedLead || !emailSubject.trim() || !emailHtml.trim()) {
+      setError('נא למלא את כל השדות ולבחור ליד');
+      return;
+    }
+    
+    setComposeLoading(true);
+    setError(null);
+    
+    try {
+      await axios.post(`/api/leads/${selectedLead.id}/email`, {
+        to_email: selectedLead.email,
+        subject: emailSubject.trim(),
+        html: emailHtml.trim()
+      });
+      
+      setSuccessMessage('מייל נשלח בהצלחה');
+      setShowComposeModal(false);
+      resetComposeForm();
+      loadEmails();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
+    } finally {
+      setComposeLoading(false);
+    }
+  };
+  
+  const handlePreviewTemplate = async (template: EmailTemplate) => {
+    setPreviewTemplate(template);
+    setPreviewLoading(true);
+    setShowPreviewModal(true);
+    
+    try {
+      const response = await axios.post(`/api/email/templates/${template.id}/preview`, {
+        lead: { first_name: 'דוגמא', last_name: 'לקוח', email: 'example@test.com' }
+      });
+      setPreviewSubject(response.data.preview.subject);
+      setPreviewHtml(response.data.preview.html);
+    } catch (err: any) {
+      console.error('Failed to preview template:', err);
+      setError('שגיאה בטעינת תצוגה מקדימה');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+  
+  const resetComposeForm = () => {
+    setSelectedLead(null);
+    setManualEmail('');
+    setEmailSubject('');
+    setEmailHtml('');
+    setLeadSearchQuery('');
+    setLeadSearchResults([]);
+  };
+  
   const isAdmin = ['system_admin', 'owner', 'admin'].includes(user?.role || '');
   
   return (
@@ -225,6 +366,16 @@ export function EmailsPage() {
             >
               נשלחו
             </button>
+            <button
+              onClick={() => setActiveTab('templates')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'templates'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              תבניות
+            </button>
             {isAdmin && (
               <button
                 onClick={() => setActiveTab('settings')}
@@ -243,7 +394,48 @@ export function EmailsPage() {
         
         {/* Content */}
         <div className="p-6">
-          {activeTab === 'settings' ? (
+          {activeTab === 'templates' ? (
+            // Templates Tab
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">תבניות מייל</h2>
+              </div>
+              
+              {templatesLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-12">
+                  <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">אין תבניות להצגה</p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {templates.map((template) => (
+                    <div key={template.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-gray-900">{template.name}</h3>
+                          <p className="text-sm text-gray-600 mt-1">{template.subject_template}</p>
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mt-2">
+                            {template.type}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handlePreviewTemplate(template)}
+                          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
+                          <Eye className="w-4 h-4" />
+                          תצוגה מקדימה
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'settings' ? (
             // Settings Tab
             <div className="max-w-2xl">
               <h2 className="text-xl font-semibold mb-4">הגדרות מייל</h2>
@@ -463,6 +655,234 @@ export function EmailsPage() {
           )}
         </div>
       </div>
+      
+      {/* Compose Email Button (Floating) */}
+      {configured && (activeTab === 'all' || activeTab === 'sent') && (
+        <button
+          onClick={() => setShowComposeModal(true)}
+          className="fixed bottom-8 left-8 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center gap-2 z-10"
+        >
+          <Plus className="w-6 h-6" />
+          <span className="font-medium">שליחת מייל חדש</span>
+        </button>
+      )}
+      
+      {/* Compose Email Modal */}
+      {showComposeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">שליחת מייל חדש</h2>
+                <button
+                  onClick={() => {
+                    setShowComposeModal(false);
+                    resetComposeForm();
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  {error}
+                </div>
+              )}
+              
+              <form onSubmit={handleComposeEmail} className="space-y-4">
+                {/* Recipient - Lead Picker */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    בחר ליד:
+                  </label>
+                  
+                  <div className="relative">
+                    <div className="flex items-center border border-gray-300 rounded-lg">
+                      <Search className="w-5 h-5 text-gray-400 mr-3 ml-2" />
+                      <input
+                        type="text"
+                        value={leadSearchQuery}
+                        onChange={(e) => setLeadSearchQuery(e.target.value)}
+                        placeholder="חפש ליד (שם, טלפון, מייל)..."
+                        className="flex-1 px-3 py-2 border-0 focus:ring-0"
+                      />
+                    </div>
+                    
+                    {selectedLead && (
+                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{selectedLead.first_name} {selectedLead.last_name}</div>
+                          <div className="text-sm text-gray-600">{selectedLead.email}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLead(null)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
+                    
+                    {!selectedLead && leadSearchResults.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {leadSearchResults.map((lead) => (
+                          <button
+                            key={lead.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedLead(lead);
+                              setLeadSearchQuery('');
+                              setLeadSearchResults([]);
+                            }}
+                            className="w-full text-right p-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                          >
+                            <div className="font-medium">{lead.first_name} {lead.last_name}</div>
+                            <div className="text-sm text-gray-600">{lead.email}</div>
+                            <div className="text-xs text-gray-500">{lead.phone_e164}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {leadSearchLoading && (
+                      <div className="mt-2 text-sm text-gray-600">מחפש...</div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Subject */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    נושא *
+                  </label>
+                  <input
+                    type="text"
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    placeholder="נושא המייל"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                {/* Body */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    תוכן המייל *
+                  </label>
+                  <textarea
+                    value={emailHtml}
+                    onChange={(e) => setEmailHtml(e.target.value)}
+                    placeholder="תוכן המייל (HTML)"
+                    rows={8}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={composeLoading}
+                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {composeLoading ? 'שולח...' : 'שלח מייל'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowComposeModal(false);
+                      resetComposeForm();
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Template Preview Modal */}
+      {showPreviewModal && previewTemplate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold">{previewTemplate.name}</h2>
+                  <p className="text-sm text-gray-600 mt-1">תצוגה מקדימה</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPreviewModal(false);
+                    setPreviewTemplate(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              {previewLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </div>
+              ) : (
+                <div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">נושא:</label>
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      {previewSubject}
+                    </div>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">תוכן:</label>
+                    <div 
+                      className="p-4 bg-white border border-gray-200 rounded-lg"
+                      dangerouslySetInnerHTML={{ __html: previewHtml }}
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        // Close preview and open settings tab with test email pre-filled
+                        setShowPreviewModal(false);
+                        setActiveTab('settings');
+                        // Set test email to current user's email
+                        if (user?.email) {
+                          setTestEmail(user.email);
+                        }
+                      }}
+                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                    >
+                      <Send className="w-4 h-4" />
+                      שלח טסט למייל שלי
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowPreviewModal(false);
+                        setPreviewTemplate(null);
+                      }}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      סגור
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

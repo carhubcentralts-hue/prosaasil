@@ -15,6 +15,7 @@ from datetime import datetime
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
 import bleach
+from bleach.css_sanitizer import CSSSanitizer
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,15 @@ ALLOWED_FROM_EMAILS = ['noreply@prosaas.pro', 'info@prosaas.pro']
 # Regex for stripping HTML tags (simple but effective for our use case)
 HTML_TAG_REGEX = re.compile('<[^<]+?>')
 
+# CSS Sanitizer for safe inline styles
+# Allow common safe CSS properties for email styling
+css_sanitizer = CSSSanitizer(allowed_css_properties=[
+    'color', 'background-color', 'font-size', 'font-weight', 'font-family',
+    'text-align', 'text-decoration', 'padding', 'margin', 'border',
+    'border-radius', 'width', 'height', 'max-width', 'max-height',
+    'display', 'line-height', 'letter-spacing'
+])
+
 # Allowed HTML tags and attributes for sanitization
 ALLOWED_TAGS = [
     'a', 'b', 'blockquote', 'br', 'div', 'em', 'i', 'li', 'ol', 'p', 
@@ -43,7 +53,13 @@ ALLOWED_ATTRIBUTES = {
     'span': ['style'],
     'p': ['style'],
     'td': ['style'],
-    'th': ['style']
+    'th': ['style'],
+    'h1': ['style'],
+    'h2': ['style'],
+    'h3': ['style'],
+    'h4': ['style'],
+    'h5': ['style'],
+    'h6': ['style']
 }
 
 def strip_html(html: str) -> str:
@@ -51,11 +67,17 @@ def strip_html(html: str) -> str:
     return HTML_TAG_REGEX.sub('', html)
 
 def sanitize_html(html: str) -> str:
-    """Sanitize HTML to prevent XSS attacks"""
+    """
+    Sanitize HTML to prevent XSS attacks
+    
+    Uses CSS sanitizer to allow safe inline styles while blocking dangerous CSS.
+    This prevents XSS via CSS (e.g., expression(), url() with javascript:, etc.)
+    """
     return bleach.clean(
         html,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
+        css_sanitizer=css_sanitizer,
         strip=True
     )
 
@@ -325,10 +347,10 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             result = db.session.execute(
-                text("""
+                sa_text("""
                     SELECT id, business_id, provider, from_email, from_name, 
                            reply_to, reply_to_enabled, brand_logo_url, brand_primary_color,
                            default_greeting, footer_html, footer_text, is_enabled, 
@@ -399,7 +421,7 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             # 🔒 ENFORCED: Always use verified SendGrid address
             from_email = ALLOWED_FROM_EMAILS[0]  # noreply@prosaas.pro
@@ -412,7 +434,7 @@ class EmailService:
             if existing:
                 # Update existing settings
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_settings
                         SET from_email = :from_email,
                             from_name = :from_name,
@@ -445,7 +467,7 @@ class EmailService:
             else:
                 # Insert new settings
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         INSERT INTO email_settings 
                         (business_id, provider, from_email, from_name, reply_to, reply_to_enabled,
                          brand_logo_url, brand_primary_color, default_greeting, footer_html, footer_text,
@@ -498,7 +520,7 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             query = """
                 SELECT id, business_id, name, type, subject_template, 
@@ -514,7 +536,7 @@ class EmailService:
             query += " ORDER BY created_at DESC"
             
             result = db.session.execute(
-                text(query),
+                sa_text(query),
                 {"business_id": business_id}
             ).fetchall()
             
@@ -567,10 +589,10 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             result = db.session.execute(
-                text("""
+                sa_text("""
                     INSERT INTO email_templates
                     (business_id, name, type, subject_template, html_template, 
                      text_template, created_by_user_id, is_active, created_at, updated_at)
@@ -632,7 +654,7 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             # Build update query dynamically based on provided fields
             update_fields = []
@@ -677,7 +699,7 @@ class EmailService:
                 WHERE id = :template_id AND business_id = :business_id
             """
             
-            result = db.session.execute(text(query), params)
+            result = db.session.execute(sa_text(query), params)
             db.session.commit()
             
             if result.rowcount > 0:
@@ -774,7 +796,7 @@ class EmailService:
         to_email: str,
         subject: Optional[str] = None,
         html: Optional[str] = None,
-        text: Optional[str] = None,
+        plain_text: Optional[str] = None,
         lead_id: Optional[int] = None,
         template_id: Optional[int] = None,
         created_by_user_id: Optional[int] = None,
@@ -798,7 +820,7 @@ class EmailService:
             to_email: Recipient email
             subject: Email subject (required if no template)
             html: HTML body (required if no template)
-            text: Plain text body (optional)
+            plain_text: Plain text body (optional)
             lead_id: Lead ID if sending to a lead
             template_id: Template ID to use instead of custom content
             created_by_user_id: User who initiated the send
@@ -814,7 +836,7 @@ class EmailService:
             }
         """
         from server.db import db
-        from sqlalchemy import text
+        from sqlalchemy import text as sa_text
         import json
         
         logger.info(f"[EMAIL] send requested business_id={business_id} lead_id={lead_id} template_id={template_id} to={to_email}")
@@ -845,7 +867,7 @@ class EmailService:
         # 2. Prepare content (from template or direct)
         rendered_subject = subject
         rendered_body_html = html
-        rendered_body_text = text
+        rendered_body_text = plain_text
         
         # Get lead and business info for variable rendering
         lead_info = None
@@ -856,7 +878,7 @@ class EmailService:
             # Get lead info if lead_id provided
             if lead_id:
                 lead_result = db.session.execute(
-                    text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id"),
+                    sa_text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id"),
                     {"lead_id": lead_id}
                 ).fetchone()
                 if lead_result:
@@ -869,7 +891,7 @@ class EmailService:
             
             # Get business info
             biz_result = db.session.execute(
-                text("SELECT name, phone_number FROM business WHERE id = :business_id"),
+                sa_text("SELECT name, phone_number FROM business WHERE id = :business_id"),
                 {"business_id": business_id}
             ).fetchone()
             if biz_result:
@@ -881,7 +903,7 @@ class EmailService:
             # Get agent info if created_by_user_id provided
             if created_by_user_id:
                 agent_result = db.session.execute(
-                    text("SELECT name, email FROM users WHERE id = :user_id"),
+                    sa_text("SELECT name, email FROM users WHERE id = :user_id"),
                     {"user_id": created_by_user_id}
                 ).fetchone()
                 if agent_result:
@@ -897,7 +919,7 @@ class EmailService:
             try:
                 # Get template
                 template_result = db.session.execute(
-                    text("""
+                    sa_text("""
                         SELECT subject_template, html_template, text_template
                         FROM email_templates
                         WHERE id = :template_id AND business_id = :business_id AND is_active = TRUE
@@ -961,10 +983,10 @@ class EmailService:
             variables['business'] = business_info
         greeting_html = render_variables(greeting_template, variables)
         
-        # 4. Sanitize body content
+        # 4. Sanitize body content (user input only - not the base layout!)
         body_html_sanitized = sanitize_html(rendered_body_html)
         
-        # 5. Wrap in base layout
+        # 5. Wrap in base layout (trusted - no sanitization)
         try:
             base_layout = load_base_layout()
             
@@ -980,6 +1002,7 @@ class EmailService:
             final_html = final_html.replace('{{business_name}}', business_name)
             final_html = final_html.replace('{{greeting}}', greeting_html)
             final_html = final_html.replace('{{body_content}}', body_html_sanitized)
+            # Footer content is business-configured, sanitize it to prevent XSS
             final_html = final_html.replace('{{footer_content}}', sanitize_html(footer_html) if footer_html else '')
             
             # Handle conditional logo
@@ -997,6 +1020,8 @@ class EmailService:
             # Remove any {{#if signature}} blocks (not used yet)
             final_html = re.sub(r'\{\{#if signature\}\}.*?\{\{/if\}\}', '', final_html, flags=re.DOTALL)
             
+            # Final HTML is NOT sanitized again - base layout is trusted
+            # Only user content (body_html_sanitized and footer_html) was sanitized above
             final_html_sanitized = final_html
             
         except Exception as e:
@@ -1009,7 +1034,7 @@ class EmailService:
         # 6. Create email_messages record in 'queued' status
         try:
             result = db.session.execute(
-                text("""
+                sa_text("""
                     INSERT INTO email_messages
                     (business_id, lead_id, created_by_user_id, template_id, to_email, to_name,
                      subject, body_html, body_text, 
@@ -1032,7 +1057,7 @@ class EmailService:
                     "to_name": to_name,
                     "subject": subject or rendered_subject,
                     "body_html": html or rendered_body_html,
-                    "body_text": text or rendered_body_text,
+                    "body_text": plain_text or rendered_body_text,
                     "rendered_subject": rendered_subject,
                     "rendered_body_html": final_html_sanitized,
                     "rendered_body_text": final_text,
@@ -1064,7 +1089,7 @@ class EmailService:
             # Update status to failed
             try:
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'failed', error = :error
                         WHERE id = :email_id
@@ -1108,7 +1133,7 @@ class EmailService:
                 provider_message_id = response.headers.get('X-Message-Id', None)
                 
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'sent',
                             provider_message_id = :provider_message_id,
@@ -1137,7 +1162,7 @@ class EmailService:
                 logger.error(f"[EMAIL] failed business_id={business_id} email_id={email_id} error={error_msg}")
                 
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'failed', error = :error
                         WHERE id = :email_id
@@ -1160,7 +1185,7 @@ class EmailService:
             # Update status to failed
             try:
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'failed', error = :error
                         WHERE id = :email_id
