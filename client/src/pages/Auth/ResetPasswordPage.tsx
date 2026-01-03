@@ -61,7 +61,7 @@ export function ResetPasswordPage() {
     setIsLoading(true);
 
     try {
-      await authApi.reset({ token, newPassword: password });
+      await authApi.reset({ token, password });
       setIsSuccess(true);
       
       // Redirect to login after 3 seconds
