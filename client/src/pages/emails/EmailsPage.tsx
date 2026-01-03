@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
@@ -20,6 +20,24 @@ interface EmailMessage {
     name: string;
     email: string;
   };
+}
+
+interface Lead {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_e164: string;
+}
+
+interface EmailTemplate {
+  id: number;
+  name: string;
+  type: string;
+  subject_template: string;
+  html_template: string;
+  text_template: string;
+  is_active: boolean;
 }
 
 interface EmailSettings {
@@ -56,7 +74,7 @@ export function EmailsPage() {
   const [settings, setSettings] = useState<EmailSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'settings'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'templates' | 'settings'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -71,12 +89,47 @@ export function EmailsPage() {
   const [configured, setConfigured] = useState(false);
   const [sendgridAvailable, setSendgridAvailable] = useState(true);
   
+  // Compose email modal state
+  const [showComposeModal, setShowComposeModal] = useState(false);
+  const [composeMode, setComposeMode] = useState<'lead' | 'manual'>('lead');
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [manualEmail, setManualEmail] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailHtml, setEmailHtml] = useState('');
+  const [composeLoading, setComposeLoading] = useState(false);
+  const [leadSearchQuery, setLeadSearchQuery] = useState('');
+  const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
+  const [leadSearchLoading, setLeadSearchLoading] = useState(false);
+  
+  // Templates state
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<EmailTemplate | null>(null);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewSubject, setPreviewSubject] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  
   useEffect(() => {
     loadSettings();
     if (activeTab === 'all' || activeTab === 'sent') {
       loadEmails();
+    } else if (activeTab === 'templates') {
+      loadTemplates();
     }
   }, [activeTab, statusFilter, searchQuery]);
+  
+  // Debounced lead search
+  useEffect(() => {
+    if (leadSearchQuery.length >= 2) {
+      const timer = setTimeout(() => {
+        searchLeads();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setLeadSearchResults([]);
+    }
+  }, [leadSearchQuery]);
   
   const loadSettings = async () => {
     try {
@@ -173,6 +226,95 @@ export function EmailsPage() {
     }
   };
   
+  const loadTemplates = async () => {
+    try {
+      setTemplatesLoading(true);
+      const response = await axios.get('/api/email/templates');
+      setTemplates(response.data.templates || []);
+    } catch (err: any) {
+      console.error('Failed to load templates:', err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+  
+  const searchLeads = async () => {
+    try {
+      setLeadSearchLoading(true);
+      const response = await axios.get(`/api/leads?q=${encodeURIComponent(leadSearchQuery)}&pageSize=20`);
+      const leads = response.data.leads || [];
+      setLeadSearchResults(leads.map((l: any) => ({
+        id: l.id,
+        first_name: l.first_name || '',
+        last_name: l.last_name || '',
+        email: l.email || '',
+        phone_e164: l.phone_e164 || ''
+      })));
+    } catch (err: any) {
+      console.error('Failed to search leads:', err);
+    } finally {
+      setLeadSearchLoading(false);
+    }
+  };
+  
+  const handleComposeEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const toEmail = composeMode === 'lead' ? selectedLead?.email : manualEmail;
+    if (!toEmail || !emailSubject.trim() || !emailHtml.trim()) {
+      setError('נא למלא את כל השדות');
+      return;
+    }
+    
+    setComposeLoading(true);
+    setError(null);
+    
+    try {
+      await axios.post(`/api/leads/${selectedLead?.id}/email`, {
+        to_email: toEmail,
+        subject: emailSubject.trim(),
+        html: emailHtml.trim()
+      });
+      
+      setSuccessMessage('מייל נשלח בהצלחה');
+      setShowComposeModal(false);
+      resetComposeForm();
+      loadEmails();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
+    } finally {
+      setComposeLoading(false);
+    }
+  };
+  
+  const handlePreviewTemplate = async (template: EmailTemplate) => {
+    setPreviewTemplate(template);
+    setPreviewLoading(true);
+    setShowPreviewModal(true);
+    
+    try {
+      const response = await axios.post(`/api/email/templates/${template.id}/preview`, {
+        lead: { first_name: 'דוגמא', last_name: 'לקוח', email: 'example@test.com' }
+      });
+      setPreviewSubject(response.data.preview.subject);
+      setPreviewHtml(response.data.preview.html);
+    } catch (err: any) {
+      console.error('Failed to preview template:', err);
+      setError('שגיאה בטעינת תצוגה מקדימה');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+  
+  const resetComposeForm = () => {
+    setSelectedLead(null);
+    setManualEmail('');
+    setEmailSubject('');
+    setEmailHtml('');
+    setLeadSearchQuery('');
+    setLeadSearchResults([]);
+  };
+  
   const isAdmin = ['system_admin', 'owner', 'admin'].includes(user?.role || '');
   
   return (
@@ -224,6 +366,16 @@ export function EmailsPage() {
               }`}
             >
               נשלחו
+            </button>
+            <button
+              onClick={() => setActiveTab('templates')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'templates'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              תבניות
             </button>
             {isAdmin && (
               <button
