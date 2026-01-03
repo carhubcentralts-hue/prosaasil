@@ -22,6 +22,7 @@ const TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
   { key: 'conversation', label: 'וואטסאפ', icon: MessageSquare },
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
+  { key: 'email', label: 'מייל', icon: Mail },
   { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
   { key: 'notes', label: 'הערות', icon: FileText },  // ✅ BUILD 170: Free-text notes tab
@@ -481,6 +482,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         )}
         {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
+        {activeTab === 'email' && <EmailTab lead={lead} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
@@ -2824,6 +2826,225 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       <p className="mt-4 text-xs text-gray-400 text-center">
         הערות נשמרות לצמיתות על הליד
       </p>
+    </Card>
+  );
+}
+
+// Email Tab Component
+interface EmailTabProps {
+  lead: Lead;
+}
+
+function EmailTab({ lead }: EmailTabProps) {
+  const [emails, setEmails] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadEmails();
+  }, [lead.id]);
+
+  const loadEmails = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get(`/api/leads/${lead.id}/emails`);
+      setEmails(response.data.emails || []);
+    } catch (err) {
+      console.error('Failed to load emails:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!subject.trim() || !body.trim()) {
+      setError('נא למלא נושא ותוכן המייל');
+      return;
+    }
+    
+    if (!lead.email) {
+      setError('אין כתובת מייל לליד זה');
+      return;
+    }
+    
+    setSending(true);
+    setError(null);
+    setSuccess(null);
+    
+    try {
+      await http.post(`/api/leads/${lead.id}/email`, {
+        subject: subject.trim(),
+        html: `<p>${body.trim().replace(/\n/g, '<br>')}</p>`,
+        text: body.trim()
+      });
+      
+      setSuccess('המייל נשלח בהצלחה!');
+      setSubject('');
+      setBody('');
+      setShowCompose(false);
+      await loadEmails();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || err.response?.data?.error || 'שגיאה בשליחת המייל';
+      setError(errorMsg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const config: Record<string, { color: string; label: string }> = {
+      queued: { color: 'bg-gray-100 text-gray-800', label: 'בתור' },
+      sent: { color: 'bg-green-100 text-green-800', label: 'נשלח' },
+      failed: { color: 'bg-red-100 text-red-800', label: 'נכשל' },
+      delivered: { color: 'bg-blue-100 text-blue-800', label: 'נמסר' },
+    };
+    const { color, label } = config[status] || config.queued;
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>{label}</span>;
+  };
+
+  return (
+    <Card>
+      <div className="mb-4 flex justify-between items-center">
+        <h3 className="text-lg font-semibold">מיילים</h3>
+        {lead.email && (
+          <Button
+            onClick={() => setShowCompose(!showCompose)}
+            variant="primary"
+            size="sm"
+          >
+            <Mail className="w-4 h-4 ml-2" />
+            {showCompose ? 'ביטול' : 'שלח מייל'}
+          </Button>
+        )}
+      </div>
+
+      {!lead.email && (
+        <div className="text-center py-8 text-gray-500">
+          <Mail className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+          <p>אין כתובת מייל לליד זה</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+          {success}
+        </div>
+      )}
+
+      {showCompose && lead.email && (
+        <div className="mb-6 border border-gray-200 rounded-lg p-4 bg-gray-50">
+          <form onSubmit={handleSendEmail} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                אל
+              </label>
+              <input
+                type="text"
+                value={lead.email}
+                disabled
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-600"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                נושא *
+              </label>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="נושא המייל"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                תוכן *
+              </label>
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="תוכן המייל"
+                rows={6}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={sending}
+              >
+                {sending ? 'שולח...' : 'שלח מייל'}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowCompose(false)}
+              >
+                ביטול
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Email History */}
+      {loading ? (
+        <div className="text-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+          <p className="text-sm text-gray-500 mt-2">טוען...</p>
+        </div>
+      ) : emails.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <Mail className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+          <p>עדיין לא נשלחו מיילים לליד זה</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {emails.map((email) => (
+            <div key={email.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-1">
+                  <h4 className="font-medium text-gray-900">{email.subject}</h4>
+                  <p className="text-sm text-gray-600 mt-1">אל: {email.to_email}</p>
+                </div>
+                <div>{getStatusBadge(email.status)}</div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
+                <span>
+                  {email.created_by?.name || 'מערכת'} • {new Date(email.created_at).toLocaleString('he-IL')}
+                </span>
+                {email.sent_at && (
+                  <span>
+                    נשלח: {new Date(email.sent_at).toLocaleString('he-IL')}
+                  </span>
+                )}
+              </div>
+              {email.error && (
+                <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded">
+                  שגיאה: {email.error}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }

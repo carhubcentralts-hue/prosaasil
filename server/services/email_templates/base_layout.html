@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, 'Segoe UI', Tahoma, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            direction: rtl;
+            text-align: right;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .email-header {
+            background-color: {{brand_primary_color}};
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .email-header img {
+            max-width: 150px;
+            height: auto;
+        }
+        .email-header h1 {
+            color: white;
+            margin: 10px 0 0 0;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .email-content {
+            background-color: white;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .email-greeting {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #1a202c;
+        }
+        .email-body {
+            margin-bottom: 20px;
+            line-height: 1.8;
+        }
+        .email-body p {
+            margin: 10px 0;
+        }
+        .email-button {
+            display: inline-block;
+            padding: 14px 28px;
+            background-color: {{brand_primary_color}};
+            color: white !important;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: 600;
+            text-align: center;
+        }
+        .email-button:hover {
+            opacity: 0.9;
+        }
+        .email-footer {
+            background-color: #f9fafb;
+            padding: 20px 30px;
+            border-top: 1px solid #e5e7eb;
+            border-radius: 0 0 8px 8px;
+        }
+        .email-footer-content {
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+        .email-footer-separator {
+            border-top: 1px solid #e5e7eb;
+            margin: 15px 0;
+        }
+        .email-signature {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #4b5563;
+        }
+        @media only screen and (max-width: 600px) {
+            .email-wrapper {
+                padding: 10px;
+            }
+            .email-content {
+                padding: 20px;
+            }
+            .email-header h1 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <!-- Header -->
+        <div class="email-header">
+            {{#if brand_logo_url}}
+            <img src="{{brand_logo_url}}" alt="{{business_name}}" />
+            {{else}}
+            <h1>{{business_name}}</h1>
+            {{/if}}
+        </div>
+
+        <!-- Content -->
+        <div class="email-content">
+            <!-- Greeting -->
+            <div class="email-greeting">
+                {{greeting}}
+            </div>
+
+            <!-- Body -->
+            <div class="email-body">
+                {{body_content}}
+            </div>
+
+            <!-- Signature -->
+            {{#if signature}}
+            <div class="email-signature">
+                {{signature}}
+            </div>
+            {{/if}}
+        </div>
+
+        <!-- Footer -->
+        <div class="email-footer">
+            <div class="email-footer-content">
+                {{footer_content}}
+            </div>
+            <div class="email-footer-separator"></div>
+            <div class="email-footer-content" style="font-size: 12px; color: #9ca3af;">
+                מייל זה נשלח ממערכת PROSAAS. אם אינך מעוניין לקבל מיילים נוספים, אנא פנה אלינו.
+            </div>
+        </div>
+    </div>
+</body>
+</html>
