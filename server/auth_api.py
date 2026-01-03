@@ -215,7 +215,8 @@ def reset_password():
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
         
         token = data.get('token')
-        new_password = data.get('password')
+        # Accept both 'password' and 'newPassword' for backward compatibility
+        new_password = data.get('password') or data.get('newPassword')
         
         if not token or not new_password:
             return jsonify({'success': False, 'error': 'Missing token or password'}), 400
