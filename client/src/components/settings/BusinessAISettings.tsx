@@ -42,6 +42,9 @@ interface CallControlSettings {
 
 interface Voice {
   id: string;
+  name: string;
+  gender?: string;
+  description?: string;
 }
 
 interface VoiceLibrarySettings {
@@ -816,7 +819,7 @@ export function BusinessAISettings() {
               >
                 {voiceLibrary.availableVoices.map((voice) => (
                   <option key={voice.id} value={voice.id}>
-                    {voice.id}
+                    {voice.name || voice.id}
                   </option>
                 ))}
               </select>
