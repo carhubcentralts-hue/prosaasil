@@ -39,11 +39,8 @@ ALLOWED_TAGS = [
 ]
 ALLOWED_ATTRIBUTES = {
     'a': ['href', 'title'],
-    'div': ['style'],
-    'span': ['style'],
-    'p': ['style'],
-    'td': ['style'],
-    'th': ['style']
+    # Note: 'style' attributes removed to avoid CSS sanitizer warning
+    # Business can use inline CSS through templates or external stylesheets
 }
 
 def strip_html(html: str) -> str:
@@ -325,10 +322,10 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             result = db.session.execute(
-                text("""
+                sa_text("""
                     SELECT id, business_id, provider, from_email, from_name, 
                            reply_to, reply_to_enabled, brand_logo_url, brand_primary_color,
                            default_greeting, footer_html, footer_text, is_enabled, 
@@ -399,7 +396,7 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             # 🔒 ENFORCED: Always use verified SendGrid address
             from_email = ALLOWED_FROM_EMAILS[0]  # noreply@prosaas.pro
@@ -412,7 +409,7 @@ class EmailService:
             if existing:
                 # Update existing settings
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_settings
                         SET from_email = :from_email,
                             from_name = :from_name,
@@ -445,7 +442,7 @@ class EmailService:
             else:
                 # Insert new settings
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         INSERT INTO email_settings 
                         (business_id, provider, from_email, from_name, reply_to, reply_to_enabled,
                          brand_logo_url, brand_primary_color, default_greeting, footer_html, footer_text,
@@ -498,7 +495,7 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             query = """
                 SELECT id, business_id, name, type, subject_template, 
@@ -514,7 +511,7 @@ class EmailService:
             query += " ORDER BY created_at DESC"
             
             result = db.session.execute(
-                text(query),
+                sa_text(query),
                 {"business_id": business_id}
             ).fetchall()
             
@@ -567,10 +564,10 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             result = db.session.execute(
-                text("""
+                sa_text("""
                     INSERT INTO email_templates
                     (business_id, name, type, subject_template, html_template, 
                      text_template, created_by_user_id, is_active, created_at, updated_at)
@@ -632,7 +629,7 @@ class EmailService:
         """
         try:
             from server.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text as sa_text
             
             # Build update query dynamically based on provided fields
             update_fields = []
@@ -677,7 +674,7 @@ class EmailService:
                 WHERE id = :template_id AND business_id = :business_id
             """
             
-            result = db.session.execute(text(query), params)
+            result = db.session.execute(sa_text(query), params)
             db.session.commit()
             
             if result.rowcount > 0:
@@ -774,7 +771,7 @@ class EmailService:
         to_email: str,
         subject: Optional[str] = None,
         html: Optional[str] = None,
-        text: Optional[str] = None,
+        plain_text: Optional[str] = None,
         lead_id: Optional[int] = None,
         template_id: Optional[int] = None,
         created_by_user_id: Optional[int] = None,
@@ -798,7 +795,7 @@ class EmailService:
             to_email: Recipient email
             subject: Email subject (required if no template)
             html: HTML body (required if no template)
-            text: Plain text body (optional)
+            plain_text: Plain text body (optional)
             lead_id: Lead ID if sending to a lead
             template_id: Template ID to use instead of custom content
             created_by_user_id: User who initiated the send
@@ -814,7 +811,7 @@ class EmailService:
             }
         """
         from server.db import db
-        from sqlalchemy import text
+        from sqlalchemy import text as sa_text
         import json
         
         logger.info(f"[EMAIL] send requested business_id={business_id} lead_id={lead_id} template_id={template_id} to={to_email}")
@@ -845,7 +842,7 @@ class EmailService:
         # 2. Prepare content (from template or direct)
         rendered_subject = subject
         rendered_body_html = html
-        rendered_body_text = text
+        rendered_body_text = plain_text
         
         # Get lead and business info for variable rendering
         lead_info = None
@@ -856,7 +853,7 @@ class EmailService:
             # Get lead info if lead_id provided
             if lead_id:
                 lead_result = db.session.execute(
-                    text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id"),
+                    sa_text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id"),
                     {"lead_id": lead_id}
                 ).fetchone()
                 if lead_result:
@@ -869,7 +866,7 @@ class EmailService:
             
             # Get business info
             biz_result = db.session.execute(
-                text("SELECT name, phone_number FROM business WHERE id = :business_id"),
+                sa_text("SELECT name, phone_number FROM business WHERE id = :business_id"),
                 {"business_id": business_id}
             ).fetchone()
             if biz_result:
@@ -881,7 +878,7 @@ class EmailService:
             # Get agent info if created_by_user_id provided
             if created_by_user_id:
                 agent_result = db.session.execute(
-                    text("SELECT name, email FROM users WHERE id = :user_id"),
+                    sa_text("SELECT name, email FROM users WHERE id = :user_id"),
                     {"user_id": created_by_user_id}
                 ).fetchone()
                 if agent_result:
@@ -897,7 +894,7 @@ class EmailService:
             try:
                 # Get template
                 template_result = db.session.execute(
-                    text("""
+                    sa_text("""
                         SELECT subject_template, html_template, text_template
                         FROM email_templates
                         WHERE id = :template_id AND business_id = :business_id AND is_active = TRUE
@@ -1009,7 +1006,7 @@ class EmailService:
         # 6. Create email_messages record in 'queued' status
         try:
             result = db.session.execute(
-                text("""
+                sa_text("""
                     INSERT INTO email_messages
                     (business_id, lead_id, created_by_user_id, template_id, to_email, to_name,
                      subject, body_html, body_text, 
@@ -1032,7 +1029,7 @@ class EmailService:
                     "to_name": to_name,
                     "subject": subject or rendered_subject,
                     "body_html": html or rendered_body_html,
-                    "body_text": text or rendered_body_text,
+                    "body_text": plain_text or rendered_body_text,
                     "rendered_subject": rendered_subject,
                     "rendered_body_html": final_html_sanitized,
                     "rendered_body_text": final_text,
@@ -1064,7 +1061,7 @@ class EmailService:
             # Update status to failed
             try:
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'failed', error = :error
                         WHERE id = :email_id
@@ -1108,7 +1105,7 @@ class EmailService:
                 provider_message_id = response.headers.get('X-Message-Id', None)
                 
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'sent',
                             provider_message_id = :provider_message_id,
@@ -1137,7 +1134,7 @@ class EmailService:
                 logger.error(f"[EMAIL] failed business_id={business_id} email_id={email_id} error={error_msg}")
                 
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'failed', error = :error
                         WHERE id = :email_id
@@ -1160,7 +1157,7 @@ class EmailService:
             # Update status to failed
             try:
                 db.session.execute(
-                    text("""
+                    sa_text("""
                         UPDATE email_messages
                         SET status = 'failed', error = :error
                         WHERE id = :email_id
