@@ -787,6 +787,12 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
+    last_activity_at = db.Column(db.DateTime)  # For idle timeout tracking
+    
+    # Password reset fields
+    reset_token_hash = db.Column(db.String(255), nullable=True)  # Hashed reset token
+    reset_token_expiry = db.Column(db.DateTime, nullable=True)  # Token expiration time
+    reset_token_used = db.Column(db.Boolean, default=False)  # One-time use flag
     
     business = db.relationship("Business", backref="users")
     
@@ -806,6 +812,55 @@ class User(db.Model):
             return None
         parts = self.name.split(' ', 1)
         return parts[1] if len(parts) > 1 else None
+
+class RefreshToken(db.Model):
+    """
+    Refresh tokens for session management
+    Implements secure token storage with hashing and expiry
+    Each token tracks its own activity for per-session idle timeout
+    """
+    __tablename__ = "refresh_tokens"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    
+    # Token storage (hashed for security)
+    token_hash = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    
+    # Security binding
+    user_agent_hash = db.Column(db.String(255), nullable=True)  # Hash of user agent string
+    
+    # Expiry and validity
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    is_valid = db.Column(db.Boolean, default=True, index=True)
+    
+    # Remember me flag
+    remember_me = db.Column(db.Boolean, default=False)
+    
+    # Per-session activity tracking for idle timeout
+    last_activity_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = db.relationship("User", backref="refresh_tokens")
+    tenant = db.relationship("Business")
+    
+    def is_expired(self):
+        """Check if token is expired"""
+        return datetime.utcnow() > self.expires_at
+    
+    def is_idle(self, idle_minutes: int = 75) -> bool:
+        """Check if token has been idle too long"""
+        if not self.last_activity_at:
+            return False
+        idle_duration = datetime.utcnow() - self.last_activity_at
+        return (idle_duration.total_seconds() / 60) > idle_minutes
+    
+    def __repr__(self):
+        return f"<RefreshToken {self.id} user_id={self.user_id} expires={self.expires_at}>"
 
 class CallSession(db.Model):
     """✨ Call session state - for appointment deduplication and tracking"""

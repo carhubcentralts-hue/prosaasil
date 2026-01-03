@@ -8,8 +8,10 @@ from server.models_sql import User, Business, db
 from server.auth_api import require_api_auth
 from server.authz import roles_required
 from datetime import datetime
+import logging
 
 user_mgmt_api = Blueprint('user_mgmt_api', __name__, url_prefix='/api/admin/businesses')
+logger = logging.getLogger(__name__)
 
 # BUILD 134: Global /api/admin/users endpoint moved to routes_admin.py
 
@@ -227,10 +229,22 @@ def update_business_user(business_id, user_id):
         if 'role' in data:
             if data['role'] not in ['owner', 'admin', 'agent']:
                 return jsonify({'error': 'Invalid role'}), 400
+            old_role = user.role
             user.role = data['role']
+            
+            # Invalidate all sessions if role changed
+            if old_role != user.role:
+                from server.services.auth_service import AuthService
+                AuthService.invalidate_all_user_tokens(user.id)
+                logger.info(f"[AUTH] Invalidated all sessions for user_id={user.id} due to role change (old={old_role}, new={user.role})")
         
         if 'password' in data and data['password']:
             user.password_hash = generate_password_hash(data['password'], method='scrypt')
+            
+            # Invalidate all sessions when password changes
+            from server.services.auth_service import AuthService
+            AuthService.invalidate_all_user_tokens(user.id)
+            logger.info(f"[AUTH] Invalidated all sessions for user_id={user.id} due to password change")
         
         if 'is_active' in data:
             user.is_active = data['is_active']
@@ -292,6 +306,11 @@ def delete_business_user(business_id, user_id):
         # Prevent deleting yourself
         if user.id == current_user.get('id'):
             return jsonify({'error': 'Cannot delete your own account'}), 400
+        
+        # Invalidate all sessions before deleting
+        from server.services.auth_service import AuthService
+        AuthService.invalidate_all_user_tokens(user.id)
+        logger.info(f"[AUTH] Invalidated all sessions for user_id={user.id} before deletion (email={user.email})")
         
         db.session.delete(user)
         db.session.commit()

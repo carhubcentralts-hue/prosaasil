@@ -75,6 +75,8 @@ def login():
     Expected response: {user:{id,name,role,business_id}, token?}
     """
     try:
+        from server.services.auth_service import AuthService, get_request_user_agent
+        
         data = request.get_json()
         if not data:
             print("❌ LOGIN: No JSON data received")
@@ -82,8 +84,9 @@ def login():
         
         email = data.get('email')
         password = data.get('password')
+        remember_me = data.get('remember_me', False)  # Remember me checkbox
         
-        print(f"🔐 LOGIN ATTEMPT: email={email}")
+        print(f"🔐 LOGIN ATTEMPT: email={email}, remember_me={remember_me}")
         
         if not email or not password:
             print("❌ LOGIN: Missing email or password")
@@ -114,6 +117,15 @@ def login():
             print(f"⚠️ DB commit warning: {commit_error}")
             db.session.rollback()  # Rollback if commit fails
         
+        # Generate refresh token
+        user_agent = get_request_user_agent()
+        plain_refresh_token, refresh_token_obj = AuthService.generate_refresh_token(
+            user_id=user.id,
+            tenant_id=user.business_id,
+            remember_me=remember_me,
+            user_agent=user_agent
+        )
+        
         # Get business info if exists
         business = None
         if user.business_id:
@@ -140,6 +152,7 @@ def login():
         session['user'] = user_data     # Also store as 'user' for decorators
         # Note: Don't set tenant_id here - use impersonated_tenant_id only for impersonation per guidelines
         session['token'] = f"session_{user.id}"  # Simple session token
+        session['refresh_token'] = plain_refresh_token  # Store refresh token in session
         
         # BUILD 144: Critical session persistence settings for production!
         session.permanent = True  # Use PERMANENT_SESSION_LIFETIME
@@ -148,7 +161,7 @@ def login():
         session['_session_start'] = datetime.now().isoformat()
         
         # 🔍 BUILD 138 DEBUG: Log what we stored in session
-        print(f"🔍 LOGIN SUCCESS: user_id={user.id}, email={user.email}, role={user.role}, business_id={user.business_id}")
+        logger.info(f"[AUTH] login_success user_id={user.id} email={user.email} role={user.role} business_id={user.business_id} remember_me={remember_me}")
         
         # Return format that matches frontend AuthResponse type
         return jsonify({
@@ -158,6 +171,7 @@ def login():
         })
         
     except Exception as e:
+        logger.error(f"[AUTH] Login error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @auth_api.route('/forgot', methods=['POST'])  # CSRF protected - not in exempt list
@@ -167,6 +181,8 @@ def forgot_password():
     Send password reset email
     """
     try:
+        from server.services.auth_service import AuthService
+        
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
@@ -175,24 +191,14 @@ def forgot_password():
         if not email:
             return jsonify({'success': False, 'error': 'Missing email'}), 400
         
-        user = User.query.filter_by(email=email, is_active=True).first()
-        
-        if user:
-            # Generate reset token
-            reset_token = secrets.token_urlsafe(32)
-            user.resetToken = reset_token
-            user.resetTokenExpiry = datetime.utcnow() + timedelta(hours=1)  # 1 hour expiry
-            db.session.commit()
-            
-            # TODO: Send actual email here
-            # For now, just log the reset link
-            reset_url = f"{os.getenv('PUBLIC_BASE_URL', 'http://localhost:5000')}/reset?token={reset_token}"
-            print(f"🔐 Password reset for {email}: {reset_url}")
+        # Generate and send reset token (always returns True)
+        AuthService.generate_password_reset_token(email)
         
         # Always return success for security (don't reveal if email exists)
         return jsonify({'success': True, 'message': 'If the email exists, a reset link has been sent'})
         
     except Exception as e:
+        logger.error(f"[AUTH] Forgot password error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @auth_api.route('/reset', methods=['POST'])  # CSRF protected - not in exempt list
@@ -202,6 +208,8 @@ def reset_password():
     Reset password with token
     """
     try:
+        from server.services.auth_service import AuthService
+        
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
@@ -215,31 +223,121 @@ def reset_password():
         if len(new_password) < 6:
             return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
         
-        # Find user by reset token
-        user = User.query.filter_by(resetToken=token, isActive=True).first()
+        # Hash the new password with scrypt method (matches existing passwords)
+        new_password_hash = generate_password_hash(new_password, method='scrypt')
         
-        if not user:
+        # Complete password reset
+        success = AuthService.complete_password_reset(token, new_password_hash)
+        
+        if not success:
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 400
-        
-        # Check token expiry
-        if user.resetTokenExpiry < datetime.utcnow():
-            return jsonify({'success': False, 'error': 'Token has expired'}), 400
-        
-        # Update password
-        user.password_hash = generate_password_hash(new_password)
-        db.session.commit()
         
         return jsonify({'success': True, 'message': 'Password updated successfully'})
         
     except Exception as e:
+        logger.error(f"[AUTH] Reset password error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@csrf.exempt  # Refresh token also exempt from CSRF
+@auth_api.route('/refresh', methods=['POST'])
+def refresh_token():
+    """
+    POST /api/auth/refresh
+    Refresh access token using refresh token
+    """
+    try:
+        from server.services.auth_service import AuthService, get_request_user_agent
+        
+        # Get refresh token from session or request body
+        refresh_token_value = session.get('refresh_token')
+        
+        if not refresh_token_value:
+            data = request.get_json()
+            if data:
+                refresh_token_value = data.get('refresh_token')
+        
+        if not refresh_token_value:
+            return jsonify({'success': False, 'error': 'No refresh token provided'}), 401
+        
+        # Validate refresh token (with idle timeout check built-in)
+        user_agent = get_request_user_agent()
+        refresh_token_obj = AuthService.validate_refresh_token(
+            refresh_token_value, 
+            user_agent, 
+            check_idle=True  # ✅ CRITICAL: Idle timeout checked here
+        )
+        
+        if not refresh_token_obj:
+            # Token is invalid, expired, or idle timeout exceeded
+            session.clear()
+            return jsonify({'success': False, 'error': 'Invalid or expired refresh token'}), 401
+        
+        # Get user from database
+        user = User.query.get(refresh_token_obj.user_id)
+        if not user or not user.is_active:
+            return jsonify({'success': False, 'error': 'User not found or inactive'}), 401
+        
+        # Get business info if exists
+        business = None
+        if user.business_id:
+            business = Business.query.get(user.business_id)
+        
+        # Prepare user response
+        user_data = {
+            'id': user.id,
+            'name': user.name or user.email,
+            'role': user.role,
+            'business_id': user.business_id,
+            'email': user.email
+        }
+        
+        # Prepare tenant response
+        tenant_data = {
+            'id': business.id if business else user.business_id,
+            'name': business.name if business else ('System Admin' if user.role == 'system_admin' else 'No Business')
+        }
+        
+        # Update session
+        session['al_user'] = user_data
+        session['user'] = user_data
+        session['_last_activity'] = datetime.now().isoformat()
+        session.modified = True
+        
+        logger.info(f"[AUTH] token_refreshed user_id={user.id}")
+        
+        return jsonify({
+            'user': user_data,
+            'tenant': tenant_data,
+            'impersonating': False
+        })
+        
+    except Exception as e:
+        logger.error(f"[AUTH] Refresh token error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @csrf.exempt  # Logout also exempt from CSRF
 @auth_api.route('/logout', methods=['POST'])
 def logout():
-    """Logout user"""
-    session.clear()
-    return jsonify({'success': True})
+    """Logout user and invalidate all sessions"""
+    try:
+        from server.services.auth_service import AuthService
+        
+        # Get user from session
+        user = session.get('al_user') or session.get('user')
+        
+        if user and user.get('id'):
+            # Invalidate all refresh tokens for this user
+            AuthService.invalidate_all_user_tokens(user['id'])
+        
+        # Clear session
+        session.clear()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"[AUTH] Logout error: {e}")
+        # Clear session even on error
+        session.clear()
+        return jsonify({'success': True})
 
 # REMOVED duplicate get_csrf_token() - using single @auth_api.get("/csrf") implementation only
 
@@ -334,7 +432,7 @@ def get_current_user_legacy():
 # Auth decorator for API routes - BUILD 124: Enhanced with role-based access control
 def require_api_auth(allowed_roles=None):
     """
-    Auth decorator with role-based access control
+    Auth decorator with role-based access control and idle timeout checking
     
     Args:
         allowed_roles: List of allowed roles for this route (e.g., ['system_admin', 'owner'])
@@ -349,6 +447,7 @@ def require_api_auth(allowed_roles=None):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            from server.services.auth_service import AuthService
             
             # Allow OPTIONS immediately (204)
             if request.method == "OPTIONS":
@@ -362,6 +461,14 @@ def require_api_auth(allowed_roles=None):
                     'reason': 'no_session',
                     'message': 'Authentication required'
                 }), 401
+            
+            # Update token activity if refresh token exists in session
+            refresh_token = session.get('refresh_token')
+            if refresh_token:
+                # Update activity on the refresh token (per-session tracking)
+                from server.services.auth_service import hash_token
+                token_hash = hash_token(refresh_token)
+                AuthService.update_token_activity(token_hash)
             
             # BUILD 142 FINAL: Compute tenant - impersonation overrides business_id
             if session.get("impersonated_tenant_id"):

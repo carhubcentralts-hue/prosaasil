@@ -1833,6 +1833,105 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 57: Authentication & Session Management System
+        # Add refresh tokens table and password reset fields to users
+        checkpoint("Migration 57: Adding authentication and session management features")
+        
+        # 57a: Create refresh_tokens table
+        if not check_table_exists('refresh_tokens'):
+            checkpoint("  → Creating refresh_tokens table...")
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE refresh_tokens (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        tenant_id INTEGER REFERENCES business(id) ON DELETE CASCADE,
+                        token_hash VARCHAR(255) NOT NULL UNIQUE,
+                        user_agent_hash VARCHAR(255),
+                        expires_at TIMESTAMP NOT NULL,
+                        is_valid BOOLEAN DEFAULT TRUE,
+                        remember_me BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Add indexes for performance
+                db.session.execute(text("CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id)"))
+                db.session.execute(text("CREATE INDEX idx_refresh_tokens_tenant_id ON refresh_tokens(tenant_id)"))
+                db.session.execute(text("CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)"))
+                db.session.execute(text("CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)"))
+                db.session.execute(text("CREATE INDEX idx_refresh_tokens_is_valid ON refresh_tokens(is_valid)"))
+                
+                # Add last_activity_at column for per-session idle tracking
+                if not check_column_exists('refresh_tokens', 'last_activity_at'):
+                    db.session.execute(text("""
+                        ALTER TABLE refresh_tokens 
+                        ADD COLUMN last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    """))
+                    # Create index for performance
+                    db.session.execute(text("""
+                        CREATE INDEX idx_refresh_tokens_last_activity 
+                        ON refresh_tokens(last_activity_at)
+                    """))
+                    checkpoint("  ✅ refresh_tokens.last_activity_at added")
+                    migrations_applied.append('add_refresh_tokens_last_activity_at')
+                
+                checkpoint("  ✅ refresh_tokens table created with all fields")
+                migrations_applied.append('create_refresh_tokens_table')
+            except Exception as e:
+                log.error(f"❌ Migration 57a failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # 57b: Add password reset fields to users table
+        if check_table_exists('users'):
+            checkpoint("  → Adding password reset fields to users table...")
+            try:
+                # Add reset_token_hash column
+                if not check_column_exists('users', 'reset_token_hash'):
+                    db.session.execute(text("""
+                        ALTER TABLE users 
+                        ADD COLUMN reset_token_hash VARCHAR(255)
+                    """))
+                    checkpoint("  ✅ users.reset_token_hash added")
+                    migrations_applied.append('add_users_reset_token_hash')
+                
+                # Add reset_token_expiry column
+                if not check_column_exists('users', 'reset_token_expiry'):
+                    db.session.execute(text("""
+                        ALTER TABLE users 
+                        ADD COLUMN reset_token_expiry TIMESTAMP
+                    """))
+                    checkpoint("  ✅ users.reset_token_expiry added")
+                    migrations_applied.append('add_users_reset_token_expiry')
+                
+                # Add reset_token_used column
+                if not check_column_exists('users', 'reset_token_used'):
+                    db.session.execute(text("""
+                        ALTER TABLE users 
+                        ADD COLUMN reset_token_used BOOLEAN DEFAULT FALSE
+                    """))
+                    checkpoint("  ✅ users.reset_token_used added")
+                    migrations_applied.append('add_users_reset_token_used')
+                
+                # Add last_activity_at column for idle timeout tracking
+                if not check_column_exists('users', 'last_activity_at'):
+                    db.session.execute(text("""
+                        ALTER TABLE users 
+                        ADD COLUMN last_activity_at TIMESTAMP
+                    """))
+                    checkpoint("  ✅ users.last_activity_at added")
+                    migrations_applied.append('add_users_last_activity_at')
+                
+                checkpoint("  ✅ Password reset and activity tracking fields added to users")
+            except Exception as e:
+                log.error(f"❌ Migration 57b failed: {e}")
+                db.session.rollback()
+                raise
+        
+        checkpoint("✅ Migration 57 completed - Authentication system enhanced")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
