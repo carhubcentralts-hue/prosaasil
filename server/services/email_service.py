@@ -15,6 +15,7 @@ from datetime import datetime
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
 import bleach
+from bleach.css_sanitizer import CSSSanitizer
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,15 @@ ALLOWED_FROM_EMAILS = ['noreply@prosaas.pro', 'info@prosaas.pro']
 # Regex for stripping HTML tags (simple but effective for our use case)
 HTML_TAG_REGEX = re.compile('<[^<]+?>')
 
+# CSS Sanitizer for safe inline styles
+# Allow common safe CSS properties for email styling
+css_sanitizer = CSSSanitizer(allowed_css_properties=[
+    'color', 'background-color', 'font-size', 'font-weight', 'font-family',
+    'text-align', 'text-decoration', 'padding', 'margin', 'border',
+    'border-radius', 'width', 'height', 'max-width', 'max-height',
+    'display', 'line-height', 'letter-spacing'
+])
+
 # Allowed HTML tags and attributes for sanitization
 ALLOWED_TAGS = [
     'a', 'b', 'blockquote', 'br', 'div', 'em', 'i', 'li', 'ol', 'p', 
@@ -39,8 +49,17 @@ ALLOWED_TAGS = [
 ]
 ALLOWED_ATTRIBUTES = {
     'a': ['href', 'title'],
-    # Note: 'style' attributes removed to avoid CSS sanitizer warning
-    # Business can use inline CSS through templates or external stylesheets
+    'div': ['style'],
+    'span': ['style'],
+    'p': ['style'],
+    'td': ['style'],
+    'th': ['style'],
+    'h1': ['style'],
+    'h2': ['style'],
+    'h3': ['style'],
+    'h4': ['style'],
+    'h5': ['style'],
+    'h6': ['style']
 }
 
 def strip_html(html: str) -> str:
@@ -48,11 +67,17 @@ def strip_html(html: str) -> str:
     return HTML_TAG_REGEX.sub('', html)
 
 def sanitize_html(html: str) -> str:
-    """Sanitize HTML to prevent XSS attacks"""
+    """
+    Sanitize HTML to prevent XSS attacks
+    
+    Uses CSS sanitizer to allow safe inline styles while blocking dangerous CSS.
+    This prevents XSS via CSS (e.g., expression(), url() with javascript:, etc.)
+    """
     return bleach.clean(
         html,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
+        css_sanitizer=css_sanitizer,
         strip=True
     )
 
@@ -958,10 +983,10 @@ class EmailService:
             variables['business'] = business_info
         greeting_html = render_variables(greeting_template, variables)
         
-        # 4. Sanitize body content
+        # 4. Sanitize body content (user input only - not the base layout!)
         body_html_sanitized = sanitize_html(rendered_body_html)
         
-        # 5. Wrap in base layout
+        # 5. Wrap in base layout (trusted - no sanitization)
         try:
             base_layout = load_base_layout()
             
@@ -977,6 +1002,7 @@ class EmailService:
             final_html = final_html.replace('{{business_name}}', business_name)
             final_html = final_html.replace('{{greeting}}', greeting_html)
             final_html = final_html.replace('{{body_content}}', body_html_sanitized)
+            # Footer content is business-configured, sanitize it to prevent XSS
             final_html = final_html.replace('{{footer_content}}', sanitize_html(footer_html) if footer_html else '')
             
             # Handle conditional logo
@@ -994,6 +1020,8 @@ class EmailService:
             # Remove any {{#if signature}} blocks (not used yet)
             final_html = re.sub(r'\{\{#if signature\}\}.*?\{\{/if\}\}', '', final_html, flags=re.DOTALL)
             
+            # Final HTML is NOT sanitized again - base layout is trusted
+            # Only user content (body_html_sanitized and footer_html) was sanitized above
             final_html_sanitized = final_html
             
         except Exception as e:

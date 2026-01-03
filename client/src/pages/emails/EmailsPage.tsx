@@ -260,9 +260,8 @@ export function EmailsPage() {
   const handleComposeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const toEmail = composeMode === 'lead' ? selectedLead?.email : manualEmail;
-    if (!toEmail || !emailSubject.trim() || !emailHtml.trim()) {
-      setError('נא למלא את כל השדות');
+    if (!selectedLead || !emailSubject.trim() || !emailHtml.trim()) {
+      setError('נא למלא את כל השדות ולבחור ליד');
       return;
     }
     
@@ -270,8 +269,8 @@ export function EmailsPage() {
     setError(null);
     
     try {
-      await axios.post(`/api/leads/${selectedLead?.id}/email`, {
-        to_email: toEmail,
+      await axios.post(`/api/leads/${selectedLead.id}/email`, {
+        to_email: selectedLead.email,
         subject: emailSubject.trim(),
         html: emailHtml.trim()
       });
@@ -693,100 +692,65 @@ export function EmailsPage() {
               )}
               
               <form onSubmit={handleComposeEmail} className="space-y-4">
-                {/* Recipient Mode */}
+                {/* Recipient - Lead Picker */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    אל:
+                    בחר ליד:
                   </label>
-                  <div className="flex gap-2 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setComposeMode('lead')}
-                      className={`px-4 py-2 rounded-lg ${
-                        composeMode === 'lead'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      ליד מהמערכת
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setComposeMode('manual')}
-                      className={`px-4 py-2 rounded-lg ${
-                        composeMode === 'manual'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      כתובת ידנית
-                    </button>
-                  </div>
                   
-                  {composeMode === 'lead' ? (
-                    <div className="relative">
-                      <div className="flex items-center border border-gray-300 rounded-lg">
-                        <Search className="w-5 h-5 text-gray-400 mr-3 ml-2" />
-                        <input
-                          type="text"
-                          value={leadSearchQuery}
-                          onChange={(e) => setLeadSearchQuery(e.target.value)}
-                          placeholder="חפש ליד (שם, טלפון, מייל)..."
-                          className="flex-1 px-3 py-2 border-0 focus:ring-0"
-                        />
-                      </div>
-                      
-                      {selectedLead && (
-                        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-between items-center">
-                          <div>
-                            <div className="font-medium">{selectedLead.first_name} {selectedLead.last_name}</div>
-                            <div className="text-sm text-gray-600">{selectedLead.email}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedLead(null)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
-                      )}
-                      
-                      {!selectedLead && leadSearchResults.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                          {leadSearchResults.map((lead) => (
-                            <button
-                              key={lead.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedLead(lead);
-                                setLeadSearchQuery('');
-                                setLeadSearchResults([]);
-                              }}
-                              className="w-full text-right p-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                            >
-                              <div className="font-medium">{lead.first_name} {lead.last_name}</div>
-                              <div className="text-sm text-gray-600">{lead.email}</div>
-                              <div className="text-xs text-gray-500">{lead.phone_e164}</div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {leadSearchLoading && (
-                        <div className="mt-2 text-sm text-gray-600">מחפש...</div>
-                      )}
+                  <div className="relative">
+                    <div className="flex items-center border border-gray-300 rounded-lg">
+                      <Search className="w-5 h-5 text-gray-400 mr-3 ml-2" />
+                      <input
+                        type="text"
+                        value={leadSearchQuery}
+                        onChange={(e) => setLeadSearchQuery(e.target.value)}
+                        placeholder="חפש ליד (שם, טלפון, מייל)..."
+                        className="flex-1 px-3 py-2 border-0 focus:ring-0"
+                      />
                     </div>
-                  ) : (
-                    <input
-                      type="email"
-                      value={manualEmail}
-                      onChange={(e) => setManualEmail(e.target.value)}
-                      placeholder="example@email.com"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  )}
+                    
+                    {selectedLead && (
+                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{selectedLead.first_name} {selectedLead.last_name}</div>
+                          <div className="text-sm text-gray-600">{selectedLead.email}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLead(null)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    )}
+                    
+                    {!selectedLead && leadSearchResults.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {leadSearchResults.map((lead) => (
+                          <button
+                            key={lead.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedLead(lead);
+                              setLeadSearchQuery('');
+                              setLeadSearchResults([]);
+                            }}
+                            className="w-full text-right p-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                          >
+                            <div className="font-medium">{lead.first_name} {lead.last_name}</div>
+                            <div className="text-sm text-gray-600">{lead.email}</div>
+                            <div className="text-xs text-gray-500">{lead.phone_e164}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {leadSearchLoading && (
+                      <div className="mt-2 text-sm text-gray-600">מחפש...</div>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Subject */}
@@ -890,14 +854,18 @@ export function EmailsPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        setTestEmail(user?.email || '');
-                        setActiveTab('settings');
+                        // Close preview and open settings tab with test email pre-filled
                         setShowPreviewModal(false);
+                        setActiveTab('settings');
+                        // Set test email to current user's email
+                        if (user?.email) {
+                          setTestEmail(user.email);
+                        }
                       }}
                       className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
                     >
                       <Send className="w-4 h-4" />
-                      שלח טסט
+                      שלח טסט למייל שלי
                     </button>
                     <button
                       onClick={() => {
