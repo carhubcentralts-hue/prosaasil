@@ -395,7 +395,48 @@ export function EmailsPage() {
         
         {/* Content */}
         <div className="p-6">
-          {activeTab === 'settings' ? (
+          {activeTab === 'templates' ? (
+            // Templates Tab
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">תבניות מייל</h2>
+              </div>
+              
+              {templatesLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-12">
+                  <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">אין תבניות להצגה</p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {templates.map((template) => (
+                    <div key={template.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-gray-900">{template.name}</h3>
+                          <p className="text-sm text-gray-600 mt-1">{template.subject_template}</p>
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mt-2">
+                            {template.type}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handlePreviewTemplate(template)}
+                          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
+                          <Eye className="w-4 h-4" />
+                          תצוגה מקדימה
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'settings' ? (
             // Settings Tab
             <div className="max-w-2xl">
               <h2 className="text-xl font-semibold mb-4">הגדרות מייל</h2>
@@ -615,6 +656,265 @@ export function EmailsPage() {
           )}
         </div>
       </div>
+      
+      {/* Compose Email Button (Floating) */}
+      {configured && (activeTab === 'all' || activeTab === 'sent') && (
+        <button
+          onClick={() => setShowComposeModal(true)}
+          className="fixed bottom-8 left-8 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-colors flex items-center gap-2 z-10"
+        >
+          <Plus className="w-6 h-6" />
+          <span className="font-medium">שליחת מייל חדש</span>
+        </button>
+      )}
+      
+      {/* Compose Email Modal */}
+      {showComposeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">שליחת מייל חדש</h2>
+                <button
+                  onClick={() => {
+                    setShowComposeModal(false);
+                    resetComposeForm();
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  {error}
+                </div>
+              )}
+              
+              <form onSubmit={handleComposeEmail} className="space-y-4">
+                {/* Recipient Mode */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    אל:
+                  </label>
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setComposeMode('lead')}
+                      className={`px-4 py-2 rounded-lg ${
+                        composeMode === 'lead'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      ליד מהמערכת
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComposeMode('manual')}
+                      className={`px-4 py-2 rounded-lg ${
+                        composeMode === 'manual'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      כתובת ידנית
+                    </button>
+                  </div>
+                  
+                  {composeMode === 'lead' ? (
+                    <div className="relative">
+                      <div className="flex items-center border border-gray-300 rounded-lg">
+                        <Search className="w-5 h-5 text-gray-400 mr-3 ml-2" />
+                        <input
+                          type="text"
+                          value={leadSearchQuery}
+                          onChange={(e) => setLeadSearchQuery(e.target.value)}
+                          placeholder="חפש ליד (שם, טלפון, מייל)..."
+                          className="flex-1 px-3 py-2 border-0 focus:ring-0"
+                        />
+                      </div>
+                      
+                      {selectedLead && (
+                        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-between items-center">
+                          <div>
+                            <div className="font-medium">{selectedLead.first_name} {selectedLead.last_name}</div>
+                            <div className="text-sm text-gray-600">{selectedLead.email}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedLead(null)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+                      )}
+                      
+                      {!selectedLead && leadSearchResults.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          {leadSearchResults.map((lead) => (
+                            <button
+                              key={lead.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedLead(lead);
+                                setLeadSearchQuery('');
+                                setLeadSearchResults([]);
+                              }}
+                              className="w-full text-right p-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                            >
+                              <div className="font-medium">{lead.first_name} {lead.last_name}</div>
+                              <div className="text-sm text-gray-600">{lead.email}</div>
+                              <div className="text-xs text-gray-500">{lead.phone_e164}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {leadSearchLoading && (
+                        <div className="mt-2 text-sm text-gray-600">מחפש...</div>
+                      )}
+                    </div>
+                  ) : (
+                    <input
+                      type="email"
+                      value={manualEmail}
+                      onChange={(e) => setManualEmail(e.target.value)}
+                      placeholder="example@email.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  )}
+                </div>
+                
+                {/* Subject */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    נושא *
+                  </label>
+                  <input
+                    type="text"
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    placeholder="נושא המייל"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                {/* Body */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    תוכן המייל *
+                  </label>
+                  <textarea
+                    value={emailHtml}
+                    onChange={(e) => setEmailHtml(e.target.value)}
+                    placeholder="תוכן המייל (HTML)"
+                    rows={8}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={composeLoading}
+                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {composeLoading ? 'שולח...' : 'שלח מייל'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowComposeModal(false);
+                      resetComposeForm();
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Template Preview Modal */}
+      {showPreviewModal && previewTemplate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold">{previewTemplate.name}</h2>
+                  <p className="text-sm text-gray-600 mt-1">תצוגה מקדימה</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPreviewModal(false);
+                    setPreviewTemplate(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              {previewLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </div>
+              ) : (
+                <div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">נושא:</label>
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      {previewSubject}
+                    </div>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">תוכן:</label>
+                    <div 
+                      className="p-4 bg-white border border-gray-200 rounded-lg"
+                      dangerouslySetInnerHTML={{ __html: previewHtml }}
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setTestEmail(user?.email || '');
+                        setActiveTab('settings');
+                        setShowPreviewModal(false);
+                      }}
+                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                    >
+                      <Send className="w-4 h-4" />
+                      שלח טסט
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowPreviewModal(false);
+                        setPreviewTemplate(null);
+                      }}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      סגור
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
