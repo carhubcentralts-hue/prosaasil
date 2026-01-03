@@ -1,6 +1,6 @@
 # server/utils/api_guard.py
 from functools import wraps
-from flask import jsonify, request, current_app
+from flask import jsonify, request, current_app, Response
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from server.db import db
 
@@ -9,7 +9,20 @@ def api_handler(fn):
     def w(*a, **kw):
         try:
             rv = fn(*a, **kw)
-            if isinstance(rv, tuple): return rv
+            
+            # ✅ If the function returns a Response object (e.g., send_file), return it directly
+            if isinstance(rv, Response):
+                return rv
+            
+            # ✅ Support tuple returns with Response objects (Response, status_code)
+            if isinstance(rv, tuple) and len(rv) >= 1 and isinstance(rv[0], Response):
+                return rv
+            
+            # ✅ Handle tuple returns (data, status_code)
+            if isinstance(rv, tuple):
+                return rv
+            
+            # ✅ Default: jsonify the response
             return jsonify(rv if rv is not None else {"ok": True}), 200
         except IntegrityError as e:
             db.session.rollback()

@@ -7,7 +7,8 @@ from server.models_sql import Business, db
 from server.routes_admin import require_api_auth
 from server.extensions import csrf
 from server.utils.api_guard import api_handler
-from server.config.voices import OPENAI_VOICES, DEFAULT_VOICE
+from server.config.voices import OPENAI_VOICES, OPENAI_VOICES_METADATA, DEFAULT_VOICE
+from server.utils.cache import TTLCache
 from datetime import datetime
 from openai import OpenAI
 import logging
@@ -19,6 +20,54 @@ import traceback
 logger = logging.getLogger(__name__)
 
 ai_system_bp = Blueprint('ai_system', __name__)
+
+# 🔥 Cache for AI settings to prevent bottleneck at call start
+# TTL: 120 seconds (2 minutes) - balances freshness with performance
+# Max size: 2000 businesses - sufficient for most deployments
+_ai_settings_cache = TTLCache(ttl_seconds=120, max_size=2000)
+
+
+def get_cached_voice_for_business(business_id: int) -> str:
+    """
+    Get voice_id for business with caching to prevent bottleneck at call start.
+    This function is optimized for high-frequency calls during conversation initialization.
+    
+    Args:
+        business_id: Business identifier
+        
+    Returns:
+        voice_id string (e.g., "ash", "cedar")
+        Falls back to DEFAULT_VOICE if business not found or voice not set
+    """
+    if not business_id:
+        return DEFAULT_VOICE
+    
+    # Check cache first
+    cache_key = f"voice_{business_id}"
+    cached_voice = _ai_settings_cache.get(cache_key)
+    if cached_voice is not None:
+        logger.debug(f"[VOICE_CACHE] HIT for business {business_id}")
+        return cached_voice
+    
+    # Cache miss - load from database
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            logger.warning(f"[VOICE_CACHE] Business {business_id} not found")
+            return DEFAULT_VOICE
+        
+        # Get voice_id with explicit fallback for None or empty string
+        # getattr handles missing attribute, `or` handles None/empty string
+        voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+        
+        # Store in cache
+        _ai_settings_cache.set(cache_key, voice_id)
+        logger.debug(f"[VOICE_CACHE] SET for business {business_id}: {voice_id}")
+        
+        return voice_id
+    except Exception as e:
+        logger.error(f"[VOICE_CACHE] Failed to load voice for business {business_id}: {e}")
+        return DEFAULT_VOICE
 
 
 def get_business_id_from_context():
@@ -44,10 +93,10 @@ def get_business_id_from_context():
 @api_handler
 def get_voices():
     """
-    Get list of available OpenAI voices
-    Returns: {"default_voice": "ash", "voices": [{"id": "ash"}, ...]}
+    Get list of available OpenAI voices with metadata
+    Returns: {"default_voice": "ash", "voices": [{"id": "ash", "name": "Ash (Male, clear)", ...}, ...]}
     """
-    voices = [{"id": voice_id} for voice_id in OPENAI_VOICES]
+    voices = [OPENAI_VOICES_METADATA[voice_id] for voice_id in OPENAI_VOICES]
     
     return {
         "ok": True,
@@ -60,7 +109,7 @@ def get_voices():
 @api_handler
 def get_business_ai_settings():
     """
-    Get AI settings for current business
+    Get AI settings for current business (with caching to prevent bottlenecks)
     Returns: {"voice_id": "ash"}
     """
     # Get business_id from session/JWT using robust resolution
@@ -70,6 +119,14 @@ def get_business_ai_settings():
         logger.warning("[AI_SETTINGS] No business context found - user not authenticated or missing tenant")
         return {"ok": False, "error": "business_id_required"}, 401
     
+    # 🔥 Check cache first to avoid DB query
+    cache_key = f"ai_settings_{business_id}"
+    cached_settings = _ai_settings_cache.get(cache_key)
+    if cached_settings is not None:
+        logger.debug(f"[AI_SETTINGS] Cache HIT for business {business_id}")
+        return cached_settings
+    
+    # Cache miss - load from database
     business = Business.query.get(business_id)
     if not business:
         logger.error(f"[AI_SETTINGS] Business {business_id} not found")
@@ -80,17 +137,23 @@ def get_business_ai_settings():
     
     logger.info(f"[AI_SETTINGS] Loaded AI settings for business {business_id}: voice={voice_id}")
     
-    return {
+    result = {
         "ok": True,
         "voice_id": voice_id
     }
+    
+    # 🔥 Store in cache for future requests
+    _ai_settings_cache.set(cache_key, result)
+    logger.debug(f"[AI_SETTINGS] Cache SET for business {business_id}")
+    
+    return result
 
 
 @ai_system_bp.route('/api/business/settings/ai', methods=['PUT'])
 @api_handler
 def update_business_ai_settings():
     """
-    Update AI settings for current business
+    Update AI settings for current business (with cache invalidation)
     Body: {"voice_id": "onyx"}
     """
     # Get business_id from session/JWT using robust resolution
@@ -127,6 +190,11 @@ def update_business_ai_settings():
     try:
         db.session.commit()
         logger.info(f"[VOICE_LIBRARY] Updated voice for business {business_id}: {voice_id}")
+        
+        # 🔥 Invalidate both cache keys after update
+        _ai_settings_cache.delete(f"ai_settings_{business_id}")
+        _ai_settings_cache.delete(f"voice_{business_id}")
+        logger.debug(f"[AI_SETTINGS] Cache INVALIDATED for business {business_id}")
     except Exception as e:
         db.session.rollback()
         logger.error(f"[VOICE_LIBRARY] Failed to update voice: {e}")
