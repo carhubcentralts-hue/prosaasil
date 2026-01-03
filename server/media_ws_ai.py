@@ -1789,6 +1789,7 @@ class CallContext:
         # Business data
         self.business_id = business.id if business else None
         self.business_name = business.name if business else None
+        self.business_voice_id = getattr(business, 'voice_id', 'ash') if business else 'ash'  # Voice Library
         
         # Settings data
         self.opening_hours = settings.opening_hours_json if settings else None
@@ -3610,15 +3611,42 @@ class MediaStreamHandler:
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             
-            # 🎯 VOICE CONSISTENCY: Set voice once at call start, use same voice throughout
-            # 🔥 BUILD 304: Changed to 'ash' - conversational male, lower pitch, no jumps
-            # User reported coral was too high-pitched and had voice jumps
-            # 'ash' = calm conversational male, better for professional calls
-            # 🔥 CRITICAL: ALWAYS use male voice - NEVER change based on customer gender!
-            # Male voice is locked for all calls regardless of customer gender detection
-            call_voice = "ash"  # Male voice - NEVER change this!
+            # 🎯 VOICE LIBRARY: Load voice from business settings (per-business voice selection)
+            # Get voice_id from business via CallContext (cached, no DB query)
+            # Fallback chain: business.voice_id -> DEFAULT_VOICE ('ash')
+            from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES
+            
+            # Try to get voice from cached call context first (avoids DB query)
+            call_voice = DEFAULT_VOICE  # Default fallback
+            if self.call_ctx_loaded and self.call_ctx:
+                call_voice = getattr(self.call_ctx, 'business_voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+                print(f"🎤 [VOICE_LIBRARY] Using cached voice from CallContext: {call_voice}")
+            else:
+                # Fallback: Load business from DB if cache not available
+                try:
+                    from server.models_sql import Business
+                    business = Business.query.get(business_id_safe)
+                    if business:
+                        business_voice = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+                        # Validate voice is in allowed list
+                        if business_voice in OPENAI_VOICES:
+                            call_voice = business_voice
+                        else:
+                            logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice db_value={business_voice} fallback={DEFAULT_VOICE}")
+                            call_voice = DEFAULT_VOICE
+                        print(f"🎤 [VOICE_LIBRARY] Loaded voice from DB: {call_voice}")
+                except Exception as e:
+                    logger.warning(f"[VOICE_LIBRARY] Failed to load voice from DB: {e}, using default: {DEFAULT_VOICE}")
+                    call_voice = DEFAULT_VOICE
+            
+            # Validate voice is in allowed list (final safety check)
+            if call_voice not in OPENAI_VOICES:
+                logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} fallback={DEFAULT_VOICE}")
+                call_voice = DEFAULT_VOICE
+            
             self._call_voice = call_voice  # Store for session.update reuse
-            print(f"🎤 [VOICE] Using voice={call_voice} (MALE) for entire call (business={self.business_id})")
+            print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
+            logger.info(f"[VOICE_LIBRARY] Call voice selected: {call_voice} for business {business_id_safe}")
             
             # 🔥 FIX: Calculate max_tokens based on greeting length
             # Long greetings (14 seconds = ~280 words in Hebrew) need 500+ tokens
