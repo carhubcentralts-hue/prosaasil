@@ -32,6 +32,7 @@ const CrmPage = lazy(() => import('../pages/crm/CrmPage').then(m => ({ default: 
 const BillingPage = lazy(() => import('../pages/billing/BillingPage').then(m => ({ default: m.BillingPage })));
 const UsersPage = lazy(() => import('../pages/users/UsersPage').then(m => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const EmailsPage = lazy(() => import('../pages/emails/EmailsPage').then(m => ({ default: m.EmailsPage })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -224,6 +225,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <CrmPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Email Routes */}
+        <Route
+          path="emails"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
+              <EmailsPage />
             </RoleGuard>
           }
         />

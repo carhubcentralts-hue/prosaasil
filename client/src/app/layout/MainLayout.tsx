@@ -19,7 +19,8 @@ import {
   User,
   Bot,
   Clock,
-  Send
+  Send,
+  Mail
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -70,6 +71,12 @@ const menuItems = [
     icon: Building2, 
     label: 'משימות',
     to: '/app/crm',
+    roles: ['system_admin', 'owner', 'admin', 'agent']
+  },
+  { 
+    icon: Mail, 
+    label: 'מיילים',
+    to: '/app/emails',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
