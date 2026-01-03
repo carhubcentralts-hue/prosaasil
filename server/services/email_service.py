@@ -103,8 +103,13 @@ class EmailService:
             user_name: User's name (optional)
             
         Returns:
-            bool: True if email was sent successfully
+            bool: True if email was sent successfully (or if SendGrid not configured)
         """
+        if not self.client:
+            # No SendGrid configured - log but return True for anti-enumeration
+            logger.warning(f"[AUTH] password_reset_email_failed reason=missing_api_key email={to_email}")
+            return True  # Return success to maintain anti-enumeration protection
+        
         subject = "איפוס סיסמה - PROSAAS"
         
         # HTML content with proper Hebrew support

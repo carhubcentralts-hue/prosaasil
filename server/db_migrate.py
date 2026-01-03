@@ -1863,7 +1863,21 @@ def apply_migrations():
                 db.session.execute(text("CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)"))
                 db.session.execute(text("CREATE INDEX idx_refresh_tokens_is_valid ON refresh_tokens(is_valid)"))
                 
-                checkpoint("  ✅ refresh_tokens table created")
+                # Add last_activity_at column for per-session idle tracking
+                if not check_column_exists('refresh_tokens', 'last_activity_at'):
+                    db.session.execute(text("""
+                        ALTER TABLE refresh_tokens 
+                        ADD COLUMN last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    """))
+                    # Create index for performance
+                    db.session.execute(text("""
+                        CREATE INDEX idx_refresh_tokens_last_activity 
+                        ON refresh_tokens(last_activity_at)
+                    """))
+                    checkpoint("  ✅ refresh_tokens.last_activity_at added")
+                    migrations_applied.append('add_refresh_tokens_last_activity_at')
+                
+                checkpoint("  ✅ refresh_tokens table created with all fields")
                 migrations_applied.append('create_refresh_tokens_table')
             except Exception as e:
                 log.error(f"❌ Migration 57a failed: {e}")

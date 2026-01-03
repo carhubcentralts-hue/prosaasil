@@ -38,17 +38,45 @@ def hash_token(token: str) -> str:
 
 def hash_user_agent(user_agent: Optional[str]) -> Optional[str]:
     """
-    Hash user agent string for security binding
+    Hash user agent string for security binding (normalized for browser updates)
     
     Args:
         user_agent: User agent string from request
         
     Returns:
-        str: Hashed user agent or None
+        str: Hashed normalized user agent or None
     """
     if not user_agent:
         return None
-    return hashlib.sha256(user_agent.encode('utf-8')).hexdigest()
+    
+    # Normalize: extract major browser/OS info only (ignore minor version changes)
+    # Example: "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0.0" -> "Windows_Chrome"
+    ua_lower = user_agent.lower()
+    
+    # Extract major parts
+    parts = []
+    if 'windows' in ua_lower:
+        parts.append('windows')
+    elif 'mac' in ua_lower or 'macos' in ua_lower:
+        parts.append('mac')
+    elif 'linux' in ua_lower:
+        parts.append('linux')
+    elif 'iphone' in ua_lower or 'ipad' in ua_lower:
+        parts.append('ios')
+    elif 'android' in ua_lower:
+        parts.append('android')
+    
+    if 'chrome' in ua_lower and 'edg' not in ua_lower:
+        parts.append('chrome')
+    elif 'edg' in ua_lower:
+        parts.append('edge')
+    elif 'firefox' in ua_lower:
+        parts.append('firefox')
+    elif 'safari' in ua_lower and 'chrome' not in ua_lower:
+        parts.append('safari')
+    
+    normalized = '_'.join(parts) if parts else user_agent
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
 
 class AuthService:
     """Authentication service for managing tokens and sessions"""
@@ -103,7 +131,8 @@ class AuthService:
     @staticmethod
     def validate_refresh_token(
         plain_token: str,
-        user_agent: Optional[str] = None
+        user_agent: Optional[str] = None,
+        check_idle: bool = True
     ) -> Optional[RefreshToken]:
         """
         Validate a refresh token
@@ -111,6 +140,7 @@ class AuthService:
         Args:
             plain_token: Plain token string
             user_agent: User agent string for security check
+            check_idle: Whether to check idle timeout (default True)
             
         Returns:
             RefreshToken object if valid, None otherwise
@@ -134,15 +164,25 @@ class AuthService:
             db.session.commit()
             return None
         
-        # Optional: Verify user agent binding
+        # Check idle timeout (per-session)
+        if check_idle and refresh_token.is_idle(IDLE_TIMEOUT_MINUTES):
+            logger.info(f"[AUTH] idle_timeout_logout user_id={refresh_token.user_id} token_id={refresh_token.id}")
+            refresh_token.is_valid = False
+            db.session.commit()
+            return None
+        
+        # Soft user agent verification (log but don't reject)
         if user_agent and refresh_token.user_agent_hash:
             current_ua_hash = hash_user_agent(user_agent)
             if current_ua_hash != refresh_token.user_agent_hash:
-                logger.warning(f"[AUTH] User agent mismatch for user_id={refresh_token.user_id} - browser may have been updated")
-                # Allow the token but log the mismatch for audit purposes
-                # This handles legitimate browser updates while still providing security auditing
+                logger.warning(
+                    f"[AUTH] User agent mismatch for user_id={refresh_token.user_id} token_id={refresh_token.id} "
+                    f"- browser may have updated (normalized UA changed)"
+                )
+                # Allow token but log for audit - handles browser updates
         
-        # Update last used timestamp
+        # Update activity timestamp (per-session)
+        refresh_token.last_activity_at = datetime.utcnow()
         refresh_token.last_used_at = datetime.utcnow()
         db.session.commit()
         
@@ -188,45 +228,27 @@ class AuthService:
         return count
     
     @staticmethod
-    def check_idle_timeout(user: User) -> bool:
+    def update_token_activity(token_hash: str) -> bool:
         """
-        Check if user has exceeded idle timeout
+        Update refresh token activity timestamp (per-session tracking)
         
         Args:
-            user: User object
+            token_hash: Hashed token
             
         Returns:
-            bool: True if user is idle (should be logged out)
-        """
-        if not user.last_activity_at:
-            # No activity recorded yet - not idle
-            return False
-        
-        idle_duration = datetime.utcnow() - user.last_activity_at
-        idle_minutes = idle_duration.total_seconds() / 60
-        
-        if idle_minutes > IDLE_TIMEOUT_MINUTES:
-            logger.info(f"[AUTH] idle_timeout_logout user_id={user.id} idle_minutes={idle_minutes:.1f}")
-            return True
-        
-        return False
-    
-    @staticmethod
-    def update_user_activity(user_id: int) -> None:
-        """
-        Update user's last activity timestamp
-        
-        Args:
-            user_id: User ID
+            bool: True if updated successfully
         """
         try:
-            user = User.query.get(user_id)
-            if user:
-                user.last_activity_at = datetime.utcnow()
+            refresh_token = RefreshToken.query.filter_by(token_hash=token_hash).first()
+            if refresh_token:
+                refresh_token.last_activity_at = datetime.utcnow()
                 db.session.commit()
+                return True
+            return False
         except Exception as e:
-            logger.error(f"[AUTH] Failed to update activity for user_id={user_id}: {e}")
+            logger.error(f"[AUTH] Failed to update token activity: {e}")
             db.session.rollback()
+            return False
     
     @staticmethod
     def generate_password_reset_token(email: str) -> bool:

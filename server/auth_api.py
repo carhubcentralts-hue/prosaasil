@@ -260,12 +260,16 @@ def refresh_token():
         if not refresh_token_value:
             return jsonify({'success': False, 'error': 'No refresh token provided'}), 401
         
-        # Validate refresh token
+        # Validate refresh token (with idle timeout check built-in)
         user_agent = get_request_user_agent()
-        refresh_token_obj = AuthService.validate_refresh_token(refresh_token_value, user_agent)
+        refresh_token_obj = AuthService.validate_refresh_token(
+            refresh_token_value, 
+            user_agent, 
+            check_idle=True  # ✅ CRITICAL: Idle timeout checked here
+        )
         
         if not refresh_token_obj:
-            # Token is invalid or expired
+            # Token is invalid, expired, or idle timeout exceeded
             session.clear()
             return jsonify({'success': False, 'error': 'Invalid or expired refresh token'}), 401
         
@@ -273,16 +277,6 @@ def refresh_token():
         user = User.query.get(refresh_token_obj.user_id)
         if not user or not user.is_active:
             return jsonify({'success': False, 'error': 'User not found or inactive'}), 401
-        
-        # Check idle timeout
-        if AuthService.check_idle_timeout(user):
-            # User has been idle too long - invalidate all tokens
-            AuthService.invalidate_all_user_tokens(user.id)
-            session.clear()
-            return jsonify({'success': False, 'error': 'Session expired due to inactivity'}), 401
-        
-        # Update activity
-        AuthService.update_user_activity(user.id)
         
         # Get business info if exists
         business = None
@@ -469,22 +463,13 @@ def require_api_auth(allowed_roles=None):
                     'message': 'Authentication required'
                 }), 401
             
-            # Check idle timeout
-            user_id = user.get('id')
-            if user_id:
-                user_obj = User.query.get(user_id)
-                if user_obj and AuthService.check_idle_timeout(user_obj):
-                    # User has been idle too long - invalidate all tokens and logout
-                    AuthService.invalidate_all_user_tokens(user_id)
-                    session.clear()
-                    return jsonify({
-                        'error': 'forbidden',
-                        'reason': 'idle_timeout',
-                        'message': 'Session expired due to inactivity'
-                    }), 401
-                
-                # Update activity timestamp
-                AuthService.update_user_activity(user_id)
+            # Update token activity if refresh token exists in session
+            refresh_token = session.get('refresh_token')
+            if refresh_token:
+                # Update activity on the refresh token (per-session tracking)
+                from server.services.auth_service import hash_token
+                token_hash = hash_token(refresh_token)
+                AuthService.update_token_activity(token_hash)
             
             # BUILD 142 FINAL: Compute tenant - impersonation overrides business_id
             if session.get("impersonated_tenant_id"):

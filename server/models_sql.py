@@ -817,6 +817,7 @@ class RefreshToken(db.Model):
     """
     Refresh tokens for session management
     Implements secure token storage with hashing and expiry
+    Each token tracks its own activity for per-session idle timeout
     """
     __tablename__ = "refresh_tokens"
     id = db.Column(db.Integer, primary_key=True)
@@ -836,6 +837,9 @@ class RefreshToken(db.Model):
     # Remember me flag
     remember_me = db.Column(db.Boolean, default=False)
     
+    # Per-session activity tracking for idle timeout
+    last_activity_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_used_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -847,6 +851,13 @@ class RefreshToken(db.Model):
     def is_expired(self):
         """Check if token is expired"""
         return datetime.utcnow() > self.expires_at
+    
+    def is_idle(self, idle_minutes: int = 75) -> bool:
+        """Check if token has been idle too long"""
+        if not self.last_activity_at:
+            return False
+        idle_duration = datetime.utcnow() - self.last_activity_at
+        return (idle_duration.total_seconds() / 60) > idle_minutes
     
     def __repr__(self):
         return f"<RefreshToken {self.id} user_id={self.user_id} expires={self.expires_at}>"
