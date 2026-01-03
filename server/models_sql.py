@@ -84,6 +84,7 @@ class CallLog(db.Model):
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
     outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
+    project_id = db.Column(db.Integer, nullable=True, index=True)  # Project ID for calls initiated from projects (FK to outbound_projects)
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     parent_call_sid = db.Column(db.String(64), nullable=True, index=True)  # 🔥 Parent call SID for child legs
     from_number = db.Column(db.String(64), index=True)
@@ -952,6 +953,7 @@ class OutboundCallJob(db.Model):
     run_id = db.Column(db.Integer, db.ForeignKey("outbound_call_runs.id"), nullable=False, index=True)
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
     call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True)
+    project_id = db.Column(db.Integer, nullable=True, index=True)  # Project ID for calls initiated from projects (FK to outbound_projects)
     
     # Status
     status = db.Column(db.String(32), default="queued", index=True)  # queued|dialing|calling|completed|failed
