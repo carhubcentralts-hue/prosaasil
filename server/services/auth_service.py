@@ -346,8 +346,8 @@ class AuthService:
         # 🔍 DEBUG: Log hash comparison details
         logger.warning(
             "[AUTH][RESET_DEBUG] stored_hash8=%s computed_hash8=%s used=%s exp=%s",
-            (user.reset_token_hash or "")[:8],
-            (token_hash or "")[:8],
+            user.reset_token_hash[:8] if user.reset_token_hash else "None",
+            token_hash[:8],
             user.reset_token_used,
             user.reset_token_expiry
         )

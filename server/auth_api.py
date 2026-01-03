@@ -215,7 +215,7 @@ def reset_password():
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
         
         # 🔍 DEBUG: Extract token from both JSON body and query params
-        token = (request.json or {}).get('token') or (request.args or {}).get('token')
+        token = data.get('token') or (request.args or {}).get('token')
         
         # 🔍 DEBUG: Comprehensive logging to diagnose token issues
         logger.warning(
@@ -224,7 +224,7 @@ def reset_password():
             len(token) if token else None,
             token[:8] if token else None,
             token[-8:] if token else None,
-            list((request.json or {}).keys()),
+            list(data.keys()),
             dict(request.args) if request.args else {}
         )
         
