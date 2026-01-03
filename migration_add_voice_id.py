@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from server.app_factory import get_process_app
 from server.db import db
+from server.config.voices import DEFAULT_VOICE
 from sqlalchemy import text
 
 def run_migration():
@@ -24,7 +25,7 @@ def run_migration():
         
         try:
             # Add voice_id column if it doesn't exist
-            db.session.execute(text("""
+            db.session.execute(text(f"""
                 DO $$ 
                 BEGIN
                     IF NOT EXISTS (
@@ -33,9 +34,9 @@ def run_migration():
                         AND column_name='voice_id'
                     ) THEN
                         ALTER TABLE business 
-                        ADD COLUMN voice_id VARCHAR(32) NOT NULL DEFAULT 'ash';
+                        ADD COLUMN voice_id VARCHAR(32) NOT NULL DEFAULT '{DEFAULT_VOICE}';
                         
-                        RAISE NOTICE 'Added voice_id column with default value ash';
+                        RAISE NOTICE 'Added voice_id column with default value {DEFAULT_VOICE}';
                     ELSE
                         RAISE NOTICE 'voice_id column already exists';
                     END IF;
@@ -45,7 +46,7 @@ def run_migration():
             
             print("✅ Migration completed successfully")
             print("")
-            print("ℹ️  All businesses now have default voice: 'ash'")
+            print(f"ℹ️  All businesses now have default voice: '{DEFAULT_VOICE}'")
             print("   Available voices: alloy, ash, ballad, cedar, coral, echo,")
             print("                     fable, marin, nova, onyx, sage, shimmer, verse")
             print("")

@@ -9,10 +9,12 @@ from server.extensions import csrf
 from server.utils.api_guard import api_handler
 from server.config.voices import OPENAI_VOICES, DEFAULT_VOICE
 from datetime import datetime
+from openai import OpenAI
 import logging
 import io
 import os
 import base64
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +154,6 @@ def preview_tts():
     
     try:
         # Use OpenAI TTS API to generate preview
-        from openai import OpenAI
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
         # Generate speech using TTS-1 model with specified voice
@@ -170,16 +171,19 @@ def preview_tts():
         audio_io = io.BytesIO(audio_bytes)
         audio_io.seek(0)
         
-        # Return audio file
-        return send_file(
-            audio_io,
-            mimetype='audio/mpeg',
-            as_attachment=False,
-            download_name='preview.mp3'
-        )
+        try:
+            # Return audio file
+            return send_file(
+                audio_io,
+                mimetype='audio/mpeg',
+                as_attachment=False,
+                download_name='preview.mp3'
+            )
+        finally:
+            # Ensure audio stream is closed after sending
+            audio_io.close()
         
     except Exception as e:
         logger.error(f"[AI][TTS_PREVIEW] Failed to generate preview: {e}")
-        import traceback
         traceback.print_exc()
         return {"ok": False, "error": "tts_generation_failed", "message": str(e)}, 500

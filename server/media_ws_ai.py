@@ -10,6 +10,7 @@ from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
+from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES  # 🎤 Voice Library
 
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
 # ⚠️⚠️⚠️ PERMANENTLY DISABLED ⚠️⚠️⚠️
@@ -1789,7 +1790,7 @@ class CallContext:
         # Business data
         self.business_id = business.id if business else None
         self.business_name = business.name if business else None
-        self.business_voice_id = getattr(business, 'voice_id', 'ash') if business else 'ash'  # Voice Library
+        self.business_voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) if business else DEFAULT_VOICE  # 🎤 Voice Library
         
         # Settings data
         self.opening_hours = settings.opening_hours_json if settings else None
@@ -3613,8 +3614,7 @@ class MediaStreamHandler:
             
             # 🎯 VOICE LIBRARY: Load voice from business settings (per-business voice selection)
             # Get voice_id from business via CallContext (cached, no DB query)
-            # Fallback chain: business.voice_id -> DEFAULT_VOICE ('ash')
-            from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES
+            # Fallback chain: business.voice_id -> DEFAULT_VOICE
             
             # Try to get voice from cached call context first (avoids DB query)
             call_voice = DEFAULT_VOICE  # Default fallback
