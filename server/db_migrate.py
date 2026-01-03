@@ -1969,6 +1969,8 @@ def apply_migrations():
                         from_email VARCHAR(255) NOT NULL,
                         from_name VARCHAR(255) NOT NULL,
                         reply_to VARCHAR(255),
+                        reply_to_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        footer_html TEXT,
                         is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1981,13 +1983,48 @@ def apply_migrations():
                 """))
                 
                 migrations_applied.append('create_email_settings_table')
-                checkpoint("  ✅ email_settings table created with business_id unique index")
+                checkpoint("  ✅ email_settings table created with business_id unique index, reply_to_enabled, footer_html")
             except Exception as e:
                 log.error(f"❌ Migration 60a (email_settings) failed: {e}")
                 db.session.rollback()
                 raise
         
-        # Migration 60b: Create email_messages table (complete email log)
+        # Migration 60b: Create email_templates table (per-business email templates)
+        # IMPORTANT: Must be created before email_messages (FK dependency)
+        if not check_table_exists('email_templates'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    CREATE TABLE email_templates (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        subject_template VARCHAR(500) NOT NULL,
+                        html_template TEXT NOT NULL,
+                        text_template TEXT,
+                        created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create index on business_id for fast lookups
+                db.session.execute(text("""
+                    CREATE INDEX idx_email_templates_business_id ON email_templates(business_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_email_templates_is_active ON email_templates(is_active)
+                """))
+                
+                migrations_applied.append('create_email_templates_table')
+                checkpoint("  ✅ email_templates table created with indexes on business_id, is_active")
+            except Exception as e:
+                log.error(f"❌ Migration 60b (email_templates) failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Migration 60c: Create email_messages table (complete email log)
         if not check_table_exists('email_messages'):
             try:
                 from sqlalchemy import text
@@ -1997,6 +2034,7 @@ def apply_migrations():
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
                         lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
                         created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
                         to_email VARCHAR(255) NOT NULL,
                         subject VARCHAR(500) NOT NULL,
                         body_html TEXT NOT NULL,
@@ -2032,42 +2070,9 @@ def apply_migrations():
                 """))
                 
                 migrations_applied.append('create_email_messages_table')
-                checkpoint("  ✅ email_messages table created with indexes on business_id, lead_id, status, created_at")
+                checkpoint("  ✅ email_messages table created with indexes on business_id, lead_id, status, created_at, template_id")
             except Exception as e:
-                log.error(f"❌ Migration 60b (email_messages) failed: {e}")
-                db.session.rollback()
-                raise
-        
-        # Migration 60c: Create email_templates table (per-business email templates)
-        if not check_table_exists('email_templates'):
-            try:
-                from sqlalchemy import text
-                db.session.execute(text("""
-                    CREATE TABLE email_templates (
-                        id SERIAL PRIMARY KEY,
-                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
-                        name VARCHAR(255) NOT NULL,
-                        subject_template VARCHAR(500) NOT NULL,
-                        html_template TEXT NOT NULL,
-                        text_template TEXT,
-                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                """))
-                
-                # Create index on business_id for fast lookups
-                db.session.execute(text("""
-                    CREATE INDEX idx_email_templates_business_id ON email_templates(business_id)
-                """))
-                db.session.execute(text("""
-                    CREATE INDEX idx_email_templates_is_active ON email_templates(is_active)
-                """))
-                
-                migrations_applied.append('create_email_templates_table')
-                checkpoint("  ✅ email_templates table created with indexes on business_id, is_active")
-            except Exception as e:
-                log.error(f"❌ Migration 60c (email_templates) failed: {e}")
+                log.error(f"❌ Migration 60c (email_messages) failed: {e}")
                 db.session.rollback()
                 raise
         
