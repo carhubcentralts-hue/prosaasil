@@ -15,7 +15,14 @@ from datetime import datetime
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
 import bleach
-from bleach.css_sanitizer import CSSSanitizer
+
+# Try to import CSS sanitizer - requires tinycss2
+try:
+    from bleach.css_sanitizer import CSSSanitizer
+    _HAS_CSS_SANITIZER = True
+except ImportError:
+    CSSSanitizer = None
+    _HAS_CSS_SANITIZER = False
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +41,16 @@ HTML_TAG_REGEX = re.compile('<[^<]+?>')
 
 # CSS Sanitizer for safe inline styles
 # Allow common safe CSS properties for email styling
-css_sanitizer = CSSSanitizer(allowed_css_properties=[
-    'color', 'background-color', 'font-size', 'font-weight', 'font-family',
-    'text-align', 'text-decoration', 'padding', 'margin', 'border',
-    'border-radius', 'width', 'height', 'max-width', 'max-height',
-    'display', 'line-height', 'letter-spacing'
-])
+if _HAS_CSS_SANITIZER:
+    css_sanitizer = CSSSanitizer(allowed_css_properties=[
+        'color', 'background-color', 'font-size', 'font-weight', 'font-family',
+        'text-align', 'text-decoration', 'padding', 'margin', 'border',
+        'border-radius', 'width', 'height', 'max-width', 'max-height',
+        'display', 'line-height', 'letter-spacing'
+    ])
+else:
+    css_sanitizer = None
+    logger.warning("[EMAIL] CSS sanitizer not available - tinycss2 not installed. Inline styles will be stripped.")
 
 # Allowed HTML tags and attributes for sanitization
 ALLOWED_TAGS = [
@@ -72,14 +83,28 @@ def sanitize_html(html: str) -> str:
     
     Uses CSS sanitizer to allow safe inline styles while blocking dangerous CSS.
     This prevents XSS via CSS (e.g., expression(), url() with javascript:, etc.)
+    If CSS sanitizer is not available (tinycss2 not installed), strips all style attributes.
     """
-    return bleach.clean(
-        html,
-        tags=ALLOWED_TAGS,
-        attributes=ALLOWED_ATTRIBUTES,
-        css_sanitizer=css_sanitizer,
-        strip=True
-    )
+    if _HAS_CSS_SANITIZER:
+        return bleach.clean(
+            html,
+            tags=ALLOWED_TAGS,
+            attributes=ALLOWED_ATTRIBUTES,
+            css_sanitizer=css_sanitizer,
+            strip=True
+        )
+    else:
+        # Fallback: strip all style attributes if CSS sanitizer not available
+        allowed_attrs_no_style = {
+            tag: [attr for attr in attrs if attr != 'style']
+            for tag, attrs in ALLOWED_ATTRIBUTES.items()
+        }
+        return bleach.clean(
+            html,
+            tags=ALLOWED_TAGS,
+            attributes=allowed_attrs_no_style,
+            strip=True
+        )
 
 def render_variables(template: str, variables: Dict[str, Any]) -> str:
     """
