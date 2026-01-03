@@ -240,6 +240,27 @@ def get_call_counts_endpoint():
         return jsonify({"error": "שגיאה בטעינת נתונים"}), 500
 
 
+def _validate_project_access(project_id: int, tenant_id: int) -> bool:
+    """
+    Validate that project exists and belongs to tenant.
+    
+    Args:
+        project_id: Project ID to validate
+        tenant_id: Tenant ID to check ownership
+        
+    Returns:
+        True if project exists and belongs to tenant, False otherwise
+    """
+    if not project_id:
+        return True  # No project_id is valid (not all calls are from projects)
+    
+    project_exists = db.session.execute(text("""
+        SELECT id FROM outbound_projects WHERE id = :project_id AND tenant_id = :tenant_id
+    """), {'project_id': project_id, 'tenant_id': tenant_id}).scalar()
+    
+    return bool(project_exists)
+
+
 def _start_bulk_queue(tenant_id: int, lead_ids: list, project_id: int = None) -> tuple:
     """
     Helper function to start bulk call queue with concurrency control
@@ -368,14 +389,8 @@ def start_outbound_calls():
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
     
     # Validate project_id if provided
-    if project_id:
-        # Verify project exists and belongs to tenant
-        project_exists = db.session.execute(text("""
-            SELECT id FROM outbound_projects WHERE id = :project_id AND tenant_id = :tenant_id
-        """), {'project_id': project_id, 'tenant_id': tenant_id}).scalar()
-        
-        if not project_exists:
-            return jsonify({"error": "פרויקט לא נמצא"}), 404
+    if project_id and not _validate_project_access(project_id, tenant_id):
+        return jsonify({"error": "פרויקט לא נמצא"}), 404
     
     # ✅ FIX: If more than 3 leads, use bulk queue system with concurrency control
     # This ensures only 3 calls run in parallel, and as each completes, the next one starts
@@ -1373,14 +1388,8 @@ def bulk_enqueue_outbound_calls():
         return jsonify({"error": "מספר שיחות במקביל חייב להיות בין 1 ל-10"}), 400
     
     # Validate project_id if provided
-    if project_id:
-        # Verify project exists and belongs to tenant
-        project_exists = db.session.execute(text("""
-            SELECT id FROM outbound_projects WHERE id = :project_id AND tenant_id = :tenant_id
-        """), {'project_id': project_id, 'tenant_id': tenant_id}).scalar()
-        
-        if not project_exists:
-            return jsonify({"error": "פרויקט לא נמצא"}), 404
+    if project_id and not _validate_project_access(project_id, tenant_id):
+        return jsonify({"error": "פרויקט לא נמצא"}), 404
     
     try:
         # Verify all leads belong to this tenant
