@@ -93,6 +93,9 @@ export function BusinessAISettings() {
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Constants
+  const AUTH_ERROR_MESSAGE = 'שגיאת הרשאה: אנא התחבר מחדש';
+
   // Load prompts and business info
   useEffect(() => {
     const loadData = async () => {
@@ -250,7 +253,7 @@ export function BusinessAISettings() {
         });
         // Show error to user if it's an auth issue
         if (err?.status === 401) {
-          alert('שגיאת הרשאה: אנא התחבר מחדש');
+          alert(AUTH_ERROR_MESSAGE);
         }
       } finally {
         setVoiceLibrary(prev => ({ ...prev, isLoadingVoices: false }));
@@ -282,7 +285,7 @@ export function BusinessAISettings() {
         hint: err?.hint
       });
       if (err?.status === 401) {
-        alert('שגיאת הרשאה: אנא התחבר מחדש');
+        alert(AUTH_ERROR_MESSAGE);
       } else {
         alert('שגיאה בשמירת הגדרות הקול');
       }
@@ -329,7 +332,7 @@ export function BusinessAISettings() {
             message: errorData.message
           });
           if (response.status === 401) {
-            throw new Error('שגיאת הרשאה: אנא התחבר מחדש');
+            throw new Error(AUTH_ERROR_MESSAGE);
           }
           throw new Error(errorData.message || 'Failed to generate preview');
         }
