@@ -2,7 +2,7 @@
 AI System Settings API - Voice Library and TTS Preview
 Handles voice selection, preview, and system configuration
 """
-from flask import Blueprint, request, jsonify, session, send_file
+from flask import Blueprint, request, jsonify, session, send_file, g
 from server.models_sql import Business, db
 from server.routes_admin import require_api_auth
 from server.extensions import csrf
@@ -19,6 +19,26 @@ import traceback
 logger = logging.getLogger(__name__)
 
 ai_system_bp = Blueprint('ai_system', __name__)
+
+
+def get_business_id_from_context():
+    """
+    Get business_id from session/JWT using robust tenant context resolution.
+    Returns: business_id (int or None)
+    """
+    # Try g.tenant first (set by middleware)
+    business_id = g.get('tenant') or getattr(g, 'business_id', None)
+    
+    if not business_id:
+        # Fallback to session
+        user = session.get('user') or session.get('al_user') or {}
+        business_id = session.get('impersonated_tenant_id') or (user.get('business_id') if isinstance(user, dict) else None)
+    
+    # Also try direct session.get('business_id') as a final fallback
+    if not business_id:
+        business_id = session.get('business_id')
+    
+    return business_id
 
 @ai_system_bp.route('/api/system/ai/voices', methods=['GET'])
 @api_handler
@@ -43,17 +63,22 @@ def get_business_ai_settings():
     Get AI settings for current business
     Returns: {"voice_id": "ash"}
     """
-    # Get business_id from session
-    business_id = session.get('business_id')
+    # Get business_id from session/JWT using robust resolution
+    business_id = get_business_id_from_context()
+    
     if not business_id:
-        return {"ok": False, "error": "business_id_required"}, 400
+        logger.warning("[AI_SETTINGS] No business context found - user not authenticated or missing tenant")
+        return {"ok": False, "error": "business_id_required"}, 401
     
     business = Business.query.get(business_id)
     if not business:
+        logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
     # Get voice_id, default to ash if not set
     voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+    
+    logger.info(f"[AI_SETTINGS] Loaded AI settings for business {business_id}: voice={voice_id}")
     
     return {
         "ok": True,
@@ -68,10 +93,12 @@ def update_business_ai_settings():
     Update AI settings for current business
     Body: {"voice_id": "onyx"}
     """
-    # Get business_id from session
-    business_id = session.get('business_id')
+    # Get business_id from session/JWT using robust resolution
+    business_id = get_business_id_from_context()
+    
     if not business_id:
-        return {"ok": False, "error": "business_id_required"}, 400
+        logger.warning("[AI_SETTINGS] No business context found - user not authenticated or missing tenant")
+        return {"ok": False, "error": "business_id_required"}, 401
     
     data = request.get_json(force=True)
     voice_id = data.get('voice_id')
@@ -81,6 +108,7 @@ def update_business_ai_settings():
     
     # Validate voice_id
     if voice_id not in OPENAI_VOICES:
+        logger.warning(f"[AI_SETTINGS] Invalid voice_id '{voice_id}' for business {business_id}")
         return {
             "ok": False, 
             "error": "invalid_voice_id",
@@ -89,6 +117,7 @@ def update_business_ai_settings():
     
     business = Business.query.get(business_id)
     if not business:
+        logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
     # Update voice_id
@@ -117,10 +146,12 @@ def preview_tts():
     Body: {"text": "שלום עולם", "voice_id": "cedar"}
     Returns: audio/mpeg (mp3) stream
     """
-    # Get business_id from session
-    business_id = session.get('business_id')
+    # Get business_id from session/JWT using robust resolution
+    business_id = get_business_id_from_context()
+    
     if not business_id:
-        return {"ok": False, "error": "business_id_required"}, 400
+        logger.warning("[TTS_PREVIEW] No business context found - user not authenticated or missing tenant")
+        return {"ok": False, "error": "business_id_required"}, 401
     
     data = request.get_json(force=True)
     text = data.get('text', '')
@@ -136,6 +167,7 @@ def preview_tts():
     
     # Validate voice_id
     if voice_id not in OPENAI_VOICES:
+        logger.warning(f"[TTS_PREVIEW] Invalid voice_id '{voice_id}' for business {business_id}")
         return {
             "ok": False, 
             "error": "invalid_voice_id",
