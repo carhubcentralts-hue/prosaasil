@@ -25,6 +25,9 @@ CRITICAL_COLUMNS = {
     'leads': [
         'gender',  # Required for lead queries and call lookups
     ],
+    'business': [
+        'voice_id',  # Required for per-business voice selection in Realtime API
+    ],
 }
 
 def validate_production_environment() -> Dict[str, Any]:
