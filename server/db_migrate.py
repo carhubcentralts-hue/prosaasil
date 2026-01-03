@@ -1932,6 +1932,33 @@ def apply_migrations():
         
         checkpoint("✅ Migration 57 completed - Authentication system enhanced")
         
+        # Migration 58: Add voice_id to business table for per-business voice selection
+        # 🔒 CRITICAL FIX: This column is referenced in Business model but missing from DB
+        # Fixes: psycopg2.errors.UndefinedColumn: column business.voice_id does not exist
+        if check_table_exists('business') and not check_column_exists('business', 'voice_id'):
+            checkpoint("Migration 58: Adding voice_id column to business table")
+            try:
+                from sqlalchemy import text
+                # Add voice_id column with default value 'ash'
+                db.session.execute(text("""
+                    ALTER TABLE business 
+                    ADD COLUMN voice_id VARCHAR(32) NOT NULL DEFAULT 'ash'
+                """))
+                
+                # Update any NULL values to default (safety measure)
+                db.session.execute(text("""
+                    UPDATE business 
+                    SET voice_id = 'ash' 
+                    WHERE voice_id IS NULL
+                """))
+                
+                migrations_applied.append('add_business_voice_id')
+                checkpoint("✅ Applied migration 58: add_business_voice_id - Per-business voice selection")
+            except Exception as e:
+                log.error(f"❌ Migration 58 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
