@@ -64,7 +64,8 @@ def test_migration_sql_syntax():
     with open('server/config/voices.py', 'r') as f:
         content = f.read()
     
-    if 'DEFAULT_VOICE = "ash"' in content:
+    # Check for both single and double quotes
+    if 'DEFAULT_VOICE = "ash"' in content or "DEFAULT_VOICE = 'ash'" in content:
         print("   ✅ DEFAULT_VOICE = 'ash' found")
     else:
         print("   ❌ DEFAULT_VOICE NOT correctly set")
@@ -83,11 +84,11 @@ def test_migration_sql_syntax():
         print("   ❌ Missing idempotent check")
         return False
     
-    # Check for NULL value update
-    if "UPDATE business" in content and "SET voice_id = 'ash'" in content:
-        print("   ✅ NULL value update statement found")
+    # Check that NOT NULL DEFAULT is present (automatic default for all rows)
+    if "NOT NULL DEFAULT 'ash'" in content:
+        print("   ✅ NOT NULL DEFAULT 'ash' found (automatic default)")
     else:
-        print("   ❌ NULL value update statement NOT found")
+        print("   ❌ NOT NULL DEFAULT not found")
         return False
     
     print("\n" + "=" * 60)
@@ -95,9 +96,8 @@ def test_migration_sql_syntax():
     print("\nMigration 58 is ready to be applied to the database.")
     print("It will:")
     print("  1. Add voice_id VARCHAR(32) column to business table")
-    print("  2. Set default value to 'ash'")
-    print("  3. Update any NULL values to 'ash'")
-    print("  4. Only run if column doesn't exist (idempotent)")
+    print("  2. Set default value to 'ash' for all existing and new rows")
+    print("  3. Only run if column doesn't exist (idempotent)")
     return True
 
 if __name__ == '__main__':

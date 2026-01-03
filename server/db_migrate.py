@@ -1940,16 +1940,10 @@ def apply_migrations():
             try:
                 from sqlalchemy import text
                 # Add voice_id column with default value 'ash'
+                # NOT NULL DEFAULT ensures all existing rows automatically get 'ash' value
                 db.session.execute(text("""
                     ALTER TABLE business 
                     ADD COLUMN voice_id VARCHAR(32) NOT NULL DEFAULT 'ash'
-                """))
-                
-                # Update any NULL values to default (safety measure)
-                db.session.execute(text("""
-                    UPDATE business 
-                    SET voice_id = 'ash' 
-                    WHERE voice_id IS NULL
                 """))
                 
                 migrations_applied.append('add_business_voice_id')

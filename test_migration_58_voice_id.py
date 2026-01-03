@@ -20,6 +20,9 @@ def test_migration_58_idempotent():
     app = create_minimal_app()
     
     with app.app_context():
+        # Import inside app context to ensure proper initialization
+        from server.config.voices import OPENAI_VOICES, DEFAULT_VOICE
+        
         # Check if business table exists
         inspector = inspect(db.engine)
         tables = inspector.get_table_names()
@@ -60,7 +63,6 @@ def test_migration_58_idempotent():
                 print(f"✅ Can access voice_id attribute: {voice_id}")
                 
                 # Verify it's a valid voice (or default)
-                from server.config.voices import OPENAI_VOICES, DEFAULT_VOICE
                 if voice_id in OPENAI_VOICES:
                     print(f"✅ voice_id '{voice_id}' is valid")
                 elif voice_id == DEFAULT_VOICE:

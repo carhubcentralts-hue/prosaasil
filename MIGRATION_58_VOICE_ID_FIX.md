@@ -20,16 +20,10 @@ if check_table_exists('business') and not check_column_exists('business', 'voice
     try:
         from sqlalchemy import text
         # Add voice_id column with default value 'ash'
+        # NOT NULL DEFAULT ensures all existing rows automatically get 'ash' value
         db.session.execute(text("""
             ALTER TABLE business 
             ADD COLUMN voice_id VARCHAR(32) NOT NULL DEFAULT 'ash'
-        """))
-        
-        # Update any NULL values to default (safety measure)
-        db.session.execute(text("""
-            UPDATE business 
-            SET voice_id = 'ash' 
-            WHERE voice_id IS NULL
         """))
         
         migrations_applied.append('add_business_voice_id')
@@ -43,7 +37,7 @@ if check_table_exists('business') and not check_column_exists('business', 'voice
 **Key Features:**
 - ✅ Idempotent: Uses `check_column_exists` to prevent duplicate column errors
 - ✅ Safe default: Sets default to 'ash' (OpenAI's recommended voice)
-- ✅ NULL safety: Updates any NULL values to ensure data consistency
+- ✅ Automatic default: NOT NULL DEFAULT ensures all existing rows get 'ash' automatically
 - ✅ Proper error handling: Rolls back on failure
 - ✅ Logging: Clear checkpoint messages for monitoring
 
@@ -99,13 +93,9 @@ This ensures the system gracefully falls back to 'ash' if the column is missing 
 ### SQL Commands
 ```sql
 -- Add voice_id column if it doesn't exist
+-- NOT NULL DEFAULT ensures all existing rows automatically get 'ash'
 ALTER TABLE business 
 ADD COLUMN IF NOT EXISTS voice_id VARCHAR(32) NOT NULL DEFAULT 'ash';
-
--- Update any NULL values to default
-UPDATE business 
-SET voice_id = 'ash' 
-WHERE voice_id IS NULL;
 ```
 
 ### Default Voice Configuration
