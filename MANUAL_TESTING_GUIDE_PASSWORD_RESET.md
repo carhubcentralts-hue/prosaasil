@@ -185,10 +185,34 @@ After deploying the fix, verify that:
 - Check server logs for email sending errors
 
 ### Issue: "Invalid token" error immediately
-- Verify token is present in URL
-- Check that token hasn't been used already
-- Verify token hasn't expired (60 min limit)
-- Check database for token status
+- **Step 1: Check Debug Logs** (NEW)
+  - Look for `[AUTH][RESET_DEBUG]` logs in server output
+  - **Token Generation Log** (when requesting reset):
+    ```
+    [AUTH][RESET_DEBUG] token_generated user_id=X token_len=43 token_first8=abc12345 token_last8=xyz98765 hash8=a1b2c3d4
+    ```
+  - **Token Receipt Log** (when submitting reset form):
+    ```
+    [AUTH][RESET_DEBUG] got_token=True len=43 first8=abc12345 last8=xyz98765 keys=['token', 'password'] args={}
+    ```
+  - **Token Validation Log**:
+    ```
+    [AUTH][RESET_DEBUG] stored_hash8=a1b2c3d4 computed_hash8=a1b2c3d4 used=False exp=2026-01-03 20:16:00
+    ```
+
+- **Diagnose Based on Logs**:
+  - If `got_token=False`: Frontend not sending token (check browser console, network tab)
+  - If `len != 43`: Token is being corrupted/truncated in transit
+  - If `first8`/`last8` don't match email link: Token was modified
+  - If `stored_hash8 != computed_hash8`: Token encoding issue (should never happen)
+  - If `used=True`: Token was already used
+  - If `exp` is in the past: Token expired (60 min limit)
+
+- **Other Checks**:
+  - Verify token is present in URL
+  - Check that token hasn't been used already
+  - Verify token hasn't expired (60 min limit)
+  - Check database for token status
 
 ### Issue: CSRF token error
 - Clear browser cookies
