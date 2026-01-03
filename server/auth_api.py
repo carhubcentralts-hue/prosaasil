@@ -454,9 +454,15 @@ def require_api_auth(allowed_roles=None):
     """
     Auth decorator with role-based access control and idle timeout checking
     
+    🔥 CRITICAL FIX: This decorator works both with and without parentheses:
+        - @require_api_auth           (no parentheses, no role check)
+        - @require_api_auth()          (with parentheses, no role check)
+        - @require_api_auth(['admin']) (with role check)
+    
     Args:
         allowed_roles: List of allowed roles for this route (e.g., ['system_admin', 'owner'])
-                      If None, allows all authenticated users
+                      OR the function to decorate (when used without parentheses)
+                      If None or [], allows all authenticated users
                       
     Role hierarchy (BUILD 124):
         - system_admin: Global administrator (full access)
@@ -464,6 +470,85 @@ def require_api_auth(allowed_roles=None):
         - admin: Business administrator (limited business access)
         - agent: Business agent (limited CRM/calls access)
     """
+    # 🔥 CRITICAL FIX: Detect if decorator is used without parentheses
+    # When @require_api_auth is used (no parens), the view function is passed as allowed_roles
+    import inspect
+    if callable(allowed_roles) and not isinstance(allowed_roles, type):
+        # Used as @require_api_auth (without parentheses)
+        # allowed_roles is actually the function to decorate
+        func_to_decorate = allowed_roles
+        allowed_roles = None  # No role restrictions
+        
+        # Apply the decorator immediately
+        @wraps(func_to_decorate)
+        def decorated_function(*args, **kwargs):
+            from server.services.auth_service import AuthService
+            
+            # Allow OPTIONS immediately (204)
+            if request.method == "OPTIONS":
+                return '', 204
+            
+            # BUILD 142 FINAL: Check session keys in priority order (al_user first, then user)
+            user = session.get("al_user") or session.get("user")
+            if not user:
+                return jsonify({
+                    'error': 'forbidden',
+                    'reason': 'no_session',
+                    'message': 'Authentication required'
+                }), 401
+            
+            # Update token activity if refresh token exists in session
+            refresh_token = session.get('refresh_token')
+            if refresh_token:
+                # Update activity on the refresh token (per-session tracking)
+                from server.services.auth_service import hash_token
+                token_hash = hash_token(refresh_token)
+                AuthService.update_token_activity(token_hash)
+            
+            # BUILD 142 FINAL: Compute tenant - impersonation overrides business_id
+            if session.get("impersonated_tenant_id"):
+                tenant = session.get("impersonated_tenant_id")
+            else:
+                tenant = user.get('business_id')  # Can be None for system_admin - THIS IS OK!
+            
+            # Compute role and impersonation status
+            user_role = user['role']
+            impersonating = bool(session.get("impersonated_tenant_id"))
+            
+            # 🔍 BUILD 142 AUTH DEBUG: Only log in development mode
+            if DEBUG_AUTH:
+                logger.debug(f"[AUTH] user_id={user.get('id')}, role={user_role}, business_id={user.get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
+            
+            # BUILD 138: FIXED legacy role mapping - only map ACTUAL legacy roles, not new ones!
+            # Legacy roles (old): manager, business, superadmin
+            # Current roles (new): system_admin, owner, admin, agent
+            legacy_to_new = {
+                'manager': 'owner',          # Old manager → new owner
+                'business': 'admin',         # Old business → new admin (business-level access)
+                'superadmin': 'system_admin' # Old superadmin → new system_admin
+            }
+            
+            # Map user's role only if it's legacy
+            effective_user_role = legacy_to_new.get(user_role, user_role)
+            
+            # ✅ BUILD 140: system_admin bypasses role checks (global access)
+            is_system_admin = effective_user_role == 'system_admin'
+            
+            # No role check needed when allowed_roles is None (decorator used without parentheses)
+            
+            # BUILD 142 FINAL: Store context in g for route use
+            g.user = user
+            g.role = effective_user_role  # Use mapped role
+            g.tenant = tenant  # Can be None for system_admin - THIS IS OK!
+            g.business_id = tenant  # Backward compatibility
+            g.impersonating = impersonating
+            
+            return func_to_decorate(*args, **kwargs)
+        
+        return decorated_function
+    
+    # Used as @require_api_auth() or @require_api_auth(['role'])
+    # Return the actual decorator function
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
