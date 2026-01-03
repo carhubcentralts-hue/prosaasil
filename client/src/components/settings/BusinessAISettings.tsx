@@ -242,8 +242,16 @@ export function BusinessAISettings() {
           }));
           console.log('✅ Loaded voice library:', { voices: voicesData.voices.length, current: aiSettingsData.voice_id });
         }
-      } catch (err) {
-        console.error('❌ Failed to load voice library:', err);
+      } catch (err: any) {
+        console.error('❌ Failed to load voice library:', {
+          error: err?.error || err?.message || 'Unknown error',
+          status: err?.status,
+          hint: err?.hint
+        });
+        // Show error to user if it's an auth issue
+        if (err?.status === 401) {
+          alert('שגיאת הרשאה: אנא התחבר מחדש');
+        }
       } finally {
         setVoiceLibrary(prev => ({ ...prev, isLoadingVoices: false }));
       }
@@ -267,9 +275,17 @@ export function BusinessAISettings() {
       if (result.ok) {
         alert('✅ הקול נשמר בהצלחה! השינוי יחול על שיחות חדשות.');
       }
-    } catch (err) {
-      console.error('❌ Failed to save voice settings:', err);
-      alert('שגיאה בשמירת הגדרות הקול');
+    } catch (err: any) {
+      console.error('❌ Failed to save voice settings:', {
+        error: err?.error || err?.message || 'Unknown error',
+        status: err?.status,
+        hint: err?.hint
+      });
+      if (err?.status === 401) {
+        alert('שגיאת הרשאה: אנא התחבר מחדש');
+      } else {
+        alert('שגיאה בשמירת הגדרות הקול');
+      }
     } finally {
       setVoiceLibrary(prev => ({ ...prev, isSavingVoice: false }));
     }
@@ -304,7 +320,20 @@ export function BusinessAISettings() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to generate preview');
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          console.error('❌ Preview error:', {
+            status: response.status,
+            error: errorData.error,
+            message: errorData.message
+          });
+          if (response.status === 401) {
+            throw new Error('שגיאת הרשאה: אנא התחבר מחדש');
+          }
+          throw new Error(errorData.message || 'Failed to generate preview');
+        }
+        throw new Error(`HTTP ${response.status}: Failed to generate preview`);
       }
       
       // Get audio blob
