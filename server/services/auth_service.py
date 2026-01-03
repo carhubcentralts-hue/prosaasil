@@ -333,10 +333,10 @@ class AuthService:
             
         token_hash = hash_token(plain_token)
         
-        # Find user with this reset token
+        # 🔥 FIX: Find user by token ONLY (don't filter by is_active here)
+        # This allows us to give better error messages and handle inactive users properly
         user = User.query.filter_by(
-            reset_token_hash=token_hash,
-            is_active=True
+            reset_token_hash=token_hash
         ).first()
         
         if not user:
@@ -345,11 +345,13 @@ class AuthService:
         
         # 🔍 DEBUG: Log hash comparison details
         logger.warning(
-            "[AUTH][RESET_DEBUG] stored_hash8=%s computed_hash8=%s used=%s exp=%s",
+            "[AUTH][RESET_DEBUG] found_user_id=%s stored_hash8=%s computed_hash8=%s used=%s exp=%s is_active=%s",
+            user.id,
             user.reset_token_hash[:8] if user.reset_token_hash else "None",
             token_hash[:8],
             user.reset_token_used,
-            user.reset_token_expiry
+            user.reset_token_expiry,
+            user.is_active
         )
         
         # Check if token is expired
@@ -360,6 +362,12 @@ class AuthService:
         # Check if token was already used
         if user.reset_token_used:
             logger.warning(f"[AUTH] Reset token already used for user_id={user.id}")
+            return None
+        
+        # 🔥 FIX: Check is_active AFTER validating token
+        # This way we can log that we found the user but they're inactive
+        if not user.is_active:
+            logger.warning(f"[AUTH] user_inactive user_id={user.id} - password reset not allowed for inactive users")
             return None
         
         return user

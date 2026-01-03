@@ -17,6 +17,11 @@ export function ResetPasswordPage() {
   const [isSuccess, setIsSuccess] = useState(false);
 
   useEffect(() => {
+    // 🔍 DEBUG: Log token from URL to help diagnose token issues
+    console.log('RESET TOKEN FROM URL:', token);
+    console.log('RESET TOKEN LENGTH:', token ? token.length : 0);
+    console.log('URL SEARCH PARAMS:', window.location.search);
+    
     if (!token) {
       setError('טוקן איפוס לא תקין או חסר');
     }
@@ -61,6 +66,11 @@ export function ResetPasswordPage() {
     setIsLoading(true);
 
     try {
+      // 🔍 DEBUG: Log what we're sending to the server
+      console.log('SUBMITTING RESET - Token first 8 chars:', token.substring(0, 8));
+      console.log('SUBMITTING RESET - Token last 8 chars:', token.substring(token.length - 8));
+      console.log('SUBMITTING RESET - Token length:', token.length);
+      
       await authApi.reset({ token, password });
       setIsSuccess(true);
       

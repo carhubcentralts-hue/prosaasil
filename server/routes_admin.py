@@ -62,7 +62,8 @@ def get_all_users():
                 'role': user.role,  # system_admin, owner, admin, agent
                 'business_id': str(user.business_id) if user.business_id else None,
                 'business_name': business_map.get(user.business_id, 'System Admin') if user.business_id else 'System Admin',
-                'status': 'active' if user.is_active else 'inactive',
+                'is_active': user.is_active,  # 🔥 FIX: Always return is_active field - single source of truth
+                'status': 'active' if user.is_active else 'inactive',  # For backwards compatibility
                 'last_login': user.last_login.isoformat() if user.last_login else None,
                 'created_at': user.created_at.isoformat() if user.created_at else None,
                 'phone': user.phone if hasattr(user, 'phone') else None,

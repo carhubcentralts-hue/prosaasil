@@ -137,7 +137,8 @@ def login():
             'name': user.name or user.email,
             'role': user.role,
             'business_id': user.business_id,
-            'email': user.email
+            'email': user.email,
+            'is_active': user.is_active  # 🔥 FIX: Include is_active - single source of truth
         }
         
         # Prepare tenant response (required by frontend)
@@ -306,7 +307,8 @@ def refresh_token():
             'name': user.name or user.email,
             'role': user.role,
             'business_id': user.business_id,
-            'email': user.email
+            'email': user.email,
+            'is_active': user.is_active  # 🔥 FIX: Include is_active - single source of truth
         }
         
         # Prepare tenant response
