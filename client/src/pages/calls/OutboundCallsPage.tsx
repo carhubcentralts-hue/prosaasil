@@ -487,12 +487,13 @@ export function OutboundCallsPage() {
 
   // Mutations
   const startCallsMutation = useMutation({
-    mutationFn: async (data: { lead_ids: number[] }) => {
+    mutationFn: async (data: { lead_ids: number[]; project_id?: number }) => {
       // If more than 3 leads, use bulk enqueue, otherwise use direct start
       if (data.lead_ids.length > 3) {
         return await http.post<any>('/api/outbound/bulk-enqueue', {
           lead_ids: data.lead_ids,
-          concurrency: 3
+          concurrency: 3,
+          project_id: data.project_id
         });
       } else {
         return await http.post<any>('/api/outbound_calls/start', data);
@@ -2388,8 +2389,8 @@ export function OutboundCallsPage() {
                 refetchProjects();
               }}
               onStartCalls={(leadIds) => {
-                // Use existing bulk call mutation
-                startCallsMutation.mutate({ lead_ids: leadIds });
+                // Use existing bulk call mutation with project_id
+                startCallsMutation.mutate({ lead_ids: leadIds, project_id: selectedProjectId });
               }}
               statuses={statuses}
               hasWebhook={hasWebhook}

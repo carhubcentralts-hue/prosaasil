@@ -240,12 +240,17 @@ def get_call_counts_endpoint():
         return jsonify({"error": "שגיאה בטעינת נתונים"}), 500
 
 
-def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
+def _start_bulk_queue(tenant_id: int, lead_ids: list, project_id: int = None) -> tuple:
     """
     Helper function to start bulk call queue with concurrency control
     
     Creates a run with concurrency=3 and starts background worker
     Returns JSON response with run_id and queued count
+    
+    Args:
+        tenant_id: Business/tenant ID
+        lead_ids: List of lead IDs to call
+        project_id: Optional project ID to associate calls with
     """
     try:
         # Verify all leads belong to this tenant
@@ -277,11 +282,14 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list) -> tuple:
             lead_obj = next((l for l in leads if l.id == lead_id), None)
             if lead_obj:
                 job.lead_name = _get_lead_display_name(lead_obj)
+            # 🎯 PROJECT TRACKING: Associate job with project if provided
+            if project_id:
+                job.project_id = project_id
             db.session.add(job)
         
         db.session.commit()
         
-        log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS}")
+        log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS}, project_id={project_id}")
         
         # Start background worker to process the queue
         # Note: Using daemon thread is safe here because:
@@ -354,15 +362,26 @@ def start_outbound_calls():
         return jsonify({"error": "נתונים חסרים"}), 400
     
     lead_ids = data.get("lead_ids", [])
+    project_id = data.get("project_id")  # Optional project_id for tracking
     
     if not lead_ids or not isinstance(lead_ids, list):
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
+    
+    # Validate project_id if provided
+    if project_id:
+        # Verify project exists and belongs to tenant
+        project_exists = db.session.execute(text("""
+            SELECT id FROM outbound_projects WHERE id = :project_id AND tenant_id = :tenant_id
+        """), {'project_id': project_id, 'tenant_id': tenant_id}).scalar()
+        
+        if not project_exists:
+            return jsonify({"error": "פרויקט לא נמצא"}), 404
     
     # ✅ FIX: If more than 3 leads, use bulk queue system with concurrency control
     # This ensures only 3 calls run in parallel, and as each completes, the next one starts
     if len(lead_ids) > MAX_OUTBOUND_CALLS_PER_BUSINESS:
         log.info(f"📞 Starting bulk queue for {len(lead_ids)} leads (concurrency={MAX_OUTBOUND_CALLS_PER_BUSINESS})")
-        return _start_bulk_queue(tenant_id, lead_ids)
+        return _start_bulk_queue(tenant_id, lead_ids, project_id=project_id)
     
     # For 1-3 leads, use immediate parallel start (original behavior)
     allowed, error_msg = check_call_limits(tenant_id, len(lead_ids))
@@ -414,6 +433,9 @@ def start_outbound_calls():
                 call_log.call_status = "initiated"
                 # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
                 call_log.customer_name = _get_lead_display_name(lead)
+                # 🎯 PROJECT TRACKING: Associate call with project if provided
+                if project_id:
+                    call_log.project_id = project_id
                 db.session.add(call_log)
                 db.session.flush()
                 
@@ -1341,6 +1363,7 @@ def bulk_enqueue_outbound_calls():
     lead_ids = data.get("lead_ids", [])
     concurrency = data.get("concurrency", 3)
     outbound_list_id = data.get("outbound_list_id")
+    project_id = data.get("project_id")  # Optional project_id for tracking
     
     if not lead_ids or not isinstance(lead_ids, list):
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
@@ -1348,6 +1371,16 @@ def bulk_enqueue_outbound_calls():
     # Validate concurrency
     if concurrency < 1 or concurrency > 10:
         return jsonify({"error": "מספר שיחות במקביל חייב להיות בין 1 ל-10"}), 400
+    
+    # Validate project_id if provided
+    if project_id:
+        # Verify project exists and belongs to tenant
+        project_exists = db.session.execute(text("""
+            SELECT id FROM outbound_projects WHERE id = :project_id AND tenant_id = :tenant_id
+        """), {'project_id': project_id, 'tenant_id': tenant_id}).scalar()
+        
+        if not project_exists:
+            return jsonify({"error": "פרויקט לא נמצא"}), 404
     
     try:
         # Verify all leads belong to this tenant
@@ -1380,11 +1413,14 @@ def bulk_enqueue_outbound_calls():
             lead_obj = next((l for l in leads if l.id == lead_id), None)
             if lead_obj:
                 job.lead_name = _get_lead_display_name(lead_obj)
+            # 🎯 PROJECT TRACKING: Associate job with project if provided
+            if project_id:
+                job.project_id = project_id
             db.session.add(job)
         
         db.session.commit()
         
-        log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={concurrency}")
+        log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={concurrency}, project_id={project_id}")
         
         # Start background worker to process the queue
         thread = Thread(target=process_bulk_call_run, args=(run.id,), daemon=True)
@@ -2108,6 +2144,9 @@ def process_bulk_call_run(run_id: int):
                             call_log.call_status = "initiated"
                             # 🔥 NAME SSOT: Store lead name for NAME_ANCHOR system
                             call_log.customer_name = _get_lead_display_name(lead)
+                            # 🎯 PROJECT TRACKING: Associate call with project if job has project_id
+                            if next_job.project_id:
+                                call_log.project_id = next_job.project_id
                             db.session.add(call_log)
                             db.session.flush()
                             
