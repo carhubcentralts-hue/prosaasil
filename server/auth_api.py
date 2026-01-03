@@ -214,7 +214,20 @@ def reset_password():
         if not data:
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
         
-        token = data.get('token')
+        # 🔍 DEBUG: Extract token from both JSON body and query params
+        token = (request.json or {}).get('token') or (request.args or {}).get('token')
+        
+        # 🔍 DEBUG: Comprehensive logging to diagnose token issues
+        logger.warning(
+            "[AUTH][RESET_DEBUG] got_token=%s len=%s first8=%s last8=%s keys=%s args=%s",
+            bool(token),
+            len(token) if token else None,
+            token[:8] if token else None,
+            token[-8:] if token else None,
+            list((request.json or {}).keys()),
+            dict(request.args) if request.args else {}
+        )
+        
         # Accept both 'password' and 'newPassword' for backward compatibility
         # Use explicit check to handle empty strings correctly
         new_password = data.get('password')
@@ -222,6 +235,7 @@ def reset_password():
             new_password = data.get('newPassword')
         
         if not token or not new_password:
+            logger.warning("[AUTH][RESET_DEBUG] Missing required fields: token=%s password=%s", bool(token), bool(new_password))
             return jsonify({'success': False, 'error': 'Missing token or password'}), 400
         
         if len(new_password) < 6:
