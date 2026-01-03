@@ -138,11 +138,9 @@ class AuthService:
         if user_agent and refresh_token.user_agent_hash:
             current_ua_hash = hash_user_agent(user_agent)
             if current_ua_hash != refresh_token.user_agent_hash:
-                logger.warning(f"[AUTH] User agent mismatch for user_id={refresh_token.user_id}")
-                # Optionally invalidate token on user agent change
-                # refresh_token.is_valid = False
-                # db.session.commit()
-                # return None
+                logger.warning(f"[AUTH] User agent mismatch for user_id={refresh_token.user_id} - browser may have been updated")
+                # Allow the token but log the mismatch for audit purposes
+                # This handles legitimate browser updates while still providing security auditing
         
         # Update last used timestamp
         refresh_token.last_used_at = datetime.utcnow()

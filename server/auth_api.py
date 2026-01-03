@@ -224,8 +224,8 @@ def reset_password():
         if len(new_password) < 6:
             return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
         
-        # Hash the new password
-        new_password_hash = generate_password_hash(new_password)
+        # Hash the new password with scrypt method (matches existing passwords)
+        new_password_hash = generate_password_hash(new_password, method='scrypt')
         
         # Complete password reset
         success = AuthService.complete_password_reset(token, new_password_hash)

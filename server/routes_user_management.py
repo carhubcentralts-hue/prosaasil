@@ -8,8 +8,10 @@ from server.models_sql import User, Business, db
 from server.auth_api import require_api_auth
 from server.authz import roles_required
 from datetime import datetime
+import logging
 
 user_mgmt_api = Blueprint('user_mgmt_api', __name__, url_prefix='/api/admin/businesses')
+logger = logging.getLogger(__name__)
 
 # BUILD 134: Global /api/admin/users endpoint moved to routes_admin.py
 
@@ -234,7 +236,7 @@ def update_business_user(business_id, user_id):
             if old_role != user.role:
                 from server.services.auth_service import AuthService
                 AuthService.invalidate_all_user_tokens(user.id)
-                print(f"🔐 Invalidated all sessions for user {user.id} due to role change")
+                logger.info(f"[AUTH] Invalidated all sessions for user_id={user.id} due to role change (old={old_role}, new={user.role})")
         
         if 'password' in data and data['password']:
             user.password_hash = generate_password_hash(data['password'], method='scrypt')
@@ -242,7 +244,7 @@ def update_business_user(business_id, user_id):
             # Invalidate all sessions when password changes
             from server.services.auth_service import AuthService
             AuthService.invalidate_all_user_tokens(user.id)
-            print(f"🔐 Invalidated all sessions for user {user.id} due to password change")
+            logger.info(f"[AUTH] Invalidated all sessions for user_id={user.id} due to password change")
         
         if 'is_active' in data:
             user.is_active = data['is_active']
@@ -308,7 +310,7 @@ def delete_business_user(business_id, user_id):
         # Invalidate all sessions before deleting
         from server.services.auth_service import AuthService
         AuthService.invalidate_all_user_tokens(user.id)
-        print(f"🔐 Invalidated all sessions for user {user.id} before deletion")
+        logger.info(f"[AUTH] Invalidated all sessions for user_id={user.id} before deletion (email={user.email})")
         
         db.session.delete(user)
         db.session.commit()

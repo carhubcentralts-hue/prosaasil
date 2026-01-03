@@ -4,6 +4,7 @@ Production-grade implementation with proper error handling and logging
 """
 import os
 import logging
+import re
 from typing import Optional
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
@@ -15,6 +16,13 @@ SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
 MAIL_FROM_EMAIL = os.getenv('MAIL_FROM_EMAIL', 'noreply@prosaas.pro')
 MAIL_FROM_NAME = os.getenv('MAIL_FROM_NAME', 'PROSAAS')
 MAIL_REPLY_TO = os.getenv('MAIL_REPLY_TO', 'support@prosaas.pro')
+
+# Regex for stripping HTML tags (simple but effective for our use case)
+HTML_TAG_REGEX = re.compile('<[^<]+?>')
+
+def strip_html(html: str) -> str:
+    """Strip HTML tags from string for plain text version"""
+    return HTML_TAG_REGEX.sub('', html)
 
 class EmailService:
     """SendGrid email service for transactional emails"""
@@ -58,8 +66,7 @@ class EmailService:
             
             # Use plain content if provided, otherwise strip HTML
             if not plain_content:
-                import re
-                plain_content = re.sub('<[^<]+?>', '', html_content)
+                plain_content = strip_html(html_content)
             
             message = Mail(
                 from_email=from_email,
