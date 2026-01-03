@@ -12,6 +12,11 @@ os.environ['MIGRATION_MODE'] = '1'
 os.environ['ASYNC_LOG_QUEUE'] = '0'
 os.environ['SENDGRID_API_KEY'] = 'test-key'  # Mock SendGrid
 
+# Test constants (not for production use)
+TEST_OLD_PASSWORD = 'TestPass123!'
+TEST_NEW_PASSWORD = 'NewTestPass456!'
+TEST_ANOTHER_PASSWORD = 'AnotherPass789!'
+
 def test_password_reset_token_not_consumed_on_validation():
     """Test that validating a reset token does NOT mark it as used"""
     from server.models_sql import User, db
@@ -28,7 +33,7 @@ def test_password_reset_token_not_consumed_on_validation():
         # Create test user
         user = User(
             email='test@example.com',
-            password_hash=generate_password_hash('oldpassword123', method='scrypt'),
+            password_hash=generate_password_hash(TEST_OLD_PASSWORD, method='scrypt'),
             name='Test User',
             role='admin',
             is_active=True
@@ -86,7 +91,7 @@ def test_password_reset_token_not_consumed_on_validation():
         print("✅ Token validation does NOT consume the token")
         
         # Now complete password reset (POST)
-        success = AuthService.complete_password_reset(plain_token, generate_password_hash('newpassword123', method='scrypt'))
+        success = AuthService.complete_password_reset(plain_token, generate_password_hash(TEST_NEW_PASSWORD, method='scrypt'))
         assert success == True
         
         # NOW token should be marked as used
@@ -94,7 +99,7 @@ def test_password_reset_token_not_consumed_on_validation():
         assert user.reset_token_used == True, "Token should be marked as used after password reset"
         
         # Second attempt should fail
-        success = AuthService.complete_password_reset(plain_token, generate_password_hash('anotherpassword', method='scrypt'))
+        success = AuthService.complete_password_reset(plain_token, generate_password_hash(TEST_ANOTHER_PASSWORD, method='scrypt'))
         assert success == False, "Second reset attempt should fail"
         
         print("✅ Token is consumed ONLY on password reset (POST)")
@@ -119,7 +124,7 @@ def test_reset_password_api_field_names():
         # Create test user
         user = User(
             email='test2@example.com',
-            password_hash=generate_password_hash('oldpassword123', method='scrypt'),
+            password_hash=generate_password_hash(TEST_OLD_PASSWORD, method='scrypt'),
             name='Test User 2',
             role='admin',
             is_active=True
@@ -141,7 +146,7 @@ def test_reset_password_api_field_names():
                 '/api/auth/reset',
                 data=json.dumps({
                     'token': plain_token,
-                    'password': 'newpassword123'
+                    'password': TEST_NEW_PASSWORD
                 }),
                 content_type='application/json',
                 headers={'X-CSRFToken': 'test-token'}  # Mock CSRF
@@ -168,7 +173,7 @@ def test_reset_password_api_field_names():
                 '/api/auth/reset',
                 data=json.dumps({
                     'token': plain_token2,
-                    'newPassword': 'anotherpassword123'
+                    'newPassword': TEST_ANOTHER_PASSWORD
                 }),
                 content_type='application/json',
                 headers={'X-CSRFToken': 'test-token'}  # Mock CSRF
@@ -200,7 +205,7 @@ def test_token_survives_page_refresh():
         # Create test user
         user = User(
             email='test3@example.com',
-            password_hash=generate_password_hash('oldpassword123', method='scrypt'),
+            password_hash=generate_password_hash(TEST_OLD_PASSWORD, method='scrypt'),
             name='Test User 3',
             role='admin',
             is_active=True
@@ -229,7 +234,7 @@ def test_token_survives_page_refresh():
         print("✅ Token survives multiple page refreshes")
         
         # Now user submits the form (POST /api/auth/reset)
-        success = AuthService.complete_password_reset(plain_token, generate_password_hash('newpassword123', method='scrypt'))
+        success = AuthService.complete_password_reset(plain_token, generate_password_hash(TEST_NEW_PASSWORD, method='scrypt'))
         assert success == True
         
         # Token should now be consumed
