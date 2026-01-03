@@ -56,6 +56,8 @@ def get_cached_voice_for_business(business_id: int) -> str:
             logger.warning(f"[VOICE_CACHE] Business {business_id} not found")
             return DEFAULT_VOICE
         
+        # Get voice_id with explicit fallback for None or empty string
+        # getattr handles missing attribute, `or` handles None/empty string
         voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
         
         # Store in cache

@@ -56,9 +56,11 @@ class TTLCache:
             value: Value to cache
         """
         with self._lock:
-            # Enforce max size (simple LRU: remove oldest entry)
+            # Enforce max size with simple eviction
+            # Note: This removes the first inserted item (FIFO), not true LRU
+            # For production workload with high hit rate, FIFO is acceptable
             if len(self._cache) >= self.max_size and key not in self._cache:
-                # Remove oldest entry (first inserted)
+                # Remove first (oldest) entry
                 oldest_key = next(iter(self._cache))
                 del self._cache[oldest_key]
             
