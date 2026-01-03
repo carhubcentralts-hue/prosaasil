@@ -169,7 +169,7 @@ class EmailService:
             <a href="{reset_url}" class="button">איפוס סיסמה</a>
             
             <p>או העתק את הקישור הבא לדפדפן:</p>
-            <p style="word-break: break-all; color: #007bff;">{reset_url}</p>
+            <p style="word-break: break-all; color: #007bff; text-decoration: underline;">{reset_url}</p>
             
             <p><strong>חשוב:</strong> הקישור תקף ל-60 דקות בלבד ומיועד לשימוש חד-פעמי.</p>
             

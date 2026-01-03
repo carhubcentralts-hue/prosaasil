@@ -109,9 +109,8 @@ def login():
             print(f"❌ LOGIN: Invalid password for email={email}")
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
         
-        # Update last login and last activity
+        # Update last login
         user.last_login = datetime.utcnow()
-        user.last_activity_at = datetime.utcnow()
         try:
             db.session.commit()
         except Exception as commit_error:

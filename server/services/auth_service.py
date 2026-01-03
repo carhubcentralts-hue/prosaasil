@@ -232,6 +232,14 @@ class AuthService:
         """
         Update refresh token activity timestamp (per-session tracking)
         
+        Performance Note: This commits on every authenticated request.
+        For very high-scale systems (>10k req/sec), consider:
+        - Redis cache for activity tracking
+        - Background worker batch updates (every 5-10 minutes)
+        - Activity update only if last_activity_at > 5 minutes old
+        
+        Current approach is fine for typical SaaS scale (<1k req/sec per session).
+        
         Args:
             token_hash: Hashed token
             
@@ -241,6 +249,10 @@ class AuthService:
         try:
             refresh_token = RefreshToken.query.filter_by(token_hash=token_hash).first()
             if refresh_token:
+                # Optional optimization: only update if stale (reduces DB writes by ~10x)
+                # if datetime.utcnow() - refresh_token.last_activity_at < timedelta(minutes=5):
+                #     return True  # Skip update if recently updated
+                
                 refresh_token.last_activity_at = datetime.utcnow()
                 db.session.commit()
                 return True
