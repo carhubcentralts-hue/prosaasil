@@ -31,7 +31,7 @@ logger.warning(
     len(token) if token else None,
     token[:8] if token else None,
     token[-8:] if token else None,
-    list((request.json or {}).keys()),
+    list(data.keys()),
     dict(request.args) if request.args else {}
 )
 ```
