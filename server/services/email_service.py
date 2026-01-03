@@ -59,6 +59,73 @@ def sanitize_html(html: str) -> str:
         strip=True
     )
 
+def render_variables(template: str, variables: Dict[str, Any]) -> str:
+    """
+    Safely render template variables using simple string replacement
+    
+    Whitelist of allowed variables:
+    - {{business.name}}, {{business.phone}}
+    - {{lead.first_name}}, {{lead.last_name}}, {{lead.email}}, {{lead.phone}}
+    - {{agent.name}}, {{agent.email}}
+    - {{cta.url}}, {{cta.text}}
+    
+    Args:
+        template: Template string with {{variable}} placeholders
+        variables: Dict of variables to substitute
+        
+    Returns:
+        Rendered template with variables replaced
+    """
+    result = template
+    
+    # Flatten nested dicts for easy replacement
+    flat_vars = {}
+    for key, value in variables.items():
+        if isinstance(value, dict):
+            for subkey, subvalue in value.items():
+                flat_vars[f"{key}.{subkey}"] = str(subvalue) if subvalue is not None else ''
+        else:
+            flat_vars[key] = str(value) if value is not None else ''
+    
+    # Replace all {{variable}} patterns
+    for var_name, var_value in flat_vars.items():
+        pattern = f"{{{{{var_name}}}}}"
+        result = result.replace(pattern, var_value)
+    
+    # Remove any remaining unreplaced variables
+    result = re.sub(r'\{\{[^}]+\}\}', '', result)
+    
+    return result
+
+def load_base_layout() -> str:
+    """Load the base email layout template"""
+    template_path = os.path.join(
+        os.path.dirname(__file__),
+        'email_templates',
+        'base_layout.html'
+    )
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"[EMAIL] Failed to load base layout template: {e}")
+        # Return a simple fallback template
+        return """
+        <html dir="rtl">
+        <body>
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background: white; padding: 30px;">
+                    <div>{{greeting}}</div>
+                    <div>{{body_content}}</div>
+                </div>
+                <div style="padding: 20px; color: #666; font-size: 12px;">
+                    {{footer_content}}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
 class EmailService:
     """SendGrid email service for transactional emails"""
     
@@ -371,6 +438,293 @@ class EmailService:
             from server.db import db
             db.session.rollback()
             return False
+    
+    # ========================================================================
+    # TEMPLATE MANAGEMENT FUNCTIONS
+    # ========================================================================
+    
+    def list_templates(self, business_id: int, active_only: bool = True) -> list:
+        """
+        List email templates for a business
+        
+        Args:
+            business_id: Business ID
+            active_only: Only return active templates
+            
+        Returns:
+            list of template dicts
+        """
+        try:
+            from server.db import db
+            from sqlalchemy import text
+            
+            query = """
+                SELECT id, business_id, name, type, subject_template, 
+                       html_template, text_template, is_active,
+                       created_by_user_id, created_at, updated_at
+                FROM email_templates
+                WHERE business_id = :business_id
+            """
+            
+            if active_only:
+                query += " AND is_active = TRUE"
+            
+            query += " ORDER BY created_at DESC"
+            
+            result = db.session.execute(
+                text(query),
+                {"business_id": business_id}
+            ).fetchall()
+            
+            templates = []
+            for row in result:
+                templates.append({
+                    'id': row[0],
+                    'business_id': row[1],
+                    'name': row[2],
+                    'type': row[3],
+                    'subject_template': row[4],
+                    'html_template': row[5],
+                    'text_template': row[6],
+                    'is_active': row[7],
+                    'created_by_user_id': row[8],
+                    'created_at': row[9],
+                    'updated_at': row[10]
+                })
+            
+            return templates
+            
+        except Exception as e:
+            logger.error(f"[EMAIL] Failed to list templates for business {business_id}: {e}")
+            return []
+    
+    def create_template(
+        self,
+        business_id: int,
+        name: str,
+        subject_template: str,
+        html_template: str,
+        text_template: Optional[str] = None,
+        template_type: str = 'generic',
+        created_by_user_id: Optional[int] = None
+    ) -> Optional[int]:
+        """
+        Create a new email template
+        
+        Args:
+            business_id: Business ID
+            name: Template name
+            subject_template: Subject with {{variables}}
+            html_template: HTML body with {{variables}}
+            text_template: Plain text version (optional)
+            template_type: Type (generic, lead_outreach, followup, etc.)
+            created_by_user_id: User who created the template
+            
+        Returns:
+            Template ID or None if failed
+        """
+        try:
+            from server.db import db
+            from sqlalchemy import text
+            
+            result = db.session.execute(
+                text("""
+                    INSERT INTO email_templates
+                    (business_id, name, type, subject_template, html_template, 
+                     text_template, created_by_user_id, is_active, created_at, updated_at)
+                    VALUES (:business_id, :name, :type, :subject_template, :html_template,
+                            :text_template, :created_by_user_id, TRUE, :created_at, :updated_at)
+                    RETURNING id
+                """),
+                {
+                    "business_id": business_id,
+                    "name": name,
+                    "type": template_type,
+                    "subject_template": subject_template,
+                    "html_template": html_template,
+                    "text_template": text_template,
+                    "created_by_user_id": created_by_user_id,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+            )
+            
+            template_id = result.scalar()
+            db.session.commit()
+            
+            logger.info(f"[EMAIL] Template created: id={template_id}, business_id={business_id}, name={name}")
+            return template_id
+            
+        except Exception as e:
+            logger.error(f"[EMAIL] Failed to create template for business {business_id}: {e}")
+            from server.db import db
+            db.session.rollback()
+            return None
+    
+    def update_template(
+        self,
+        business_id: int,
+        template_id: int,
+        name: Optional[str] = None,
+        subject_template: Optional[str] = None,
+        html_template: Optional[str] = None,
+        text_template: Optional[str] = None,
+        template_type: Optional[str] = None,
+        is_active: Optional[bool] = None
+    ) -> bool:
+        """
+        Update an existing email template
+        
+        Args:
+            business_id: Business ID (for security check)
+            template_id: Template ID to update
+            name: New name (optional)
+            subject_template: New subject (optional)
+            html_template: New HTML body (optional)
+            text_template: New text body (optional)
+            template_type: New type (optional)
+            is_active: Active status (optional)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            from server.db import db
+            from sqlalchemy import text
+            
+            # Build update query dynamically based on provided fields
+            update_fields = []
+            params = {
+                "template_id": template_id,
+                "business_id": business_id,
+                "updated_at": datetime.utcnow()
+            }
+            
+            if name is not None:
+                update_fields.append("name = :name")
+                params["name"] = name
+            
+            if subject_template is not None:
+                update_fields.append("subject_template = :subject_template")
+                params["subject_template"] = subject_template
+            
+            if html_template is not None:
+                update_fields.append("html_template = :html_template")
+                params["html_template"] = html_template
+            
+            if text_template is not None:
+                update_fields.append("text_template = :text_template")
+                params["text_template"] = text_template
+            
+            if template_type is not None:
+                update_fields.append("type = :type")
+                params["type"] = template_type
+            
+            if is_active is not None:
+                update_fields.append("is_active = :is_active")
+                params["is_active"] = is_active
+            
+            if not update_fields:
+                return True  # Nothing to update
+            
+            update_fields.append("updated_at = :updated_at")
+            
+            query = f"""
+                UPDATE email_templates
+                SET {', '.join(update_fields)}
+                WHERE id = :template_id AND business_id = :business_id
+            """
+            
+            result = db.session.execute(text(query), params)
+            db.session.commit()
+            
+            if result.rowcount > 0:
+                logger.info(f"[EMAIL] Template updated: id={template_id}, business_id={business_id}")
+                return True
+            else:
+                logger.warning(f"[EMAIL] Template not found or not owned by business: id={template_id}, business_id={business_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"[EMAIL] Failed to update template {template_id}: {e}")
+            from server.db import db
+            db.session.rollback()
+            return False
+    
+    def delete_template(self, business_id: int, template_id: int) -> bool:
+        """
+        Soft delete a template (set is_active=False)
+        
+        Args:
+            business_id: Business ID (for security check)
+            template_id: Template ID to delete
+            
+        Returns:
+            True if successful
+        """
+        return self.update_template(
+            business_id=business_id,
+            template_id=template_id,
+            is_active=False
+        )
+    
+    def render_template(
+        self,
+        template: Dict[str, Any],
+        lead: Optional[Dict[str, Any]] = None,
+        business: Optional[Dict[str, Any]] = None,
+        agent: Optional[Dict[str, Any]] = None,
+        extra_vars: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, str]:
+        """
+        Render a template with provided variables
+        
+        Args:
+            template: Template dict with subject_template, html_template, text_template
+            lead: Lead information dict
+            business: Business information dict
+            agent: Agent information dict
+            extra_vars: Additional variables
+            
+        Returns:
+            dict with 'subject', 'html', 'text' keys
+        """
+        # Build variables dict
+        variables = {}
+        
+        if lead:
+            variables['lead'] = {
+                'first_name': lead.get('first_name', ''),
+                'last_name': lead.get('last_name', ''),
+                'email': lead.get('email', ''),
+                'phone': lead.get('phone_e164', lead.get('phone', ''))
+            }
+        
+        if business:
+            variables['business'] = {
+                'name': business.get('name', ''),
+                'phone': business.get('phone_e164', business.get('phone', ''))
+            }
+        
+        if agent:
+            variables['agent'] = {
+                'name': agent.get('name', ''),
+                'email': agent.get('email', '')
+            }
+        
+        if extra_vars:
+            variables.update(extra_vars)
+        
+        # Render subject, html, and text
+        rendered_subject = render_variables(template.get('subject_template', ''), variables)
+        rendered_html = render_variables(template.get('html_template', ''), variables)
+        rendered_text = render_variables(template.get('text_template', ''), variables) if template.get('text_template') else strip_html(rendered_html)
+        
+        return {
+            'subject': rendered_subject,
+            'html': rendered_html,
+            'text': rendered_text
+        }
     
     def send_crm_email(
         self,

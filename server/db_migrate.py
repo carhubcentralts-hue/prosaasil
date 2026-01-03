@@ -1970,7 +1970,11 @@ def apply_migrations():
                         from_name VARCHAR(255) NOT NULL,
                         reply_to VARCHAR(255),
                         reply_to_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        brand_logo_url TEXT,
+                        brand_primary_color VARCHAR(20) DEFAULT '#2563EB',
+                        default_greeting TEXT DEFAULT 'שלום {{lead.first_name}},',
                         footer_html TEXT,
+                        footer_text TEXT,
                         is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1983,7 +1987,7 @@ def apply_migrations():
                 """))
                 
                 migrations_applied.append('create_email_settings_table')
-                checkpoint("  ✅ email_settings table created with business_id unique index, reply_to_enabled, footer_html")
+                checkpoint("  ✅ email_settings table created with branding fields (logo, color, greeting, footer)")
             except Exception as e:
                 log.error(f"❌ Migration 60a (email_settings) failed: {e}")
                 db.session.rollback()
@@ -1999,6 +2003,7 @@ def apply_migrations():
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
                         name VARCHAR(255) NOT NULL,
+                        type VARCHAR(50) DEFAULT 'generic',
                         subject_template VARCHAR(500) NOT NULL,
                         html_template TEXT NOT NULL,
                         text_template TEXT,
@@ -2036,9 +2041,13 @@ def apply_migrations():
                         created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                         template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
                         to_email VARCHAR(255) NOT NULL,
+                        to_name VARCHAR(255),
                         subject VARCHAR(500) NOT NULL,
                         body_html TEXT NOT NULL,
                         body_text TEXT,
+                        rendered_subject VARCHAR(500),
+                        rendered_body_html TEXT,
+                        rendered_body_text TEXT,
                         provider VARCHAR(32) NOT NULL DEFAULT 'sendgrid',
                         from_email VARCHAR(255),
                         from_name VARCHAR(255),
