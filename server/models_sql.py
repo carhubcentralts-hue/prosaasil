@@ -30,6 +30,8 @@ class Business(db.Model):
     voice_message = db.Column(db.Text)  # Custom voice message for support calls
     # WhatsApp webhook secret for n8n integration (unique per business)
     webhook_secret = db.Column(db.String(128), unique=True, nullable=True)  # Format: wh_n8n_<random_hex>
+    # Voice Library - per-business voice selection for Realtime phone calls
+    voice_id = db.Column(db.String(32), nullable=False, default="ash")  # OpenAI Realtime voice (alloy, ash, etc.)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

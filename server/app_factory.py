@@ -450,6 +450,10 @@ def create_app():
         from server.routes_ai_topics import ai_topics_bp
         app.register_blueprint(ai_topics_bp)
         
+        # AI System Settings Blueprint - Voice Library and TTS Preview
+        from server.routes_ai_system import ai_system_bp
+        app.register_blueprint(ai_system_bp)
+        
         # Note: Status Management Blueprint now registered earlier (before line 356)
         
         @app.before_request  

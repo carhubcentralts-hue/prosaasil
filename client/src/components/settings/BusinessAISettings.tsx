@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Phone, 
   PhoneOutgoing,
@@ -8,7 +8,9 @@ import {
   AlertCircle,
   Timer,
   Brain,
-  User
+  User,
+  Volume2,
+  Play
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
@@ -37,6 +39,19 @@ interface CallControlSettings {
 }
 
 // 🔥 BUILD 310: STT Vocabulary removed - using OpenAI Realtime native transcription
+
+interface Voice {
+  id: string;
+}
+
+interface VoiceLibrarySettings {
+  voiceId: string;
+  availableVoices: Voice[];
+  previewText: string;
+  isLoadingVoices: boolean;
+  isSavingVoice: boolean;
+  isPlayingPreview: boolean;
+}
 
 export function BusinessAISettings() {
   const { user } = useAuth();
@@ -68,6 +83,15 @@ export function BusinessAISettings() {
     confirm_before_hangup: true
   });
   const [businessName, setBusinessName] = useState<string>('');
+  const [voiceLibrary, setVoiceLibrary] = useState<VoiceLibrarySettings>({
+    voiceId: 'ash',
+    availableVoices: [],
+    previewText: 'שלום, אני העוזר הדיגיטלי שלכם. אני כאן כדי לעזור לכם בכל שאלה.',
+    isLoadingVoices: false,
+    isSavingVoice: false,
+    isPlayingPreview: false
+  });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Load prompts and business info
   useEffect(() => {
@@ -195,6 +219,113 @@ export function BusinessAISettings() {
       alert('שגיאה בשמירת הגדרות שליטת שיחה');
     } finally {
       setSaving(prev => ({ ...prev, callControl: false }));
+    }
+  };
+
+  // 🔥 Voice Library: Load available voices and current voice
+  useEffect(() => {
+    const loadVoiceLibrary = async () => {
+      setVoiceLibrary(prev => ({ ...prev, isLoadingVoices: true }));
+      
+      try {
+        // Load available voices and current business voice setting
+        const [voicesData, aiSettingsData] = await Promise.all([
+          http.get<{ ok: boolean; voices: Voice[]; default_voice: string }>(`/api/system/ai/voices`),
+          http.get<{ ok: boolean; voice_id: string }>(`/api/business/settings/ai`)
+        ]);
+        
+        if (voicesData.ok && aiSettingsData.ok) {
+          setVoiceLibrary(prev => ({
+            ...prev,
+            availableVoices: voicesData.voices,
+            voiceId: aiSettingsData.voice_id || voicesData.default_voice
+          }));
+          console.log('✅ Loaded voice library:', { voices: voicesData.voices.length, current: aiSettingsData.voice_id });
+        }
+      } catch (err) {
+        console.error('❌ Failed to load voice library:', err);
+      } finally {
+        setVoiceLibrary(prev => ({ ...prev, isLoadingVoices: false }));
+      }
+    };
+    
+    if (!loading) {
+      loadVoiceLibrary();
+    }
+  }, [loading]);
+
+  // 🔥 Voice Library: Save voice selection
+  const saveVoiceSettings = async () => {
+    setVoiceLibrary(prev => ({ ...prev, isSavingVoice: true }));
+    
+    try {
+      const result = await http.put<{ ok: boolean; voice_id: string }>(
+        `/api/business/settings/ai`,
+        { voice_id: voiceLibrary.voiceId }
+      );
+      
+      if (result.ok) {
+        alert('✅ הקול נשמר בהצלחה! השינוי יחול על שיחות חדשות.');
+      }
+    } catch (err) {
+      console.error('❌ Failed to save voice settings:', err);
+      alert('שגיאה בשמירת הגדרות הקול');
+    } finally {
+      setVoiceLibrary(prev => ({ ...prev, isSavingVoice: false }));
+    }
+  };
+
+  // 🔥 Voice Library: Play voice preview
+  const playVoicePreview = async () => {
+    if (voiceLibrary.previewText.length < 5) {
+      alert('אנא הזן טקסט לדוגמה (לפחות 5 תווים)');
+      return;
+    }
+    
+    if (voiceLibrary.previewText.length > 400) {
+      alert('טקסט ארוך מדי (מקסימום 400 תווים)');
+      return;
+    }
+    
+    setVoiceLibrary(prev => ({ ...prev, isPlayingPreview: true }));
+    
+    try {
+      // Call preview API endpoint
+      const response = await fetch('/api/ai/tts/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          text: voiceLibrary.previewText,
+          voice_id: voiceLibrary.voiceId
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate preview');
+      }
+      
+      // Get audio blob
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Play audio
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.play();
+        
+        // Clean up blob URL after playback
+        audioRef.current.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          setVoiceLibrary(prev => ({ ...prev, isPlayingPreview: false }));
+        };
+      }
+    } catch (err) {
+      console.error('❌ Failed to play voice preview:', err);
+      alert('שגיאה בהשמעת דוגמת הקול');
+      setVoiceLibrary(prev => ({ ...prev, isPlayingPreview: false }));
     }
   };
 
@@ -620,6 +751,121 @@ export function BusinessAISettings() {
       </div>
 
       {/* 🔥 BUILD 310: STT Vocabulary section removed - using OpenAI Realtime native transcription */}
+
+      {/* 🎤 Voice Library Section - Per-business voice selection for phone calls */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center">
+            <Volume2 className="h-5 w-5 text-pink-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">קול לשיחות טלפון</h3>
+            <p className="text-sm text-slate-500">בחר את הקול שיופעל בשיחות הטלפון עם לקוחות</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {/* Voice Selection Dropdown */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              🎤 בחירת קול
+            </label>
+            {voiceLibrary.isLoadingVoices ? (
+              <div className="flex items-center gap-2 text-slate-500">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען קולות זמינים...</span>
+              </div>
+            ) : (
+              <select
+                value={voiceLibrary.voiceId}
+                onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                data-testid="select-voice"
+              >
+                {voiceLibrary.availableVoices.map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.id}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק
+            </p>
+          </div>
+
+          {/* Preview Text */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              📝 טקסט לדוגמה
+            </label>
+            <textarea
+              value={voiceLibrary.previewText}
+              onChange={(e) => setVoiceLibrary(prev => ({ ...prev, previewText: e.target.value }))}
+              placeholder="הזן טקסט לדוגמה כדי לשמוע את הקול (5-400 תווים)"
+              className="w-full h-24 p-3 border border-slate-300 rounded-lg resize-none text-sm focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+              dir="rtl"
+              data-testid="textarea-preview-text"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              {voiceLibrary.previewText.length} / 400 תווים
+            </p>
+          </div>
+
+          {/* Preview Button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={playVoicePreview}
+              disabled={voiceLibrary.isPlayingPreview || voiceLibrary.previewText.length < 5}
+              className="flex items-center gap-2 px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="button-play-preview"
+            >
+              {voiceLibrary.isPlayingPreview ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              {voiceLibrary.isPlayingPreview ? 'מנגן...' : '▶️ שמע דוגמה'}
+            </button>
+            
+            <button
+              onClick={saveVoiceSettings}
+              disabled={voiceLibrary.isSavingVoice}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="button-save-voice"
+            >
+              {voiceLibrary.isSavingVoice ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {voiceLibrary.isSavingVoice ? 'שומר...' : '💾 שמור'}
+            </button>
+          </div>
+
+          {/* Info Box */}
+          <div className="bg-pink-50 border border-pink-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-pink-600 flex-shrink-0 mt-0.5" />
+              <div className="text-pink-800">
+                <p className="font-medium">💡 איך להשתמש</p>
+                <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
+                  <li>בחר קול מהרשימה</li>
+                  <li>הזן טקסט לדוגמה והקש "שמע דוגמה" כדי לשמוע את הקול</li>
+                  <li>כאשר מצאת את הקול המתאים, לחץ "שמור"</li>
+                  <li>הקול ישמש בכל שיחות הטלפון החדשות (Realtime API בלבד)</li>
+                </ul>
+                <p className="text-sm mt-3 font-medium text-pink-900">
+                  📞 שים לב: הגדרה זו חלה רק על שיחות טלפון. הודעות WhatsApp משתמשות בטקסט בלבד.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Hidden audio element for preview playback */}
+      <audio ref={audioRef} style={{ display: 'none' }} />
 
       {/* Topic Classification Section */}
       <TopicClassificationSection />
