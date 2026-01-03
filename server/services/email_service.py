@@ -330,7 +330,9 @@ class EmailService:
             result = db.session.execute(
                 text("""
                     SELECT id, business_id, provider, from_email, from_name, 
-                           reply_to, is_enabled, created_at, updated_at
+                           reply_to, reply_to_enabled, brand_logo_url, brand_primary_color,
+                           default_greeting, footer_html, footer_text, is_enabled, 
+                           created_at, updated_at
                     FROM email_settings
                     WHERE business_id = :business_id
                 """),
@@ -347,9 +349,15 @@ class EmailService:
                 'from_email': result[3],
                 'from_name': result[4],
                 'reply_to': result[5],
-                'is_enabled': result[6],
-                'created_at': result[7],
-                'updated_at': result[8]
+                'reply_to_enabled': result[6],
+                'brand_logo_url': result[7],
+                'brand_primary_color': result[8],
+                'default_greeting': result[9],
+                'footer_html': result[10],
+                'footer_text': result[11],
+                'is_enabled': result[12],
+                'created_at': result[13],
+                'updated_at': result[14]
             }
         except Exception as e:
             logger.error(f"[EMAIL] Failed to get email settings for business {business_id}: {e}")
@@ -360,18 +368,30 @@ class EmailService:
         business_id: int,
         from_name: str,
         reply_to: Optional[str] = None,
+        reply_to_enabled: bool = True,
+        brand_logo_url: Optional[str] = None,
+        brand_primary_color: Optional[str] = None,
+        default_greeting: Optional[str] = None,
+        footer_html: Optional[str] = None,
+        footer_text: Optional[str] = None,
         is_enabled: bool = True
     ) -> bool:
         """
         Create or update email settings for a business
         
         🔒 CRITICAL: from_email is ENFORCED to noreply@prosaas.pro
-        Business can only customize from_name and reply_to
+        Business can customize branding, greeting, footer, and reply_to
         
         Args:
             business_id: Business ID
             from_name: Display name (what customer sees)
             reply_to: Reply-to address (where replies go - can be any email)
+            reply_to_enabled: Enable/disable reply-to functionality
+            brand_logo_url: Logo URL for email header
+            brand_primary_color: Primary brand color (hex)
+            default_greeting: Default greeting template with variables
+            footer_html: Footer HTML content
+            footer_text: Footer plain text fallback
             is_enabled: Enable/disable email sending
             
         Returns:
@@ -397,6 +417,12 @@ class EmailService:
                         SET from_email = :from_email,
                             from_name = :from_name,
                             reply_to = :reply_to,
+                            reply_to_enabled = :reply_to_enabled,
+                            brand_logo_url = :brand_logo_url,
+                            brand_primary_color = :brand_primary_color,
+                            default_greeting = :default_greeting,
+                            footer_html = :footer_html,
+                            footer_text = :footer_text,
                             is_enabled = :is_enabled,
                             updated_at = :updated_at
                         WHERE business_id = :business_id
@@ -406,6 +432,12 @@ class EmailService:
                         "from_email": from_email,
                         "from_name": from_name,
                         "reply_to": reply_to,
+                        "reply_to_enabled": reply_to_enabled,
+                        "brand_logo_url": brand_logo_url,
+                        "brand_primary_color": brand_primary_color or '#2563EB',
+                        "default_greeting": default_greeting or 'שלום {{lead.first_name}},',
+                        "footer_html": footer_html,
+                        "footer_text": footer_text,
                         "is_enabled": is_enabled,
                         "updated_at": now
                     }
@@ -415,14 +447,24 @@ class EmailService:
                 db.session.execute(
                     text("""
                         INSERT INTO email_settings 
-                        (business_id, provider, from_email, from_name, reply_to, is_enabled, created_at, updated_at)
-                        VALUES (:business_id, 'sendgrid', :from_email, :from_name, :reply_to, :is_enabled, :created_at, :updated_at)
+                        (business_id, provider, from_email, from_name, reply_to, reply_to_enabled,
+                         brand_logo_url, brand_primary_color, default_greeting, footer_html, footer_text,
+                         is_enabled, created_at, updated_at)
+                        VALUES (:business_id, 'sendgrid', :from_email, :from_name, :reply_to, :reply_to_enabled,
+                                :brand_logo_url, :brand_primary_color, :default_greeting, :footer_html, :footer_text,
+                                :is_enabled, :created_at, :updated_at)
                     """),
                     {
                         "business_id": business_id,
                         "from_email": from_email,
                         "from_name": from_name,
                         "reply_to": reply_to,
+                        "reply_to_enabled": reply_to_enabled,
+                        "brand_logo_url": brand_logo_url,
+                        "brand_primary_color": brand_primary_color or '#2563EB',
+                        "default_greeting": default_greeting or 'שלום {{lead.first_name}},',
+                        "footer_html": footer_html,
+                        "footer_text": footer_text,
                         "is_enabled": is_enabled,
                         "created_at": now,
                         "updated_at": now
@@ -430,7 +472,7 @@ class EmailService:
                 )
             
             db.session.commit()
-            logger.info(f"[EMAIL] Email settings saved for business {business_id} (from_email={from_email}, from_name={from_name})")
+            logger.info(f"[EMAIL] Email settings saved for business {business_id} with full branding")
             return True
             
         except Exception as e:
@@ -730,24 +772,37 @@ class EmailService:
         self,
         business_id: int,
         to_email: str,
-        subject: str,
-        html: str,
+        subject: Optional[str] = None,
+        html: Optional[str] = None,
         text: Optional[str] = None,
         lead_id: Optional[int] = None,
+        template_id: Optional[int] = None,
         created_by_user_id: Optional[int] = None,
+        to_name: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Send CRM email with per-business settings and complete logging
+        Send CRM email with per-business settings, template support, and complete logging
+        
+        🎨 Complete email composition flow:
+        1. Load business settings (branding, greeting, footer)
+        2. If template_id: render template with variables
+        3. Build greeting from settings.default_greeting
+        4. Wrap content in beautiful base layout
+        5. Add footer from settings.footer_html
+        6. Sanitize HTML
+        7. Send via SendGrid with proper from_name and reply_to
         
         Args:
             business_id: Business ID
             to_email: Recipient email
-            subject: Email subject
-            html: HTML body (will be sanitized)
+            subject: Email subject (required if no template)
+            html: HTML body (required if no template)
             text: Plain text body (optional)
             lead_id: Lead ID if sending to a lead
+            template_id: Template ID to use instead of custom content
             created_by_user_id: User who initiated the send
+            to_name: Recipient name (optional)
             meta: Additional metadata (JSON)
             
         Returns:
@@ -762,7 +817,7 @@ class EmailService:
         from sqlalchemy import text
         import json
         
-        logger.info(f"[EMAIL] send requested business_id={business_id} lead_id={lead_id} to={to_email}")
+        logger.info(f"[EMAIL] send requested business_id={business_id} lead_id={lead_id} template_id={template_id} to={to_email}")
         
         # 1. Load email settings
         settings = self.get_email_settings(business_id)
@@ -787,19 +842,184 @@ class EmailService:
                 'message': error_msg
             }
         
-        # 2. Sanitize HTML
-        html_sanitized = sanitize_html(html)
+        # 2. Prepare content (from template or direct)
+        rendered_subject = subject
+        rendered_body_html = html
+        rendered_body_text = text
         
-        # 3. Create email_messages record in 'queued' status
+        # Get lead and business info for variable rendering
+        lead_info = None
+        business_info = None
+        agent_info = None
+        
+        try:
+            # Get lead info if lead_id provided
+            if lead_id:
+                lead_result = db.session.execute(
+                    text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id"),
+                    {"lead_id": lead_id}
+                ).fetchone()
+                if lead_result:
+                    lead_info = {
+                        'first_name': lead_result[0] or '',
+                        'last_name': lead_result[1] or '',
+                        'email': lead_result[2] or '',
+                        'phone': lead_result[3] or ''
+                    }
+            
+            # Get business info
+            biz_result = db.session.execute(
+                text("SELECT name, phone_number FROM business WHERE id = :business_id"),
+                {"business_id": business_id}
+            ).fetchone()
+            if biz_result:
+                business_info = {
+                    'name': biz_result[0] or '',
+                    'phone': biz_result[1] or ''
+                }
+            
+            # Get agent info if created_by_user_id provided
+            if created_by_user_id:
+                agent_result = db.session.execute(
+                    text("SELECT name, email FROM users WHERE id = :user_id"),
+                    {"user_id": created_by_user_id}
+                ).fetchone()
+                if agent_result:
+                    agent_info = {
+                        'name': agent_result[0] or '',
+                        'email': agent_result[1] or ''
+                    }
+        except Exception as e:
+            logger.warning(f"[EMAIL] Failed to fetch context info: {e}")
+        
+        # If template_id provided, render template
+        if template_id:
+            try:
+                # Get template
+                template_result = db.session.execute(
+                    text("""
+                        SELECT subject_template, html_template, text_template
+                        FROM email_templates
+                        WHERE id = :template_id AND business_id = :business_id AND is_active = TRUE
+                    """),
+                    {"template_id": template_id, "business_id": business_id}
+                ).fetchone()
+                
+                if not template_result:
+                    error_msg = f"Template {template_id} not found or inactive"
+                    logger.error(f"[EMAIL] {error_msg}")
+                    return {
+                        'success': False,
+                        'email_id': None,
+                        'error': 'template_not_found',
+                        'message': error_msg
+                    }
+                
+                # Render template
+                rendered = self.render_template(
+                    {
+                        'subject_template': template_result[0],
+                        'html_template': template_result[1],
+                        'text_template': template_result[2]
+                    },
+                    lead=lead_info,
+                    business=business_info,
+                    agent=agent_info,
+                    extra_vars=meta or {}
+                )
+                
+                rendered_subject = rendered['subject']
+                rendered_body_html = rendered['html']
+                rendered_body_text = rendered['text']
+                
+            except Exception as e:
+                error_msg = f"Failed to render template: {str(e)}"
+                logger.error(f"[EMAIL] {error_msg}")
+                return {
+                    'success': False,
+                    'email_id': None,
+                    'error': 'template_render_error',
+                    'message': error_msg
+                }
+        
+        # Validate we have content
+        if not rendered_subject or not rendered_body_html:
+            error_msg = "Subject and HTML body are required"
+            return {
+                'success': False,
+                'email_id': None,
+                'error': 'missing_content',
+                'message': error_msg
+            }
+        
+        # 3. Build greeting with variables
+        greeting_template = settings.get('default_greeting') or 'שלום {{lead.first_name}},'
+        variables = {}
+        if lead_info:
+            variables['lead'] = lead_info
+        if business_info:
+            variables['business'] = business_info
+        greeting_html = render_variables(greeting_template, variables)
+        
+        # 4. Sanitize body content
+        body_html_sanitized = sanitize_html(rendered_body_html)
+        
+        # 5. Wrap in base layout
+        try:
+            base_layout = load_base_layout()
+            
+            # Prepare layout variables
+            brand_color = settings.get('brand_primary_color') or '#2563EB'
+            logo_url = settings.get('brand_logo_url') or ''
+            business_name = business_info['name'] if business_info else ''
+            footer_html = settings.get('footer_html') or ''
+            
+            # Simple template replacement (using Python's format-style)
+            final_html = base_layout
+            final_html = final_html.replace('{{brand_primary_color}}', brand_color)
+            final_html = final_html.replace('{{business_name}}', business_name)
+            final_html = final_html.replace('{{greeting}}', greeting_html)
+            final_html = final_html.replace('{{body_content}}', body_html_sanitized)
+            final_html = final_html.replace('{{footer_content}}', sanitize_html(footer_html) if footer_html else '')
+            
+            # Handle conditional logo
+            if logo_url:
+                final_html = final_html.replace('{{#if brand_logo_url}}', '')
+                final_html = final_html.replace('{{brand_logo_url}}', logo_url)
+                final_html = final_html.replace('{{else}}', '<!--')
+                final_html = final_html.replace('{{/if}}', '-->')
+            else:
+                final_html = final_html.replace('{{#if brand_logo_url}}', '<!--')
+                final_html = final_html.replace('{{brand_logo_url}}', '')
+                final_html = final_html.replace('{{else}}', '-->')
+                final_html = final_html.replace('{{/if}}', '')
+            
+            # Remove any {{#if signature}} blocks (not used yet)
+            final_html = re.sub(r'\{\{#if signature\}\}.*?\{\{/if\}\}', '', final_html, flags=re.DOTALL)
+            
+            final_html_sanitized = final_html
+            
+        except Exception as e:
+            logger.error(f"[EMAIL] Failed to wrap in base layout: {e}. Using simple HTML.")
+            final_html_sanitized = body_html_sanitized
+        
+        # Plain text version
+        final_text = rendered_body_text or strip_html(body_html_sanitized)
+        
+        # 6. Create email_messages record in 'queued' status
         try:
             result = db.session.execute(
                 text("""
                     INSERT INTO email_messages
-                    (business_id, lead_id, created_by_user_id, to_email, subject, 
-                     body_html, body_text, provider, from_email, from_name, reply_to,
+                    (business_id, lead_id, created_by_user_id, template_id, to_email, to_name,
+                     subject, body_html, body_text, 
+                     rendered_subject, rendered_body_html, rendered_body_text,
+                     provider, from_email, from_name, reply_to,
                      status, meta, created_at)
-                    VALUES (:business_id, :lead_id, :created_by_user_id, :to_email, :subject,
-                            :body_html, :body_text, :provider, :from_email, :from_name, :reply_to,
+                    VALUES (:business_id, :lead_id, :created_by_user_id, :template_id, :to_email, :to_name,
+                            :subject, :body_html, :body_text,
+                            :rendered_subject, :rendered_body_html, :rendered_body_text,
+                            :provider, :from_email, :from_name, :reply_to,
                             'queued', :meta, :created_at)
                     RETURNING id
                 """),
@@ -807,14 +1027,19 @@ class EmailService:
                     "business_id": business_id,
                     "lead_id": lead_id,
                     "created_by_user_id": created_by_user_id,
+                    "template_id": template_id,
                     "to_email": to_email,
-                    "subject": subject,
-                    "body_html": html_sanitized,
-                    "body_text": text or strip_html(html_sanitized),
+                    "to_name": to_name,
+                    "subject": subject or rendered_subject,
+                    "body_html": html or rendered_body_html,
+                    "body_text": text or rendered_body_text,
+                    "rendered_subject": rendered_subject,
+                    "rendered_body_html": final_html_sanitized,
+                    "rendered_body_text": final_text,
                     "provider": "sendgrid",
                     "from_email": settings['from_email'],
                     "from_name": settings['from_name'],
-                    "reply_to": settings['reply_to'],
+                    "reply_to": settings.get('reply_to') if settings.get('reply_to_enabled') else None,
                     "meta": json.dumps(meta) if meta else None,
                     "created_at": datetime.utcnow()
                 }
@@ -831,7 +1056,7 @@ class EmailService:
                 'message': str(e)
             }
         
-        # 4. Check if SendGrid is configured
+        # 7. Check if SendGrid is configured
         if not self.client:
             error_msg = "SendGrid API key not configured"
             logger.error(f"[EMAIL] {error_msg}")
@@ -858,7 +1083,7 @@ class EmailService:
                 'message': error_msg
             }
         
-        # 5. Send via SendGrid
+        # 8. Send via SendGrid with branding
         try:
             from_email_obj = Email(settings['from_email'], settings['from_name'])
             to_email_obj = To(to_email)
@@ -866,13 +1091,13 @@ class EmailService:
             message = Mail(
                 from_email=from_email_obj,
                 to_emails=to_email_obj,
-                subject=subject,
-                html_content=html_sanitized,
-                plain_text_content=text or strip_html(html_sanitized)
+                subject=rendered_subject,
+                html_content=final_html_sanitized,
+                plain_text_content=final_text
             )
             
-            # Set reply-to if configured
-            if settings['reply_to']:
+            # Set reply-to if enabled and configured
+            if settings.get('reply_to_enabled') and settings.get('reply_to'):
                 message.reply_to = Email(settings['reply_to'])
             
             # Send email
@@ -898,7 +1123,7 @@ class EmailService:
                 )
                 db.session.commit()
                 
-                logger.info(f"[EMAIL] sent business_id={business_id} email_id={email_id} provider_id={provider_message_id}")
+                logger.info(f"[EMAIL] sent business_id={business_id} email_id={email_id} template_id={template_id} provider_id={provider_message_id}")
                 
                 return {
                     'success': True,

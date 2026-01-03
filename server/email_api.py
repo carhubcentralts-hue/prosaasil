@@ -158,12 +158,18 @@ def save_email_settings():
     Admin/Owner only
     
     🔒 CRITICAL: from_email is ENFORCED to noreply@prosaas.pro
-    Business can only customize from_name and reply_to
+    Business can customize branding, greeting, footer, and reply_to
     
     Request body:
         {
             "from_name": "My Business",
             "reply_to": "contact@mybusiness.com",
+            "reply_to_enabled": true,
+            "brand_logo_url": "https://...",  // optional
+            "brand_primary_color": "#2563EB",  // optional
+            "default_greeting": "שלום {{lead.first_name}},",  // optional
+            "footer_html": "<p>Contact us...</p>",  // optional
+            "footer_text": "Contact us...",  // optional
             "is_enabled": true
         }
     
@@ -189,6 +195,12 @@ def save_email_settings():
         
         from_name = data['from_name'].strip()
         reply_to = data.get('reply_to', '').strip() or None
+        reply_to_enabled = data.get('reply_to_enabled', True)
+        brand_logo_url = data.get('brand_logo_url', '').strip() or None
+        brand_primary_color = data.get('brand_primary_color', '').strip() or None
+        default_greeting = data.get('default_greeting', '').strip() or None
+        footer_html = data.get('footer_html', '').strip() or None
+        footer_text = data.get('footer_text', '').strip() or None
         is_enabled = data.get('is_enabled', True)
         
         # Save settings (from_email is enforced internally)
@@ -197,6 +209,12 @@ def save_email_settings():
             business_id=business_id,
             from_name=from_name,
             reply_to=reply_to,
+            reply_to_enabled=reply_to_enabled,
+            brand_logo_url=brand_logo_url,
+            brand_primary_color=brand_primary_color,
+            default_greeting=default_greeting,
+            footer_html=footer_html,
+            footer_text=footer_text,
             is_enabled=is_enabled
         )
         
@@ -544,4 +562,258 @@ def list_email_messages():
         
     except Exception as e:
         logger.error(f"[EMAIL_API] Failed to list email messages: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ========================================================================
+# Template Management Endpoints
+# ========================================================================
+
+@email_bp.route('/api/email/templates', methods=['GET'])
+@require_api_auth
+def list_templates():
+    """
+    List email templates for current business
+    
+    Query params:
+        active_only: Only return active templates (default true)
+    
+    Returns:
+        200: List of templates
+        403: No permission
+    """
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business not found'}), 403
+        
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        
+        email_service = get_email_service()
+        templates = email_service.list_templates(business_id, active_only=active_only)
+        
+        return jsonify({
+            'templates': templates,
+            'count': len(templates)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to list templates: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@email_bp.route('/api/email/templates', methods=['POST'])
+@require_api_auth
+def create_template():
+    """
+    Create a new email template
+    Admin/Owner only
+    
+    Request body:
+        {
+            "name": "Template name",
+            "type": "generic|lead_outreach|followup",
+            "subject_template": "Subject with {{variables}}",
+            "html_template": "<p>HTML body with {{variables}}</p>",
+            "text_template": "Plain text version"  // optional
+        }
+    
+    Returns:
+        201: Template created
+        400: Invalid data
+        403: No permission
+    """
+    try:
+        # Check admin permission
+        if not check_admin_permission():
+            return jsonify({'error': 'Admin permission required'}), 403
+        
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business not found'}), 403
+        
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name') or not data.get('subject_template') or not data.get('html_template'):
+            return jsonify({'error': 'name, subject_template, and html_template are required'}), 400
+        
+        # Get current user ID
+        user_id = None
+        if hasattr(g, 'user') and g.user and isinstance(g.user, dict):
+            user_id = g.user.get('id')
+        
+        # Create template
+        email_service = get_email_service()
+        template_id = email_service.create_template(
+            business_id=business_id,
+            name=data['name'],
+            subject_template=data['subject_template'],
+            html_template=data['html_template'],
+            text_template=data.get('text_template'),
+            template_type=data.get('type', 'generic'),
+            created_by_user_id=user_id
+        )
+        
+        if not template_id:
+            return jsonify({'error': 'Failed to create template'}), 500
+        
+        return jsonify({
+            'success': True,
+            'template_id': template_id,
+            'message': 'Template created successfully'
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to create template: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@email_bp.route('/api/email/templates/<int:template_id>', methods=['PUT'])
+@require_api_auth
+def update_template(template_id):
+    """
+    Update an existing email template
+    Admin/Owner only
+    
+    Request body:
+        {
+            "name": "New name",  // optional
+            "subject_template": "New subject",  // optional
+            "html_template": "New HTML",  // optional
+            "text_template": "New text",  // optional
+            "type": "generic",  // optional
+            "is_active": true  // optional
+        }
+    
+    Returns:
+        200: Template updated
+        400: Invalid data
+        403: No permission
+        404: Template not found
+    """
+    try:
+        # Check admin permission
+        if not check_admin_permission():
+            return jsonify({'error': 'Admin permission required'}), 403
+        
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business not found'}), 403
+        
+        data = request.get_json()
+        
+        # Update template
+        email_service = get_email_service()
+        success = email_service.update_template(
+            business_id=business_id,
+            template_id=template_id,
+            name=data.get('name'),
+            subject_template=data.get('subject_template'),
+            html_template=data.get('html_template'),
+            text_template=data.get('text_template'),
+            template_type=data.get('type'),
+            is_active=data.get('is_active')
+        )
+        
+        if not success:
+            return jsonify({'error': 'Template not found or failed to update'}), 404
+        
+        return jsonify({
+            'success': True,
+            'message': 'Template updated successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to update template {template_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@email_bp.route('/api/email/templates/<int:template_id>', methods=['DELETE'])
+@require_api_auth
+def delete_template(template_id):
+    """
+    Delete (soft delete) an email template
+    Admin/Owner only
+    
+    Returns:
+        200: Template deleted
+        403: No permission
+        404: Template not found
+    """
+    try:
+        # Check admin permission
+        if not check_admin_permission():
+            return jsonify({'error': 'Admin permission required'}), 403
+        
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business not found'}), 403
+        
+        # Delete template (soft delete)
+        email_service = get_email_service()
+        success = email_service.delete_template(business_id, template_id)
+        
+        if not success:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'message': 'Template deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to delete template {template_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@email_bp.route('/api/email/templates/<int:template_id>/preview', methods=['POST'])
+@require_api_auth
+def preview_template(template_id):
+    """
+    Preview template with sample data
+    
+    Request body:
+        {
+            "lead": {"first_name": "John", "last_name": "Doe", ...},  // optional
+            "business": {"name": "My Business", ...},  // optional
+            "agent": {"name": "Agent Name", ...},  // optional
+            "extra_vars": {...}  // optional
+        }
+    
+    Returns:
+        200: Rendered template preview
+        403: No permission
+        404: Template not found
+    """
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business not found'}), 403
+        
+        data = request.get_json() or {}
+        
+        # Get template
+        email_service = get_email_service()
+        templates = email_service.list_templates(business_id, active_only=False)
+        template = next((t for t in templates if t['id'] == template_id), None)
+        
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Render template with provided data
+        rendered = email_service.render_template(
+            template=template,
+            lead=data.get('lead'),
+            business=data.get('business'),
+            agent=data.get('agent'),
+            extra_vars=data.get('extra_vars')
+        )
+        
+        return jsonify({
+            'success': True,
+            'preview': {
+                'subject': rendered['subject'],
+                'html': rendered['html'],
+                'text': rendered['text']
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to preview template {template_id}: {e}")
         return jsonify({'error': str(e)}), 500
