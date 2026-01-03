@@ -227,10 +227,22 @@ def update_business_user(business_id, user_id):
         if 'role' in data:
             if data['role'] not in ['owner', 'admin', 'agent']:
                 return jsonify({'error': 'Invalid role'}), 400
+            old_role = user.role
             user.role = data['role']
+            
+            # Invalidate all sessions if role changed
+            if old_role != user.role:
+                from server.services.auth_service import AuthService
+                AuthService.invalidate_all_user_tokens(user.id)
+                print(f"🔐 Invalidated all sessions for user {user.id} due to role change")
         
         if 'password' in data and data['password']:
             user.password_hash = generate_password_hash(data['password'], method='scrypt')
+            
+            # Invalidate all sessions when password changes
+            from server.services.auth_service import AuthService
+            AuthService.invalidate_all_user_tokens(user.id)
+            print(f"🔐 Invalidated all sessions for user {user.id} due to password change")
         
         if 'is_active' in data:
             user.is_active = data['is_active']
@@ -292,6 +304,11 @@ def delete_business_user(business_id, user_id):
         # Prevent deleting yourself
         if user.id == current_user.get('id'):
             return jsonify({'error': 'Cannot delete your own account'}), 400
+        
+        # Invalidate all sessions before deleting
+        from server.services.auth_service import AuthService
+        AuthService.invalidate_all_user_tokens(user.id)
+        print(f"🔐 Invalidated all sessions for user {user.id} before deletion")
         
         db.session.delete(user)
         db.session.commit()

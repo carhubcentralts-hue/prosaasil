@@ -239,6 +239,89 @@ def reset_password():
         logger.error(f"[AUTH] Reset password error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@csrf.exempt  # Refresh token also exempt from CSRF
+@auth_api.route('/refresh', methods=['POST'])
+def refresh_token():
+    """
+    POST /api/auth/refresh
+    Refresh access token using refresh token
+    """
+    try:
+        from server.services.auth_service import AuthService, get_request_user_agent
+        
+        # Get refresh token from session or request body
+        refresh_token_value = session.get('refresh_token')
+        
+        if not refresh_token_value:
+            data = request.get_json()
+            if data:
+                refresh_token_value = data.get('refresh_token')
+        
+        if not refresh_token_value:
+            return jsonify({'success': False, 'error': 'No refresh token provided'}), 401
+        
+        # Validate refresh token
+        user_agent = get_request_user_agent()
+        refresh_token_obj = AuthService.validate_refresh_token(refresh_token_value, user_agent)
+        
+        if not refresh_token_obj:
+            # Token is invalid or expired
+            session.clear()
+            return jsonify({'success': False, 'error': 'Invalid or expired refresh token'}), 401
+        
+        # Get user from database
+        user = User.query.get(refresh_token_obj.user_id)
+        if not user or not user.is_active:
+            return jsonify({'success': False, 'error': 'User not found or inactive'}), 401
+        
+        # Check idle timeout
+        if AuthService.check_idle_timeout(user):
+            # User has been idle too long - invalidate all tokens
+            AuthService.invalidate_all_user_tokens(user.id)
+            session.clear()
+            return jsonify({'success': False, 'error': 'Session expired due to inactivity'}), 401
+        
+        # Update activity
+        AuthService.update_user_activity(user.id)
+        
+        # Get business info if exists
+        business = None
+        if user.business_id:
+            business = Business.query.get(user.business_id)
+        
+        # Prepare user response
+        user_data = {
+            'id': user.id,
+            'name': user.name or user.email,
+            'role': user.role,
+            'business_id': user.business_id,
+            'email': user.email
+        }
+        
+        # Prepare tenant response
+        tenant_data = {
+            'id': business.id if business else user.business_id,
+            'name': business.name if business else ('System Admin' if user.role == 'system_admin' else 'No Business')
+        }
+        
+        # Update session
+        session['al_user'] = user_data
+        session['user'] = user_data
+        session['_last_activity'] = datetime.now().isoformat()
+        session.modified = True
+        
+        logger.info(f"[AUTH] token_refreshed user_id={user.id}")
+        
+        return jsonify({
+            'user': user_data,
+            'tenant': tenant_data,
+            'impersonating': False
+        })
+        
+    except Exception as e:
+        logger.error(f"[AUTH] Refresh token error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @csrf.exempt  # Logout also exempt from CSRF
 @auth_api.route('/logout', methods=['POST'])
 def logout():
