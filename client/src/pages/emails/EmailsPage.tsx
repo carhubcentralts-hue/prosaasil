@@ -139,8 +139,17 @@ export function EmailsPage() {
   const [showBulkComposeModal, setShowBulkComposeModal] = useState(false);
   const [bulkComposeLoading, setBulkComposeLoading] = useState(false);
   
+  // Template settings state
+  const [templateDefaultTheme, setTemplateDefaultTheme] = useState('classic_blue');
+  const [templateDefaultGreeting, setTemplateDefaultGreeting] = useState('שלום {{lead.first_name}},');
+  const [templateDefaultCtaText, setTemplateDefaultCtaText] = useState('');
+  const [templateDefaultCtaUrl, setTemplateDefaultCtaUrl] = useState('');
+  const [templateDefaultFooter, setTemplateDefaultFooter] = useState('אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות');
+  const [templateBrandColor, setTemplateBrandColor] = useState('#2563EB');
+  
   useEffect(() => {
     loadSettings();
+    loadEmailSettings(); // Load template settings
     if (activeTab === 'all' || activeTab === 'sent') {
       loadEmails();
     } else if (activeTab === 'templates') {
@@ -190,6 +199,63 @@ export function EmailsPage() {
       }
     } catch (err: any) {
       console.error('Failed to load email settings:', err);
+    }
+  };
+  
+  const loadEmailSettings = async () => {
+    try {
+      const response = await axios.get('/api/email/settings');
+      if (response.data.settings) {
+        const s = response.data.settings;
+        setTemplateDefaultTheme(s.theme_id || 'classic_blue');
+        setTemplateDefaultGreeting(s.default_greeting || 'שלום {{lead.first_name}},');
+        setTemplateDefaultCtaText(s.cta_default_text || '');
+        setTemplateDefaultCtaUrl(s.cta_default_url || '');
+        setTemplateDefaultFooter(s.footer_text || 'אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות');
+        setTemplateBrandColor(s.brand_primary_color || '#2563EB');
+      }
+    } catch (err: any) {
+      console.error('Failed to load email template settings:', err);
+    }
+  };
+  
+  const handleSaveTemplateSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      setSaveLoading(true);
+      setError(null);
+      setSuccessMessage(null);
+      
+      await axios.post('/api/email/settings', {
+        from_name: fromName,
+        reply_to: replyTo,
+        is_enabled: isEnabled,
+        theme_id: templateDefaultTheme,
+        default_greeting: templateDefaultGreeting,
+        cta_default_text: templateDefaultCtaText,
+        cta_default_url: templateDefaultCtaUrl,
+        footer_text: templateDefaultFooter,
+        brand_primary_color: templateBrandColor
+      });
+      
+      setSuccessMessage('הגדרות התבנית נשמרו בהצלחה!');
+      await loadEmailSettings();
+      
+      // Update theme fields with saved defaults
+      setThemeFields(prev => ({
+        ...prev,
+        greeting: templateDefaultGreeting,
+        cta_text: templateDefaultCtaText,
+        cta_url: templateDefaultCtaUrl,
+        footer: templateDefaultFooter
+      }));
+      setSelectedThemeId(templateDefaultTheme);
+      
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה בשמירת הגדרות התבנית');
+    } finally {
+      setSaveLoading(false);
     }
   };
   
@@ -808,30 +874,65 @@ export function EmailsPage() {
                 )}
               </div>
               
-              {/* Results Count */}
+              {/* Results Count + Load Template Button */}
               {!allLeadsLoading && allLeads.length > 0 && (
-                <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="text-sm text-gray-600">
-                    מציג {allLeads.length} לידים {leadsHasMore && '(טען עוד לראות יותר)'}
-                    {selectedLeadIds.size > 0 && (
-                      <span className="mr-2 text-blue-600 font-medium">
-                        • {selectedLeadIds.size} נבחרו
-                      </span>
-                    )}
+                <>
+                  {/* Load from Template Button - Above everything */}
+                  <div className="mb-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1">
+                        <h3 className="text-sm font-bold text-purple-900 flex items-center gap-2">
+                          <span className="text-xl">📋</span>
+                          <span>טען הגדרות מהתבנית השמורה</span>
+                        </h3>
+                        <p className="text-xs text-purple-700 mt-1">
+                          טען ברכה, פוטר וכפתור CTA מהתבנית שהגדרת
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setThemeFields(prev => ({
+                            ...prev,
+                            greeting: templateDefaultGreeting,
+                            cta_text: templateDefaultCtaText,
+                            cta_url: templateDefaultCtaUrl,
+                            footer: templateDefaultFooter
+                          }));
+                          setSelectedThemeId(templateDefaultTheme);
+                          setSuccessMessage('הגדרות התבנית נטענו בהצלחה!');
+                          setTimeout(() => setSuccessMessage(null), 3000);
+                        }}
+                        className="px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center gap-2 whitespace-nowrap"
+                      >
+                        <span>📥</span>
+                        <span>טען תבנית</span>
+                      </button>
+                    </div>
                   </div>
-                  
-                  {/* Bulk Actions */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Select All Checkbox */}
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer bg-white px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={selectedLeadIds.size > 0 && selectedLeadIds.size === allLeads.filter(l => l.email).length}
-                        onChange={handleSelectAllLeads}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span>בחר הכל ({allLeads.filter(l => l.email).length})</span>
-                    </label>
+
+                  <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="text-sm text-gray-600">
+                      מציג {allLeads.length} לידים {leadsHasMore && '(טען עוד לראות יותר)'}
+                      {selectedLeadIds.size > 0 && (
+                        <span className="mr-2 text-blue-600 font-medium">
+                          • {selectedLeadIds.size} נבחרו
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Bulk Actions */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Select All Checkbox */}
+                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer bg-white px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.size > 0 && selectedLeadIds.size === allLeads.filter(l => l.email).length}
+                          onChange={handleSelectAllLeads}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span>בחר הכל ({allLeads.filter(l => l.email).length})</span>
+                      </label>
                     
                     {/* Bulk Send Button */}
                     {selectedLeadIds.size > 0 && (
@@ -997,70 +1098,199 @@ export function EmailsPage() {
               )}
             </div>
           ) : activeTab === 'templates' ? (
-            // Templates Tab - READ ONLY (No HTML editing for users)
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <h2 className="text-xl font-semibold">תבניות מייל</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    תבניות מוכנות לשימוש - השתמש במערכת הנושאים (Themes) בשליחת מייל
-                  </p>
-                </div>
+            // Templates Tab - Edit Template Settings (Footer, Greeting, Theme defaults)
+            <div className="max-w-3xl">
+              <div className="mb-6">
+                <h2 className="text-2xl font-semibold">הגדרות תבנית כלליות</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  ערוך את ההגדרות הכלליות של התבנית: פוטר, ברכה, צבעים ועיצוב
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 ההגדרות כאן משפיעות על המראה והטקסט הכללי - לא על תוכן ההודעות הספציפיות
+                </p>
               </div>
               
-              {templatesLoading ? (
-                <div className="text-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                </div>
-              ) : templates.length === 0 ? (
-                <div className="text-center py-12">
-                  <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600">אין תבניות להצגה</p>
-                  <p className="text-sm text-gray-500 mt-2">
-                    השתמש במערכת הנושאים היוקרתיים (Luxury Themes) בעת שליחת מייל
-                  </p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {templates.map((template) => (
-                    <div key={template.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">{template.name}</h3>
-                          <p className="text-sm text-gray-600 mt-1">{template.subject_template}</p>
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mt-2">
-                            {template.type}
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handlePreviewTemplate(template)}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                          >
-                            <Eye className="w-4 h-4" />
-                            תצוגה
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{error}</span>
                 </div>
               )}
               
-              {/* Info box about using Luxury Themes instead */}
-              <div className="mt-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+              {successMessage && (
+                <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 flex items-start gap-2">
+                  <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+              
+              <form onSubmit={handleSaveTemplateSettings} className="space-y-6">
+                {/* Theme Selection */}
+                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-5 shadow-sm">
+                  <label className="block text-base font-bold text-purple-900 mb-3 flex items-center gap-2">
+                    <span className="text-2xl">🎨</span>
+                    <span>בחר עיצוב ברירת מחדל (Luxury Theme)</span>
+                  </label>
+                  <p className="text-xs text-purple-700 mb-3">
+                    העיצוב הזה ישמש כברירת מחדל בשליחת מיילים
+                  </p>
+                  
+                  {themesLoading ? (
+                    <div className="text-sm text-gray-600">טוען עיצובים...</div>
+                  ) : (
+                    <select
+                      value={templateDefaultTheme}
+                      onChange={(e) => setTemplateDefaultTheme(e.target.value)}
+                      className="w-full px-4 py-3.5 border-2 border-purple-300 rounded-xl focus:ring-4 focus:ring-purple-200 focus:border-purple-500 bg-white font-medium shadow-sm text-base"
+                    >
+                      {availableThemes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.name} - {theme.description}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Default Greeting */}
+                <div className="bg-white border-2 border-gray-200 rounded-xl p-5">
+                  <label className="block text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">👋</span>
+                    <span>ברכה כללית (ברירת מחדל)</span>
+                  </label>
+                  <p className="text-xs text-gray-600 mb-3">
+                    הברכה שתופיע בכל מייל. השתמש ב-{"{{lead.first_name}}"} לשם הליד
+                  </p>
+                  <input
+                    type="text"
+                    value={templateDefaultGreeting}
+                    onChange={(e) => setTemplateDefaultGreeting(e.target.value)}
+                    placeholder="שלום {{lead.first_name}},"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-4 focus:ring-blue-200 focus:border-blue-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Default CTA */}
+                <div className="bg-white border-2 border-gray-200 rounded-xl p-5">
+                  <label className="block text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">🔘</span>
+                    <span>כפתור קריאה לפעולה (CTA) ברירת מחדל</span>
+                  </label>
+                  <p className="text-xs text-gray-600 mb-3">
+                    הטקסט והקישור שיופיעו בכפתור (אופציונלי)
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        טקסט הכפתור
+                      </label>
+                      <input
+                        type="text"
+                        value={templateDefaultCtaText}
+                        onChange={(e) => setTemplateDefaultCtaText(e.target.value)}
+                        placeholder="צור קשר עכשיו"
+                        className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        קישור
+                      </label>
+                      <input
+                        type="url"
+                        value={templateDefaultCtaUrl}
+                        onChange={(e) => setTemplateDefaultCtaUrl(e.target.value)}
+                        placeholder="https://example.com"
+                        className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Text */}
+                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-5 shadow-md">
+                  <label className="block text-base font-bold text-yellow-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">⚠️</span>
+                    <span>פוטר כללי למיילים *</span>
+                  </label>
+                  <p className="text-xs text-yellow-800 mb-3">
+                    הפוטר שיופיע בכל מייל שנשלח. חובה לכלול אפשרות להסרה מהרשימה
+                  </p>
+                  <textarea
+                    value={templateDefaultFooter}
+                    onChange={(e) => setTemplateDefaultFooter(e.target.value)}
+                    placeholder="אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.&#10;&#10;© {{business.name}} | כל הזכויות שמורות"
+                    rows={4}
+                    className="w-full px-4 py-3 border-2 border-yellow-400 rounded-lg focus:ring-4 focus:ring-yellow-200 focus:border-yellow-500 text-sm shadow-sm resize-none"
+                    required
+                  />
+                  <p className="text-xs text-yellow-700 mt-2">
+                    💡 השתמש ב-{"{{business.name}}"} לשם העסק
+                  </p>
+                </div>
+
+                {/* Brand Colors */}
+                <div className="bg-white border-2 border-gray-200 rounded-xl p-5">
+                  <label className="block text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">🎨</span>
+                    <span>צבע מותג (אופציונלי)</span>
+                  </label>
+                  <p className="text-xs text-gray-600 mb-3">
+                    הצבע העיקרי שישמש בעיצוב המיילים (למשל: כפתורים, קישורים)
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={templateBrandColor}
+                      onChange={(e) => setTemplateBrandColor(e.target.value)}
+                      className="w-16 h-12 border-2 border-gray-300 rounded-lg cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={templateBrandColor}
+                      onChange={(e) => setTemplateBrandColor(e.target.value)}
+                      placeholder="#2563EB"
+                      className="flex-1 px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 shadow-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Save Button */}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={saveLoading}
+                    className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed font-bold text-lg flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    {saveLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>שומר...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5" />
+                        <span>שמור הגדרות תבנית</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+              
+              {/* Info Section */}
+              <div className="mt-8 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0">
                     <Mail className="w-5 h-5 text-blue-600" />
                   </div>
                   <div>
                     <h3 className="text-sm font-medium text-blue-900">
-                      💡 שדרוג: השתמש במערכת הנושאים החדשה (Luxury Themes)
+                      💡 מה ההבדל בין הגדרות תבנית לתוכן ההודעה?
                     </h3>
-                    <p className="text-sm text-blue-700 mt-1">
-                      כאשר שולחים מייל לליד, תוכל לבחור מבין 5 נושאים יוקרתיים עם עיצוב מקצועי.
-                      המערכת החדשה קלה יותר לשימוש ואין צורך בעריכת HTML.
-                    </p>
+                    <ul className="text-sm text-blue-700 mt-2 space-y-1 list-disc list-inside">
+                      <li><strong>הגדרות תבנית (כאן)</strong> - עיצוב, ברכה כללית, פוטר, צבעים - משפיע על כל המיילים</li>
+                      <li><strong>תוכן הודעה (בשליחה)</strong> - נושא ותוכן ספציפי לכל מייל שאתה שולח</li>
+                    </ul>
                   </div>
                 </div>
               </div>
