@@ -1219,6 +1219,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 
                 # Use new auto-status service with call duration for smart no-summary handling
                 from server.services.lead_auto_status_service import suggest_lead_status_from_call, get_auto_status_service
+                
+                # 🔥 ENHANCED LOGGING: Log what we're passing to auto-status
+                log.info(f"[AutoStatus] 🔍 DIAGNOSTIC for lead {lead.id}:")
+                log.info(f"[AutoStatus]    - Call direction: {call_direction}")
+                log.info(f"[AutoStatus]    - Call duration: {call_log.duration}s")
+                log.info(f"[AutoStatus]    - Has summary: {bool(summary)} (length: {len(summary) if summary else 0})")
+                log.info(f"[AutoStatus]    - Summary preview: '{summary[:150]}...' " if summary else "[AutoStatus]    - No summary")
+                log.info(f"[AutoStatus]    - Current lead status: '{lead.status}'")
+                
                 suggested_status = suggest_lead_status_from_call(
                     tenant_id=call_log.business_id,
                     lead_id=lead.id,
@@ -1227,6 +1236,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     call_transcript=final_transcript or "",  # 🔥 FIX: Only recording transcript
                     call_duration=call_log.duration  # 🆕 Pass duration for smart no-summary logic
                 )
+                
+                # 🔥 ENHANCED LOGGING: Log what auto-status suggested
+                if suggested_status:
+                    log.info(f"[AutoStatus] 🤖 Suggested status: '{suggested_status}'")
+                else:
+                    log.warning(f"[AutoStatus] ⚠️ NO STATUS SUGGESTED - check if:")
+                    log.warning(f"[AutoStatus]    1. Business has valid statuses configured")
+                    log.warning(f"[AutoStatus]    2. OpenAI API key is set for AI matching")
+                    log.warning(f"[AutoStatus]    3. Summary/transcript contains matchable keywords")
                 
                 # 🆕 CRITICAL: Smart status change validation - don't change unnecessarily!
                 # Check if we should actually change the status
@@ -1238,6 +1256,9 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     tenant_id=call_log.business_id,
                     call_summary=summary  # 🔥 Pass call summary for context-aware decision!
                 )
+                
+                # 🔥 ENHANCED LOGGING: Log the decision
+                log.info(f"[AutoStatus] 🎯 Decision: should_change={should_change}, reason='{change_reason}'")
                 
                 if should_change and suggested_status:
                     # Extra safety: validate status exists for this business
@@ -1487,6 +1508,14 @@ def _handle_failed_call(call_log, call_status, db):
         # 3. Update lead status using smart auto-status service
         from server.services.lead_auto_status_service import suggest_lead_status_from_call, get_auto_status_service
         
+        # 🔥 ENHANCED LOGGING: Log what we're passing to auto-status
+        log.info(f"[FAILED_CALL] 🔍 DIAGNOSTIC for lead {lead.id}:")
+        log.info(f"[FAILED_CALL]    - Call direction: {call_log.direction or 'outbound'}")
+        log.info(f"[FAILED_CALL]    - Call duration: {call_log.duration or 0}s")
+        log.info(f"[FAILED_CALL]    - Call status: {call_status}")
+        log.info(f"[FAILED_CALL]    - Summary: '{summary}'")
+        log.info(f"[FAILED_CALL]    - Current lead status: '{lead.status}'")
+        
         suggested_status = suggest_lead_status_from_call(
             tenant_id=call_log.business_id,
             lead_id=lead.id,
@@ -1496,7 +1525,14 @@ def _handle_failed_call(call_log, call_status, db):
             call_duration=call_log.duration or 0
         )
         
-        log.info(f"[FAILED_CALL] 🤖 Auto-status service suggested: {suggested_status}")
+        # 🔥 ENHANCED LOGGING: Log what auto-status suggested
+        if suggested_status:
+            log.info(f"[FAILED_CALL] 🤖 Suggested status: '{suggested_status}'")
+        else:
+            log.warning(f"[FAILED_CALL] ⚠️ NO STATUS SUGGESTED - check if:")
+            log.warning(f"[FAILED_CALL]    1. Business has valid statuses configured")
+            log.warning(f"[FAILED_CALL]    2. OpenAI API key is set for AI matching")
+            log.warning(f"[FAILED_CALL]    3. Summary contains matchable keywords")
         
         # 🆕 CRITICAL: Smart status change validation - don't change unnecessarily!
         old_status = lead.status
@@ -1507,6 +1543,9 @@ def _handle_failed_call(call_log, call_status, db):
             tenant_id=call_log.business_id,
             call_summary=summary  # 🔥 Pass call summary for context-aware decision!
         )
+        
+        # 🔥 ENHANCED LOGGING: Log the decision
+        log.info(f"[FAILED_CALL] 🎯 Decision: should_change={should_change}, reason='{change_reason}'")
         
         # 4. Apply status change with validation
         if should_change and suggested_status:
