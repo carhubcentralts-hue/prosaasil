@@ -3751,7 +3751,9 @@ class MediaStreamHandler:
             
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             
-            # Wait for RX loop to signal it's listening (max 2 seconds)
+            # 🔥 FIX 1: HANDSHAKE - Wait for RX loop to signal it's listening (max 2 seconds)
+            # This ensures recv_events() is active BEFORE sending session.update
+            # Otherwise session.updated event might be lost (falls between the cracks)
             rx_wait_start = time.time()
             rx_max_wait = 2.0
             while not self._recv_loop_started:
@@ -3762,6 +3764,7 @@ class MediaStreamHandler:
             
             rx_ready_ms = (time.time() - rx_wait_start) * 1000
             _orig_print(f"✅ [RX_LOOP] Receiver loop confirmed ready in {rx_ready_ms:.0f}ms - safe to send session.update", flush=True)
+            _orig_print(f"[TIMING_BREAKDOWN] t_ws_open_to_rx_ready={rx_ready_ms:.0f}ms", flush=True)
             
             # Send initial session configuration
             _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
@@ -3773,24 +3776,39 @@ class MediaStreamHandler:
             self._session_config_event.clear()  # Clear any previous event
             _orig_print(f"🔄 [SESSION] Cleared session flags - waiting for fresh confirmation", flush=True)
             
+            # 🔥 FIX 2: TIME BREAKDOWN - Track session.update send time
+            t_session_update_sent = time.time()
+            _orig_print(f"[TIMING_BREAKDOWN] t_session_update_sending...", flush=True)
+            
             await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, send_reason="initial")
-            _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
+            
+            t_session_update_sent_done = time.time()
+            session_update_send_ms = (t_session_update_sent_done - t_session_update_sent) * 1000
+            _orig_print(f"✅ [SESSION] session.update sent in {session_update_send_ms:.0f}ms - waiting for confirmation", flush=True)
+            _orig_print(f"[TIMING_BREAKDOWN] t_session_update_sent_to_network={session_update_send_ms:.0f}ms", flush=True)
             
             # 🔒 PROMPT INTEGRITY: Store business prompt hash for final verification
             import hashlib
             self._business_prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 STEP 3: Event-driven wait for session.updated confirmation
+            # 🔥 STEP 3: Event-driven wait for session.updated confirmation WITH RETRY
             # ═══════════════════════════════════════════════════════════════════════
             # CRITICAL: Wait for session.updated confirmation before proceeding
             # This prevents race condition where response.create is sent before session is configured
             # Without this wait: PCM16 audio (noise) + English responses + no instructions
-            _orig_print(f"⏳ [SESSION] Waiting for session.updated confirmation (max 8s with retry)...", flush=True)
+            # 
+            # 🔥 FIX 3: RETRY LOGIC - If no session.updated after 1.5s, retry session.update
+            # Per requirement: "אם לא קיבלת session.updated תוך 1.0–1.5 שניות → שלח שוב session.update"
+            _orig_print(f"⏳ [SESSION] Waiting for session.updated confirmation (max 5s with retry after 1.5s)...", flush=True)
             wait_start = time.time()
-            max_wait = 8.0  # Maximum 8 seconds total
-            retry_at = 3.0  # Retry after 3 seconds if no response
+            max_wait = 5.0  # Maximum 5 seconds total (reduced from 8s)
+            retry_at = 1.5  # Retry after 1.5 seconds if no response (per requirement)
+            max_retries = 2  # Max 2 attempts (original + 1 retry)
             retried = False
+            
+            # 🔥 FIX 4: TIME BREAKDOWN - Track session.updated wait time
+            _orig_print(f"[TIMING_BREAKDOWN] t_waiting_for_session_updated...", flush=True)
             
             # 🔥 PERFORMANCE FIX: Use event-driven wait instead of polling
             # This eliminates CPU waste and reduces latency from 50ms to <1ms
@@ -3803,17 +3821,20 @@ class MediaStreamHandler:
                 # Check timeout
                 elapsed = time.time() - wait_start
                 
-                # Retry logic: Send session.update again if no response within 3s
+                # Retry logic: Send session.update again if no response within 1.5s
                 if elapsed >= retry_at and not retried:
                     retried = True
-                    _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
+                    _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update (attempt 2/{max_retries})", flush=True)
+                    _orig_print(f"[TIMING_BREAKDOWN] t_retry_session_update at {elapsed:.1f}s", flush=True)
                     # 🔥 FIX 3: Pass force=True to bypass hash check on retry
                     await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, tools=realtime_tools, tool_choice=tool_choice, force=True, send_reason="retry")
                     _orig_print(f"📤 [SESSION] Retry session.update sent with force=True - continuing to wait", flush=True)
                 
                 if elapsed > max_wait:
-                    _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - aborting", flush=True)
-                    raise RuntimeError(f"Session configuration timeout after {max_wait}s - cannot proceed")
+                    _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - DISCONNECTING AND RECONNECTING", flush=True)
+                    _orig_print(f"[TIMING_BREAKDOWN] t_session_timeout at {elapsed:.1f}s - initiating reconnect", flush=True)
+                    # 🔥 FIX 5: DISCONNECT/RECONNECT - Per requirement: "אחרי 2 ניסיונות עדיין אין session.updated → disconnect/reconnect"
+                    raise RuntimeError(f"Session configuration timeout after {max_wait}s with {max_retries-1} retries - need reconnect")
                 
                 # 🔥 PERFORMANCE: Use event-driven wait with timeout
                 # This is MUCH faster than polling (reacts instantly, no CPU waste)
@@ -3832,6 +3853,7 @@ class MediaStreamHandler:
             
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
+            _orig_print(f"[TIMING_BREAKDOWN] t_session_updated_received={session_wait_ms:.0f}ms (from start of wait)", flush=True)
             
             # 🔥 ACCEPTANCE CRITERIA B: Verify business prompt and CRM context are in instructions
             # This logging confirms what was actually sent to OpenAI
@@ -3862,6 +3884,7 @@ class MediaStreamHandler:
             # 🔥 ACCEPTANCE CRITERIA D: Log latency from WS open to session.updated
             ws_open_to_session_ms = (t_session_confirmed - self.t0_connected) * 1000
             _orig_print(f"[LATENCY] ws_open->session.updated={ws_open_to_session_ms:.0f}ms", flush=True)
+            _orig_print(f"[TIMING_BREAKDOWN] TOTAL: ws_open->session.updated={ws_open_to_session_ms:.0f}ms", flush=True)
             logger.info(f"[LATENCY] ws_open to session.updated: {ws_open_to_session_ms:.0f}ms")
 
             # ─────────────────────────────────────────────────────────────────────
@@ -5892,8 +5915,46 @@ class MediaStreamHandler:
                     # - Don't wait for voice_frames counter
                     # - Cancel immediately and flush audio queues
                     # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
+                    # 🔥 FIX: GREETING PROTECTION - Grace window at greeting start
+                    # Per requirement: "Grace window קצר בתחילת greeting: 250ms ראשונים אחרי תחילת 
+                    # audio.delta של הבוט: לא מבטלים על כל פיפס"
                     # ═══════════════════════════════════════════════════════════════════════
+                    
+                    # 🔥 GREETING GRACE WINDOW: Protect first 250ms of greeting from false triggers
+                    is_greeting_grace_window = False
+                    if self.is_playing_greeting and hasattr(self, '_greeting_audio_start_ts'):
+                        greeting_elapsed_ms = (now - self._greeting_audio_start_ts) * 1000
+                        is_greeting_grace_window = greeting_elapsed_ms < GREETING_PROTECT_DURATION_MS
+                        
+                        if is_greeting_grace_window:
+                            _orig_print(
+                                f"🛡️ [GREETING_GRACE] Within {GREETING_PROTECT_DURATION_MS}ms grace window "
+                                f"(elapsed={greeting_elapsed_ms:.0f}ms) - ignoring speech_started",
+                                flush=True
+                            )
+                            print(f"🛡️ [GREETING_GRACE] speech_started ignored during {GREETING_PROTECT_DURATION_MS}ms grace period")
+                            # Don't trigger barge-in during grace window - likely noise/echo
+                            continue
+                    
+                    # 🔥 FIX: CONTINUOUS SPEECH REQUIREMENT - Require 200-300ms of continuous speech
+                    # Per requirement: "לבטל דיבור של הבוט רק אם יש speech רציף 200–300ms מעל סף (ולא "פיק" רגעי)"
+                    # We track this via consecutive_voice_frames in AudioState, but for greeting we add extra check
+                    if self.is_playing_greeting:
+                        # During greeting: require minimum speech duration before allowing barge-in
+                        # This prevents cancellation on single noise peaks
+                        if hasattr(self, '_utterance_start_ts'):
+                            speech_duration_ms = (now - self._utterance_start_ts) * 1000
+                            if speech_duration_ms < GREETING_MIN_SPEECH_DURATION_MS:
+                                _orig_print(
+                                    f"🛡️ [GREETING_MIN_SPEECH] Speech too short for greeting barge-in "
+                                    f"({speech_duration_ms:.0f}ms < {GREETING_MIN_SPEECH_DURATION_MS}ms) - ignoring",
+                                    flush=True
+                                )
+                                print(f"🛡️ [GREETING_MIN_SPEECH] Waiting for {GREETING_MIN_SPEECH_DURATION_MS}ms continuous speech")
+                                continue
+                        else:
+                            # First frame - mark start time
+                            self._utterance_start_ts = now
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
@@ -5917,6 +5978,31 @@ class MediaStreamHandler:
                     
                     # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
                     _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
+                    
+                    # 🔥 FIX: DETAILED BARGE-IN LOGGING - Log why barge-in was triggered
+                    # Per requirement: "כשמבטלים: להדפיס barge_in_reason + מדדים (rms/threshold/duration_ms)"
+                    # Calculate metrics for logging
+                    barge_in_reason = "speech_started_event"
+                    speech_duration_ms = (now - self._utterance_start_ts) * 1000 if hasattr(self, '_utterance_start_ts') and self._utterance_start_ts else 0
+                    
+                    # Try to get RMS from recent audio (best effort)
+                    current_rms = getattr(self, '_last_frame_rms', 0)
+                    vad_threshold = getattr(self, '_current_vad_threshold', VAD_RMS)
+                    
+                    _orig_print(
+                        f"📊 [BARGE-IN_METRICS] reason={barge_in_reason}, "
+                        f"speech_duration_ms={speech_duration_ms:.0f}, "
+                        f"current_rms={current_rms:.1f}, "
+                        f"vad_threshold={vad_threshold:.1f}, "
+                        f"time_since_ai_audio_ms={time_since_ai_audio:.0f}, "
+                        f"is_greeting={self.is_playing_greeting}",
+                        flush=True
+                    )
+                    logger.info(
+                        f"[BARGE-IN] Triggered: reason={barge_in_reason} "
+                        f"duration={speech_duration_ms:.0f}ms rms={current_rms:.1f} "
+                        f"threshold={vad_threshold:.1f}"
+                    )
                     
                     # שלב 1: עצירה מיידית של שידור אודיו
                     self.barge_in_stop_tx = True
@@ -6177,11 +6263,14 @@ class MediaStreamHandler:
                             if not self._greeting_audio_received:
                                 self._greeting_audio_received = True
                                 self._greeting_audio_first_ts = now
+                                # 🔥 FIX: Track greeting audio start for grace window protection
+                                self._greeting_audio_start_ts = now
                                 # Calculate time from greeting trigger to first audio
                                 greeting_start = getattr(self, '_greeting_start_ts', now)
                                 first_audio_ms = int((now - greeting_start) * 1000)
                                 self._metrics_first_greeting_audio_ms = first_audio_ms
                                 _orig_print(f"🎤 [GREETING] FIRST_AUDIO_DELTA received! delay={first_audio_ms}ms", flush=True)
+                                _orig_print(f"🛡️ [GREETING_GRACE] Starting {GREETING_PROTECT_DURATION_MS}ms grace window", flush=True)
                                 
                                 # 🔥 MASTER FIX: Store first_greeting_audio_ms metric
                                 from server.stream_state import stream_registry
@@ -10253,6 +10342,9 @@ class MediaStreamHandler:
                     # 🔥 BUILD 165: NOISE GATE BEFORE SENDING TO AI!
                     # Calculate RMS first to decide if we should send audio at all
                     rms = audioop.rms(pcm16, 2)
+                    
+                    # 🔥 FIX: Track last frame RMS for barge-in logging
+                    self._last_frame_rms = rms
                     
                     # 🔥 VERIFICATION: Track VAD calibration in first 3 seconds
                     if self._vad_calibration_start_ts is None:
