@@ -172,9 +172,7 @@ BARGE_IN_VOICE_FRAMES = 6   # Balanced: 120ms - reliable detection, fewer false 
 BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged)
 
 # Greeting-specific protection (applied during greeting playback only)
-# 🔥 GREETING PROTECTION: Per requirement "300–500ms ראשונים אחרי response.create לא מבטלים על turn_detected"
-# This prevents false barge-in from noise/"אה" during first audio of greeting
-GREETING_PROTECT_DURATION_MS = 400  # Protect greeting for first 400ms after response.create (middle of 300-500ms range)
+GREETING_PROTECT_DURATION_MS = 500  # Protect greeting for first 500ms
 GREETING_MIN_SPEECH_DURATION_MS = 250  # Require 250ms continuous speech to interrupt greeting
 
 # ═══════════════════════════════════════════════════════════════════════════════
