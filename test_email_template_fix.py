@@ -29,17 +29,22 @@ def test_get_template_html_basic():
     
     html = get_template_html("classic_blue", fields)
     
-    # Verify it returns HTML
+    # ✅ FIX: Should return BODY FRAGMENT, not full HTML document
     assert html is not None
     assert isinstance(html, str)
     assert len(html) > 100
-    assert "<!DOCTYPE html>" in html
+    # Should NOT contain full document structure
+    assert "<!DOCTYPE html>" not in html
+    assert "<html" not in html
+    assert "<head>" not in html
+    assert "<body" not in html
+    # Should contain the content
     assert "שלום חבר" in html
     assert "זה תוכן של מייל" in html
     assert "לחץ כאן" in html
     assert "https://example.com" in html
     
-    print("✅ Basic template rendering works")
+    print("✅ Basic template rendering works (returns body fragment)")
     print(f"   Generated HTML length: {len(html)} characters")
 
 
@@ -85,7 +90,8 @@ def test_get_template_html_with_none_fields():
     # Should use defaults and not crash
     assert html is not None
     assert isinstance(html, str)
-    assert "<!DOCTYPE html>" in html
+    # ✅ FIX: Returns body fragment, not full document
+    assert "<!DOCTYPE html>" not in html
     
     print("✅ None fields handled correctly with defaults")
 
@@ -107,7 +113,8 @@ def test_get_template_html_empty_fields():
     # Should use defaults and not crash
     assert html is not None
     assert isinstance(html, str)
-    assert "<!DOCTYPE html>" in html
+    # ✅ FIX: Returns body fragment, not full document
+    assert "<!DOCTYPE html>" not in html
     
     print("✅ Empty fields handled correctly with defaults")
 
