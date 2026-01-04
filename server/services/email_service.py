@@ -1221,6 +1221,25 @@ class EmailService:
             from_email_obj = Email(settings['from_email'], settings['from_name'])
             to_email_obj = To(to_email)
             
+            # 🔥 FIX 1: CRITICAL LOGGING - Verify HTML before send
+            logger.info(f"[EMAIL] PRE-SEND business_id={business_id} email_id={email_id}")
+            logger.info(f"[EMAIL] html_content exists: {bool(final_html_sanitized)}")
+            logger.info(f"[EMAIL] html_content length: {len(final_html_sanitized)}")
+            
+            # Log first 80 chars to verify it starts with proper HTML (not plain text)
+            html_start = final_html_sanitized[:80] if final_html_sanitized else ''
+            logger.info(f"[EMAIL] html_content[:80]: {html_start}")
+            
+            # Check if HTML is being sent as plain text (escaped)
+            if '&lt;' in html_start or '&gt;' in html_start:
+                logger.error(f"[EMAIL] 🚨 HTML IS ESCAPED! This will show as plain text in email! business_id={business_id}")
+            
+            # Verify HTML structure starts correctly
+            if not (html_start.strip().startswith('<!doctype html>') or 
+                    html_start.strip().startswith('<!DOCTYPE html>') or 
+                    html_start.strip().startswith('<html')):
+                logger.warning(f"[EMAIL] ⚠️ HTML does not start with proper doctype/html tag - might render incorrectly")
+            
             message = Mail(
                 from_email=from_email_obj,
                 to_emails=to_email_obj,
@@ -1233,12 +1252,26 @@ class EmailService:
             if settings.get('reply_to_enabled') and settings.get('reply_to'):
                 message.reply_to = Email(settings['reply_to'])
             
+            # 🔥 FIX 6: Log before sending
+            logger.info(f"[EMAIL] Sending to SendGrid: to={to_email} subject='{rendered_subject[:50]}'")
+            
             # Send email
             response = self.client.send(message)
             
+            # 🔥 FIX 6: CRITICAL - Log SendGrid response details
+            logger.info(f"[EMAIL] SendGrid response: status_code={response.status_code}")
+            logger.info(f"[EMAIL] SendGrid response headers: {dict(response.headers) if hasattr(response, 'headers') else 'N/A'}")
+            
+            # 🔥 FIX 6: Check for status 202 (SendGrid accepted) or 2xx success
             if response.status_code >= 200 and response.status_code < 300:
                 # Success - update status
                 provider_message_id = response.headers.get('X-Message-Id', None)
+                
+                # 🔥 FIX 6: Explicit logging for status 202 vs other 2xx
+                if response.status_code == 202:
+                    logger.info(f"[EMAIL] ✅ SendGrid ACCEPTED (202): business_id={business_id} email_id={email_id}")
+                else:
+                    logger.info(f"[EMAIL] ✅ SendGrid success ({response.status_code}): business_id={business_id} email_id={email_id}")
                 
                 db.session.execute(
                     sa_text("""
@@ -1265,8 +1298,15 @@ class EmailService:
                     'message': 'Email sent successfully'
                 }
             else:
-                # SendGrid returned error status
-                error_msg = f"SendGrid error: {response.status_code}"
+                # 🔥 FIX 6: SendGrid returned error status - log full details
+                error_msg = f"SendGrid error: status={response.status_code}"
+                try:
+                    error_body = response.body.decode('utf-8') if hasattr(response, 'body') else 'N/A'
+                    logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} body={error_body}")
+                    error_msg += f" body={error_body[:200]}"
+                except:
+                    logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code}")
+                
                 logger.error(f"[EMAIL] failed business_id={business_id} email_id={email_id} error={error_msg}")
                 
                 db.session.execute(
