@@ -936,19 +936,15 @@ export function EmailsPage() {
               )}
             </div>
           ) : activeTab === 'templates' ? (
-            // Templates Tab
+            // Templates Tab - READ ONLY (No HTML editing for users)
             <div>
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">תבניות מייל</h2>
-                {isAdmin && (
-                  <button
-                    onClick={handleCreateNewTemplate}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    תבנית חדשה
-                  </button>
-                )}
+                <div>
+                  <h2 className="text-xl font-semibold">תבניות מייל</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    תבניות מוכנות לשימוש - השתמש במערכת הנושאים (Themes) בשליחת מייל
+                  </p>
+                </div>
               </div>
               
               {templatesLoading ? (
@@ -959,6 +955,9 @@ export function EmailsPage() {
                 <div className="text-center py-12">
                   <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-600">אין תבניות להצגה</p>
+                  <p className="text-sm text-gray-500 mt-2">
+                    השתמש במערכת הנושאים היוקרתיים (Luxury Themes) בעת שליחת מייל
+                  </p>
                 </div>
               ) : (
                 <div className="grid gap-4">
@@ -980,21 +979,30 @@ export function EmailsPage() {
                             <Eye className="w-4 h-4" />
                             תצוגה
                           </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleEditTemplate(template)}
-                              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
-                            >
-                              <Pencil className="w-4 h-4" />
-                              ערוך
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+              
+              {/* Info box about using Luxury Themes instead */}
+              <div className="mt-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <Mail className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-blue-900">
+                      💡 שדרוג: השתמש במערכת הנושאים החדשה (Luxury Themes)
+                    </h3>
+                    <p className="text-sm text-blue-700 mt-1">
+                      כאשר שולחים מייל לליד, תוכל לבחור מבין 5 נושאים יוקרתיים עם עיצוב מקצועי.
+                      המערכת החדשה קלה יותר לשימוש ואין צורך בעריכת HTML.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : activeTab === 'settings' ? (
             // Settings Tab
