@@ -475,7 +475,7 @@ def detect_name_from_conversation(text: str) -> Optional[str]:
     # 🔥 FIX: Extended list to prevent false positives like "אשמח" being detected as name
     COMMON_WORDS_TO_EXCLUDE = {
         # Confirmations and responses
-        'כן', 'לא', 'בסדר', 'טוב', 'רוצה', 'צריך', 'יכול', 'אוכל', 'מעוניין',
+        'כן', 'לא', 'בסדר', 'טוב', 'מעוניין',
         'אשמח', 'בטח', 'ודאי', 'בהחלט', 'מעולה', 'יופי', 'נהדר', 'סבבה', 'אוקיי',
         'נכון', 'ברור', 'מובן', 'הבנתי', 'תודה', 'סליחה', 'בבקשה', 'שלום',
         # Location/time words
