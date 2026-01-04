@@ -811,8 +811,9 @@ export function BusinessAISettings() {
                 <span className="text-sm">טוען קולות זמינים...</span>
               </div>
             ) : (
-              {/* 🔥 FIX: Voice dropdown with LTR text alignment for English names */}
-              <div style={{ direction: 'ltr', textAlign: 'left' }}>
+              <>
+                {/* 🔥 FIX: Voice dropdown with LTR text alignment for English names */}
+                <div style={{ direction: 'ltr', textAlign: 'left' }}>
                 <select
                   value={voiceLibrary.voiceId}
                   onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
@@ -836,6 +837,7 @@ export function BusinessAISettings() {
                   ))}
                 </select>
               </div>
+              </>
             )}
             <p className="text-xs text-slate-500 mt-1">
               הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק (רק קולות Realtime נתמכים)
