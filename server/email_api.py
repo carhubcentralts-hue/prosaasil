@@ -983,7 +983,7 @@ def render_theme_template():
             else:
                 # Fallback if business not found
                 business_info = {
-                    'name': 'ProSaaS',
+                    'name': 'העסק שלי',
                     'phone': ''
                 }
             
@@ -1019,7 +1019,7 @@ def render_theme_template():
         except Exception as e:
             logger.warning(f"[EMAIL_API] Failed to fetch context info: {e}")
             # Provide fallbacks even on DB errors
-            business_info = {'name': 'ProSaaS', 'phone': ''}
+            business_info = {'name': 'העסק שלי', 'phone': ''}
             lead_info = {'first_name': 'שם', 'last_name': '', 'email': '', 'phone': ''}
         
         # 🔥 FIX: Render variables in all fields with proper context
