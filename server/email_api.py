@@ -140,6 +140,14 @@ def get_email_settings():
                 'reply_to': settings['reply_to'],
                 'is_enabled': settings['is_enabled'],
                 'provider': settings['provider'],
+                'theme_id': settings.get('theme_id', 'classic_blue'),
+                'cta_default_text': settings.get('cta_default_text'),
+                'cta_default_url': settings.get('cta_default_url'),
+                'footer_text': settings.get('footer_text'),
+                'footer_html': settings.get('footer_html'),
+                'default_greeting': settings.get('default_greeting'),
+                'brand_primary_color': settings.get('brand_primary_color'),
+                'brand_logo_url': settings.get('brand_logo_url'),
                 'created_at': settings['created_at'].isoformat() if settings['created_at'] else None,
                 'updated_at': settings['updated_at'].isoformat() if settings['updated_at'] else None
             },
@@ -158,7 +166,7 @@ def save_email_settings():
     Admin/Owner only
     
     🔒 CRITICAL: from_email is ENFORCED to noreply@prosaas.pro
-    Business can customize branding, greeting, footer, and reply_to
+    Business can customize branding, greeting, footer, theme, and reply_to
     
     Request body:
         {
@@ -170,6 +178,9 @@ def save_email_settings():
             "default_greeting": "שלום {{lead.first_name}},",  // optional
             "footer_html": "<p>Contact us...</p>",  // optional
             "footer_text": "Contact us...",  // optional
+            "theme_id": "classic_blue",  // optional
+            "cta_default_text": "Click here",  // optional
+            "cta_default_url": "https://...",  // optional
             "is_enabled": true
         }
     
@@ -202,6 +213,9 @@ def save_email_settings():
         footer_html = data.get('footer_html', '').strip() or None
         footer_text = data.get('footer_text', '').strip() or None
         is_enabled = data.get('is_enabled', True)
+        theme_id = data.get('theme_id', '').strip() or None
+        cta_default_text = data.get('cta_default_text', '').strip() or None
+        cta_default_url = data.get('cta_default_url', '').strip() or None
         
         # Save settings (from_email is enforced internally)
         email_service = get_email_service()
@@ -215,7 +229,10 @@ def save_email_settings():
             default_greeting=default_greeting,
             footer_html=footer_html,
             footer_text=footer_text,
-            is_enabled=is_enabled
+            is_enabled=is_enabled,
+            theme_id=theme_id,
+            cta_default_text=cta_default_text,
+            cta_default_url=cta_default_url
         )
         
         if not success:
