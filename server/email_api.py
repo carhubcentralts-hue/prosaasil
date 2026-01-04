@@ -899,6 +899,14 @@ def render_theme_template():
         fields = data.get('fields', {})
         lead_id = data.get('lead_id')
         
+        # 🔒 SECURITY: Validate theme_id to prevent injection
+        from server.services.email_template_themes import EMAIL_TEMPLATE_THEMES
+        if theme_id not in EMAIL_TEMPLATE_THEMES:
+            return jsonify({
+                'error': 'Invalid theme_id',
+                'message': f'Theme must be one of: {", ".join(EMAIL_TEMPLATE_THEMES.keys())}'
+            }), 400
+        
         # Get business and lead info for variable substitution
         business_info = None
         lead_info = None

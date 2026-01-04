@@ -2,6 +2,7 @@
 Email Template Themes - Luxury Pre-built Templates
 Professional email templates with different visual styles
 """
+import html
 
 # 🎨 Luxury Email Templates Catalog
 # Each template has a unique visual style with colors, buttons, and layout
@@ -153,7 +154,14 @@ def get_template_html(theme_id: str, fields: dict) -> str:
     cta_url = fields.get("cta_url", theme["default_fields"]["cta_url"])
     footer = fields.get("footer", theme["default_fields"]["footer"])
     
-    # Convert newlines to <br> tags in body
+    # 🔒 SECURITY: Escape HTML in user-provided content to prevent XSS
+    greeting = html.escape(greeting)
+    body = html.escape(body)
+    cta_text = html.escape(cta_text)
+    cta_url = html.escape(cta_url)
+    footer = html.escape(footer)
+    
+    # Convert newlines to <br> tags in body (after escaping)
     body_html = body.replace("\n", "<br>")
     footer_html = footer.replace("\n", "<br>")
     
