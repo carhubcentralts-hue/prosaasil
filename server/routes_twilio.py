@@ -434,8 +434,12 @@ def incoming_call():
     ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
     ✅ BUILD 155: Support both GET and POST (Twilio may use either)
     """
-    t0 = time.time()
-    logger.info(f"[GREETING_PROFILER] incoming_call START at {t0}")
+    # ═══════════════════════════════════════════════════════════════════════
+    # 🔥 GREETING_PROFILER T-TW0: Webhook entry point - first timestamp
+    # This is the moment Twilio's request hits our server
+    # ═══════════════════════════════════════════════════════════════════════
+    t_tw0 = time.time()
+    logger.info(f"[GREETING_PROFILER] T-TW0=WEBHOOK_START ts={t_tw0:.3f}")
     
     # ✅ BUILD 155: Support both GET (query params) and POST (form data)
     if request.method == "GET":
@@ -623,13 +627,19 @@ def incoming_call():
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
     
-    # ⏱️ מדידה
-    t1 = time.time()
-    twiml_ms = int((t1 - t0) * 1000)
+    # ═══════════════════════════════════════════════════════════════════════
+    # 🔥 GREETING_PROFILER T-TW1: TwiML ready - response about to be sent
+    # ═══════════════════════════════════════════════════════════════════════
+    t_tw1 = time.time()
+    twiml_ms = int((t_tw1 - t_tw0) * 1000)
     
-    # 🔥 GREETING PROFILER: Save TwiML ready timestamp for timeline analysis
+    # Store profiler timestamps for timeline analysis
     if call_sid:
-        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
+        stream_registry.set_metric(call_sid, 't_tw0', t_tw0)  # Webhook start
+        stream_registry.set_metric(call_sid, 't_tw1', t_tw1)  # TwiML ready
+        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t_tw1)  # Legacy compat
+    
+    logger.info(f"[GREETING_PROFILER] T-TW1=TWIML_READY ts={t_tw1:.3f} T-TW0→T-TW1={twiml_ms}ms")
     
     # 🔥 GREETING SLA: Assert TwiML generation is fast enough
     # 🔥 FIX: Raise threshold to 350ms (313ms seen in production + margin)
@@ -637,8 +647,6 @@ def incoming_call():
     twiml_threshold_ms = int(os.getenv("TWIML_SLA_MS", "350"))
     if twiml_ms > twiml_threshold_ms:
         logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > {twiml_threshold_ms}ms for {call_sid[:16]}")
-    
-    logger.info(f"[GREETING_PROFILER] incoming_call TwiML ready in {twiml_ms}ms")
     
     status_emoji = "✅" if twiml_ms < twiml_threshold_ms else "⚠️"
     print(f"{status_emoji} incoming_call: {twiml_ms}ms - {call_sid[:16]}")

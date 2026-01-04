@@ -301,28 +301,55 @@ class LeadAutoStatusService:
                 except Exception as e:
                     log.warning(f"[AutoStatus] Could not check lead status/history: {e}")
             
-            # Build status list for prompt
-            status_list = "\n".join([f"- {name}: {desc}" for name, desc in valid_statuses.items()])
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 CRITICAL FIX: Build status list showing BOTH id AND Hebrew label
+            # AI sees Hebrew to understand meaning, but MUST return only the status_id
+            # Format: "status_id" → תווית בעברית
+            # ═══════════════════════════════════════════════════════════════════════
+            status_list_lines = []
+            full_statuses = self._get_valid_statuses_full(tenant_id) if tenant_id else []
             
-            # 🔥 SIMPLIFIED SMART PROMPT - Much shorter and more effective!
+            # Build a clean list of valid status_ids for the AI
+            valid_status_ids = []
+            
+            for status in full_statuses:
+                status_id = status.name  # This is the ONLY valid value to return
+                label_he = status.label or status.name  # Hebrew display name
+                desc = status.description or ""
+                
+                valid_status_ids.append(status_id)
+                
+                # Format: "status_id" → תווית (תיאור)
+                if desc:
+                    status_list_lines.append(f'"{status_id}" → {label_he} ({desc})')
+                else:
+                    status_list_lines.append(f'"{status_id}" → {label_he}')
+            
+            status_list = "\n".join(status_list_lines)
+            valid_ids_str = ", ".join([f'"{sid}"' for sid in valid_status_ids])
+            
+            # 🔥 STRICT PROMPT: AI must return ONLY a status_id from the list
             prompt = f"""סיכום שיחה {'נכנסת' if call_direction == 'inbound' else 'יוצאת'}:
 {conversation_text}
 {current_status_info}{call_history_info}
 
-סטטוסים זמינים:
+רשימת סטטוסים (פורמט: "status_id" → תווית בעברית):
 {status_list}
 
-בחר את הסטטוס המתאים ביותר לסיכום. התאם בצורה חכמה וגמישה:
-- "אין מענה"/"לא נענה"/"תא קולי"/"קו תפוס" → חפש סטטוס no_answer/voicemail/busy
-- "מעוניין"/"רוצה"/"יכול להיות מעניין" → interested/hot
-- "נקבעה פגישה" → appointment/meeting/qualified
-- "לא מעוניין"/"לא רלוונטי" → not_interested/not_relevant
-- "ניתק באמצע"/"ניתוק" → disconnected/hung_up/mid_call
-- "ביקש לחזור"/"תחזור אליי" → callback/follow_up
+═══════════════════════════════════════════════════
+⚠️ הנחיה קריטית:
+בחר את הסטטוס המתאים ביותר לפי התווית בעברית.
+אבל החזר רק את ה-status_id (הטקסט בין הגרשיים) - לא את התווית!
 
-אם הליד כבר ב-no_answer/אין מענה וזה שוב אין מענה, חפש סטטוס עם מספר גבוה יותר (no_answer_2, אין מענה 2, וכו').
+ערכים חוקיים בלבד: {valid_ids_str}
 
-החזר רק את שם הסטטוס מהרשימה (lowercase) או "none" אם אין התאמה."""
+דוגמאות נכונות:
+- אם התווית היא "אין מענה" וה-id הוא "no_answer" → החזר: no_answer
+- אם התווית היא "מתעניין" וה-id הוא "interested" → החזר: interested
+- אם התווית היא "אין מענה 2" וה-id הוא "custom_abc123" → החזר: custom_abc123
+
+החזר רק את ה-status_id (ללא גרשיים) או "none" אם אין התאמה.
+═══════════════════════════════════════════════════"""
 
             # Call OpenAI
             response = client.chat.completions.create(
@@ -330,44 +357,169 @@ class LeadAutoStatusService:
                 messages=[
                     {
                         "role": "system",
-                        "content": """אתה מערכת חכמה לניתוח שיחות והתאמת סטטוסים.
+                        "content": f"""אתה מערכת לניתוח שיחות ובחירת סטטוס ליד.
 
-המשימה: למצוא את הסטטוס המתאים ביותר לסיכום השיחה.
+המשימה: לבחור status_id מתוך רשימה סגורה.
 
-היה חכם וגמיש:
-- השתמש בזיהוי סמנטי (מילים נרדפות, חלקי מילים, עברית+אנגלית)
-- תן משקל למשך השיחה וסיבת הסיום
-- אם הליד כבר ב-no_answer וזה שוב אין מענה, חפש סטטוס עם מספר גבוה יותר
+כללים מחייבים:
+1. קרא את התווית בעברית כדי להבין את המשמעות
+2. החזר רק את ה-status_id (הטקסט באנגלית/קוד) - לא את התווית בעברית!
+3. החזר ערך אחד בלבד מתוך הרשימה הסגורה
+4. אם אין התאמה, החזר "none"
 
-החזר רק שם הסטטוס מהרשימה (lowercase) או "none"."""
+ערכים חוקיים: {valid_ids_str}
+
+אסור להחזיר:
+- תווית בעברית (כמו "אין מענה")
+- וריאציות (כמו "no_answer_2" אם לא קיים ברשימה)
+- טקסט חופשי"""
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.5,
-                max_tokens=50
+                temperature=0.1,  # Very low temperature for deterministic output
+                max_tokens=30
             )
             
             suggested_status = response.choices[0].message.content.strip().lower()
+            # Clean up any quotes or extra whitespace
+            suggested_status = suggested_status.strip('"\'').strip()
             
             log.info(f"[AutoStatus] 🤖 AI raw response: '{suggested_status}'")
             log.info(f"[AutoStatus] 📋 Summary analyzed: '{conversation_text[:150]}...'")
+            log.info(f"[AutoStatus] 📝 Valid status_ids: {valid_status_ids[:10]}...")
             
-            # Validate the suggested status is in our list
-            if suggested_status in valid_statuses:
-                log.info(f"[AutoStatus] ✅ AI suggested valid status: '{suggested_status}' - APPLYING!")
-                return suggested_status
+            # Validate the suggested status is in our list (case-insensitive check)
+            valid_status_ids_lower = [sid.lower() for sid in valid_status_ids]
+            
+            if suggested_status in valid_status_ids_lower:
+                # Find the original case version
+                original_case_status = valid_status_ids[valid_status_ids_lower.index(suggested_status)]
+                log.info(f"[AutoStatus] ✅ AI suggested valid status: '{original_case_status}' - APPLYING!")
+                return original_case_status
             elif suggested_status == "none":
                 log.info(f"[AutoStatus] ⚪ AI returned 'none' - no status change needed")
                 return None
             else:
-                log.warning(f"[AutoStatus] ⚠️ AI suggested invalid status: '{suggested_status}' - not in valid list")
-                log.info(f"[AutoStatus] 📝 Available statuses: {', '.join(list(valid_statuses.keys())[:10])}...")
+                # 🔥 FALLBACK: Try to map AI response to valid status using label/synonym matching
+                # This handles edge cases where AI still returns a label or variant
+                log.warning(f"[AutoStatus] ⚠️ AI returned '{suggested_status}' - not in valid list, trying fallback mapping...")
+                
+                # Try label-based mapping
+                mapped_status = self._map_label_to_status_id(suggested_status, tenant_id)
+                if mapped_status:
+                    log.info(f"[AutoStatus] ✅ Fallback mapped '{suggested_status}' → '{mapped_status}'")
+                    return mapped_status
+                
+                log.warning(f"[AutoStatus] ❌ INVALID STATUS: AI returned '{suggested_status}' which doesn't match any valid status_id")
+                log.info(f"[AutoStatus] 📝 Valid status_ids were: {valid_status_ids}")
             
             return None
             
         except Exception as e:
             log.error(f"[AutoStatus] Error in AI status suggestion: {e}")
             return None
+    
+    def _map_label_to_status_id(self, label_or_variant: str, tenant_id: int) -> Optional[str]:
+        """
+        🔥 FIX: Map AI response (label/variant) to valid status_id
+        
+        This handles cases where AI returns:
+        - Hebrew label (e.g., "אין מענה 2")
+        - English variant (e.g., "no_answer_2", "no answer 2")
+        - Mixed (e.g., "no_answer_2" when status_id is "custom_xyz123")
+        
+        Args:
+            label_or_variant: The AI's suggested status (may be label, not ID)
+            tenant_id: Business ID
+            
+        Returns:
+            Valid status_id (name) or None if no match found
+        """
+        if not label_or_variant:
+            return None
+            
+        # Get full status objects with labels
+        full_statuses = self._get_valid_statuses_full(tenant_id)
+        if not full_statuses:
+            return None
+        
+        label_lower = label_or_variant.lower().strip()
+        
+        # Strategy 1: Exact match on name (already checked, but for completeness)
+        for status in full_statuses:
+            if status.name.lower() == label_lower:
+                return status.name
+        
+        # Strategy 2: Exact match on label (Hebrew display name)
+        for status in full_statuses:
+            if status.label and status.label.lower() == label_lower:
+                log.info(f"[AutoStatus] Label match: '{label_lower}' → '{status.name}' (label='{status.label}')")
+                return status.name
+        
+        # Strategy 3: Partial/fuzzy match on label
+        # Handle cases like "אין מענה 2" matching status with label "אין מענה 2"
+        for status in full_statuses:
+            if status.label:
+                status_label_lower = status.label.lower()
+                # Check if labels are semantically similar
+                if (label_lower in status_label_lower or 
+                    status_label_lower in label_lower):
+                    log.info(f"[AutoStatus] Partial label match: '{label_lower}' → '{status.name}' (label='{status.label}')")
+                    return status.name
+        
+        # Strategy 4: Pattern-based mapping for common cases
+        # Handle "no_answer_2" style variants
+        no_answer_patterns = ['no_answer', 'no answer', 'אין מענה', 'לא ענה', 'לא נענה']
+        is_no_answer_variant = any(p in label_lower for p in no_answer_patterns)
+        
+        if is_no_answer_variant:
+            # Extract number if present (e.g., "no_answer_2" → 2)
+            import re
+            numbers = re.findall(r'\d+', label_lower)
+            target_number = int(numbers[-1]) if numbers else None
+            
+            if target_number:
+                # Look for status with that number in name or label
+                for status in full_statuses:
+                    status_name_lower = status.name.lower()
+                    status_label_lower = (status.label or "").lower()
+                    
+                    # Check if this status has the same number
+                    name_numbers = re.findall(r'\d+', status_name_lower)
+                    label_numbers = re.findall(r'\d+', status_label_lower)
+                    
+                    if ((name_numbers and int(name_numbers[-1]) == target_number) or
+                        (label_numbers and int(label_numbers[-1]) == target_number)):
+                        # Verify it's a no-answer type status
+                        if any(p in status_name_lower or p in status_label_lower for p in no_answer_patterns):
+                            log.info(f"[AutoStatus] Number pattern match: '{label_lower}' → '{status.name}' (target_num={target_number})")
+                            return status.name
+            
+            # Fallback: return base no_answer status if exists
+            for status in full_statuses:
+                if status.name.lower() in ['no_answer', 'נא מענה']:
+                    log.info(f"[AutoStatus] Fallback to base no_answer: '{label_lower}' → '{status.name}'")
+                    return status.name
+        
+        # Strategy 5: Synonym-based matching
+        synonym_groups = {
+            'voicemail': ['voicemail', 'תא קולי', 'משיבון'],
+            'busy': ['busy', 'תפוס', 'קו תפוס'],
+            'interested': ['interested', 'מעוניין', 'מתעניין', 'hot', 'חם'],
+            'not_interested': ['not_interested', 'לא מעוניין', 'not_relevant', 'לא רלוונטי'],
+            'follow_up': ['follow_up', 'callback', 'חזרה', 'לחזור'],
+        }
+        
+        for base_status, synonyms in synonym_groups.items():
+            if any(syn in label_lower for syn in synonyms):
+                # Find matching status
+                for status in full_statuses:
+                    if any(syn in status.name.lower() or syn in (status.label or "").lower() 
+                           for syn in synonyms):
+                        log.info(f"[AutoStatus] Synonym match: '{label_lower}' → '{status.name}'")
+                        return status.name
+        
+        return None
     
     def _map_from_structured_extraction(self, extraction: dict, valid_statuses: set) -> Optional[str]:
         """

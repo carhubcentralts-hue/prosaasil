@@ -9907,6 +9907,26 @@ class MediaStreamHandler:
                     start_event_ts = time.time()
                     start_delay_ms = int((start_event_ts - self._ws_open_ts) * 1000)
                     
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 GREETING_PROFILER T-WS0: Twilio Media Stream connected
+                    # This is when we receive the "start" event from Twilio's WebSocket
+                    # ═══════════════════════════════════════════════════════════════════════
+                    self._greeting_profiler_t_ws0 = start_event_ts
+                    
+                    # Try to calculate time from TwiML response (T-TW1) to WS start (T-WS0)
+                    t_tw1 = None
+                    if self.call_sid:
+                        from server.stream_state import stream_registry
+                        t_tw1 = stream_registry.get_metric(self.call_sid, 't_tw1')
+                    
+                    if t_tw1:
+                        tw1_to_ws0_ms = int((start_event_ts - t_tw1) * 1000)
+                        _orig_print(f"⏱️ [GREETING_PROFILER] T-WS0=STREAM_START ts={start_event_ts:.3f} T-TW1→T-WS0={tw1_to_ws0_ms}ms (Twilio connect time)", flush=True)
+                        logger.info(f"[GREETING_PROFILER] T-WS0=STREAM_START T-TW1→T-WS0={tw1_to_ws0_ms}ms")
+                    else:
+                        _orig_print(f"⏱️ [GREETING_PROFILER] T-WS0=STREAM_START ts={start_event_ts:.3f} (delay from WS open: {start_delay_ms}ms)", flush=True)
+                        logger.info(f"[GREETING_PROFILER] T-WS0=STREAM_START delay={start_delay_ms}ms from WS open")
+                    
                     # 🔥 BUILD 169: Generate unique session ID for logging
                     import uuid
                     self._call_session_id = f"SES-{uuid.uuid4().hex[:8]}"

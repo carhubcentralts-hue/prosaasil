@@ -472,13 +472,28 @@ def detect_name_from_conversation(text: str) -> Optional[str]:
     ]
     
     # Common words to filter out (not names)
+    # 🔥 FIX: Extended list to prevent false positives like "אשמח" being detected as name
     COMMON_WORDS_TO_EXCLUDE = {
+        # Confirmations and responses
         'כן', 'לא', 'בסדר', 'טוב', 'רוצה', 'צריך', 'יכול', 'אוכל', 'מעוניין',
+        'אשמח', 'בטח', 'ודאי', 'בהחלט', 'מעולה', 'יופי', 'נהדר', 'סבבה', 'אוקיי',
+        'נכון', 'ברור', 'מובן', 'הבנתי', 'תודה', 'סליחה', 'בבקשה', 'שלום',
+        # Location/time words
         'כאן', 'שם', 'פה', 'איפה', 'מתי', 'למה', 'איך', 'מה', 'מי',
+        'עכשיו', 'היום', 'מחר', 'אתמול', 'אחרי', 'לפני', 'בערב', 'בבוקר',
+        # Pronouns and demonstratives
         'אותו', 'אותה', 'אותם', 'אותן', 'זה', 'זו', 'זאת', 'אלה',
+        'אותי', 'אתה', 'את', 'הוא', 'היא', 'אנחנו', 'הם', 'הן',
+        # Adverbs and connectors
         'גם', 'רק', 'עוד', 'כבר', 'תמיד', 'לעולם', 'אף', 'פעם',
-        'מאוד', 'הרבה', 'קצת', 'מעט', 'יותר', 'פחות',
-        'שלום', 'תודה', 'סליחה', 'בבקשה', 'נכון',
+        'מאוד', 'הרבה', 'קצת', 'מעט', 'יותר', 'פחות', 'ממש',
+        # Common verbs (present tense, very common in responses)
+        'רוצה', 'צריך', 'יכול', 'אוכל', 'הולך', 'בא', 'עושה', 'אומר',
+        'יודע', 'חושב', 'מבין', 'רואה', 'שומע', 'מדבר', 'קורא',
+        'עוזר', 'עובד', 'גר', 'נמצא', 'מחפש', 'מחכה', 'ממתין',
+        # Numbers and quantities  
+        'אחד', 'שתיים', 'שלוש', 'ארבע', 'חמש', 'שש', 'שבע', 'שמונה', 'תשע', 'עשר',
+        'ראשון', 'שני', 'שלישי', 'הרבה', 'מעט', 'כמה', 'קצת',
     }
     
     # Try regex patterns first
@@ -515,14 +530,24 @@ def _is_likely_a_name_ai_validate(candidate_name: str, context: str) -> bool:
     if len(candidate_name) < 2 or len(candidate_name) > 12:
         return False
     
-    # Check if it's a common verb or adjective (basic list)
+    # 🔥 FIX: Extended list of common non-name words
+    # Check if it's a common verb, adjective, or response word
     COMMON_NON_NAMES = {
-        'רוצה', 'צריך', 'יכול', 'אוכל', 'הולך', 'בא', 'עושה',
-        'טוב', 'יפה', 'גדול', 'קטן', 'חדש', 'ישן'
+        # Verbs
+        'רוצה', 'צריך', 'יכול', 'אוכל', 'הולך', 'בא', 'עושה', 'אומר',
+        'יודע', 'חושב', 'מבין', 'רואה', 'שומע', 'מדבר', 'קורא',
+        'עוזר', 'עובד', 'גר', 'נמצא', 'מחפש', 'מחכה', 'ממתין',
+        # Adjectives
+        'טוב', 'יפה', 'גדול', 'קטן', 'חדש', 'ישן', 'נחמד', 'מעולה',
+        # Response words (most critical for the "אשמח" bug)
+        'אשמח', 'בטח', 'ודאי', 'בהחלט', 'נהדר', 'סבבה', 'מצוין',
+        'בסדר', 'אוקיי', 'יופי', 'תודה', 'נכון', 'ברור', 'הבנתי',
+        # Other common non-names
+        'כאן', 'שם', 'פה', 'היום', 'עכשיו', 'מחר', 'אתמול',
     }
     
     if candidate_name.lower() in COMMON_NON_NAMES:
-        logger.debug(f"[NAME_DETECT] Rejected '{candidate_name}' - common verb/adjective")
+        logger.debug(f"[NAME_DETECT] Rejected '{candidate_name}' - common verb/adjective/response")
         return False
     
     # If we get here, it's likely a name
