@@ -479,19 +479,6 @@ export function EmailsPage() {
       setComposeLoading(false);
     }
   };
-        body_text: emailHtml.trim().replace(/<[^>]*>/g, '')
-      });
-      
-      setSuccessMessage('מייל נשלח בהצלחה');
-      setShowComposeModal(false);
-      resetComposeForm();
-      loadEmails();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
-    } finally {
-      setComposeLoading(false);
-    }
-  };
   
   const handlePreviewTemplate = async (template: EmailTemplate) => {
     setPreviewTemplate(template);
