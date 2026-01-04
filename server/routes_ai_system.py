@@ -268,7 +268,7 @@ async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
             })
             
             # Collect audio chunks with timeout
-            timeout = 10.0  # 10 second timeout
+            timeout = 6.0  # 6 second timeout for preview generation
             start_time = asyncio.get_event_loop().time()
             
             async for event in client.recv_events():
