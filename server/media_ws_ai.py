@@ -10007,7 +10007,9 @@ class MediaStreamHandler:
                                         full_name = crm_lead.full_name or f"{crm_lead.first_name or ''} {crm_lead.last_name or ''}".strip()
                                         if full_name and full_name != "ללא שם":
                                             from server.services.realtime_prompt_builder import extract_first_name
-                                            crm_name = extract_first_name(full_name) or ""
+                                            first_name_result = extract_first_name(full_name)
+                                            # extract_first_name returns Optional[str], convert None to empty string
+                                            crm_name = first_name_result if first_name_result else ""
                                         
                                         # Get other fields (use empty string instead of None)
                                         crm_gender = str(crm_lead.gender or "")
@@ -10048,8 +10050,7 @@ class MediaStreamHandler:
                                     crm_retry_count = attempt + 1
                                     
                                     if attempt == 0:  # First attempt failed, try retry
-                                        import time as time_module
-                                        time_module.sleep(0.3)  # Wait 300ms before retry
+                                        time.sleep(0.3)  # Wait 300ms before retry
                                         logger.warning(f"[CRM_CONTEXT] Load failed on attempt {attempt + 1}, retrying: {crm_err}")
                                     else:  # Retry also failed
                                         t_crm_end = time.time()
