@@ -329,13 +329,10 @@ class LeadAutoStatusService:
                 parsed = json.loads(ai_response)
                 selected_label = parsed.get("selected_label_he", "").strip()
             except json.JSONDecodeError:
-                # If JSON parsing fails, try to extract the label directly
-                log.warning(f"[AutoStatus] JSON parsing failed, trying direct extraction")
-                # Try to find the label in the response
-                for label in hebrew_labels_list:
-                    if label in ai_response:
-                        selected_label = label
-                        break
+                # If JSON parsing fails, don't try to extract label from raw response
+                # This prevents incorrect matches from partial substring matching
+                log.warning(f"[AutoStatus] JSON parsing failed - no status change (raw: '{ai_response[:100]}')")
+                return None
             
             log.info(f"[AutoStatus] 📋 AI selected label: '{selected_label}'")
             
@@ -367,9 +364,7 @@ class LeadAutoStatusService:
             return None
             
         except Exception as e:
-            log.error(f"[AutoStatus] Error in AI status suggestion: {e}")
-            import traceback
-            traceback.print_exc()
+            log.error(f"[AutoStatus] Error in AI status suggestion: {e}", exc_info=True)
             return None
     
     def _map_label_to_status_id(self, label_or_variant: str, tenant_id: int) -> Optional[str]:

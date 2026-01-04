@@ -5842,18 +5842,20 @@ class MediaStreamHandler:
                     else:
                         print(f"🎤 [SPEECH_STARTED] User started speaking")
                     
-                    # 🔥 NEW REQUIREMENT: ECHO PROTECTION - Verify real speech vs background noise
-                    # Check time since last AI audio to avoid canceling on echo
+                    # 🔥 ANTI-ECHO COOLDOWN: Stricter validation during cooldown window after AI starts speaking
+                    # This prevents false barge-in from echo/noise bouncing back
                     now = time.time()
                     time_since_ai_audio = (now - self._last_ai_audio_ts) * 1000 if self._last_ai_audio_ts else 999999
                     
-                    # If speech detected within ECHO_WINDOW after AI audio, be cautious
-                    is_in_echo_window = time_since_ai_audio < ECHO_WINDOW_MS
+                    # If speech detected within ANTI_ECHO_COOLDOWN_MS after AI audio, apply stricter validation
+                    is_in_cooldown = time_since_ai_audio < ANTI_ECHO_COOLDOWN_MS
                     
-                    if is_in_echo_window:
-                        # Within echo window - this might be echo, not real speech
-                        # Log but continue - we'll verify with transcription
-                        print(f"⚠️ [ECHO_CHECK] Speech {time_since_ai_audio:.0f}ms after AI (within {ECHO_WINDOW_MS}ms window) - verifying...")
+                    if is_in_cooldown:
+                        # Within cooldown window - require higher voice frames threshold
+                        # During this window, be more cautious about triggering barge-in
+                        print(f"⚠️ [ANTI_ECHO] Speech {time_since_ai_audio:.0f}ms after AI (within {ANTI_ECHO_COOLDOWN_MS}ms cooldown) - stricter validation")
+                        # Note: RMS validation would happen here if we had RMS data, but OpenAI VAD
+                        # doesn't provide RMS. The increased BARGE_IN_VOICE_FRAMES handles this.
 
                     # 🔥 REMOVED: greeting_lock check - allow speech detection during greeting
                     
