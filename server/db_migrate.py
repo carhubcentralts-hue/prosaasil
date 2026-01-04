@@ -2345,6 +2345,52 @@ def apply_migrations():
         
         checkpoint("✅ Migration 62 completed - Email templates seeded")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 63: Add theme-based email settings fields
+        # 🎨 PURPOSE: Enable luxury email themes with simple field editing (no HTML)
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 63: Adding theme-based email settings fields")
+        
+        if check_table_exists('email_settings'):
+            try:
+                # Add theme_id column if missing
+                if not check_column_exists('email_settings', 'theme_id'):
+                    checkpoint("  → Adding theme_id to email_settings...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_settings 
+                        ADD COLUMN theme_id VARCHAR(50) DEFAULT 'classic_blue'
+                    """))
+                    checkpoint("  ✅ email_settings.theme_id added")
+                    migrations_applied.append('add_email_settings_theme_id')
+                
+                # Add cta_default_text column if missing
+                if not check_column_exists('email_settings', 'cta_default_text'):
+                    checkpoint("  → Adding cta_default_text to email_settings...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_settings 
+                        ADD COLUMN cta_default_text VARCHAR(200)
+                    """))
+                    checkpoint("  ✅ email_settings.cta_default_text added")
+                    migrations_applied.append('add_email_settings_cta_default_text')
+                
+                # Add cta_default_url column if missing
+                if not check_column_exists('email_settings', 'cta_default_url'):
+                    checkpoint("  → Adding cta_default_url to email_settings...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_settings 
+                        ADD COLUMN cta_default_url VARCHAR(500)
+                    """))
+                    checkpoint("  ✅ email_settings.cta_default_url added")
+                    migrations_applied.append('add_email_settings_cta_default_url')
+                
+                checkpoint("✅ Migration 63 completed - Theme-based email settings fields added")
+            except Exception as e:
+                log.error(f"❌ Migration 63 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ email_settings table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
