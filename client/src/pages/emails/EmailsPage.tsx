@@ -94,12 +94,7 @@ export function EmailsPage() {
   
   // Compose email modal state
   const [showComposeModal, setShowComposeModal] = useState(false);
-  const [composeMode, setComposeMode] = useState<'lead' | 'manual'>('lead');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
-  const [manualEmail, setManualEmail] = useState('');
-  const [emailSubject, setEmailSubject] = useState('');
-  const [emailHtml, setEmailHtml] = useState('');
   const [composeLoading, setComposeLoading] = useState(false);
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
   const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
@@ -350,8 +345,10 @@ export function EmailsPage() {
   const searchLeads = async () => {
     try {
       setLeadSearchLoading(true);
+      console.log('[EmailsPage] Searching leads with query:', leadSearchQuery);
       const response = await axios.get(`/api/leads?q=${encodeURIComponent(leadSearchQuery)}&pageSize=20`);
       const leads = response.data.leads || [];
+      console.log('[EmailsPage] ✅ Found', leads.length, 'leads for search');
       setLeadSearchResults(leads.map((l: any) => ({
         id: l.id,
         first_name: l.first_name || '',
@@ -360,7 +357,12 @@ export function EmailsPage() {
         phone_e164: l.phone_e164 || ''
       })));
     } catch (err: any) {
-      console.error('Failed to search leads:', err);
+      console.error('[EmailsPage] ❌ Failed to search leads:', err);
+      console.error('[EmailsPage] Error details:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message
+      });
     } finally {
       setLeadSearchLoading(false);
     }
@@ -377,11 +379,14 @@ export function EmailsPage() {
       params.append('page', append ? (leadsPage + 1).toString() : '1');
       params.append('pageSize', '50'); // Load 50 leads per page
       
+      console.log('[EmailsPage] Loading leads with params:', params.toString());
+      
       const response = await axios.get(`/api/leads?${params.toString()}`);
       const leads = response.data.leads || [];
       const total = response.data.total || 0;
       
-      console.log('[EmailsPage] Loaded leads:', leads.length, 'total:', total);
+      console.log('[EmailsPage] ✅ Loaded leads successfully:', leads.length, 'total:', total);
+      console.log('[EmailsPage] Response data:', { leads: leads.length, total, hasLeads: leads.length > 0 });
       
       const mappedLeads = leads.map((l: any) => ({
         id: l.id,
@@ -402,11 +407,19 @@ export function EmailsPage() {
         setLeadsPage(1);
       }
       
+      console.log('[EmailsPage] State updated with', mappedLeads.length, 'leads');
+      
       // Check if there are more leads to load
       const currentTotal = append ? allLeads.length + mappedLeads.length : mappedLeads.length;
       setLeadsHasMore(currentTotal < total);
     } catch (err: any) {
-      console.error('Failed to load leads:', err);
+      console.error('[EmailsPage] ❌ Failed to load leads:', err);
+      console.error('[EmailsPage] Error details:', {
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+        message: err.message
+      });
       const errorMsg = err.response?.data?.error || err.message || 'שגיאה בטעינת לידים';
       setError(errorMsg);
     } finally {
@@ -479,19 +492,6 @@ export function EmailsPage() {
       setComposeLoading(false);
     }
   };
-        body_text: emailHtml.trim().replace(/<[^>]*>/g, '')
-      });
-      
-      setSuccessMessage('מייל נשלח בהצלחה');
-      setShowComposeModal(false);
-      resetComposeForm();
-      loadEmails();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
-    } finally {
-      setComposeLoading(false);
-    }
-  };
   
   const handlePreviewTemplate = async (template: EmailTemplate) => {
     setPreviewTemplate(template);
@@ -509,41 +509,6 @@ export function EmailsPage() {
       setError('שגיאה בטעינת תצוגה מקדימה');
     } finally {
       setPreviewLoading(false);
-    }
-  };
-  
-  const handleSelectTemplate = async (template: EmailTemplate) => {
-    setSelectedTemplate(template);
-    
-    // Load template content and populate form
-    try {
-      const leadData = selectedLead ? {
-        first_name: selectedLead.first_name,
-        last_name: selectedLead.last_name,
-        email: selectedLead.email
-      } : {
-        first_name: 'שם',
-        last_name: 'לקוח',
-        email: 'example@test.com'
-      };
-      
-      const response = await axios.post(`/api/email/templates/${template.id}/preview`, {
-        lead: leadData
-      });
-      
-      setEmailSubject(response.data.preview.subject);
-      setEmailHtml(response.data.preview.html);
-    } catch (err: any) {
-      console.error('Failed to load template:', err);
-      // Fallback to template content directly
-      setEmailSubject(template.subject_template);
-      setEmailHtml(template.html_template);
-    }
-  };
-  
-  const handleResetToTemplate = () => {
-    if (selectedTemplate) {
-      handleSelectTemplate(selectedTemplate);
     }
   };
   
@@ -630,10 +595,6 @@ export function EmailsPage() {
   
   const resetComposeForm = () => {
     setSelectedLead(null);
-    setSelectedTemplate(null);
-    setManualEmail('');
-    setEmailSubject('');
-    setEmailHtml('');
     setLeadSearchQuery('');
     setLeadSearchResults([]);
     // Reset theme fields to default
@@ -1267,116 +1228,108 @@ export function EmailsPage() {
       
       {/* Compose Email Modal */}
       {showComposeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[95vh] md:max-h-[90vh] overflow-y-auto">
-            <div className="p-4 md:p-6">
-              {/* Header */}
-              <div className="flex justify-between items-center mb-4 md:mb-6">
-                <h2 className="text-xl md:text-2xl font-bold">שליחת מייל חדש</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full h-full sm:h-auto sm:rounded-2xl sm:shadow-2xl sm:max-w-4xl sm:max-h-[95vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 sm:p-6 z-10 shadow-lg sm:rounded-t-2xl">
+              {/* Header - Mobile Optimized */}
+              <div className="flex justify-between items-center">
+                <div className="flex-1">
+                  <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                    <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
+                    שליחת מייל חדש
+                  </h2>
+                  <p className="text-xs sm:text-sm text-blue-100 mt-1">
+                    עיצוב יוקרתי וקל לשימוש
+                  </p>
+                </div>
                 <button
                   onClick={() => {
                     setShowComposeModal(false);
                     resetComposeForm();
                   }}
-                  className="text-gray-500 hover:text-gray-700 p-1"
+                  className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors shrink-0"
                   aria-label="סגור"
                 >
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              
-              {/* Error Message */}
+            </div>
+            
+            <div className="p-4 sm:p-6 pb-24 sm:pb-6">
+              {/* Error Message - Mobile Optimized */}
               {error && (
-                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-                  {error}
+                <div className="mb-4 bg-red-50 border-l-4 border-red-500 rounded-lg p-3 sm:p-4 text-sm sm:text-base text-red-800 flex items-start gap-2 animate-shake">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <span>{error}</span>
                 </div>
               )}
               
-              <form onSubmit={handleComposeEmail} className="space-y-4 md:space-y-5">
-                {/* Template Selector - Improved */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <label className="block text-sm font-semibold text-blue-900 mb-2">
-                    📝 בחר תבנית מוכנה (אופציונלי)
+              <form onSubmit={handleComposeEmail} className="space-y-4 sm:space-y-5 pb-24 sm:pb-0">
+                {/* 🎨 Luxury Theme Selector - Mobile Optimized */}
+                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-3 sm:p-4 shadow-sm">
+                  <label className="block text-sm sm:text-base font-bold text-purple-900 mb-2 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">🎨</span>
+                    <span>בחר עיצוב יוקרתי למייל</span>
                   </label>
                   
-                  <div className="space-y-2">
-                    {templatesLoading ? (
-                      <div className="text-sm text-gray-600">טוען תבניות...</div>
-                    ) : templates.length > 0 ? (
-                      <>
-                        <select
-                          value={selectedTemplate?.id || ''}
-                          onChange={(e) => {
-                            const templateId = parseInt(e.target.value);
-                            const template = templates.find(t => t.id === templateId);
-                            if (template) {
-                              handleSelectTemplate(template);
-                            } else {
-                              setSelectedTemplate(null);
-                            }
-                          }}
-                          className="w-full px-4 py-2.5 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-base"
-                        >
-                          <option value="">-- בחר תבנית או כתוב בעצמך --</option>
-                          {templates.filter(t => t.is_active).map((template) => (
-                            <option key={template.id} value={template.id}>
-                              {template.name}
-                            </option>
-                          ))}
-                        </select>
-                        
-                        {selectedTemplate && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleResetToTemplate}
-                              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50 transition-colors"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                              אפס לתבנית המקורית
-                            </button>
-                            <span className="text-xs text-blue-700">
-                              ניתן לערוך את התוכן לפני השליחה
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-sm text-gray-500 bg-white p-3 rounded border border-gray-200">
-                        אין תבניות זמינות - ניתן לכתוב מייל חופשי למטה
-                      </div>
-                    )}
-                  </div>
+                  {themesLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+                      <span>טוען עיצובים...</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedThemeId}
+                      onChange={(e) => handleThemeChange(e.target.value)}
+                      className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-purple-300 rounded-xl focus:ring-4 focus:ring-purple-200 focus:border-purple-500 bg-white text-sm sm:text-base font-medium shadow-sm transition-all"
+                    >
+                      {availableThemes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.name} - {theme.description}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-xs sm:text-sm text-purple-700 mt-2 flex items-center gap-1">
+                    <span>✨</span>
+                    <span>עיצובים מוכנים עם צבעים וסגנון מקצועי</span>
+                  </p>
                 </div>
                 
-                {/* Recipient - Lead Picker */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    בחר ליד:
+                {/* Recipient - Lead Picker - Mobile Optimized */}
+                <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-3 sm:p-4">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">👤</span>
+                    <span>בחר ליד *</span>
                   </label>
                   
                   <div className="relative">
-                    <div className="flex items-center border border-gray-300 rounded-lg">
-                      <Search className="w-5 h-5 text-gray-400 mr-3 ml-2" />
+                    <div className="flex items-center border-2 border-gray-300 rounded-xl bg-white focus-within:ring-4 focus-within:ring-blue-200 focus-within:border-blue-500 transition-all">
+                      <Search className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 mr-3 ml-2 shrink-0" />
                       <input
                         type="text"
                         value={leadSearchQuery}
                         onChange={(e) => setLeadSearchQuery(e.target.value)}
                         placeholder="חפש ליד (שם, טלפון, מייל)..."
-                        className="flex-1 px-3 py-2 border-0 focus:ring-0"
+                        className="flex-1 px-2 py-3 sm:py-3.5 border-0 focus:ring-0 text-sm sm:text-base bg-transparent"
                       />
                     </div>
                     
                     {selectedLead && (
-                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg flex justify-between items-center">
-                        <div>
-                          <div className="font-medium">{selectedLead.first_name} {selectedLead.last_name}</div>
-                          <div className="text-sm text-gray-600">{selectedLead.email}</div>
+                      <div className="mt-3 p-3 sm:p-4 bg-gradient-to-r from-blue-50 to-green-50 border-2 border-blue-300 rounded-xl flex justify-between items-center shadow-sm">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-sm sm:text-base truncate">
+                            {selectedLead.first_name} {selectedLead.last_name}
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-700 truncate">
+                            {selectedLead.email}
+                          </div>
                         </div>
                         <button
                           type="button"
                           onClick={() => setSelectedLead(null)}
-                          className="text-red-600 hover:text-red-800"
+                          className="text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg p-2 transition-colors shrink-0 ml-2"
+                          aria-label="הסר ליד"
                         >
                           <X className="w-5 h-5" />
                         </button>
@@ -1384,8 +1337,8 @@ export function EmailsPage() {
                     )}
                     
                     {!selectedLead && leadSearchResults.length > 0 && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                        {leadSearchResults.map((lead) => (
+                      <div className="absolute z-20 w-full mt-2 bg-white border-2 border-gray-300 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                        {leadSearchResults.map((lead, idx) => (
                           <button
                             key={lead.id}
                             type="button"
@@ -1394,10 +1347,14 @@ export function EmailsPage() {
                               setLeadSearchQuery('');
                               setLeadSearchResults([]);
                             }}
-                            className="w-full text-right p-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                            className={`w-full text-right p-3 sm:p-4 hover:bg-blue-50 transition-colors ${
+                              idx !== leadSearchResults.length - 1 ? 'border-b border-gray-200' : ''
+                            }`}
                           >
-                            <div className="font-medium">{lead.first_name} {lead.last_name}</div>
-                            <div className="text-sm text-gray-600">{lead.email}</div>
+                            <div className="font-semibold text-sm sm:text-base">
+                              {lead.first_name} {lead.last_name}
+                            </div>
+                            <div className="text-xs sm:text-sm text-gray-600">{lead.email}</div>
                             <div className="text-xs text-gray-500">{lead.phone_e164}</div>
                           </button>
                         ))}
@@ -1405,76 +1362,300 @@ export function EmailsPage() {
                     )}
                     
                     {leadSearchLoading && (
-                      <div className="mt-2 text-sm text-gray-600">מחפש...</div>
+                      <div className="mt-2 text-sm text-gray-600 flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        <span>מחפש...</span>
+                      </div>
                     )}
                   </div>
                 </div>
                 
-                {/* Subject */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    נושא המייל *
+                {/* Subject - Mobile Optimized */}
+                <div className="space-y-2">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">📧</span>
+                    <span>נושא המייל *</span>
                   </label>
                   <input
                     type="text"
-                    value={emailSubject}
-                    onChange={(e) => setEmailSubject(e.target.value)}
+                    value={themeFields.subject}
+                    onChange={(e) => setThemeFields({...themeFields, subject: e.target.value})}
                     placeholder="לדוגמה: הצעה מיוחדת במיוחד בשבילך"
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                    className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
                     required
                   />
-                  <p className="text-xs text-gray-500 mt-1">נושא המייל שיוצג לנמען</p>
-                </div>
-                
-                {/* Body */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    תוכן המייל *
-                  </label>
-                  <textarea
-                    value={emailHtml}
-                    onChange={(e) => setEmailHtml(e.target.value)}
-                    placeholder="כתוב כאן את תוכן המייל... &#10;&#10;ניתן להשתמש ב-HTML לעיצוב, או כתיבה חופשית.&#10;&#10;דוגמה:&#10;שלום {{שם}},&#10;&#10;אנחנו שמחים להציע לך..."
-                    rows={12}
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-mono"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    💡 טיפ: תוכן התבנית מתומלל אוטומטית עם פרטי הליד
+                  <p className="text-xs text-gray-600 flex items-center gap-1">
+                    <span>💡</span>
+                    <span>נושא המייל שיוצג לנמען</span>
                   </p>
                 </div>
                 
-                {/* Actions */}
-                <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowComposeModal(false);
-                      resetComposeForm();
-                    }}
-                    className="w-full sm:w-auto px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                  >
-                    ביטול
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={composeLoading}
-                    className="w-full sm:flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed font-medium text-lg flex items-center justify-center gap-2"
-                  >
-                    {composeLoading ? (
-                      <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        <span>שולח...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-5 h-5" />
-                        <span>שלח מייל</span>
-                      </>
-                    )}
-                  </button>
+                {/* Greeting - Mobile Optimized */}
+                <div className="space-y-2">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">👋</span>
+                    <span>ברכה פותחת</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={themeFields.greeting}
+                    onChange={(e) => setThemeFields({...themeFields, greeting: e.target.value})}
+                    placeholder='שלום {{lead.first_name}},'
+                    className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                  />
+                  <p className="text-xs text-gray-600 flex items-center gap-1">
+                    <span>💡</span>
+                    <span>ניתן להשתמש ב-{"{{lead.first_name}}"} לשם הליד</span>
+                  </p>
+                </div>
+                
+                {/* Body - Mobile Optimized */}
+                <div className="space-y-2">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">📝</span>
+                    <span>תוכן המייל *</span>
+                  </label>
+                  <textarea
+                    value={themeFields.body}
+                    onChange={(e) => setThemeFields({...themeFields, body: e.target.value})}
+                    placeholder="כתוב כאן את תוכן המייל... &#10;&#10;אנחנו ב-{{business.name}} מספקים פתרונות מתקדמים.&#10;&#10;נשמח לשמוע ממך!"
+                    rows={8}
+                    className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm resize-none"
+                    required
+                  />
+                  <p className="text-xs text-gray-600 flex items-center gap-1">
+                    <span>✨</span>
+                    <span>תוכן המייל - ללא HTML, עיצוב אוטומטי</span>
+                  </p>
+                </div>
+                
+                {/* CTA Fields - Mobile Optimized Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1">
+                      <span className="text-lg sm:text-xl">🔘</span>
+                      <span>טקסט כפתור</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={themeFields.cta_text}
+                      onChange={(e) => setThemeFields({...themeFields, cta_text: e.target.value})}
+                      placeholder="צור קשר עכשיו"
+                      className="w-full px-3 py-2.5 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1">
+                      <span className="text-lg sm:text-xl">🔗</span>
+                      <span>קישור</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={themeFields.cta_url}
+                      onChange={(e) => setThemeFields({...themeFields, cta_url: e.target.value})}
+                      placeholder="https://example.com"
+                      className="w-full px-3 py-2.5 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                    />
+                  </div>
+                </div>
+                
+                {/* Footer - CRITICAL FIELD - Mobile Optimized */}
+                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-3 sm:p-4 shadow-md">
+                  <label className="block text-sm sm:text-base font-bold text-yellow-900 mb-2 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">⚠️</span>
+                    <span>פוטר המייל (חשוב!) *</span>
+                  </label>
+                  <textarea
+                    value={themeFields.footer}
+                    onChange={(e) => setThemeFields({...themeFields, footer: e.target.value})}
+                    placeholder="אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.&#10;&#10;© {{business.name}} | כל הזכויות שמורות"
+                    rows={3}
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border-2 border-yellow-400 rounded-lg focus:ring-4 focus:ring-yellow-200 focus:border-yellow-500 text-xs sm:text-sm transition-all shadow-sm resize-none"
+                    required
+                  />
+                  <p className="text-xs text-yellow-800 mt-2 flex items-start gap-1 bg-yellow-100/50 p-2 rounded-lg">
+                    <span className="shrink-0">📌</span>
+                    <span className="font-medium">הפוטר יופיע בכל המיילים שנשלחים מהעסק ונשמר אוטומטית</span>
+                  </p>
+                </div>
+                
+                {/* Preview Button - Mobile Optimized */}
+                {selectedLead && (
+                  <div className="flex justify-center pt-2">
+                    <button
+                      type="button"
+                      onClick={handlePreviewTheme}
+                      disabled={themePreviewLoading}
+                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 sm:py-3.5 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl hover:from-purple-600 hover:to-blue-600 transition-all shadow-lg font-semibold text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Eye className="w-5 h-5" />
+                      {themePreviewLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          <span>טוען...</span>
+                        </>
+                      ) : (
+                        <span>תצוגה מקדימה</span>
+                      )}
+                    </button>
+                  </div>
+                )}
+                
+                {/* Actions - Mobile Optimized with Sticky Bottom */}
+                <div className="sm:pt-2">
+                  <div className="flex flex-col-reverse sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowComposeModal(false);
+                        resetComposeForm();
+                      }}
+                      className="w-full sm:w-auto px-6 py-3 sm:py-3.5 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-semibold text-sm sm:text-base shadow-sm"
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={composeLoading || !selectedLead}
+                      className="w-full sm:flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 sm:py-4 rounded-xl hover:from-blue-700 hover:to-purple-700 active:from-blue-800 active:to-purple-800 transition-all disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed font-bold text-base sm:text-lg flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      {composeLoading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                          <span>שולח...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5" />
+                          <span>שלח מייל עכשיו</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {!selectedLead && (
+                    <p className="text-xs text-center text-red-600 mt-2 font-medium animate-pulse">
+                      ⚠️ יש לבחור ליד לפני שליחה
+                    </p>
+                  )}
                 </div>
               </form>
+            </div>
+            
+            {/* Sticky Mobile Action Bar */}
+            <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-white/90 border-t-2 border-gray-200 p-4 shadow-2xl z-30">
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!selectedLead) {
+                    setError('נא לבחור ליד');
+                    return;
+                  }
+                  const form = document.querySelector('form[class*="space-y-4"]') as HTMLFormElement;
+                  if (form) {
+                    const event = new Event('submit', { bubbles: true, cancelable: true });
+                    form.dispatchEvent(event);
+                  }
+                }}
+                disabled={composeLoading || !selectedLead}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 shadow-xl disabled:from-gray-400 disabled:to-gray-400"
+              >
+                {composeLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    <span>שולח...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    <span>שלח מייל עכשיו</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 🎨 Theme Preview Modal - Luxury Design */}
+      {showThemePreview && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-2 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+            {/* Header - Mobile Optimized */}
+            <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 sm:p-6 flex justify-between items-center shrink-0">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                  <Eye className="w-5 h-5 sm:w-6 sm:h-6" />
+                  תצוגה מקדימה
+                </h2>
+                <p className="text-xs sm:text-sm text-purple-100 mt-1">
+                  כך יראה המייל שלך
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowThemePreview(false);
+                  setThemePreviewHtml('');
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                aria-label="סגור"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            {/* Content - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+              {themePreviewLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600 mx-auto"></div>
+                  <p className="mt-4 text-gray-600">מכין את התצוגה המקדימה...</p>
+                </div>
+              ) : (
+                <div>
+                  {/* Subject Preview */}
+                  <div className="mb-6">
+                    <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-2">
+                      📧 נושא המייל:
+                    </label>
+                    <div className="p-3 sm:p-4 bg-blue-50 border-2 border-blue-200 rounded-lg text-sm sm:text-base font-medium">
+                      {themeFields.subject}
+                    </div>
+                  </div>
+                  
+                  {/* Email Preview - Mobile Responsive */}
+                  <div className="mb-4">
+                    <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-2">
+                      ✨ תוכן המייל:
+                    </label>
+                    <div 
+                      className="bg-white border-2 border-gray-200 rounded-lg overflow-auto"
+                      style={{ minHeight: '400px', maxHeight: '60vh' }}
+                      dangerouslySetInnerHTML={{ __html: themePreviewHtml }}
+                    />
+                  </div>
+                  
+                  {/* Info Box */}
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+                    <p className="text-xs sm:text-sm text-green-800 flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 mt-0.5 shrink-0" />
+                      <span>המייל מוכן לשליחה! לחץ על "שלח מייל" בחלון הקודם כדי לשלוח.</span>
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Footer Actions - Mobile Optimized */}
+            <div className="bg-gray-50 border-t border-gray-200 p-4 sm:p-6 shrink-0">
+              <button
+                onClick={() => {
+                  setShowThemePreview(false);
+                  setThemePreviewHtml('');
+                }}
+                className="w-full bg-purple-600 text-white px-6 py-3 sm:py-4 rounded-lg hover:bg-purple-700 transition-colors font-semibold text-base sm:text-lg shadow-lg"
+              >
+                סגור ותחזור לעריכה
+              </button>
             </div>
           </div>
         </div>
