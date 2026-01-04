@@ -2859,7 +2859,16 @@ function EmailTab({ lead }: EmailTabProps) {
   const [sending, setSending] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   
-  // Theme fields - separated from template
+  // Saved template settings
+  const [savedTemplateSettings, setSavedTemplateSettings] = useState({
+    theme_id: 'classic_blue',
+    default_greeting: `שלום ${lead.first_name || ''},`,
+    cta_default_text: '',
+    cta_default_url: '',
+    footer_text: 'אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות'
+  });
+  
+  // Theme fields - editable each time
   const [themeFields, setThemeFields] = useState({
     subject: '',
     greeting: `שלום ${lead.first_name || ''},`,
@@ -2875,7 +2884,39 @@ function EmailTab({ lead }: EmailTabProps) {
   useEffect(() => {
     loadEmails();
     loadThemes();
+    loadTemplateSettings();
   }, [lead.id]);
+  
+  const loadTemplateSettings = async () => {
+    try {
+      const response = await http.get('/api/email/settings');
+      if (response.settings) {
+        const s = response.settings;
+        setSavedTemplateSettings({
+          theme_id: s.theme_id || 'classic_blue',
+          default_greeting: s.default_greeting || `שלום ${lead.first_name || ''},`,
+          cta_default_text: s.cta_default_text || '',
+          cta_default_url: s.cta_default_url || '',
+          footer_text: s.footer_text || 'אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות'
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load template settings:', err);
+    }
+  };
+  
+  const loadFromTemplate = () => {
+    setSelectedThemeId(savedTemplateSettings.theme_id);
+    setThemeFields(prev => ({
+      ...prev,
+      greeting: savedTemplateSettings.default_greeting,
+      cta_text: savedTemplateSettings.cta_default_text,
+      cta_url: savedTemplateSettings.cta_default_url,
+      footer: savedTemplateSettings.footer_text
+    }));
+    setSuccess('הגדרות התבנית נטענו! ניתן לערוך לפני שליחה');
+    setTimeout(() => setSuccess(null), 3000);
+  };
   
   const loadThemes = async () => {
     try {
@@ -3025,6 +3066,29 @@ function EmailTab({ lead }: EmailTabProps) {
 
       {showCompose && lead.email && (
         <div className="mb-6 border-2 border-blue-200 rounded-xl p-5 bg-gradient-to-br from-blue-50 to-white shadow-sm">
+          {/* Load Template Button - At the top */}
+          <div className="mb-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-3 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex-1">
+                <h4 className="text-sm font-bold text-purple-900 flex items-center gap-2">
+                  <span className="text-lg">📋</span>
+                  <span>טען הגדרות מהתבנית</span>
+                </h4>
+                <p className="text-xs text-purple-700 mt-0.5">
+                  טען ברכה, פוטר וכפתור CTA מהתבנית השמורה
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadFromTemplate}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center gap-2 whitespace-nowrap text-sm"
+              >
+                <span>📥</span>
+                <span>טען תבנית</span>
+              </button>
+            </div>
+          </div>
+
           <form onSubmit={handleSendEmail} className="space-y-4">
             {/* Theme Selector - Separated Section */}
             <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-4 shadow-sm">
