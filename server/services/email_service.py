@@ -1120,6 +1120,18 @@ class EmailService:
             # Only user content (body_html_sanitized and footer_html) was sanitized above
             final_html_sanitized = final_html
             
+            # ✅ LOGGING: Verify single template structure (as requested in issue)
+            html_count = final_html_sanitized.count("<html")
+            style_count = final_html_sanitized.count("<style")
+            body_count = final_html_sanitized.count("<body")
+            css_leak_check = "body {" in final_html_sanitized or "body{" in final_html_sanitized
+            
+            logger.info(f"[EMAIL] template_check business_id={business_id} html_tags={html_count} style_tags={style_count} body_tags={body_count} css_leak={css_leak_check}")
+            
+            # 🔥 ALERT: If we detect double templates or CSS leak, log error
+            if html_count > 1 or style_count > 1 or (css_leak_check and style_count == 0):
+                logger.error(f"[EMAIL] TEMPLATE_ISSUE detected: html={html_count} style={style_count} body={body_count} css_leak={css_leak_check}")
+            
         except Exception as e:
             logger.error(f"[EMAIL] Failed to wrap in base layout: {e}. Using simple HTML.")
             final_html_sanitized = body_html_sanitized
