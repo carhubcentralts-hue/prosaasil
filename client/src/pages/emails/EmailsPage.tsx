@@ -292,6 +292,8 @@ export function EmailsPage() {
   const loadAllLeads = async (append = false) => {
     try {
       setAllLeadsLoading(true);
+      setError(null); // Clear any previous errors
+      
       const params = new URLSearchParams();
       if (leadsFilter) params.append('q', leadsFilter);
       if (leadsStatusFilter) params.append('status', leadsStatusFilter);
@@ -301,6 +303,8 @@ export function EmailsPage() {
       const response = await axios.get(`/api/leads?${params.toString()}`);
       const leads = response.data.leads || [];
       const total = response.data.total || 0;
+      
+      console.log('[EmailsPage] Loaded leads:', leads.length, 'total:', total);
       
       const mappedLeads = leads.map((l: any) => ({
         id: l.id,
@@ -326,6 +330,8 @@ export function EmailsPage() {
       setLeadsHasMore(currentTotal < total);
     } catch (err: any) {
       console.error('Failed to load leads:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'שגיאה בטעינת לידים';
+      setError(errorMsg);
     } finally {
       setAllLeadsLoading(false);
     }
@@ -658,6 +664,17 @@ export function EmailsPage() {
                 <h2 className="text-xl md:text-2xl font-semibold">שלח מיילים ללידים</h2>
                 <p className="text-sm text-gray-600 mt-1">בחר ליד ושלח מייל מותאם אישית עם תבנית</p>
               </div>
+              
+              {/* Error Display */}
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">שגיאה בטעינת לידים</p>
+                    <p className="mt-1">{error}</p>
+                  </div>
+                </div>
+              )}
               
               {/* Filters - Mobile Responsive */}
               <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:gap-3">
