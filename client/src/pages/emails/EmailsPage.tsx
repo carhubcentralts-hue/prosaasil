@@ -345,8 +345,10 @@ export function EmailsPage() {
   const searchLeads = async () => {
     try {
       setLeadSearchLoading(true);
+      console.log('[EmailsPage] Searching leads with query:', leadSearchQuery);
       const response = await axios.get(`/api/leads?q=${encodeURIComponent(leadSearchQuery)}&pageSize=20`);
       const leads = response.data.leads || [];
+      console.log('[EmailsPage] ✅ Found', leads.length, 'leads for search');
       setLeadSearchResults(leads.map((l: any) => ({
         id: l.id,
         first_name: l.first_name || '',
@@ -355,7 +357,12 @@ export function EmailsPage() {
         phone_e164: l.phone_e164 || ''
       })));
     } catch (err: any) {
-      console.error('Failed to search leads:', err);
+      console.error('[EmailsPage] ❌ Failed to search leads:', err);
+      console.error('[EmailsPage] Error details:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message
+      });
     } finally {
       setLeadSearchLoading(false);
     }
@@ -372,11 +379,14 @@ export function EmailsPage() {
       params.append('page', append ? (leadsPage + 1).toString() : '1');
       params.append('pageSize', '50'); // Load 50 leads per page
       
+      console.log('[EmailsPage] Loading leads with params:', params.toString());
+      
       const response = await axios.get(`/api/leads?${params.toString()}`);
       const leads = response.data.leads || [];
       const total = response.data.total || 0;
       
-      console.log('[EmailsPage] Loaded leads:', leads.length, 'total:', total);
+      console.log('[EmailsPage] ✅ Loaded leads successfully:', leads.length, 'total:', total);
+      console.log('[EmailsPage] Response data:', { leads: leads.length, total, hasLeads: leads.length > 0 });
       
       const mappedLeads = leads.map((l: any) => ({
         id: l.id,
@@ -397,11 +407,19 @@ export function EmailsPage() {
         setLeadsPage(1);
       }
       
+      console.log('[EmailsPage] State updated with', mappedLeads.length, 'leads');
+      
       // Check if there are more leads to load
       const currentTotal = append ? allLeads.length + mappedLeads.length : mappedLeads.length;
       setLeadsHasMore(currentTotal < total);
     } catch (err: any) {
-      console.error('Failed to load leads:', err);
+      console.error('[EmailsPage] ❌ Failed to load leads:', err);
+      console.error('[EmailsPage] Error details:', {
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+        message: err.message
+      });
       const errorMsg = err.response?.data?.error || err.message || 'שגיאה בטעינת לידים';
       setError(errorMsg);
     } finally {
