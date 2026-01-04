@@ -112,7 +112,8 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     BARGE_IN_VOICE_FRAMES = 8
     BARGE_IN_DEBOUNCE_MS = 350
-    GREETING_PROTECT_DURATION_MS = 500
+    # 🔥 GREETING PROTECTION: Per requirement "300–500ms ראשונים אחרי response.create לא מבטלים"
+    GREETING_PROTECT_DURATION_MS = 400  # Middle of 300-500ms range
     GREETING_MIN_SPEECH_DURATION_MS = 250
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
@@ -3134,6 +3135,15 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 GREETING_PROFILER T0: Call handler start - marks exact beginning of call setup
+            # Per requirement: "4 חותמות זמן" to diagnose where latency comes from
+            # T0=handler start, T1=OpenAI connected, T2=session.updated, T3=first audio.delta
+            # ═══════════════════════════════════════════════════════════════════════
+            self._greeting_profiler_t0 = t_start
+            _orig_print(f"⏱️ [GREETING_PROFILER] T0=CALL_HANDLER_START ts={t_start:.3f}", flush=True)
+            logger.info(f"[GREETING_PROFILER] T0=CALL_HANDLER_START ts={t_start:.3f}")
+            
+            # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
             # ═══════════════════════════════════════════════════════════════════════
             # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
@@ -3193,6 +3203,14 @@ class MediaStreamHandler:
                 return
             
             t_connected = time.time()
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 GREETING_PROFILER T1: OpenAI connected - marks WebSocket connection established
+            # ═══════════════════════════════════════════════════════════════════════
+            self._greeting_profiler_t1 = t_connected
+            t0_to_t1_ms = (t_connected - self._greeting_profiler_t0) * 1000
+            _orig_print(f"⏱️ [GREETING_PROFILER] T1=OPENAI_CONNECTED ts={t_connected:.3f} T0→T1={t0_to_t1_ms:.0f}ms", flush=True)
+            logger.info(f"[GREETING_PROFILER] T1=OPENAI_CONNECTED T0→T1={t0_to_t1_ms:.0f}ms")
             
             # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
@@ -3880,6 +3898,15 @@ class MediaStreamHandler:
             # 🔥 NEW: Mark timestamp for latency measurement
             t_session_confirmed = time.time()
             self.t_session_confirmed = t_session_confirmed  # Store for latency logging
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 GREETING_PROFILER T2: session.updated confirmed - AI session is ready
+            # ═══════════════════════════════════════════════════════════════════════
+            self._greeting_profiler_t2 = t_session_confirmed
+            t0_to_t2_ms = (t_session_confirmed - self._greeting_profiler_t0) * 1000
+            t1_to_t2_ms = (t_session_confirmed - self._greeting_profiler_t1) * 1000
+            _orig_print(f"⏱️ [GREETING_PROFILER] T2=SESSION_UPDATED ts={t_session_confirmed:.3f} T0→T2={t0_to_t2_ms:.0f}ms T1→T2={t1_to_t2_ms:.0f}ms", flush=True)
+            logger.info(f"[GREETING_PROFILER] T2=SESSION_UPDATED T0→T2={t0_to_t2_ms:.0f}ms T1→T2={t1_to_t2_ms:.0f}ms")
             
             # 🔥 ACCEPTANCE CRITERIA D: Log latency from WS open to session.updated
             ws_open_to_session_ms = (t_session_confirmed - self.t0_connected) * 1000
@@ -5916,25 +5943,41 @@ class MediaStreamHandler:
                     # - Cancel immediately and flush audio queues
                     # 
                     # 🔥 FIX: GREETING PROTECTION - Grace window at greeting start
-                    # Per requirement: "Grace window קצר בתחילת greeting: 250ms ראשונים אחרי תחילת 
-                    # audio.delta של הבוט: לא מבטלים על כל פיפס"
+                    # Per requirement: "300–500ms ראשונים אחרי response.create לא מבטלים על turn_detected"
+                    # This prevents false barge-in from noise/"אה" during greeting startup
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 GREETING GRACE WINDOW: Protect first 250ms of greeting from false triggers
+                    # 🔥 GREETING GRACE WINDOW: Protect from response.create OR first audio.delta
+                    # Per requirement: protection starts from response.create to handle cases where
+                    # greeting is cancelled before any audio is sent
                     is_greeting_grace_window = False
-                    if self.is_playing_greeting and hasattr(self, '_greeting_audio_start_ts'):
-                        greeting_elapsed_ms = (now - self._greeting_audio_start_ts) * 1000
-                        is_greeting_grace_window = greeting_elapsed_ms < GREETING_PROTECT_DURATION_MS
+                    if self.greeting_mode_active or self.is_playing_greeting:
+                        # Check protection from response.create timestamp (primary)
+                        response_created_ts = getattr(self, '_response_created_ts', 0)
+                        if response_created_ts > 0:
+                            response_elapsed_ms = (now - response_created_ts) * 1000
+                            if response_elapsed_ms < GREETING_PROTECT_DURATION_MS:
+                                is_greeting_grace_window = True
+                                _orig_print(
+                                    f"🛡️ [GREETING_GRACE] Within {GREETING_PROTECT_DURATION_MS}ms from response.create "
+                                    f"(elapsed={response_elapsed_ms:.0f}ms) - ignoring speech_started",
+                                    flush=True
+                                )
+                                print(f"🛡️ [GREETING_GRACE] speech_started ignored during {GREETING_PROTECT_DURATION_MS}ms grace period (from response.create)")
+                                continue
                         
-                        if is_greeting_grace_window:
-                            _orig_print(
-                                f"🛡️ [GREETING_GRACE] Within {GREETING_PROTECT_DURATION_MS}ms grace window "
-                                f"(elapsed={greeting_elapsed_ms:.0f}ms) - ignoring speech_started",
-                                flush=True
-                            )
-                            print(f"🛡️ [GREETING_GRACE] speech_started ignored during {GREETING_PROTECT_DURATION_MS}ms grace period")
-                            # Don't trigger barge-in during grace window - likely noise/echo
-                            continue
+                        # Also check from first audio.delta (secondary, for backward compatibility)
+                        if not is_greeting_grace_window and hasattr(self, '_greeting_audio_start_ts'):
+                            greeting_elapsed_ms = (now - self._greeting_audio_start_ts) * 1000
+                            if greeting_elapsed_ms < GREETING_PROTECT_DURATION_MS:
+                                is_greeting_grace_window = True
+                                _orig_print(
+                                    f"🛡️ [GREETING_GRACE] Within {GREETING_PROTECT_DURATION_MS}ms from audio.delta "
+                                    f"(elapsed={greeting_elapsed_ms:.0f}ms) - ignoring speech_started",
+                                    flush=True
+                                )
+                                print(f"🛡️ [GREETING_GRACE] speech_started ignored during {GREETING_PROTECT_DURATION_MS}ms grace period (from audio.delta)")
+                                continue
                     
                     # 🔥 FIX: CONTINUOUS SPEECH REQUIREMENT - Require 200-300ms of continuous speech
                     # Per requirement: "לבטל דיבור של הבוט רק אם יש speech רציף 200–300ms מעל סף (ולא "פיק" רגעי)"
@@ -6271,6 +6314,36 @@ class MediaStreamHandler:
                                 self._metrics_first_greeting_audio_ms = first_audio_ms
                                 _orig_print(f"🎤 [GREETING] FIRST_AUDIO_DELTA received! delay={first_audio_ms}ms", flush=True)
                                 _orig_print(f"🛡️ [GREETING_GRACE] Starting {GREETING_PROTECT_DURATION_MS}ms grace window", flush=True)
+                                
+                                # ═══════════════════════════════════════════════════════════════════════
+                                # 🔥 GREETING_PROFILER T3: First audio.delta - AI started talking
+                                # This is THE moment caller first hears the AI
+                                # ═══════════════════════════════════════════════════════════════════════
+                                self._greeting_profiler_t3 = now
+                                t0_to_t3_ms = (now - getattr(self, '_greeting_profiler_t0', now)) * 1000
+                                t2_to_t3_ms = (now - getattr(self, '_greeting_profiler_t2', now)) * 1000
+                                _orig_print(f"⏱️ [GREETING_PROFILER] T3=FIRST_AUDIO_DELTA ts={now:.3f} T0→T3={t0_to_t3_ms:.0f}ms T2→T3={t2_to_t3_ms:.0f}ms", flush=True)
+                                logger.info(f"[GREETING_PROFILER] T3=FIRST_AUDIO_DELTA T0→T3={t0_to_t3_ms:.0f}ms T2→T3={t2_to_t3_ms:.0f}ms")
+                                
+                                # 🔥 GREETING_PROFILER SUMMARY: Log complete breakdown
+                                t0 = getattr(self, '_greeting_profiler_t0', 0)
+                                t1 = getattr(self, '_greeting_profiler_t1', 0)
+                                t2 = getattr(self, '_greeting_profiler_t2', 0)
+                                if t0 and t1 and t2:
+                                    t0_t1_ms = int((t1 - t0) * 1000)  # DB + prompt building
+                                    t1_t2_ms = int((t2 - t1) * 1000)  # session.update → session.updated
+                                    t2_t3_ms = int((now - t2) * 1000)  # response.create → first audio
+                                    _orig_print(
+                                        f"📊 [GREETING_PROFILER] BREAKDOWN: "
+                                        f"T0→T1={t0_t1_ms}ms (OpenAI connect) | "
+                                        f"T1→T2={t1_t2_ms}ms (session.updated) | "
+                                        f"T2→T3={t2_t3_ms}ms (first audio) | "
+                                        f"TOTAL T0→T3={t0_to_t3_ms:.0f}ms",
+                                        flush=True
+                                    )
+                                    logger.info(
+                                        f"[GREETING_PROFILER] SUMMARY: T0→T1={t0_t1_ms}ms T1→T2={t1_t2_ms}ms T2→T3={t2_t3_ms}ms TOTAL={t0_to_t3_ms:.0f}ms"
+                                    )
                                 
                                 # 🔥 MASTER FIX: Store first_greeting_audio_ms metric
                                 from server.stream_state import stream_registry
