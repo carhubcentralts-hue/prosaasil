@@ -112,7 +112,8 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     BARGE_IN_VOICE_FRAMES = 8
     BARGE_IN_DEBOUNCE_MS = 350
-    GREETING_PROTECT_DURATION_MS = 500
+    # 🔥 GREETING PROTECTION: Per requirement "300–500ms ראשונים אחרי response.create לא מבטלים"
+    GREETING_PROTECT_DURATION_MS = 400  # Middle of 300-500ms range
     GREETING_MIN_SPEECH_DURATION_MS = 250
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
@@ -3134,6 +3135,15 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 GREETING_PROFILER T0: Call handler start - marks exact beginning of call setup
+            # Per requirement: "4 חותמות זמן" to diagnose where latency comes from
+            # T0=handler start, T1=OpenAI connected, T2=session.updated, T3=first audio.delta
+            # ═══════════════════════════════════════════════════════════════════════
+            self._greeting_profiler_t0 = t_start
+            _orig_print(f"⏱️ [GREETING_PROFILER] T0=CALL_HANDLER_START ts={t_start:.3f}", flush=True)
+            logger.info(f"[GREETING_PROFILER] T0=CALL_HANDLER_START ts={t_start:.3f}")
+            
+            # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
             # ═══════════════════════════════════════════════════════════════════════
             # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
@@ -3193,6 +3203,14 @@ class MediaStreamHandler:
                 return
             
             t_connected = time.time()
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 GREETING_PROFILER T1: OpenAI connected - marks WebSocket connection established
+            # ═══════════════════════════════════════════════════════════════════════
+            self._greeting_profiler_t1 = t_connected
+            t0_to_t1_ms = (t_connected - self._greeting_profiler_t0) * 1000
+            _orig_print(f"⏱️ [GREETING_PROFILER] T1=OPENAI_CONNECTED ts={t_connected:.3f} T0→T1={t0_to_t1_ms:.0f}ms", flush=True)
+            logger.info(f"[GREETING_PROFILER] T1=OPENAI_CONNECTED T0→T1={t0_to_t1_ms:.0f}ms")
             
             # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
@@ -3880,6 +3898,15 @@ class MediaStreamHandler:
             # 🔥 NEW: Mark timestamp for latency measurement
             t_session_confirmed = time.time()
             self.t_session_confirmed = t_session_confirmed  # Store for latency logging
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 GREETING_PROFILER T2: session.updated confirmed - AI session is ready
+            # ═══════════════════════════════════════════════════════════════════════
+            self._greeting_profiler_t2 = t_session_confirmed
+            t0_to_t2_ms = (t_session_confirmed - self._greeting_profiler_t0) * 1000
+            t1_to_t2_ms = (t_session_confirmed - self._greeting_profiler_t1) * 1000
+            _orig_print(f"⏱️ [GREETING_PROFILER] T2=SESSION_UPDATED ts={t_session_confirmed:.3f} T0→T2={t0_to_t2_ms:.0f}ms T1→T2={t1_to_t2_ms:.0f}ms", flush=True)
+            logger.info(f"[GREETING_PROFILER] T2=SESSION_UPDATED T0→T2={t0_to_t2_ms:.0f}ms T1→T2={t1_to_t2_ms:.0f}ms")
             
             # 🔥 ACCEPTANCE CRITERIA D: Log latency from WS open to session.updated
             ws_open_to_session_ms = (t_session_confirmed - self.t0_connected) * 1000
@@ -5493,6 +5520,40 @@ class MediaStreamHandler:
                                     else:
                                         _orig_print(f"❌ [SERVER_ERROR] Graceful failure blocked by gate", flush=True)
                         
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 CONTENT_FILTER HANDLING: When response is incomplete due to safety filter
+                        # Per requirement: Send fallback response to continue conversation smoothly
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if status == "incomplete":
+                            reason = status_details.get("reason", "") if isinstance(status_details, dict) else ""
+                            
+                            if reason == "content_filter":
+                                _orig_print(f"🛡️ [SAFETY] content_filter triggered - response blocked by safety policy", flush=True)
+                                logger.warning(f"[SAFETY] content_filter triggered for response {resp_id[:20] if resp_id else '?'}...")
+                                
+                                # Initialize content filter counter
+                                if not hasattr(self, '_content_filter_count'):
+                                    self._content_filter_count = 0
+                                self._content_filter_count += 1
+                                
+                                # Only retry if not already retried too many times
+                                if self._content_filter_count <= 2:
+                                    # Send fallback context message to help AI rephrase
+                                    fallback_msg = "[SYSTEM] התשובה הקודמת נחסמה. בבקשה נסה לנסח מחדש בצורה אחרת."
+                                    await self._send_text_to_ai(fallback_msg)
+                                    
+                                    # Trigger fallback response
+                                    triggered = await self.trigger_response("CONTENT_FILTER_FALLBACK", client, force=False)
+                                    if triggered:
+                                        _orig_print(f"✅ [SAFETY] Fallback response triggered (attempt {self._content_filter_count})", flush=True)
+                                    else:
+                                        _orig_print(f"⚠️ [SAFETY] Fallback response blocked by gate", flush=True)
+                                else:
+                                    _orig_print(f"⚠️ [SAFETY] Too many content_filter triggers ({self._content_filter_count}) - continuing without retry", flush=True)
+                            else:
+                                # Other incomplete reasons (e.g., turn_detected, max_tokens)
+                                _orig_print(f"⚠️ [RESPONSE] response.done incomplete: reason={reason}", flush=True)
+                        
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
                         # Clear active_response_id, set status to done/cancelled, clear cancel_in_flight
@@ -5906,151 +5967,158 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC v2: STABLE AND "HUMAN-LIKE"
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
+                    # Per requirement: 3 layers of protection before triggering barge-in
                     # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # 
-                    # 🔥 FIX: GREETING PROTECTION - Grace window at greeting start
-                    # Per requirement: "Grace window קצר בתחילת greeting: 250ms ראשונים אחרי תחילת 
-                    # audio.delta של הבוט: לא מבטלים על כל פיפס"
+                    # Layer A: Protection window after AI starts speaking (from first audio.delta)
+                    # Layer B: Real speech verification (RMS + duration)
+                    # Layer C: Clean cancellation (cancel → clear → flush)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 GREETING GRACE WINDOW: Protect first 250ms of greeting from false triggers
-                    is_greeting_grace_window = False
-                    if self.is_playing_greeting and hasattr(self, '_greeting_audio_start_ts'):
-                        greeting_elapsed_ms = (now - self._greeting_audio_start_ts) * 1000
-                        is_greeting_grace_window = greeting_elapsed_ms < GREETING_PROTECT_DURATION_MS
-                        
-                        if is_greeting_grace_window:
-                            _orig_print(
-                                f"🛡️ [GREETING_GRACE] Within {GREETING_PROTECT_DURATION_MS}ms grace window "
-                                f"(elapsed={greeting_elapsed_ms:.0f}ms) - ignoring speech_started",
-                                flush=True
-                            )
-                            print(f"🛡️ [GREETING_GRACE] speech_started ignored during {GREETING_PROTECT_DURATION_MS}ms grace period")
-                            # Don't trigger barge-in during grace window - likely noise/echo
-                            continue
+                    # 🔥 LAYER A: Protection window - only protect if AI is actually speaking
+                    # Protection starts from FIRST AUDIO.DELTA (not response.create)
+                    # because response.create can happen before any audio is sent
+                    is_in_protection_window = False
+                    ai_is_speaking = self.is_ai_speaking_event.is_set() or getattr(self, 'ai_response_active', False)
                     
-                    # 🔥 FIX: CONTINUOUS SPEECH REQUIREMENT - Require 200-300ms of continuous speech
-                    # Per requirement: "לבטל דיבור של הבוט רק אם יש speech רציף 200–300ms מעל סף (ולא "פיק" רגעי)"
-                    # We track this via consecutive_voice_frames in AudioState, but for greeting we add extra check
-                    if self.is_playing_greeting:
-                        # During greeting: require minimum speech duration before allowing barge-in
-                        # This prevents cancellation on single noise peaks
-                        if hasattr(self, '_utterance_start_ts'):
-                            speech_duration_ms = (now - self._utterance_start_ts) * 1000
-                            if speech_duration_ms < GREETING_MIN_SPEECH_DURATION_MS:
-                                _orig_print(
-                                    f"🛡️ [GREETING_MIN_SPEECH] Speech too short for greeting barge-in "
-                                    f"({speech_duration_ms:.0f}ms < {GREETING_MIN_SPEECH_DURATION_MS}ms) - ignoring",
-                                    flush=True
-                                )
-                                print(f"🛡️ [GREETING_MIN_SPEECH] Waiting for {GREETING_MIN_SPEECH_DURATION_MS}ms continuous speech")
-                                continue
-                        else:
-                            # First frame - mark start time
-                            self._utterance_start_ts = now
+                    if ai_is_speaking:
+                        # Check protection from first audio.delta timestamp (THE correct source)
+                        audio_start_ts = getattr(self, '_greeting_audio_start_ts', None) or getattr(self, '_last_audio_delta_ts', None)
+                        if audio_start_ts:
+                            audio_elapsed_ms = (now - audio_start_ts) * 1000
+                            if audio_elapsed_ms < GREETING_PROTECT_DURATION_MS:
+                                is_in_protection_window = True
+                                # Mark as pending barge-in (don't cancel yet)
+                                if not getattr(self, '_pending_barge_in', False):
+                                    self._pending_barge_in = True
+                                    self._pending_barge_in_ts = now
+                                    _orig_print(
+                                        f"🛡️ [BARGE-IN] PENDING: Within {GREETING_PROTECT_DURATION_MS}ms protection "
+                                        f"(elapsed={audio_elapsed_ms:.0f}ms) - waiting for verification",
+                                        flush=True
+                                    )
+                                continue  # Don't process barge-in yet
                     
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # Requirements per הנחיה:
-                    # 1. If active_response_id is empty → do nothing
-                    # 2. If active_response_status != "in_progress" → do nothing
-                    # 3. If cancel_in_flight == True → do nothing (already canceling)
-                    # 4. Otherwise: Set cancel_in_flight=True, send cancel ONCE, mark locally
-                    # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
-                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 LAYER B: Real speech verification
+                    # Don't cancel on event alone - require RMS + duration
+                    speech_duration_ms = (now - self._utterance_start_ts) * 1000 if self._utterance_start_ts else 0
+                    current_rms = getattr(self, '_last_frame_rms', 0)
+                    vad_threshold = getattr(self, '_current_vad_threshold', VAD_RMS)
+                    consecutive_voice_frames = getattr(self, '_consecutive_voice_frames', 0)
                     
-                    # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
-                    # The old code had too many guards that prevented barge-in from working
-                    # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
+                    # Verification requirements:
+                    # - speech_started_event received (we're here, so yes)
+                    # - EITHER: RMS above threshold for 6+ consecutive frames (120ms+)
+                    # - OR: speech duration >= 150ms with VAD active
+                    MIN_VOICE_FRAMES_FOR_BARGE_IN = 6  # ~120ms at 50fps
+                    MIN_SPEECH_DURATION_MS = 150
+                    
+                    is_real_speech = (
+                        (consecutive_voice_frames >= MIN_VOICE_FRAMES_FOR_BARGE_IN and current_rms > vad_threshold) or
+                        (speech_duration_ms >= MIN_SPEECH_DURATION_MS)
+                    )
+                    
+                    # For greeting mode, be even more strict
+                    if self.is_playing_greeting or self.greeting_mode_active:
+                        MIN_GREETING_SPEECH_MS = 200  # Stricter for greeting
+                        is_real_speech = speech_duration_ms >= MIN_GREETING_SPEECH_MS
+                    
+                    if not is_real_speech and ai_is_speaking:
+                        # Not verified as real speech yet - wait
+                        if not getattr(self, '_pending_barge_in', False):
+                            self._pending_barge_in = True
+                            self._pending_barge_in_ts = now
+                        _orig_print(
+                            f"🔍 [BARGE-IN] Verifying speech: duration={speech_duration_ms:.0f}ms, "
+                            f"voice_frames={consecutive_voice_frames}, rms={current_rms:.1f}, "
+                            f"threshold={vad_threshold:.1f} - waiting...",
+                            flush=True
+                        )
+                        continue  # Don't trigger barge-in yet
+                    
+                    # 🔥 LAYER C: VERIFIED BARGE-IN - Execute clean cancellation
+                    # Only reaches here if: protection window passed AND speech is verified
                     
                     has_active_response = bool(self.active_response_id)
                     
-                    # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
-                    # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
-                    
-                    # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
-                    _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
-                    
-                    # 🔥 FIX: DETAILED BARGE-IN LOGGING - Log why barge-in was triggered
-                    # Per requirement: "כשמבטלים: להדפיס barge_in_reason + מדדים (rms/threshold/duration_ms)"
-                    # Calculate metrics for logging
-                    barge_in_reason = "speech_started_event"
-                    speech_duration_ms = (now - self._utterance_start_ts) * 1000 if hasattr(self, '_utterance_start_ts') and self._utterance_start_ts else 0
-                    
-                    # Try to get RMS from recent audio (best effort)
-                    current_rms = getattr(self, '_last_frame_rms', 0)
-                    vad_threshold = getattr(self, '_current_vad_threshold', VAD_RMS)
-                    
+                    # Log the verified barge-in
+                    barge_in_reason = "verified_speech"
+                    _orig_print(f"🎙️ [BARGE-IN] ✅ VERIFIED! User is speaking - stopping bot", flush=True)
                     _orig_print(
                         f"📊 [BARGE-IN_METRICS] reason={barge_in_reason}, "
                         f"speech_duration_ms={speech_duration_ms:.0f}, "
+                        f"consecutive_frames={consecutive_voice_frames}, "
                         f"current_rms={current_rms:.1f}, "
                         f"vad_threshold={vad_threshold:.1f}, "
-                        f"time_since_ai_audio_ms={time_since_ai_audio:.0f}, "
                         f"is_greeting={self.is_playing_greeting}",
                         flush=True
                     )
                     logger.info(
-                        f"[BARGE-IN] Triggered: reason={barge_in_reason} "
-                        f"duration={speech_duration_ms:.0f}ms rms={current_rms:.1f} "
-                        f"threshold={vad_threshold:.1f}"
+                        f"[BARGE-IN] VERIFIED: duration={speech_duration_ms:.0f}ms "
+                        f"frames={consecutive_voice_frames} rms={current_rms:.1f}"
                     )
                     
-                    # שלב 1: עצירה מיידית של שידור אודיו
-                    self.barge_in_stop_tx = True
+                    # 🔥 INCREMENT BARGE-IN COUNTER (only after verification!)
+                    if not hasattr(self, '_verified_barge_in_count'):
+                        self._verified_barge_in_count = 0
+                    self._verified_barge_in_count += 1
+                    _orig_print(f"📈 [BARGE-IN] Count: {self._verified_barge_in_count}", flush=True)
+                    
+                    # Clear pending flag
+                    self._pending_barge_in = False
+                    self._pending_barge_in_ts = None
+                    
+                    # Set barge-in flags
                     self.barge_in_active = True
-                    self._barge_in_started_ts = time.time()
-                    _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
+                    self._barge_in_started_ts = now
                     
-                    # שלב 2: ניקוי דגלים
-                    self.is_ai_speaking_event.clear()
-                    self.speaking = False
-                    if hasattr(self, 'ai_response_active'):
-                        self.ai_response_active = False
-                    _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # CLEAN CANCELLATION ORDER: cancel → clear → flush (CRITICAL!)
+                    # ═══════════════════════════════════════════════════════════════════════
                     
-                    # שלב 3: ניקוי תורים
-                    self._flush_tx_queue()
-                    _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
-                    
-                    # שלב 4: שליחת clear ל-Twilio
-                    if self.stream_sid:
-                        try:
-                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                            self._ws_send(json.dumps(clear_event))
-                            _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
-                        except Exception as e:
-                            pass
-                    
-                    # שלב 5: ביטול response ב-OpenAI (אם יש)
+                    # Step 1: CANCEL OpenAI response FIRST (stop generation)
                     if has_active_response and self.realtime_client:
                         response_id_to_cancel = self.active_response_id
-                        # רק אם עוד לא ביטלנו את אותו response
                         if self._should_send_cancel(response_id_to_cancel):
                             self.cancel_in_flight = True
                             try:
                                 await self.realtime_client.cancel_response(response_id_to_cancel)
                                 self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
+                                _orig_print(f"✅ [BARGE-IN] Step 1: OpenAI response cancelled: {response_id_to_cancel[:20]}...", flush=True)
                             except Exception as e:
                                 error_str = str(e).lower()
                                 if 'not_active' in error_str or 'no active' in error_str:
-                                    _orig_print(f"ℹ️ [BARGE-IN] Response כבר לא פעיל (זה בסדר)", flush=True)
+                                    _orig_print(f"ℹ️ [BARGE-IN] Response already inactive (OK)", flush=True)
                                 else:
-                                    _orig_print(f"⚠️ [BARGE-IN] שגיאה בביטול: {e}", flush=True)
+                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
                                 self.cancel_in_flight = False
                         else:
-                            _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
+                            _orig_print(f"ℹ️ [BARGE-IN] Response already cancelled", flush=True)
                     
-                    _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
+                    # Step 2: CLEAR Twilio audio (stop playback immediately)
+                    if self.stream_sid:
+                        try:
+                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                            self._ws_send(json.dumps(clear_event))
+                            _orig_print(f"✅ [BARGE-IN] Step 2: Twilio clear sent", flush=True)
+                        except Exception as e:
+                            _orig_print(f"⚠️ [BARGE-IN] Twilio clear failed: {e}", flush=True)
+                    
+                    # Step 3: FLUSH queues (TRUNCATE, not drain!)
+                    # On barge-in, we TRUNCATE immediately - no waiting for queue to drain
+                    self.barge_in_stop_tx = True  # Stop TX loop from sending more
+                    self._flush_tx_queue()  # Clear all pending audio
+                    _orig_print(f"✅ [BARGE-IN] Step 3: Queues flushed (TRUNCATED)", flush=True)
+                    
+                    # Step 4: Clear speaking flags AFTER cancel/clear/flush
+                    self.is_ai_speaking_event.clear()
+                    self.speaking = False
+                    if hasattr(self, 'ai_response_active'):
+                        self.ai_response_active = False
+                    _orig_print(f"✅ [BARGE-IN] Step 4: Speaking flags cleared", flush=True)
+                    
+                    _orig_print(f"✅ [BARGE-IN] Complete! User can speak now", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -6271,6 +6339,41 @@ class MediaStreamHandler:
                                 self._metrics_first_greeting_audio_ms = first_audio_ms
                                 _orig_print(f"🎤 [GREETING] FIRST_AUDIO_DELTA received! delay={first_audio_ms}ms", flush=True)
                                 _orig_print(f"🛡️ [GREETING_GRACE] Starting {GREETING_PROTECT_DURATION_MS}ms grace window", flush=True)
+                                
+                                # ═══════════════════════════════════════════════════════════════════════
+                                # 🔥 GREETING_PROFILER T3: First audio.delta - AI started talking
+                                # This is THE moment caller first hears the AI
+                                # ═══════════════════════════════════════════════════════════════════════
+                                self._greeting_profiler_t3 = now
+                                t0 = getattr(self, '_greeting_profiler_t0', None)
+                                t2 = getattr(self, '_greeting_profiler_t2', None)
+                                
+                                # Calculate elapsed times only if timestamps are available
+                                t0_to_t3_ms = (now - t0) * 1000 if t0 is not None else 0
+                                t2_to_t3_ms = (now - t2) * 1000 if t2 is not None else 0
+                                _orig_print(f"⏱️ [GREETING_PROFILER] T3=FIRST_AUDIO_DELTA ts={now:.3f} T0→T3={t0_to_t3_ms:.0f}ms T2→T3={t2_to_t3_ms:.0f}ms", flush=True)
+                                logger.info(f"[GREETING_PROFILER] T3=FIRST_AUDIO_DELTA T0→T3={t0_to_t3_ms:.0f}ms T2→T3={t2_to_t3_ms:.0f}ms")
+                                
+                                # 🔥 GREETING_PROFILER SUMMARY: Log complete breakdown
+                                t1 = getattr(self, '_greeting_profiler_t1', None)
+                                if t0 is not None and t1 is not None and t2 is not None:
+                                    t0_t1_ms = int((t1 - t0) * 1000)  # OpenAI connect time
+                                    t1_t2_ms = int((t2 - t1) * 1000)  # session.update → session.updated
+                                    t2_t3_ms = int((now - t2) * 1000)  # response.create → first audio
+                                    _orig_print(
+                                        f"📊 [GREETING_PROFILER] BREAKDOWN: "
+                                        f"T0→T1={t0_t1_ms}ms (OpenAI connect) | "
+                                        f"T1→T2={t1_t2_ms}ms (session.updated) | "
+                                        f"T2→T3={t2_t3_ms}ms (first audio) | "
+                                        f"TOTAL T0→T3={t0_to_t3_ms:.0f}ms",
+                                        flush=True
+                                    )
+                                    logger.info(
+                                        f"[GREETING_PROFILER] SUMMARY: T0→T1={t0_t1_ms}ms T1→T2={t1_t2_ms}ms T2→T3={t2_t3_ms}ms TOTAL={t0_to_t3_ms:.0f}ms"
+                                    )
+                                else:
+                                    # Log warning if timestamps are missing
+                                    _orig_print(f"⚠️ [GREETING_PROFILER] Missing timestamps - t0={t0 is not None} t1={t1 is not None} t2={t2 is not None}", flush=True)
                                 
                                 # 🔥 MASTER FIX: Store first_greeting_audio_ms metric
                                 from server.stream_state import stream_registry
@@ -9828,6 +9931,26 @@ class MediaStreamHandler:
                     _start_event_received = True
                     start_event_ts = time.time()
                     start_delay_ms = int((start_event_ts - self._ws_open_ts) * 1000)
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 GREETING_PROFILER T-WS0: Twilio Media Stream connected
+                    # This is when we receive the "start" event from Twilio's WebSocket
+                    # ═══════════════════════════════════════════════════════════════════════
+                    self._greeting_profiler_t_ws0 = start_event_ts
+                    
+                    # Try to calculate time from TwiML response (T-TW1) to WS start (T-WS0)
+                    t_tw1 = None
+                    if self.call_sid:
+                        from server.stream_state import stream_registry
+                        t_tw1 = stream_registry.get_metric(self.call_sid, 't_tw1')
+                    
+                    if t_tw1:
+                        tw1_to_ws0_ms = int((start_event_ts - t_tw1) * 1000)
+                        _orig_print(f"⏱️ [GREETING_PROFILER] T-WS0=STREAM_START ts={start_event_ts:.3f} T-TW1→T-WS0={tw1_to_ws0_ms}ms (Twilio connect time)", flush=True)
+                        logger.info(f"[GREETING_PROFILER] T-WS0=STREAM_START T-TW1→T-WS0={tw1_to_ws0_ms}ms")
+                    else:
+                        _orig_print(f"⏱️ [GREETING_PROFILER] T-WS0=STREAM_START ts={start_event_ts:.3f} (delay from WS open: {start_delay_ms}ms)", flush=True)
+                        logger.info(f"[GREETING_PROFILER] T-WS0=STREAM_START delay={start_delay_ms}ms from WS open")
                     
                     # 🔥 BUILD 169: Generate unique session ID for logging
                     import uuid
