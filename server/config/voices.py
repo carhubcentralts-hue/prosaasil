@@ -6,8 +6,8 @@ Single Source of Truth for SUPPORTED Realtime voices ONLY
 Unsupported voices (fable, nova, onyx) are REMOVED to prevent session.update timeouts
 
 Preview Engines:
-- "speech_create": Standard TTS API (speech.create) - works for most voices
-- "realtime": Realtime API only - required for cedar and other Realtime-exclusive voices
+- Voices with preview_engine="speech_create" work with client.audio.speech.create (TTS-1 model)
+- Voices with preview_engine="realtime" require Realtime API for preview
 """
 
 # ✅ REALTIME VOICES - Only voices supported by Realtime API
@@ -17,6 +17,10 @@ REALTIME_VOICES = [
     "sage", "shimmer", "verse", "marin", "cedar"
 ]
 
+# ✅ SPEECH.CREATE COMPATIBLE VOICES - Subset that works with TTS-1 API
+# These voices can use the faster speech.create API for preview
+SPEECH_CREATE_VOICES = ["alloy", "ash", "echo", "shimmer"]
+
 # Metadata for all supported Realtime voices
 OPENAI_VOICES_METADATA = {
     "alloy": {
@@ -24,70 +28,70 @@ OPENAI_VOICES_METADATA = {
         "name": "Alloy (Neutral, balanced)",
         "gender": "neutral",
         "description": "Balanced and versatile voice",
-        "preview_engine": "speech_create"
+        "preview_engine": "speech_create"  # Fast preview via TTS-1
     },
     "ash": {
         "id": "ash",
         "name": "Ash (Male, clear)",
         "gender": "male",
         "description": "Clear and professional male voice",
-        "preview_engine": "speech_create"
+        "preview_engine": "speech_create"  # Fast preview via TTS-1
     },
     "ballad": {
         "id": "ballad",
         "name": "Ballad (Male, warm)",
         "gender": "male",
         "description": "Warm and engaging male voice",
-        "preview_engine": "realtime"
+        "preview_engine": "realtime"  # Realtime-only
     },
     "cedar": {
         "id": "cedar",
         "name": "Cedar (Male, deep)",
         "gender": "male",
         "description": "Deep and authoritative male voice",
-        "preview_engine": "realtime"
+        "preview_engine": "realtime"  # Realtime-only
     },
     "coral": {
         "id": "coral",
         "name": "Coral (Female, warm)",
         "gender": "female",
         "description": "Warm and friendly female voice",
-        "preview_engine": "realtime"
+        "preview_engine": "realtime"  # Realtime-only
     },
     "echo": {
         "id": "echo",
         "name": "Echo (Male, resonant)",
         "gender": "male",
         "description": "Resonant and impactful male voice",
-        "preview_engine": "speech_create"
+        "preview_engine": "speech_create"  # Fast preview via TTS-1
     },
     "marin": {
         "id": "marin",
         "name": "Marin (Female, calm)",
         "gender": "female",
         "description": "Calm and soothing female voice",
-        "preview_engine": "realtime"
+        "preview_engine": "realtime"  # Realtime-only
     },
     "sage": {
         "id": "sage",
         "name": "Sage (Female, wise)",
         "gender": "female",
         "description": "Wise and reassuring female voice",
-        "preview_engine": "realtime"
+        "preview_engine": "realtime"  # Realtime-only
     },
     "shimmer": {
         "id": "shimmer",
         "name": "Shimmer (Female, soft)",
         "gender": "female",
         "description": "Soft and gentle female voice",
-        "preview_engine": "speech_create"
+        "preview_engine": "speech_create"  # Fast preview via TTS-1
     },
     "verse": {
         "id": "verse",
         "name": "Verse (Male, dynamic)",
         "gender": "male",
         "description": "Dynamic and expressive male voice",
-        "preview_engine": "realtime"
+        "preview_engine": "realtime"  # Realtime-only
     }
 }
 

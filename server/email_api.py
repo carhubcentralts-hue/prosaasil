@@ -302,8 +302,10 @@ def send_email_to_lead(lead_id):
         {
             "to_email": "optional@override.com",  # Optional, defaults to lead email
             "subject": "Email subject",
-            "html": "<p>Email body</p>",
-            "text": "Plain text version"  # Optional
+            "html": "<p>Email body</p>",  # Primary field for HTML content
+            "body_html": "<p>Email body</p>",  # Alternative field name (for compatibility)
+            "text": "Plain text version",  # Optional
+            "body_text": "Plain text version"  # Alternative field name (for compatibility)
         }
     
     Returns:
@@ -349,11 +351,23 @@ def send_email_to_lead(lead_id):
             return jsonify({'error': 'No email address available for this lead'}), 400
         
         subject = data.get('subject', '').strip()
-        html = data.get('html', '').strip()
-        plain_text = data.get('text', '').strip() or None
+        
+        # 🔥 FIX: Support both 'html' and 'body_html' field names for compatibility
+        html = data.get('html', '').strip() or data.get('body_html', '').strip()
+        
+        # 🔥 FIX: Support both 'text' and 'body_text' field names for compatibility
+        plain_text = data.get('text', '').strip() or data.get('body_text', '').strip() or None
+        
+        # 🔥 DEBUG LOGGING: Log what we received before validation
+        logger.info(f"[EMAIL_TO_LEAD] lead_id={lead_id} subject_len={len(subject)} html_len={len(html)} text_len={len(plain_text) if plain_text else 0}")
+        logger.debug(f"[EMAIL_TO_LEAD] Payload keys: {list(data.keys())}")
         
         if not subject or not html:
-            return jsonify({'error': 'subject and html are required'}), 400
+            logger.warning(f"[EMAIL_TO_LEAD] Missing required fields: subject={bool(subject)} html={bool(html)}")
+            return jsonify({'error': 'subject and html (or body_html) are required'}), 400
+        
+        # 🔥 DEBUG LOGGING: Log final values before sending
+        logger.info(f"[EMAIL_TO_LEAD] Validated - subject='{subject[:50]}...' html_bytes={len(html.encode('utf-8'))} text_bytes={len(plain_text.encode('utf-8')) if plain_text else 0}")
         
         # Send email
         email_service = get_email_service()
@@ -383,6 +397,8 @@ def send_email_to_lead(lead_id):
         
     except Exception as e:
         logger.error(f"[EMAIL_API] Failed to send email to lead {lead_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @email_bp.route('/api/leads/<int:lead_id>/emails', methods=['GET'])
