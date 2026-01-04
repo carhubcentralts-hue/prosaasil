@@ -94,12 +94,7 @@ export function EmailsPage() {
   
   // Compose email modal state
   const [showComposeModal, setShowComposeModal] = useState(false);
-  const [composeMode, setComposeMode] = useState<'lead' | 'manual'>('lead');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
-  const [manualEmail, setManualEmail] = useState('');
-  const [emailSubject, setEmailSubject] = useState('');
-  const [emailHtml, setEmailHtml] = useState('');
   const [composeLoading, setComposeLoading] = useState(false);
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
   const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
@@ -499,41 +494,6 @@ export function EmailsPage() {
     }
   };
   
-  const handleSelectTemplate = async (template: EmailTemplate) => {
-    setSelectedTemplate(template);
-    
-    // Load template content and populate form
-    try {
-      const leadData = selectedLead ? {
-        first_name: selectedLead.first_name,
-        last_name: selectedLead.last_name,
-        email: selectedLead.email
-      } : {
-        first_name: 'שם',
-        last_name: 'לקוח',
-        email: 'example@test.com'
-      };
-      
-      const response = await axios.post(`/api/email/templates/${template.id}/preview`, {
-        lead: leadData
-      });
-      
-      setEmailSubject(response.data.preview.subject);
-      setEmailHtml(response.data.preview.html);
-    } catch (err: any) {
-      console.error('Failed to load template:', err);
-      // Fallback to template content directly
-      setEmailSubject(template.subject_template);
-      setEmailHtml(template.html_template);
-    }
-  };
-  
-  const handleResetToTemplate = () => {
-    if (selectedTemplate) {
-      handleSelectTemplate(selectedTemplate);
-    }
-  };
-  
   const handleEditTemplate = (template: EmailTemplate) => {
     setEditingTemplate(template);
     setEditTemplateName(template.name);
@@ -617,10 +577,6 @@ export function EmailsPage() {
   
   const resetComposeForm = () => {
     setSelectedLead(null);
-    setSelectedTemplate(null);
-    setManualEmail('');
-    setEmailSubject('');
-    setEmailHtml('');
     setLeadSearchQuery('');
     setLeadSearchResults([]);
     // Reset theme fields to default
@@ -1597,7 +1553,6 @@ export function EmailsPage() {
                   </>
                 )}
               </button>
-            </div>
             </div>
           </div>
         </div>
