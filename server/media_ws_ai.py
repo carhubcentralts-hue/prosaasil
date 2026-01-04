@@ -6320,17 +6320,19 @@ class MediaStreamHandler:
                                 # This is THE moment caller first hears the AI
                                 # ═══════════════════════════════════════════════════════════════════════
                                 self._greeting_profiler_t3 = now
-                                t0_to_t3_ms = (now - getattr(self, '_greeting_profiler_t0', now)) * 1000
-                                t2_to_t3_ms = (now - getattr(self, '_greeting_profiler_t2', now)) * 1000
+                                t0 = getattr(self, '_greeting_profiler_t0', None)
+                                t2 = getattr(self, '_greeting_profiler_t2', None)
+                                
+                                # Calculate elapsed times only if timestamps are available
+                                t0_to_t3_ms = (now - t0) * 1000 if t0 is not None else 0
+                                t2_to_t3_ms = (now - t2) * 1000 if t2 is not None else 0
                                 _orig_print(f"⏱️ [GREETING_PROFILER] T3=FIRST_AUDIO_DELTA ts={now:.3f} T0→T3={t0_to_t3_ms:.0f}ms T2→T3={t2_to_t3_ms:.0f}ms", flush=True)
                                 logger.info(f"[GREETING_PROFILER] T3=FIRST_AUDIO_DELTA T0→T3={t0_to_t3_ms:.0f}ms T2→T3={t2_to_t3_ms:.0f}ms")
                                 
                                 # 🔥 GREETING_PROFILER SUMMARY: Log complete breakdown
-                                t0 = getattr(self, '_greeting_profiler_t0', 0)
-                                t1 = getattr(self, '_greeting_profiler_t1', 0)
-                                t2 = getattr(self, '_greeting_profiler_t2', 0)
-                                if t0 and t1 and t2:
-                                    t0_t1_ms = int((t1 - t0) * 1000)  # DB + prompt building
+                                t1 = getattr(self, '_greeting_profiler_t1', None)
+                                if t0 is not None and t1 is not None and t2 is not None:
+                                    t0_t1_ms = int((t1 - t0) * 1000)  # OpenAI connect time
                                     t1_t2_ms = int((t2 - t1) * 1000)  # session.update → session.updated
                                     t2_t3_ms = int((now - t2) * 1000)  # response.create → first audio
                                     _orig_print(
@@ -6344,6 +6346,9 @@ class MediaStreamHandler:
                                     logger.info(
                                         f"[GREETING_PROFILER] SUMMARY: T0→T1={t0_t1_ms}ms T1→T2={t1_t2_ms}ms T2→T3={t2_t3_ms}ms TOTAL={t0_to_t3_ms:.0f}ms"
                                     )
+                                else:
+                                    # Log warning if timestamps are missing
+                                    _orig_print(f"⚠️ [GREETING_PROFILER] Missing timestamps - t0={t0 is not None} t1={t1 is not None} t2={t2 is not None}", flush=True)
                                 
                                 # 🔥 MASTER FIX: Store first_greeting_audio_ms metric
                                 from server.stream_state import stream_registry
