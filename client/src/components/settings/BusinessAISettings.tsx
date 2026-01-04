@@ -811,28 +811,31 @@ export function BusinessAISettings() {
                 <span className="text-sm">טוען קולות זמינים...</span>
               </div>
             ) : (
-              <select
-                value={voiceLibrary.voiceId}
-                onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
-                style={{
-                  direction: 'rtl',
-                  paddingRight: '12px',
-                  paddingLeft: '32px'
-                }}
-                title={voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.name || voiceLibrary.voiceId}
-                data-testid="select-voice"
-              >
-                {voiceLibrary.availableVoices.map((voice) => (
-                  <option 
-                    key={voice.id} 
-                    value={voice.id} 
-                    title={voice.name || voice.id}
-                  >
-                    {voice.name || voice.id}
-                  </option>
-                ))}
-              </select>
+              {/* 🔥 FIX: Voice dropdown with LTR text alignment for English names */}
+              <div style={{ direction: 'ltr', textAlign: 'left' }}>
+                <select
+                  value={voiceLibrary.voiceId}
+                  onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
+                  style={{
+                    minWidth: '320px',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis'
+                  }}
+                  title={voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.name || voiceLibrary.voiceId}
+                  data-testid="select-voice"
+                >
+                  {voiceLibrary.availableVoices.map((voice) => (
+                    <option 
+                      key={voice.id} 
+                      value={voice.id} 
+                      title={voice.name || voice.id}
+                    >
+                      {voice.name || voice.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
             <p className="text-xs text-slate-500 mt-1">
               הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק (רק קולות Realtime נתמכים)

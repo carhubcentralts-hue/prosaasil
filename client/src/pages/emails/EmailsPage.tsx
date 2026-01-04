@@ -134,17 +134,22 @@ export function EmailsPage() {
   const [previewSubject, setPreviewSubject] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   
-  // Template editing state
-  const [showEditTemplateModal, setShowEditTemplateModal] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
-  const [editTemplateName, setEditTemplateName] = useState('');
-  const [editTemplateSubject, setEditTemplateSubject] = useState('');
-  const [editTemplateHtml, setEditTemplateHtml] = useState('');
-  const [editTemplateText, setEditTemplateText] = useState('');
-  const [editTemplateLoading, setEditTemplateLoading] = useState(false);
+  // Bulk selection state for Leads tab
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
+  const [showBulkComposeModal, setShowBulkComposeModal] = useState(false);
+  const [bulkComposeLoading, setBulkComposeLoading] = useState(false);
+  
+  // Template settings state
+  const [templateDefaultTheme, setTemplateDefaultTheme] = useState('classic_blue');
+  const [templateDefaultGreeting, setTemplateDefaultGreeting] = useState('שלום {{lead.first_name}},');
+  const [templateDefaultCtaText, setTemplateDefaultCtaText] = useState('');
+  const [templateDefaultCtaUrl, setTemplateDefaultCtaUrl] = useState('');
+  const [templateDefaultFooter, setTemplateDefaultFooter] = useState('אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות');
+  const [templateBrandColor, setTemplateBrandColor] = useState('#2563EB');
   
   useEffect(() => {
     loadSettings();
+    loadEmailSettings(); // Load template settings
     if (activeTab === 'all' || activeTab === 'sent') {
       loadEmails();
     } else if (activeTab === 'templates') {
@@ -194,6 +199,63 @@ export function EmailsPage() {
       }
     } catch (err: any) {
       console.error('Failed to load email settings:', err);
+    }
+  };
+  
+  const loadEmailSettings = async () => {
+    try {
+      const response = await axios.get('/api/email/settings');
+      if (response.data.settings) {
+        const s = response.data.settings;
+        setTemplateDefaultTheme(s.theme_id || 'classic_blue');
+        setTemplateDefaultGreeting(s.default_greeting || 'שלום {{lead.first_name}},');
+        setTemplateDefaultCtaText(s.cta_default_text || '');
+        setTemplateDefaultCtaUrl(s.cta_default_url || '');
+        setTemplateDefaultFooter(s.footer_text || 'אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות');
+        setTemplateBrandColor(s.brand_primary_color || '#2563EB');
+      }
+    } catch (err: any) {
+      console.error('Failed to load email template settings:', err);
+    }
+  };
+  
+  const handleSaveTemplateSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      setSaveLoading(true);
+      setError(null);
+      setSuccessMessage(null);
+      
+      await axios.post('/api/email/settings', {
+        from_name: fromName,
+        reply_to: replyTo,
+        is_enabled: isEnabled,
+        theme_id: templateDefaultTheme,
+        default_greeting: templateDefaultGreeting,
+        cta_default_text: templateDefaultCtaText,
+        cta_default_url: templateDefaultCtaUrl,
+        footer_text: templateDefaultFooter,
+        brand_primary_color: templateBrandColor
+      });
+      
+      setSuccessMessage('הגדרות התבנית נשמרו בהצלחה!');
+      await loadEmailSettings();
+      
+      // Update theme fields with saved defaults
+      setThemeFields(prev => ({
+        ...prev,
+        greeting: templateDefaultGreeting,
+        cta_text: templateDefaultCtaText,
+        cta_url: templateDefaultCtaUrl,
+        footer: templateDefaultFooter
+      }));
+      setSelectedThemeId(templateDefaultTheme);
+      
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה בשמירת הגדרות התבנית');
+    } finally {
+      setSaveLoading(false);
     }
   };
   
@@ -514,84 +576,100 @@ export function EmailsPage() {
     }
   };
   
-  const handleEditTemplate = (template: EmailTemplate) => {
-    setEditingTemplate(template);
-    setEditTemplateName(template.name);
-    setEditTemplateSubject(template.subject_template);
-    setEditTemplateHtml(template.html_template);
-    setEditTemplateText(template.text_template || '');
-    setShowEditTemplateModal(true);
+  // Bulk selection handlers
+  const handleSelectLead = (leadId: number) => {
+    setSelectedLeadIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
+      }
+      return newSet;
+    });
   };
   
-  const handleSaveTemplate = async (e: React.FormEvent) => {
+  const handleSelectAllLeads = () => {
+    const leadsWithEmail = allLeads.filter(lead => lead.email);
+    if (selectedLeadIds.size === leadsWithEmail.length) {
+      // Deselect all
+      setSelectedLeadIds(new Set());
+    } else {
+      // Select all leads with email
+      setSelectedLeadIds(new Set(leadsWithEmail.map(lead => lead.id)));
+    }
+  };
+  
+  const handleBulkCompose = () => {
+    if (selectedLeadIds.size === 0) {
+      setError('אנא בחר לפחות ליד אחד');
+      return;
+    }
+    setShowBulkComposeModal(true);
+  };
+  
+  const handleSendBulkEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!editingTemplate) return;
-    
-    if (!editTemplateName.trim() || !editTemplateSubject.trim() || !editTemplateHtml.trim()) {
-      setError('נא למלא את כל השדות הנדרשים');
+    if (selectedLeadIds.size === 0) {
+      setError('אנא בחר לפחות ליד אחד');
       return;
     }
     
-    setEditTemplateLoading(true);
-    setError(null);
-    setSuccessMessage(null);
-    
-    try {
-      await axios.put(`/api/email/templates/${editingTemplate.id}`, {
-        name: editTemplateName.trim(),
-        subject_template: editTemplateSubject.trim(),
-        html_template: editTemplateHtml.trim(),
-        text_template: editTemplateText.trim() || null
-      });
-      
-      setSuccessMessage('התבנית עודכנה בהצלחה');
-      setShowEditTemplateModal(false);
-      await loadTemplates();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בעדכון התבנית');
-    } finally {
-      setEditTemplateLoading(false);
-    }
-  };
-  
-  const handleCreateNewTemplate = () => {
-    setEditingTemplate(null);
-    setEditTemplateName('');
-    setEditTemplateSubject('');
-    setEditTemplateHtml('');
-    setEditTemplateText('');
-    setShowEditTemplateModal(true);
-  };
-  
-  const handleCreateTemplate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!editTemplateName.trim() || !editTemplateSubject.trim() || !editTemplateHtml.trim()) {
-      setError('נא למלא את כל השדות הנדרשים');
+    if (!themeFields.subject.trim() || !themeFields.body.trim()) {
+      setError('נא למלא לפחות נושא ותוכן המייל');
       return;
     }
     
-    setEditTemplateLoading(true);
+    setBulkComposeLoading(true);
     setError(null);
-    setSuccessMessage(null);
     
     try {
-      await axios.post('/api/email/templates', {
-        name: editTemplateName.trim(),
-        subject_template: editTemplateSubject.trim(),
-        html_template: editTemplateHtml.trim(),
-        text_template: editTemplateText.trim() || null,
-        type: 'custom'
-      });
+      const selectedLeads = allLeads.filter(lead => selectedLeadIds.has(lead.id));
+      let successCount = 0;
+      let failCount = 0;
       
-      setSuccessMessage('התבנית נוצרה בהצלחה');
-      setShowEditTemplateModal(false);
-      await loadTemplates();
+      // Send to each selected lead
+      for (const lead of selectedLeads) {
+        try {
+          // First, render the theme with user fields
+          const renderResponse = await axios.post('/api/email/render-theme', {
+            theme_id: selectedThemeId,
+            fields: themeFields,
+            lead_id: lead.id
+          });
+          
+          const rendered = renderResponse.data.rendered;
+          
+          // Then send the rendered email
+          await axios.post(`/api/leads/${lead.id}/email`, {
+            to_email: lead.email,
+            subject: rendered.subject,
+            body_html: rendered.html,
+            body_text: rendered.text
+          });
+          
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to send email to lead ${lead.id}:`, err);
+          failCount++;
+        }
+      }
+      
+      if (successCount > 0) {
+        setSuccessMessage(`${successCount} מיילים נשלחו בהצלחה${failCount > 0 ? `, ${failCount} נכשלו` : ''}`);
+      } else {
+        setError('כל המיילים נכשלו בשליחה');
+      }
+      
+      setShowBulkComposeModal(false);
+      setSelectedLeadIds(new Set());
+      resetComposeForm();
+      loadEmails();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה ביצירת התבנית');
+      setError(err.response?.data?.error || 'שגיאה בשליחת מיילים');
     } finally {
-      setEditTemplateLoading(false);
+      setBulkComposeLoading(false);
     }
   };
   
@@ -796,10 +874,77 @@ export function EmailsPage() {
                 )}
               </div>
               
-              {/* Results Count */}
+              {/* Results Count + Load Template Button */}
               {!allLeadsLoading && allLeads.length > 0 && (
-                <div className="mb-4 text-sm text-gray-600">
-                  מציג {allLeads.length} לידים {leadsHasMore && '(טען עוד לראות יותר)'}
+                <>
+                  {/* Load from Template Button - Above everything */}
+                  <div className="mb-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1">
+                        <h3 className="text-sm font-bold text-purple-900 flex items-center gap-2">
+                          <span className="text-xl">📋</span>
+                          <span>טען הגדרות מהתבנית השמורה</span>
+                        </h3>
+                        <p className="text-xs text-purple-700 mt-1">
+                          טען ברכה, פוטר וכפתור CTA מהתבנית שהגדרת
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setThemeFields(prev => ({
+                            ...prev,
+                            greeting: templateDefaultGreeting,
+                            cta_text: templateDefaultCtaText,
+                            cta_url: templateDefaultCtaUrl,
+                            footer: templateDefaultFooter
+                          }));
+                          setSelectedThemeId(templateDefaultTheme);
+                          setSuccessMessage('הגדרות התבנית נטענו בהצלחה!');
+                          setTimeout(() => setSuccessMessage(null), 3000);
+                        }}
+                        className="px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center gap-2 whitespace-nowrap"
+                      >
+                        <span>📥</span>
+                        <span>טען תבנית</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="text-sm text-gray-600">
+                      מציג {allLeads.length} לידים {leadsHasMore && '(טען עוד לראות יותר)'}
+                      {selectedLeadIds.size > 0 && (
+                        <span className="mr-2 text-blue-600 font-medium">
+                          • {selectedLeadIds.size} נבחרו
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Bulk Actions */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Select All Checkbox */}
+                      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer bg-white px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.size > 0 && selectedLeadIds.size === allLeads.filter(l => l.email).length}
+                          onChange={handleSelectAllLeads}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span>בחר הכל ({allLeads.filter(l => l.email).length})</span>
+                      </label>
+                    
+                    {/* Bulk Send Button */}
+                    {selectedLeadIds.size > 0 && (
+                      <button
+                        onClick={handleBulkCompose}
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                      >
+                        <Send className="w-4 h-4" />
+                        <span>שלח ל-{selectedLeadIds.size} לידים</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
               
@@ -832,54 +977,71 @@ export function EmailsPage() {
                     {allLeads.map((lead) => (
                       <div 
                         key={lead.id} 
-                        className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white"
+                        className={`border rounded-lg p-4 hover:shadow-md transition-shadow bg-white ${
+                          selectedLeadIds.has(lead.id) ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                        }`}
                       >
                         {/* Mobile: Stack layout, Desktop: Flex layout */}
                         <div className="space-y-3 md:space-y-0 md:flex md:justify-between md:items-start">
-                          {/* Lead Info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap mb-2">
-                              <h3 className="font-medium text-gray-900 text-lg">
-                                {lead.first_name} {lead.last_name}
-                              </h3>
-                              {getStatusBadge(lead.status)}
-                            </div>
+                          {/* Checkbox + Lead Info */}
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            {/* Selection Checkbox */}
+                            {lead.email && (
+                              <div className="pt-1">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedLeadIds.has(lead.id)}
+                                  onChange={() => handleSelectLead(lead.id)}
+                                  className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                />
+                              </div>
+                            )}
                             
-                            {/* Contact Info - Wrap on mobile */}
-                            <div className="space-y-1 text-sm text-gray-600">
-                              {lead.email && (
-                                <div className="flex items-center gap-1 break-all">
-                                  <Mail className="w-4 h-4 flex-shrink-0" />
-                                  <span>{lead.email}</span>
-                                </div>
-                              )}
-                              {lead.phone_e164 && (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-base">📞</span>
-                                  <span className="text-left" dir="ltr">{lead.phone_e164}</span>
-                                </div>
-                              )}
-                            </div>
-                            
-                            {/* Status Update Dropdown */}
-                            <div className="mt-3">
-                              <select
-                                value={lead.status}
-                                onChange={(e) => handleUpdateLeadStatus(lead.id, e.target.value)}
-                                disabled={leadStatusUpdating === lead.id}
-                                className="text-sm px-3 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                              >
-                                <option value="new">חדש</option>
-                                <option value="attempting">מנסה ליצור קשר</option>
-                                <option value="contacted">יצר קשר</option>
-                                <option value="qualified">מוסמך</option>
-                                <option value="won">נסגר</option>
-                                <option value="lost">אבד</option>
-                                <option value="unqualified">לא מוסמך</option>
-                              </select>
-                              {leadStatusUpdating === lead.id && (
-                                <span className="mr-2 text-xs text-gray-500">מעדכן...</span>
-                              )}
+                            {/* Lead Details */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-2">
+                                <h3 className="font-medium text-gray-900 text-lg">
+                                  {lead.first_name} {lead.last_name}
+                                </h3>
+                                {getStatusBadge(lead.status)}
+                              </div>
+                              
+                              {/* Contact Info - Wrap on mobile */}
+                              <div className="space-y-1 text-sm text-gray-600">
+                                {lead.email && (
+                                  <div className="flex items-center gap-1 break-all">
+                                    <Mail className="w-4 h-4 flex-shrink-0" />
+                                    <span>{lead.email}</span>
+                                  </div>
+                                )}
+                                {lead.phone_e164 && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-base">📞</span>
+                                    <span className="text-left" dir="ltr">{lead.phone_e164}</span>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Status Update Dropdown */}
+                              <div className="mt-3">
+                                <select
+                                  value={lead.status}
+                                  onChange={(e) => handleUpdateLeadStatus(lead.id, e.target.value)}
+                                  disabled={leadStatusUpdating === lead.id}
+                                  className="text-sm px-3 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                >
+                                  <option value="new">חדש</option>
+                                  <option value="attempting">מנסה ליצור קשר</option>
+                                  <option value="contacted">יצר קשר</option>
+                                  <option value="qualified">מוסמך</option>
+                                  <option value="won">נסגר</option>
+                                  <option value="lost">אבד</option>
+                                  <option value="unqualified">לא מוסמך</option>
+                                </select>
+                                {leadStatusUpdating === lead.id && (
+                                  <span className="mr-2 text-xs text-gray-500">מעדכן...</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                           
@@ -936,65 +1098,202 @@ export function EmailsPage() {
               )}
             </div>
           ) : activeTab === 'templates' ? (
-            // Templates Tab
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">תבניות מייל</h2>
-                {isAdmin && (
-                  <button
-                    onClick={handleCreateNewTemplate}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    תבנית חדשה
-                  </button>
-                )}
+            // Templates Tab - Edit Template Settings (Footer, Greeting, Theme defaults)
+            <div className="max-w-3xl">
+              <div className="mb-6">
+                <h2 className="text-2xl font-semibold">הגדרות תבנית כלליות</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  ערוך את ההגדרות הכלליות של התבנית: פוטר, ברכה, צבעים ועיצוב
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 ההגדרות כאן משפיעות על המראה והטקסט הכללי - לא על תוכן ההודעות הספציפיות
+                </p>
               </div>
               
-              {templatesLoading ? (
-                <div className="text-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                </div>
-              ) : templates.length === 0 ? (
-                <div className="text-center py-12">
-                  <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600">אין תבניות להצגה</p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {templates.map((template) => (
-                    <div key={template.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">{template.name}</h3>
-                          <p className="text-sm text-gray-600 mt-1">{template.subject_template}</p>
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mt-2">
-                            {template.type}
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handlePreviewTemplate(template)}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                          >
-                            <Eye className="w-4 h-4" />
-                            תצוגה
-                          </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleEditTemplate(template)}
-                              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
-                            >
-                              <Pencil className="w-4 h-4" />
-                              ערוך
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{error}</span>
                 </div>
               )}
+              
+              {successMessage && (
+                <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 flex items-start gap-2">
+                  <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+              
+              <form onSubmit={handleSaveTemplateSettings} className="space-y-6">
+                {/* Theme Selection */}
+                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-5 shadow-sm">
+                  <label className="block text-base font-bold text-purple-900 mb-3 flex items-center gap-2">
+                    <span className="text-2xl">🎨</span>
+                    <span>בחר עיצוב ברירת מחדל (Luxury Theme)</span>
+                  </label>
+                  <p className="text-xs text-purple-700 mb-3">
+                    העיצוב הזה ישמש כברירת מחדל בשליחת מיילים
+                  </p>
+                  
+                  {themesLoading ? (
+                    <div className="text-sm text-gray-600">טוען עיצובים...</div>
+                  ) : (
+                    <select
+                      value={templateDefaultTheme}
+                      onChange={(e) => setTemplateDefaultTheme(e.target.value)}
+                      className="w-full px-4 py-3.5 border-2 border-purple-300 rounded-xl focus:ring-4 focus:ring-purple-200 focus:border-purple-500 bg-white font-medium shadow-sm text-base"
+                    >
+                      {availableThemes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.name} - {theme.description}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Default Greeting */}
+                <div className="bg-white border-2 border-gray-200 rounded-xl p-5">
+                  <label className="block text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">👋</span>
+                    <span>ברכה כללית (ברירת מחדל)</span>
+                  </label>
+                  <p className="text-xs text-gray-600 mb-3">
+                    הברכה שתופיע בכל מייל. השתמש ב-{"{{lead.first_name}}"} לשם הליד
+                  </p>
+                  <input
+                    type="text"
+                    value={templateDefaultGreeting}
+                    onChange={(e) => setTemplateDefaultGreeting(e.target.value)}
+                    placeholder="שלום {{lead.first_name}},"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-4 focus:ring-blue-200 focus:border-blue-500 shadow-sm"
+                  />
+                </div>
+
+                {/* Default CTA */}
+                <div className="bg-white border-2 border-gray-200 rounded-xl p-5">
+                  <label className="block text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">🔘</span>
+                    <span>כפתור קריאה לפעולה (CTA) ברירת מחדל</span>
+                  </label>
+                  <p className="text-xs text-gray-600 mb-3">
+                    הטקסט והקישור שיופיעו בכפתור (אופציונלי)
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        טקסט הכפתור
+                      </label>
+                      <input
+                        type="text"
+                        value={templateDefaultCtaText}
+                        onChange={(e) => setTemplateDefaultCtaText(e.target.value)}
+                        placeholder="צור קשר עכשיו"
+                        className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        קישור
+                      </label>
+                      <input
+                        type="url"
+                        value={templateDefaultCtaUrl}
+                        onChange={(e) => setTemplateDefaultCtaUrl(e.target.value)}
+                        placeholder="https://example.com"
+                        className="w-full px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Text */}
+                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-5 shadow-md">
+                  <label className="block text-base font-bold text-yellow-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">⚠️</span>
+                    <span>פוטר כללי למיילים *</span>
+                  </label>
+                  <p className="text-xs text-yellow-800 mb-3">
+                    הפוטר שיופיע בכל מייל שנשלח. חובה לכלול אפשרות להסרה מהרשימה
+                  </p>
+                  <textarea
+                    value={templateDefaultFooter}
+                    onChange={(e) => setTemplateDefaultFooter(e.target.value)}
+                    placeholder="אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.&#10;&#10;© {{business.name}} | כל הזכויות שמורות"
+                    rows={4}
+                    className="w-full px-4 py-3 border-2 border-yellow-400 rounded-lg focus:ring-4 focus:ring-yellow-200 focus:border-yellow-500 text-sm shadow-sm resize-none"
+                    required
+                  />
+                  <p className="text-xs text-yellow-700 mt-2">
+                    💡 השתמש ב-{"{{business.name}}"} לשם העסק
+                  </p>
+                </div>
+
+                {/* Brand Colors */}
+                <div className="bg-white border-2 border-gray-200 rounded-xl p-5">
+                  <label className="block text-base font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <span className="text-2xl">🎨</span>
+                    <span>צבע מותג (אופציונלי)</span>
+                  </label>
+                  <p className="text-xs text-gray-600 mb-3">
+                    הצבע העיקרי שישמש בעיצוב המיילים (למשל: כפתורים, קישורים)
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={templateBrandColor}
+                      onChange={(e) => setTemplateBrandColor(e.target.value)}
+                      className="w-16 h-12 border-2 border-gray-300 rounded-lg cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={templateBrandColor}
+                      onChange={(e) => setTemplateBrandColor(e.target.value)}
+                      placeholder="#2563EB"
+                      className="flex-1 px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500 shadow-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Save Button */}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={saveLoading}
+                    className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed font-bold text-lg flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    {saveLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>שומר...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5" />
+                        <span>שמור הגדרות תבנית</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+              
+              {/* Info Section */}
+              <div className="mt-8 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <Mail className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-blue-900">
+                      💡 מה ההבדל בין הגדרות תבנית לתוכן ההודעה?
+                    </h3>
+                    <ul className="text-sm text-blue-700 mt-2 space-y-1 list-disc list-inside">
+                      <li><strong>הגדרות תבנית (כאן)</strong> - עיצוב, ברכה כללית, פוטר, צבעים - משפיע על כל המיילים</li>
+                      <li><strong>תוכן הודעה (בשליחה)</strong> - נושא ותוכן ספציפי לכל מייל שאתה שולח</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : activeTab === 'settings' ? (
             // Settings Tab
@@ -1663,6 +1962,217 @@ export function EmailsPage() {
         </div>
       )}
       
+      {/* Bulk Compose Modal */}
+      {showBulkComposeModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full h-full sm:h-auto sm:rounded-2xl sm:shadow-2xl sm:max-w-4xl sm:max-h-[95vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-green-600 to-blue-600 text-white p-4 sm:p-6 z-10 shadow-lg sm:rounded-t-2xl">
+              <div className="flex justify-between items-center">
+                <div className="flex-1">
+                  <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                    <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
+                    שליחה ל-{selectedLeadIds.size} לידים
+                  </h2>
+                  <p className="text-xs sm:text-sm text-green-100 mt-1">
+                    מייל קבוצתי עם נושא ותוכן משותפים
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowBulkComposeModal(false);
+                    resetComposeForm();
+                  }}
+                  className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors shrink-0"
+                  aria-label="סגור"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-4 sm:p-6">
+              {error && (
+                <div className="mb-4 bg-red-50 border-l-4 border-red-500 rounded-lg p-3 sm:p-4 text-sm sm:text-base text-red-800 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <span>{error}</span>
+                </div>
+              )}
+              
+              <form onSubmit={handleSendBulkEmail} className="space-y-4 sm:space-y-5">
+                {/* Theme Selector */}
+                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-3 sm:p-4 shadow-sm">
+                  <label className="block text-sm sm:text-base font-bold text-purple-900 mb-2 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">🎨</span>
+                    <span>בחר עיצוב יוקרתי למייל</span>
+                  </label>
+                  
+                  {themesLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+                      <span>טוען עיצובים...</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedThemeId}
+                      onChange={(e) => handleThemeChange(e.target.value)}
+                      className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-purple-300 rounded-xl focus:ring-4 focus:ring-purple-200 focus:border-purple-500 bg-white text-sm sm:text-base font-medium shadow-sm transition-all"
+                    >
+                      {availableThemes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.name} - {theme.description}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                
+                {/* Subject */}
+                <div className="space-y-2">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">📧</span>
+                    <span>נושא המייל (משותף לכל הלידים) *</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={themeFields.subject}
+                    onChange={(e) => setThemeFields({...themeFields, subject: e.target.value})}
+                    placeholder="לדוגמה: הצעה מיוחדת במיוחד בשבילך"
+                    className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                    required
+                  />
+                </div>
+                
+                {/* Greeting */}
+                <div className="space-y-2">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">👋</span>
+                    <span>ברכה פותחת</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={themeFields.greeting}
+                    onChange={(e) => setThemeFields({...themeFields, greeting: e.target.value})}
+                    placeholder='שלום {{lead.first_name}},'
+                    className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                  />
+                  <p className="text-xs text-gray-600">
+                    💡 {"{{lead.first_name}}"} יוחלף בשם כל ליד באופן אוטומטי
+                  </p>
+                </div>
+                
+                {/* Body */}
+                <div className="space-y-2">
+                  <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">📝</span>
+                    <span>תוכן המייל (משותף) *</span>
+                  </label>
+                  <textarea
+                    value={themeFields.body}
+                    onChange={(e) => setThemeFields({...themeFields, body: e.target.value})}
+                    placeholder="כתוב כאן את תוכן המייל... &#10;&#10;אנחנו ב-{{business.name}} מספקים פתרונות מתקדמים.&#10;&#10;נשמח לשמוע ממך!"
+                    rows={8}
+                    className="w-full px-3 sm:px-4 py-3 sm:py-3.5 border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm resize-none"
+                    required
+                  />
+                </div>
+                
+                {/* CTA Fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1">
+                      <span className="text-lg sm:text-xl">🔘</span>
+                      <span>טקסט כפתור</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={themeFields.cta_text}
+                      onChange={(e) => setThemeFields({...themeFields, cta_text: e.target.value})}
+                      placeholder="צור קשר עכשיו"
+                      className="w-full px-3 py-2.5 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1">
+                      <span className="text-lg sm:text-xl">🔗</span>
+                      <span>קישור</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={themeFields.cta_url}
+                      onChange={(e) => setThemeFields({...themeFields, cta_url: e.target.value})}
+                      placeholder="https://example.com"
+                      className="w-full px-3 py-2.5 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-4 focus:ring-blue-200 focus:border-blue-500 text-sm sm:text-base transition-all shadow-sm"
+                    />
+                  </div>
+                </div>
+                
+                {/* Footer */}
+                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-3 sm:p-4 shadow-md">
+                  <label className="block text-sm sm:text-base font-bold text-yellow-900 mb-2 flex items-center gap-2">
+                    <span className="text-xl sm:text-2xl">⚠️</span>
+                    <span>פוטר המייל *</span>
+                  </label>
+                  <textarea
+                    value={themeFields.footer}
+                    onChange={(e) => setThemeFields({...themeFields, footer: e.target.value})}
+                    placeholder="אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.&#10;&#10;© {{business.name}} | כל הזכויות שמורות"
+                    rows={3}
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border-2 border-yellow-400 rounded-lg focus:ring-4 focus:ring-yellow-200 focus:border-yellow-500 text-xs sm:text-sm transition-all shadow-sm resize-none"
+                    required
+                  />
+                </div>
+                
+                {/* Info Box */}
+                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Mail className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-blue-900">
+                        המייל יישלח ל-{selectedLeadIds.size} לידים
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        כל ליד יקבל מייל אישי עם השם שלו (אם יש {"{{lead.first_name}}"})
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Actions */}
+                <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowBulkComposeModal(false);
+                      resetComposeForm();
+                    }}
+                    className="w-full sm:w-auto px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-semibold"
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={bulkComposeLoading}
+                    className="w-full sm:flex-1 bg-gradient-to-r from-green-600 to-blue-600 text-white px-6 py-4 rounded-xl hover:from-green-700 hover:to-blue-700 transition-all disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed font-bold text-lg flex items-center justify-center gap-2 shadow-lg"
+                  >
+                    {bulkComposeLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>שולח...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-5 h-5" />
+                        <span>שלח ל-{selectedLeadIds.size} לידים</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Template Preview Modal */}
       {showPreviewModal && previewTemplate && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1733,126 +2243,6 @@ export function EmailsPage() {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Template Edit/Create Modal */}
-      {showEditTemplateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">
-                  {editingTemplate ? 'ערוך תבנית' : 'תבנית חדשה'}
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowEditTemplateModal(false);
-                    setEditingTemplate(null);
-                  }}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              
-              {error && (
-                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-                  {error}
-                </div>
-              )}
-              
-              <form onSubmit={editingTemplate ? handleSaveTemplate : handleCreateTemplate} className="space-y-4">
-                {/* Template Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    שם התבנית *
-                  </label>
-                  <input
-                    type="text"
-                    value={editTemplateName}
-                    onChange={(e) => setEditTemplateName(e.target.value)}
-                    placeholder="לדוגמה: ברכת ברירת מחדל"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                {/* Subject Template */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    נושא המייל *
-                  </label>
-                  <input
-                    type="text"
-                    value={editTemplateSubject}
-                    onChange={(e) => setEditTemplateSubject(e.target.value)}
-                    placeholder="לדוגמה: שלום מ-{{business.name}}"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    💡 ניתן להשתמש ב: {`{{lead.first_name}}, {{business.name}}, {{agent.name}}`}
-                  </p>
-                </div>
-                
-                {/* HTML Template */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    תוכן המייל (HTML) *
-                  </label>
-                  <textarea
-                    value={editTemplateHtml}
-                    onChange={(e) => setEditTemplateHtml(e.target.value)}
-                    placeholder={`<p>שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},</p>\n<p>תוכן המייל...</p>\n{% if signature %}\n<p>{{signature}}</p>\n{% endif %}`}
-                    rows={15}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    💡 ניתן להשתמש ב־HTML ובמשתנים: {`{{lead.first_name}}, {{business.name}}`}
-                    <br />
-                    💡 בלוקים תנאיים: {`{% if signature %}...{% endif %}`}
-                  </p>
-                </div>
-                
-                {/* Text Template (optional) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    תוכן טקסט רגיל (אופציונלי)
-                  </label>
-                  <textarea
-                    value={editTemplateText}
-                    onChange={(e) => setEditTemplateText(e.target.value)}
-                    placeholder="גרסת טקסט רגיל למיילים שלא תומכים ב-HTML"
-                    rows={8}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                {/* Actions */}
-                <div className="flex gap-2 pt-4">
-                  <button
-                    type="submit"
-                    disabled={editTemplateLoading}
-                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {editTemplateLoading ? 'שומר...' : (editingTemplate ? 'שמור שינויים' : 'צור תבנית')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowEditTemplateModal(false);
-                      setEditingTemplate(null);
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    ביטול
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>

@@ -410,7 +410,7 @@ class EmailService:
                     SELECT id, business_id, provider, from_email, from_name, 
                            reply_to, reply_to_enabled, brand_logo_url, brand_primary_color,
                            default_greeting, footer_html, footer_text, is_enabled, 
-                           created_at, updated_at
+                           created_at, updated_at, theme_id, cta_default_text, cta_default_url
                     FROM email_settings
                     WHERE business_id = :business_id
                 """),
@@ -435,7 +435,10 @@ class EmailService:
                 'footer_text': result[11],
                 'is_enabled': result[12],
                 'created_at': result[13],
-                'updated_at': result[14]
+                'updated_at': result[14],
+                'theme_id': result[15] if len(result) > 15 else 'classic_blue',
+                'cta_default_text': result[16] if len(result) > 16 else None,
+                'cta_default_url': result[17] if len(result) > 17 else None
             }
         except Exception as e:
             logger.error(f"[EMAIL] Failed to get email settings for business {business_id}: {e}")
@@ -452,13 +455,16 @@ class EmailService:
         default_greeting: Optional[str] = None,
         footer_html: Optional[str] = None,
         footer_text: Optional[str] = None,
-        is_enabled: bool = True
+        is_enabled: bool = True,
+        theme_id: Optional[str] = None,
+        cta_default_text: Optional[str] = None,
+        cta_default_url: Optional[str] = None
     ) -> bool:
         """
         Create or update email settings for a business
         
         🔒 CRITICAL: from_email is ENFORCED to noreply@prosaas.pro
-        Business can customize branding, greeting, footer, and reply_to
+        Business can customize branding, greeting, footer, theme, and reply_to
         
         Args:
             business_id: Business ID
@@ -471,6 +477,9 @@ class EmailService:
             footer_html: Footer HTML content
             footer_text: Footer plain text fallback
             is_enabled: Enable/disable email sending
+            theme_id: Luxury email theme ID (classic_blue, dark_luxury, etc.)
+            cta_default_text: Default CTA button text
+            cta_default_url: Default CTA button URL
             
         Returns:
             bool: True if successful
@@ -502,6 +511,9 @@ class EmailService:
                             footer_html = :footer_html,
                             footer_text = :footer_text,
                             is_enabled = :is_enabled,
+                            theme_id = :theme_id,
+                            cta_default_text = :cta_default_text,
+                            cta_default_url = :cta_default_url,
                             updated_at = :updated_at
                         WHERE business_id = :business_id
                     """),
@@ -517,6 +529,9 @@ class EmailService:
                         "footer_html": footer_html,
                         "footer_text": footer_text,
                         "is_enabled": is_enabled,
+                        "theme_id": theme_id or 'classic_blue',
+                        "cta_default_text": cta_default_text,
+                        "cta_default_url": cta_default_url,
                         "updated_at": now
                     }
                 )
@@ -527,10 +542,10 @@ class EmailService:
                         INSERT INTO email_settings 
                         (business_id, provider, from_email, from_name, reply_to, reply_to_enabled,
                          brand_logo_url, brand_primary_color, default_greeting, footer_html, footer_text,
-                         is_enabled, created_at, updated_at)
+                         is_enabled, theme_id, cta_default_text, cta_default_url, created_at, updated_at)
                         VALUES (:business_id, 'sendgrid', :from_email, :from_name, :reply_to, :reply_to_enabled,
                                 :brand_logo_url, :brand_primary_color, :default_greeting, :footer_html, :footer_text,
-                                :is_enabled, :created_at, :updated_at)
+                                :is_enabled, :theme_id, :cta_default_text, :cta_default_url, :created_at, :updated_at)
                     """),
                     {
                         "business_id": business_id,
@@ -544,13 +559,16 @@ class EmailService:
                         "footer_html": footer_html,
                         "footer_text": footer_text,
                         "is_enabled": is_enabled,
+                        "theme_id": theme_id or 'classic_blue',
+                        "cta_default_text": cta_default_text,
+                        "cta_default_url": cta_default_url,
                         "created_at": now,
                         "updated_at": now
                     }
                 )
             
             db.session.commit()
-            logger.info(f"[EMAIL] Email settings saved for business {business_id} with full branding")
+            logger.info(f"[EMAIL] Email settings saved for business {business_id} with full branding and theme")
             return True
             
         except Exception as e:
