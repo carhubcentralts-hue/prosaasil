@@ -347,7 +347,8 @@ export function EmailsPage() {
       setLeadSearchLoading(true);
       console.log('[EmailsPage] Searching leads with query:', leadSearchQuery);
       const response = await axios.get(`/api/leads?q=${encodeURIComponent(leadSearchQuery)}&pageSize=20`);
-      const leads = response.data.leads || [];
+      // 🔥 FIX: API returns 'items' not 'leads' - support both for compatibility
+      const leads = response.data.items || response.data.leads || [];
       console.log('[EmailsPage] ✅ Found', leads.length, 'leads for search');
       setLeadSearchResults(leads.map((l: any) => ({
         id: l.id,
@@ -382,7 +383,8 @@ export function EmailsPage() {
       console.log('[EmailsPage] Loading leads with params:', params.toString());
       
       const response = await axios.get(`/api/leads?${params.toString()}`);
-      const leads = response.data.leads || [];
+      // 🔥 FIX: API returns 'items' not 'leads'
+      const leads = response.data.items || [];
       const total = response.data.total || 0;
       
       console.log('[EmailsPage] ✅ Loaded leads successfully:', leads.length, 'total:', total);
