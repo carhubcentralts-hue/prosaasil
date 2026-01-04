@@ -1092,49 +1092,62 @@ class EmailService:
         # 4. Sanitize body content (user input only - not the base layout!)
         body_html_sanitized = sanitize_html(rendered_body_html)
         
-        # 5. Wrap in base layout (trusted - no sanitization)
-        try:
-            base_layout = load_base_layout()
-            
-            # Prepare layout variables - include signature support
-            brand_color = settings.get('brand_primary_color') or '#2563EB'
-            logo_url = settings.get('brand_logo_url') or ''
-            business_name = business_info['name'] if business_info else ''
-            footer_html = settings.get('footer_html') or ''
-            
-            # Prepare all variables for Jinja2 rendering
-            layout_vars = {
-                'brand_primary_color': brand_color,
-                'business_name': business_name,
-                'greeting': greeting_html,
-                'body_content': body_html_sanitized,
-                'footer_content': sanitize_html(footer_html) if footer_html else '',
-                'brand_logo_url': logo_url,
-                'signature': sanitize_html(footer_html) if footer_html else '',  # signature is same as footer
-            }
-            
-            # Render the base layout with Jinja2 to handle {% if %} blocks properly
-            final_html = render_variables(base_layout, layout_vars)
-            
-            # Final HTML is NOT sanitized again - base layout is trusted
-            # Only user content (body_html_sanitized and footer_html) was sanitized above
-            final_html_sanitized = final_html
-            
-            # ✅ LOGGING: Verify single template structure (as requested in issue)
-            html_count = final_html_sanitized.count("<html")
-            style_count = final_html_sanitized.count("<style")
-            body_count = final_html_sanitized.count("<body")
-            css_leak_check = "body {" in final_html_sanitized or "body{" in final_html_sanitized
-            
-            logger.info(f"[EMAIL] template_check business_id={business_id} html_tags={html_count} style_tags={style_count} body_tags={body_count} css_leak={css_leak_check}")
-            
-            # 🔥 ALERT: If we detect double templates or CSS leak, log error
-            if html_count > 1 or style_count > 1 or (css_leak_check and style_count == 0):
-                logger.error(f"[EMAIL] TEMPLATE_ISSUE detected: html={html_count} style={style_count} body={body_count} css_leak={css_leak_check}")
-            
-        except Exception as e:
-            logger.error(f"[EMAIL] Failed to wrap in base layout: {e}. Using simple HTML.")
+        # 🔥 FIX: Check if HTML is already a full document (from theme render)
+        # If it starts with <!DOCTYPE or <html, it's already complete - don't wrap again!
+        is_full_document = (
+            body_html_sanitized.strip().lower().startswith('<!doctype') or
+            body_html_sanitized.strip().startswith('<html') or
+            body_html_sanitized.strip().startswith('<?xml')
+        )
+        
+        if is_full_document:
+            # HTML is already a complete document (from theme) - use it as-is
+            logger.info(f"[EMAIL] HTML is already full document, skipping base_layout wrapper")
             final_html_sanitized = body_html_sanitized
+        else:
+            # 5. Wrap in base layout (trusted - no sanitization) - for non-theme emails
+            try:
+                base_layout = load_base_layout()
+                
+                # Prepare layout variables - include signature support
+                brand_color = settings.get('brand_primary_color') or '#2563EB'
+                logo_url = settings.get('brand_logo_url') or ''
+                business_name = business_info['name'] if business_info else ''
+                footer_html = settings.get('footer_html') or ''
+                
+                # Prepare all variables for Jinja2 rendering
+                layout_vars = {
+                    'brand_primary_color': brand_color,
+                    'business_name': business_name,
+                    'greeting': greeting_html,
+                    'body_content': body_html_sanitized,
+                    'footer_content': sanitize_html(footer_html) if footer_html else '',
+                    'brand_logo_url': logo_url,
+                    'signature': sanitize_html(footer_html) if footer_html else '',  # signature is same as footer
+                }
+                
+                # Render the base layout with Jinja2 to handle {% if %} blocks properly
+                final_html = render_variables(base_layout, layout_vars)
+                
+                # Final HTML is NOT sanitized again - base layout is trusted
+                # Only user content (body_html_sanitized and footer_html) was sanitized above
+                final_html_sanitized = final_html
+                
+                # ✅ LOGGING: Verify single template structure (as requested in issue)
+                html_count = final_html_sanitized.count("<html")
+                style_count = final_html_sanitized.count("<style")
+                body_count = final_html_sanitized.count("<body")
+                css_leak_check = "body {" in final_html_sanitized or "body{" in final_html_sanitized
+                
+                logger.info(f"[EMAIL] template_check business_id={business_id} html_tags={html_count} style_tags={style_count} body_tags={body_count} css_leak={css_leak_check}")
+                
+                # 🔥 ALERT: If we detect double templates or CSS leak, log error
+                if html_count > 1 or style_count > 1 or (css_leak_check and style_count == 0):
+                    logger.error(f"[EMAIL] TEMPLATE_ISSUE detected: html={html_count} style={style_count} body={body_count} css_leak={css_leak_check}")
+                
+            except Exception as e:
+                logger.error(f"[EMAIL] Failed to wrap in base layout: {e}. Using simple HTML.")
+                final_html_sanitized = body_html_sanitized
         
         # Plain text version
         final_text = rendered_body_text or strip_html(body_html_sanitized)

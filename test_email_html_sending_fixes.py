@@ -207,7 +207,7 @@ def test_full_html_structure_in_final_output():
 
 
 def test_no_double_template():
-    """Test that we don't have double <html> or <body> tags"""
+    """Test that we have proper HTML structure (one <html>, one <body>)"""
     from server.services.email_template_themes import get_template_html
     
     fields = {
@@ -218,18 +218,18 @@ def test_no_double_template():
         "footer": "תודה"
     }
     
-    # Fragment should NOT have <html> or <body>
-    fragment = get_template_html("classic_blue", fields)
+    # 🔥 FIX: Full document now has exactly one of each
+    html = get_template_html("classic_blue", fields)
     
-    html_count = fragment.count("<html")
-    body_count = fragment.count("<body")
-    head_count = fragment.count("<head")
+    html_count = html.count("<html")
+    body_count = html.count("<body")
+    head_count = html.count("<head")
     
-    assert html_count == 0, f"Fragment should not have <html tags, found {html_count}"
-    assert body_count == 0, f"Fragment should not have <body tags, found {body_count}"
-    assert head_count == 0, f"Fragment should not have <head tags, found {head_count}"
+    assert html_count == 1, f"Should have exactly 1 <html tag, found {html_count}"
+    assert body_count == 1, f"Should have exactly 1 <body tag, found {body_count}"
+    assert head_count == 1, f"Should have exactly 1 <head tag, found {head_count}"
     
-    print("✅ Template fragment has no double HTML structure")
+    print("✅ Template has proper HTML structure")
     print(f"   <html count: {html_count}, <body count: {body_count}, <head count: {head_count}")
 
 

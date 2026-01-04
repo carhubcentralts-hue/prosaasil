@@ -29,22 +29,22 @@ def test_get_template_html_basic():
     
     html = get_template_html("classic_blue", fields)
     
-    # ✅ FIX: Should return BODY FRAGMENT, not full HTML document
+    # 🔥 FIX: Should return FULL HTML document with theme colors
     assert html is not None
     assert isinstance(html, str)
     assert len(html) > 100
-    # Should NOT contain full document structure
-    assert "<!DOCTYPE html>" not in html
-    assert "<html" not in html
-    assert "<head>" not in html
-    assert "<body" not in html
+    # Should contain full document structure
+    assert "<!DOCTYPE html>" in html
+    assert "<html" in html
+    assert "<head>" in html
+    assert "<body" in html
     # Should contain the content
     assert "שלום חבר" in html
     assert "זה תוכן של מייל" in html
     assert "לחץ כאן" in html
     assert "https://example.com" in html
     
-    print("✅ Basic template rendering works (returns body fragment)")
+    print("✅ Basic template rendering works (returns full HTML document)")
     print(f"   Generated HTML length: {len(html)} characters")
 
 
@@ -90,8 +90,8 @@ def test_get_template_html_with_none_fields():
     # Should use defaults and not crash
     assert html is not None
     assert isinstance(html, str)
-    # ✅ FIX: Returns body fragment, not full document
-    assert "<!DOCTYPE html>" not in html
+    # 🔥 FIX: Returns full HTML document now
+    assert "<!DOCTYPE html>" in html
     
     print("✅ None fields handled correctly with defaults")
 
@@ -113,8 +113,8 @@ def test_get_template_html_empty_fields():
     # Should use defaults and not crash
     assert html is not None
     assert isinstance(html, str)
-    # ✅ FIX: Returns body fragment, not full document
-    assert "<!DOCTYPE html>" not in html
+    # 🔥 FIX: Returns full HTML document now
+    assert "<!DOCTYPE html>" in html
     
     print("✅ Empty fields handled correctly with defaults")
 

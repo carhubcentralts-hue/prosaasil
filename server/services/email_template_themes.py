@@ -135,17 +135,18 @@ EMAIL_TEMPLATE_THEMES = {
 
 def get_template_html(theme_id: str, fields: dict) -> str:
     """
-    Generate BODY FRAGMENT HTML from theme and fields
+    Generate FULL HTML document from theme and fields
     
-    ✅ FIX: Returns ONLY inner content (no <html>, <head>, <style>, <body> tags)
-    The wrapper (base_layout.html) will be applied by send_crm_email() to avoid double templates
+    🔥 FIX: Returns complete HTML document (with <!DOCTYPE>, <html>, <head>, <body>)
+    This prevents base_layout from overriding theme colors with hardcoded blue header.
+    Each theme has its own colors that are applied throughout the document.
     
     Args:
-        theme_id: Theme ID (e.g., "classic_blue")
+        theme_id: Theme ID (e.g., "classic_blue", "green_success")
         fields: Dict with user-provided content (subject, greeting, body, cta_text, cta_url, footer)
         
     Returns:
-        Body fragment HTML (inner content only) with inline styles for theme colors
+        Complete HTML document with theme colors and styling applied
     """
     if theme_id not in EMAIL_TEMPLATE_THEMES:
         logger.warning(f"[EMAIL_THEMES] Invalid theme_id '{theme_id}', using classic_blue fallback")
@@ -194,47 +195,73 @@ def get_template_html(theme_id: str, fields: dict) -> str:
         </div>
         """
     
-    # ✅ FIX: Return ONLY body fragment (no <html>, <head>, <style>, <body>)
-    # The base_layout.html wrapper will be applied by send_crm_email()
-    html_fragment = f"""
-    <!-- Main content card with theme: {theme_id} -->
-    <div style="background-color: #FFFFFF; 
-                border-radius: {colors['border_radius']}; 
-                padding: 40px; 
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);">
-        
-        <!-- Greeting -->
-        <div style="color: {colors['primary_color']}; 
-                    font-size: 20px; 
-                    font-weight: bold; 
-                    margin-bottom: 20px;">
-            {greeting}
+    # 🔥 FIX: Return FULL HTML document with theme colors (not fragment)
+    # This prevents base_layout from overriding theme colors with hardcoded blue
+    html_document = f"""<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: {colors['text_color']};
+            direction: rtl;
+            text-align: right;
+            margin: 0;
+            padding: 0;
+            background-color: {colors['background_color']};
+        }}
+        .email-container {{
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Main content card with theme: {theme_id} -->
+        <div style="background-color: #FFFFFF; 
+                    border-radius: {colors['border_radius']}; 
+                    padding: 40px; 
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);">
+            
+            <!-- Greeting -->
+            <div style="color: {colors['primary_color']}; 
+                        font-size: 20px; 
+                        font-weight: bold; 
+                        margin-bottom: 20px;">
+                {greeting}
+            </div>
+            
+            <!-- Body content -->
+            <div style="color: {colors['text_color']}; 
+                        font-size: 16px; 
+                        line-height: 1.6; 
+                        margin-bottom: 24px;">
+                {body_html}
+            </div>
+            
+            <!-- CTA Button -->
+            {cta_html}
         </div>
         
-        <!-- Body content -->
-        <div style="color: {colors['text_color']}; 
-                    font-size: 16px; 
-                    line-height: 1.6; 
-                    margin-bottom: 24px;">
-            {body_html}
+        <!-- Footer -->
+        <div style="margin-top: 32px; 
+                    padding: 20px; 
+                    text-align: center; 
+                    color: {colors['secondary_color']}; 
+                    font-size: 12px; 
+                    line-height: 1.4;">
+            {footer_html}
         </div>
-        
-        <!-- CTA Button -->
-        {cta_html}
     </div>
+</body>
+</html>"""
     
-    <!-- Footer -->
-    <div style="margin-top: 32px; 
-                padding: 20px; 
-                text-align: center; 
-                color: {colors['secondary_color']}; 
-                font-size: 12px; 
-                line-height: 1.4;">
-        {footer_html}
-    </div>
-    """
-    
-    return html_fragment
+    return html_document
 
 
 def get_all_themes():
