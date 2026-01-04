@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X } from 'lucide-react';
+import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
