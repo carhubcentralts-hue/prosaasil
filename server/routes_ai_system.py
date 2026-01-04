@@ -15,6 +15,7 @@ import logging
 import io
 import os
 import base64
+import struct
 import traceback
 
 logger = logging.getLogger(__name__)
@@ -235,8 +236,6 @@ def _create_wav_header(pcm_data: bytes, sample_rate: int = 24000, bits_per_sampl
     Returns:
         Complete WAV file (header + data)
     """
-    import struct
-    
     # Calculate sizes
     data_size = len(pcm_data)
     byte_rate = sample_rate * num_channels * bits_per_sample // 8

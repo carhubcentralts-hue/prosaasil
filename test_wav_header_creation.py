@@ -1,6 +1,10 @@
 """
 Test WAV header creation for TTS preview fix
 Tests the _create_wav_header function without requiring Flask
+
+Note: This duplicates the _create_wav_header function from routes_ai_system.py
+for isolated unit testing without Flask dependencies. In production, the
+implementation in routes_ai_system.py is used.
 """
 import struct
 
@@ -8,7 +12,7 @@ import struct
 def _create_wav_header(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: int = 16, num_channels: int = 1) -> bytes:
     """
     Create a WAV file header for PCM16 audio data.
-    (Copied from routes_ai_system.py for isolated testing)
+    (Duplicated from routes_ai_system.py for isolated testing)
     """
     # Calculate sizes
     data_size = len(pcm_data)
