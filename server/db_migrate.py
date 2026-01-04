@@ -2145,6 +2145,206 @@ def apply_migrations():
         
         checkpoint("✅ Migration 61 completed - Invalid voices cleaned up")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 62: Seed default email templates for all businesses
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 62: Seeding default email templates")
+        
+        try:
+            # Check if email_templates table exists
+            if check_table_exists('email_templates'):
+                # Get all businesses that don't have templates yet
+                businesses_result = db.session.execute(text("""
+                    SELECT b.id, b.name
+                    FROM business b
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM email_templates et 
+                        WHERE et.business_id = b.id
+                    )
+                    AND b.is_active = TRUE
+                """)).fetchall()
+                
+                businesses_count = len(businesses_result)
+                
+                if businesses_count > 0:
+                    checkpoint(f"  Found {businesses_count} businesses without email templates")
+                    
+                    # Template 1: Default Welcome
+                    template_1_subject = "שלום מ-{{business.name}}"
+                    template_1_html = """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; direction: rtl; text-align: right; }
+        .content { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #2563EB; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+        .body { background-color: #f9fafb; padding: 30px; }
+        .footer { background-color: #f3f4f6; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px; }
+        .button { display: inline-block; background-color: #2563EB; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %}!</h1>
+        </div>
+        <div class="body">
+            <p>אנחנו ב-{{business.name}} שמחים ליצור איתך קשר.</p>
+            
+            <p>אנו מספקים שירות מקצועי ואיכותי ללקוחותינו, ונשמח לעזור גם לך.</p>
+            
+            <p>צוות {{business.name}}</p>
+        </div>
+        {% if signature %}
+        <div class="footer">
+            {{signature}}
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
+                    template_1_text = "שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %}!\n\nאנחנו ב-{{business.name}} שמחים ליצור איתך קשר.\n\nצוות {{business.name}}"
+                    
+                    # Template 2: Follow-up / Reminder
+                    template_2_subject = "תזכורת - {{business.name}}"
+                    template_2_html = """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; direction: rtl; text-align: right; }
+        .content { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #fffbeb; border: 2px solid #fbbf24; border-radius: 8px; }
+        .icon { font-size: 48px; text-align: center; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="content">
+        <div class="icon">⏰</div>
+        <h2>שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},</h2>
+        
+        <p>רצינו להזכיר לך שאנחנו כאן בשבילך!</p>
+        
+        <p>נשמח לקבוע שיחה ולדבר על איך נוכל לעזור.</p>
+        
+        <p>בברכה,<br>צוות {{business.name}}</p>
+        {% if signature %}
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #d1d5db;">
+            {{signature}}
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
+                    template_2_text = "שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},\n\nרצינו להזכיר לך שאנחנו כאן בשבילך!\n\nנשמח לקבוע שיחה ולדבר על איך נוכל לעזור.\n\nבברכה,\nצוות {{business.name}}"
+                    
+                    # Template 3: Quick Follow-up
+                    template_3_subject = "רק רציתי לוודא - {{business.name}}"
+                    template_3_html = """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; direction: rtl; text-align: right; }
+        .content { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .simple { background-color: white; padding: 30px; border: 1px solid #e5e7eb; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="content">
+        <div class="simple">
+            <p>היי {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},</p>
+            
+            <p>רק רציתי לשלוח הודעה מהירה ולוודא שהכל בסדר.</p>
+            
+            <p>אם יש משהו שאני יכול לעזור בו, אני כאן!</p>
+            
+            <p>תודה,<br>{{business.name}}</p>
+            
+            {% if signature %}
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">
+                {{signature}}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+"""
+                    template_3_text = "היי {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},\n\nרק רציתי לשלוח הודעה מהירה ולוודא שהכל בסדר.\n\nאם יש משהו שאני יכול לעזור בו, אני כאן!\n\nתודה,\n{{business.name}}"
+                    
+                    # Insert templates for each business
+                    templates_inserted = 0
+                    for business_id, business_name in businesses_result:
+                        try:
+                            # Template 1
+                            db.session.execute(text("""
+                                INSERT INTO email_templates 
+                                (business_id, name, type, subject_template, html_template, text_template, is_active, created_at, updated_at)
+                                VALUES (:business_id, :name, :type, :subject_template, :html_template, :text_template, TRUE, NOW(), NOW())
+                            """), {
+                                "business_id": business_id,
+                                "name": "ברירת מחדל - ברכה",
+                                "type": "welcome",
+                                "subject_template": template_1_subject,
+                                "html_template": template_1_html,
+                                "text_template": template_1_text
+                            })
+                            
+                            # Template 2
+                            db.session.execute(text("""
+                                INSERT INTO email_templates 
+                                (business_id, name, type, subject_template, html_template, text_template, is_active, created_at, updated_at)
+                                VALUES (:business_id, :name, :type, :subject_template, :html_template, :text_template, TRUE, NOW(), NOW())
+                            """), {
+                                "business_id": business_id,
+                                "name": "תזכורת - קביעת שיחה",
+                                "type": "followup",
+                                "subject_template": template_2_subject,
+                                "html_template": template_2_html,
+                                "text_template": template_2_text
+                            })
+                            
+                            # Template 3
+                            db.session.execute(text("""
+                                INSERT INTO email_templates 
+                                (business_id, name, type, subject_template, html_template, text_template, is_active, created_at, updated_at)
+                                VALUES (:business_id, :name, :type, :subject_template, :html_template, :text_template, TRUE, NOW(), NOW())
+                            """), {
+                                "business_id": business_id,
+                                "name": "מעקב - הודעה מהירה",
+                                "type": "quick_followup",
+                                "subject_template": template_3_subject,
+                                "html_template": template_3_html,
+                                "text_template": template_3_text
+                            })
+                            
+                            templates_inserted += 3
+                            checkpoint(f"  ✅ Seeded 3 templates for business_id={business_id} ({business_name})")
+                        
+                        except Exception as e:
+                            log.warning(f"  ⚠️ Failed to seed templates for business_id={business_id}: {e}")
+                            # Continue with other businesses
+                    
+                    checkpoint(f"  ✅ Seeded {templates_inserted} email templates across {businesses_count} businesses")
+                    migrations_applied.append('seed_email_templates')
+                else:
+                    checkpoint("  ✅ All businesses already have email templates")
+            else:
+                checkpoint("  ℹ️ email_templates table does not exist - skipping")
+        
+        except Exception as e:
+            log.error(f"❌ Migration 62 (seed_email_templates) failed: {e}")
+            # Don't rollback - this is not critical, just log the error
+            checkpoint(f"  ⚠️ Template seeding failed but continuing: {e}")
+        
+        checkpoint("✅ Migration 62 completed - Email templates seeded")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

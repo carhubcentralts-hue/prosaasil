@@ -15,6 +15,7 @@ from datetime import datetime
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
 import bleach
+from jinja2 import Template, TemplateSyntaxError, Environment, select_autoescape
 
 # Try to import CSS sanitizer - requires tinycss2
 try:
@@ -108,41 +109,71 @@ def sanitize_html(html: str) -> str:
 
 def render_variables(template: str, variables: Dict[str, Any]) -> str:
     """
-    Safely render template variables using simple string replacement
+    Safely render template variables using Jinja2
     
-    Whitelist of allowed variables:
+    Supports Jinja2 syntax:
     - {{business.name}}, {{business.phone}}
     - {{lead.first_name}}, {{lead.last_name}}, {{lead.email}}, {{lead.phone}}
     - {{agent.name}}, {{agent.email}}
+    - {% if signature %}...{% endif %} conditional blocks
     - {{cta.url}}, {{cta.text}}
     
     Args:
-        template: Template string with {{variable}} placeholders
+        template: Template string with {{variable}} or {% %} placeholders
         variables: Dict of variables to substitute
         
     Returns:
         Rendered template with variables replaced
     """
-    result = template
+    try:
+        # Create Jinja2 environment with autoescape for HTML safety
+        env = Environment(autoescape=select_autoescape(['html', 'xml']))
+        jinja_template = env.from_string(template)
+        
+        # Flatten nested dicts for Jinja2 - make all values available at top level too
+        flat_vars = dict(variables)
+        for key, value in variables.items():
+            if isinstance(value, dict):
+                flat_vars[key] = value
+                # Also add flattened versions for backward compatibility
+                for subkey, subvalue in value.items():
+                    flat_vars[f"{key}_{subkey}"] = subvalue if subvalue is not None else ''
+        
+        # Render the template
+        result = jinja_template.render(**flat_vars)
+        return result
+        
+    except TemplateSyntaxError as e:
+        logger.error(f"[EMAIL] Template syntax error: {e}")
+        # Fallback to simple replacement if Jinja2 fails
+        result = template
+        
+        # Flatten nested dicts for simple replacement
+        flat_vars = {}
+        for key, value in variables.items():
+            if isinstance(value, dict):
+                for subkey, subvalue in value.items():
+                    flat_vars[f"{key}.{subkey}"] = str(subvalue) if subvalue is not None else ''
+            else:
+                flat_vars[key] = str(value) if value is not None else ''
+        
+        # Replace all {{variable}} patterns
+        for var_name, var_value in flat_vars.items():
+            pattern = f"{{{{{var_name}}}}}"
+            result = result.replace(pattern, var_value)
+        
+        # Remove any remaining unreplaced variables and blocks
+        result = re.sub(r'\{%[^%]+%\}', '', result)  # Remove {% %} blocks
+        result = re.sub(r'\{\{[^}]+\}\}', '', result)  # Remove {{ }} variables
+        
+        return result
     
-    # Flatten nested dicts for easy replacement
-    flat_vars = {}
-    for key, value in variables.items():
-        if isinstance(value, dict):
-            for subkey, subvalue in value.items():
-                flat_vars[f"{key}.{subkey}"] = str(subvalue) if subvalue is not None else ''
-        else:
-            flat_vars[key] = str(value) if value is not None else ''
-    
-    # Replace all {{variable}} patterns
-    for var_name, var_value in flat_vars.items():
-        pattern = f"{{{{{var_name}}}}}"
-        result = result.replace(pattern, var_value)
-    
-    # Remove any remaining unreplaced variables
-    result = re.sub(r'\{\{[^}]+\}\}', '', result)
-    
-    return result
+    except Exception as e:
+        logger.error(f"[EMAIL] Template rendering error: {e}")
+        # Return template with variables removed as last resort
+        result = re.sub(r'\{%[^%]+%\}', '', template)
+        result = re.sub(r'\{\{[^}]+\}\}', '', result)
+        return result
 
 def load_base_layout() -> str:
     """Load the base email layout template"""
@@ -999,13 +1030,18 @@ class EmailService:
                 'message': error_msg
             }
         
-        # 3. Build greeting with variables
-        greeting_template = settings.get('default_greeting') or 'שלום {{lead.first_name}},'
+        # 3. Build greeting with variables and signature support
+        greeting_template = settings.get('default_greeting') or 'שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},'
         variables = {}
         if lead_info:
             variables['lead'] = lead_info
         if business_info:
             variables['business'] = business_info
+        
+        # Add signature support - use footer_html as signature if available
+        signature_html = settings.get('footer_html') or ''
+        variables['signature'] = signature_html
+        
         greeting_html = render_variables(greeting_template, variables)
         
         # 4. Sanitize body content (user input only - not the base layout!)
@@ -1015,35 +1051,25 @@ class EmailService:
         try:
             base_layout = load_base_layout()
             
-            # Prepare layout variables
+            # Prepare layout variables - include signature support
             brand_color = settings.get('brand_primary_color') or '#2563EB'
             logo_url = settings.get('brand_logo_url') or ''
             business_name = business_info['name'] if business_info else ''
             footer_html = settings.get('footer_html') or ''
             
-            # Simple template replacement (using Python's format-style)
-            final_html = base_layout
-            final_html = final_html.replace('{{brand_primary_color}}', brand_color)
-            final_html = final_html.replace('{{business_name}}', business_name)
-            final_html = final_html.replace('{{greeting}}', greeting_html)
-            final_html = final_html.replace('{{body_content}}', body_html_sanitized)
-            # Footer content is business-configured, sanitize it to prevent XSS
-            final_html = final_html.replace('{{footer_content}}', sanitize_html(footer_html) if footer_html else '')
+            # Prepare all variables for Jinja2 rendering
+            layout_vars = {
+                'brand_primary_color': brand_color,
+                'business_name': business_name,
+                'greeting': greeting_html,
+                'body_content': body_html_sanitized,
+                'footer_content': sanitize_html(footer_html) if footer_html else '',
+                'brand_logo_url': logo_url,
+                'signature': sanitize_html(footer_html) if footer_html else '',  # signature is same as footer
+            }
             
-            # Handle conditional logo
-            if logo_url:
-                final_html = final_html.replace('{{#if brand_logo_url}}', '')
-                final_html = final_html.replace('{{brand_logo_url}}', logo_url)
-                final_html = final_html.replace('{{else}}', '<!--')
-                final_html = final_html.replace('{{/if}}', '-->')
-            else:
-                final_html = final_html.replace('{{#if brand_logo_url}}', '<!--')
-                final_html = final_html.replace('{{brand_logo_url}}', '')
-                final_html = final_html.replace('{{else}}', '-->')
-                final_html = final_html.replace('{{/if}}', '')
-            
-            # Remove any {{#if signature}} blocks (not used yet)
-            final_html = re.sub(r'\{\{#if signature\}\}.*?\{\{/if\}\}', '', final_html, flags=re.DOTALL)
+            # Render the base layout with Jinja2 to handle {% if %} blocks properly
+            final_html = render_variables(base_layout, layout_vars)
             
             # Final HTML is NOT sanitized again - base layout is trusted
             # Only user content (body_html_sanitized and footer_html) was sanitized above
