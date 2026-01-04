@@ -15,6 +15,7 @@ import logging
 import io
 import os
 import base64
+import struct
 import traceback
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,45 @@ def update_business_ai_settings():
     }
 
 
+def _create_wav_header(pcm_data: bytes, sample_rate: int = 24000, bits_per_sample: int = 16, num_channels: int = 1) -> bytes:
+    """
+    Create a WAV file header for PCM16 audio data.
+    
+    Args:
+        pcm_data: Raw PCM audio bytes
+        sample_rate: Sample rate in Hz (24000 for Realtime API)
+        bits_per_sample: Bits per sample (16 for pcm16)
+        num_channels: Number of audio channels (1 for mono)
+        
+    Returns:
+        Complete WAV file (header + data)
+    """
+    # Calculate sizes
+    data_size = len(pcm_data)
+    byte_rate = sample_rate * num_channels * bits_per_sample // 8
+    block_align = num_channels * bits_per_sample // 8
+    
+    # Create WAV header (44 bytes)
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF',                      # ChunkID
+        36 + data_size,               # ChunkSize
+        b'WAVE',                      # Format
+        b'fmt ',                      # Subchunk1ID
+        16,                           # Subchunk1Size (PCM)
+        1,                            # AudioFormat (1 = PCM)
+        num_channels,                 # NumChannels
+        sample_rate,                  # SampleRate
+        byte_rate,                    # ByteRate
+        block_align,                  # BlockAlign
+        bits_per_sample,              # BitsPerSample
+        b'data',                      # Subchunk2ID
+        data_size                     # Subchunk2Size
+    )
+    
+    return header + pcm_data
+
+
 async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
     """
     Generate TTS preview using OpenAI Realtime API
@@ -232,7 +272,9 @@ async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
         text: Text to convert to speech
         
     Returns:
-        Audio bytes (mp3 format)
+        Audio bytes (WAV format with pcm16 data)
+        
+    🔥 CRITICAL: Realtime API only supports pcm16/g711_ulaw/g711_alaw, NOT mp3
     """
     from server.services.openai_realtime_client import OpenAIRealtimeClient
     import asyncio
@@ -248,12 +290,13 @@ async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
         
         try:
             # Configure session with voice and audio format
+            # 🔥 FIX: Use pcm16 instead of mp3 (Realtime doesn't support mp3)
             await client.send_event({
                 "type": "session.update",
                 "session": {
                     "modalities": ["text", "audio"],
                     "voice": voice_id,
-                    "output_audio_format": "mp3",
+                    "output_audio_format": "pcm16",  # 🔥 Changed from "mp3" to "pcm16"
                     "turn_detection": None  # Disable turn detection for preview
                 }
             })
@@ -300,7 +343,12 @@ async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
         if not audio_chunks:
             raise RuntimeError("No audio generated")
         
-        return b"".join(audio_chunks)
+        pcm_data = b"".join(audio_chunks)
+        
+        # 🔥 FIX: Wrap PCM16 data with WAV header for browser playback
+        wav_data = _create_wav_header(pcm_data, sample_rate=24000, bits_per_sample=16, num_channels=1)
+        
+        return wav_data
     
     except Exception as e:
         logger.error(f"[TTS_PREVIEW] Realtime API failed: {e}")
@@ -313,13 +361,14 @@ def preview_tts():
     """
     Preview TTS with specified text and voice
     Body: {"text": "שלום עולם", "voice_id": "cedar"}
-    Returns: audio/mpeg (mp3) stream
+    Returns: audio/mpeg (mp3) or audio/wav depending on engine
     
     🔥 TWO PREVIEW ENGINES:
-    1. speech.create (TTS-1): Fast, for voices in SPEECH_CREATE_VOICES (alloy, ash, echo, shimmer)
-    2. Realtime API: For Realtime-only voices (cedar, ballad, coral, marin, sage, verse)
+    1. speech.create (TTS-1): Fast, returns mp3 for voices in SPEECH_CREATE_VOICES (alloy, ash, echo, shimmer)
+    2. Realtime API: Returns wav (pcm16) for Realtime-only voices (cedar, ballad, coral, marin, sage, verse)
     
-    🔥 CRITICAL: Returns binary audio/mpeg Response, NOT JSON
+    🔥 CRITICAL: Returns binary audio Response (NOT JSON)
+    🔥 FIX: Realtime API only supports pcm16/g711_ulaw/g711_alaw, so we return WAV format for those voices
     """
     from server.config.voices import SPEECH_CREATE_VOICES
     
@@ -372,9 +421,12 @@ def preview_tts():
     
     try:
         audio_bytes = None
+        content_type = 'audio/mpeg'  # Default for speech.create
+        file_extension = 'mp3'
         
         if preview_engine == "speech_create":
             # Use standard speech.create API (fast, for compatible voices only)
+            # 🔥 Returns mp3 format
             client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
             
             # Generate speech using TTS-1 model with specified voice
@@ -387,24 +439,29 @@ def preview_tts():
             
             # Convert response to bytes
             audio_bytes = response.content
-            logger.info(f"[TTS_PREVIEW] speech.create success: {len(audio_bytes)} bytes")
+            content_type = 'audio/mpeg'
+            file_extension = 'mp3'
+            logger.info(f"[TTS_PREVIEW] speech.create success: {len(audio_bytes)} bytes (mp3)")
         else:
             # Use Realtime API for cedar and other Realtime-only voices
+            # 🔥 Returns WAV format (pcm16 wrapped with WAV header)
             import asyncio
             audio_bytes = asyncio.run(_generate_preview_via_realtime(voice_id, text))
-            logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes")
+            content_type = 'audio/wav'
+            file_extension = 'wav'
+            logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes (wav)")
         
         # Create BytesIO object for send_file
         audio_io = io.BytesIO(audio_bytes)
         audio_io.seek(0)
         
         try:
-            # 🔥 CRITICAL: Return binary audio/mpeg Response (NOT JSON)
+            # 🔥 Return binary audio response with correct content type
             return send_file(
                 audio_io,
-                mimetype='audio/mpeg',
+                mimetype=content_type,
                 as_attachment=False,
-                download_name='preview.mp3'
+                download_name=f'preview.{file_extension}'
             )
         finally:
             # Ensure audio stream is closed after sending
