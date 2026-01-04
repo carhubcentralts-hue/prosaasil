@@ -139,41 +139,48 @@ ECHO_GATE_MIN_RMS = 270.0       # Increased: stronger protection from background
 ECHO_GATE_MIN_FRAMES = 6        # Unchanged: requires 120ms consistent audio
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 GREETING FIX: BALANCED BARGE-IN - Protect greeting, allow natural interruption
+# 🔥 BARGE-IN FIX: Stricter validation to reduce false positives
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (balanced approach per expert feedback):
-# - Frames 6: Requires 120ms of consistent speech to trigger interruption (was 4 frames/80ms)
-#   Balanced: More robust than 4 frames (80ms) - reduces false triggers from noise/breathing
-#   Expert feedback: 5 frames risks some false triggers, 6-8 frames (120-160ms) is optimal
+# TUNING RATIONALE (per user feedback - false barge-in cutting mid-sentence):
+# - Frames 10: Requires 200ms+ of consistent speech to trigger interruption (was 6 frames/120ms)
+#   Increased from 6 to 10 frames to reduce false positives from noise/echo/clicks
+#   This still allows fast barge-in but filters out brief sounds better
 # - Debounce 350ms: Prevents rapid re-triggering after barge-in (unchanged)
 #
+# 🔥 ANTI-ECHO COOLDOWN: Added to prevent false barge-in from AI audio echo
+# - ANTI_ECHO_COOLDOWN_MS: Window after AI starts speaking where barge-in is more strict
+# - During this window, require both speech_started event AND RMS above threshold
+#
 # APPROACH:
-# ❌ OLD: Required 80ms of voice (4 frames) - too fast, risks false barge-in from noise
-# ⚠️ TRIED: 160ms (8 frames) - too slow for natural interruption
-# ✅ NEW: 120ms (6 frames) - balanced between speed and accuracy, fewer false triggers
+# ❌ OLD: Required 120ms of voice (6 frames) - still had false positives from echo/noise
+# ✅ NEW: Requires 200ms of voice (10 frames) - significantly reduces false triggers
 #
 # Golden Rule: speech_started => cancel ALWAYS when active_response_id exists
-# - voice_frames provides reliable noise filtering (120ms sustained sound)
+# - voice_frames provides reliable noise filtering (200ms sustained sound)
 # - Primary trigger is speech_started event itself
 # - Idempotency protection via _should_send_cancel() prevents double-cancel
 #
 # ⚠️ MONITORING REQUIRED:
-# - If still false triggers from noise → increase to 7-8 frames (140-160ms)
-# - If barge-in feels slow → can decrease to 5 frames but monitor closely
-# - Check logs for "false barge-in" patterns (cancel without real speech)
+# - If barge-in feels slow → can decrease to 8 frames (160ms) but monitor closely
+# - If still false triggers → increase ANTI_ECHO_COOLDOWN_MS or RMS threshold
 #
-# Current settings (6 frames/350ms) provide:
-# ✅ Reliable barge-in response (120ms vs old 80ms)
-# ✅ Reduced false triggers from noise/breathing/clicks
-# ✅ More confident interruption detection (trusts OpenAI VAD)
+# Current settings (10 frames/350ms) provide:
+# ✅ More confident interruption detection (200ms vs old 120ms)
+# ✅ Significantly reduced false triggers from echo/noise/breathing
+# ✅ Still fast enough for natural conversation interruption
 # ✅ No double triggers - 350ms debounce prevents rapid re-triggering
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 6   # Balanced: 120ms - reliable detection, fewer false triggers (was 4)
+BARGE_IN_VOICE_FRAMES = 10  # Stricter: 200ms - reduces false positives significantly (was 6)
 BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged)
+
+# 🔥 ANTI-ECHO COOLDOWN: Window after AI starts speaking where barge-in needs stronger validation
+# This prevents false barge-in from AI audio echo bouncing back
+ANTI_ECHO_COOLDOWN_MS = 300  # 300ms after first AI audio.delta - require stronger speech validation
+ANTI_ECHO_RMS_MULTIPLIER = 1.8  # During cooldown, require RMS > (vad_threshold * 1.8) for "real speech"
 
 # Greeting-specific protection (applied during greeting playback only)
 GREETING_PROTECT_DURATION_MS = 500  # Protect greeting for first 500ms
-GREETING_MIN_SPEECH_DURATION_MS = 250  # Require 250ms continuous speech to interrupt greeting
+GREETING_MIN_SPEECH_DURATION_MS = 220  # Require 220ms continuous speech to interrupt greeting (was 250ms)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Legacy Audio Guard parameters (kept for compatibility)

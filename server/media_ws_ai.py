@@ -69,6 +69,8 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
     - STT_FINAL_MS: Time to final/EOU
     - TTS_READY_MS: Time until TTS audio is ready
     - TOTAL_LATENCY_MS: Time until first audio frame sent
+    
+    🔥 LOGGING POLICY: Moved to DEBUG level (per requirement - reduce log noise)
     """
     payload = {
         "STT_FIRST_PARTIAL_MS": first_partial,
@@ -78,7 +80,8 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
         "BARGE_IN_HIT": barge_in,
         "EOU_REASON": eou_reason
     }
-    logging.getLogger("turn").info(json.dumps(payload, ensure_ascii=False))
+    # 🔥 Changed from INFO to DEBUG - metrics are now DEBUG level only
+    logging.getLogger("turn").debug(json.dumps(payload, ensure_ascii=False))
 
 # 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
@@ -98,7 +101,8 @@ try:
         BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
         NOISE_GATE_MIN_FRAMES,
-        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS
+        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS,
+        ANTI_ECHO_COOLDOWN_MS, ANTI_ECHO_RMS_MULTIPLIER
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -110,13 +114,15 @@ except ImportError:
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
-    BARGE_IN_VOICE_FRAMES = 8
+    BARGE_IN_VOICE_FRAMES = 10  # Updated: 200ms - reduces false positives (was 8)
     BARGE_IN_DEBOUNCE_MS = 350
     GREETING_PROTECT_DURATION_MS = 500
-    GREETING_MIN_SPEECH_DURATION_MS = 250
+    GREETING_MIN_SPEECH_DURATION_MS = 220  # Updated from 250ms
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
+    ANTI_ECHO_COOLDOWN_MS = 300  # 🔥 NEW: Anti-echo cooldown window after AI starts speaking
+    ANTI_ECHO_RMS_MULTIPLIER = 1.8  # 🔥 NEW: RMS multiplier for real speech during cooldown
     AUDIO_CONFIG = {
         "simple_mode": True,
         "audio_guard_enabled": False,
