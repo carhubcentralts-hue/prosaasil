@@ -3,6 +3,9 @@ import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, E
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
+// Email validation constants
+const MIN_HTML_LENGTH_FRONTEND = 200; // Minimum HTML length for frontend validation (chars)
+
 interface EmailMessage {
   id: number;
   to_email: string;
@@ -411,7 +414,15 @@ export function EmailsPage() {
   
   // 🎨 Preview Theme-based Email - 🔥 FIX: Better error handling and validation
   const handlePreviewTheme = async () => {
-    // 🔥 FIX: Validate required fields before preview
+    // 🔥 FIX 3: Log theme_id for debugging
+    console.log('[EmailsPage] Preview theme:', {
+      themeId: selectedThemeId,
+      leadId: selectedLead?.id,
+      subject: themeFields.subject,
+      hasBody: !!themeFields.body
+    });
+    
+    // 🔥 FIX 3: Validate required fields before preview
     if (!selectedThemeId) {
       setError('בחר תבנית לפני תצוגה מקדימה');
       return;
@@ -565,6 +576,15 @@ export function EmailsPage() {
   const handleComposeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // 🔥 FIX 3: Log before compose for debugging
+    console.log('[COMPOSE] Starting email composition:', {
+      themeId: selectedThemeId,
+      leadId: selectedLead?.id,
+      leadEmail: selectedLead?.email,
+      subject: themeFields.subject,
+      bodyLength: themeFields.body?.length || 0
+    });
+    
     // 🔥 FIX: Validate required fields
     if (!selectedLead) {
       setError('נא לבחור ליד');
@@ -573,6 +593,7 @@ export function EmailsPage() {
     
     if (!selectedThemeId) {
       setError('נא לבחור תבנית עיצוב');
+      console.error('[COMPOSE] ❌ Missing theme_id');
       return;
     }
     
@@ -585,7 +606,7 @@ export function EmailsPage() {
     setError(null);
     
     try {
-      // 🔥 FIX: First, render the theme with user fields
+      // 🔥 FIX 4: First, render the theme with user fields
       console.log('[COMPOSE] Rendering theme:', selectedThemeId, 'for lead:', selectedLead.id);
       const renderResponse = await axios.post('/api/email/render-theme', {
         theme_id: selectedThemeId,
@@ -604,7 +625,15 @@ export function EmailsPage() {
         throw new Error('No HTML returned from render');
       }
       
-      console.log('[COMPOSE] ✅ Render successful, sending email...');
+      // 🔥 FIX 4: Validate HTML length before sending
+      const htmlLength = rendered.html.length;
+      console.log('[COMPOSE] ✅ Render successful, HTML length:', htmlLength);
+      
+      if (htmlLength < MIN_HTML_LENGTH_FRONTEND) {
+        throw new Error(`Rendered HTML too short (${htmlLength} chars) - render may have failed`);
+      }
+      
+      console.log('[COMPOSE] Sending email to lead...');
       
       // 🔥 FIX: Then send the rendered email
       await axios.post(`/api/leads/${selectedLead.id}/email`, {

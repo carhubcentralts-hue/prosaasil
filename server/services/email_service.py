@@ -1092,49 +1092,63 @@ class EmailService:
         # 4. Sanitize body content (user input only - not the base layout!)
         body_html_sanitized = sanitize_html(rendered_body_html)
         
-        # 5. Wrap in base layout (trusted - no sanitization)
-        try:
-            base_layout = load_base_layout()
-            
-            # Prepare layout variables - include signature support
-            brand_color = settings.get('brand_primary_color') or '#2563EB'
-            logo_url = settings.get('brand_logo_url') or ''
-            business_name = business_info['name'] if business_info else ''
-            footer_html = settings.get('footer_html') or ''
-            
-            # Prepare all variables for Jinja2 rendering
-            layout_vars = {
-                'brand_primary_color': brand_color,
-                'business_name': business_name,
-                'greeting': greeting_html,
-                'body_content': body_html_sanitized,
-                'footer_content': sanitize_html(footer_html) if footer_html else '',
-                'brand_logo_url': logo_url,
-                'signature': sanitize_html(footer_html) if footer_html else '',  # signature is same as footer
-            }
-            
-            # Render the base layout with Jinja2 to handle {% if %} blocks properly
-            final_html = render_variables(base_layout, layout_vars)
-            
-            # Final HTML is NOT sanitized again - base layout is trusted
-            # Only user content (body_html_sanitized and footer_html) was sanitized above
-            final_html_sanitized = final_html
-            
-            # ✅ LOGGING: Verify single template structure (as requested in issue)
-            html_count = final_html_sanitized.count("<html")
-            style_count = final_html_sanitized.count("<style")
-            body_count = final_html_sanitized.count("<body")
-            css_leak_check = "body {" in final_html_sanitized or "body{" in final_html_sanitized
-            
-            logger.info(f"[EMAIL] template_check business_id={business_id} html_tags={html_count} style_tags={style_count} body_tags={body_count} css_leak={css_leak_check}")
-            
-            # 🔥 ALERT: If we detect double templates or CSS leak, log error
-            if html_count > 1 or style_count > 1 or (css_leak_check and style_count == 0):
-                logger.error(f"[EMAIL] TEMPLATE_ISSUE detected: html={html_count} style={style_count} body={body_count} css_leak={css_leak_check}")
-            
-        except Exception as e:
-            logger.error(f"[EMAIL] Failed to wrap in base layout: {e}. Using simple HTML.")
+        # 🔥 FIX: Check if HTML is already a full document (from theme render)
+        # If it starts with <!DOCTYPE or <html, it's already complete - don't wrap again!
+        html_stripped_lower = body_html_sanitized.strip().lower()
+        is_full_document = (
+            html_stripped_lower.startswith('<!doctype') or
+            html_stripped_lower.startswith('<html') or
+            html_stripped_lower.startswith('<?xml')
+        )
+        
+        if is_full_document:
+            # HTML is already a complete document (from theme) - use it as-is
+            logger.info(f"[EMAIL] HTML is already full document, skipping base_layout wrapper")
             final_html_sanitized = body_html_sanitized
+        else:
+            # 5. Wrap in base layout (trusted - no sanitization) - for non-theme emails
+            try:
+                base_layout = load_base_layout()
+                
+                # Prepare layout variables - include signature support
+                brand_color = settings.get('brand_primary_color') or '#2563EB'
+                logo_url = settings.get('brand_logo_url') or ''
+                business_name = business_info['name'] if business_info else ''
+                footer_html = settings.get('footer_html') or ''
+                
+                # Prepare all variables for Jinja2 rendering
+                layout_vars = {
+                    'brand_primary_color': brand_color,
+                    'business_name': business_name,
+                    'greeting': greeting_html,
+                    'body_content': body_html_sanitized,
+                    'footer_content': sanitize_html(footer_html) if footer_html else '',
+                    'brand_logo_url': logo_url,
+                    'signature': sanitize_html(footer_html) if footer_html else '',  # signature is same as footer
+                }
+                
+                # Render the base layout with Jinja2 to handle {% if %} blocks properly
+                final_html = render_variables(base_layout, layout_vars)
+                
+                # Final HTML is NOT sanitized again - base layout is trusted
+                # Only user content (body_html_sanitized and footer_html) was sanitized above
+                final_html_sanitized = final_html
+                
+                # ✅ LOGGING: Verify single template structure (as requested in issue)
+                html_count = final_html_sanitized.count("<html")
+                style_count = final_html_sanitized.count("<style")
+                body_count = final_html_sanitized.count("<body")
+                css_leak_check = "body {" in final_html_sanitized or "body{" in final_html_sanitized
+                
+                logger.info(f"[EMAIL] template_check business_id={business_id} html_tags={html_count} style_tags={style_count} body_tags={body_count} css_leak={css_leak_check}")
+                
+                # 🔥 ALERT: If we detect double templates or CSS leak, log error
+                if html_count > 1 or style_count > 1 or (css_leak_check and style_count == 0):
+                    logger.error(f"[EMAIL] TEMPLATE_ISSUE detected: html={html_count} style={style_count} body={body_count} css_leak={css_leak_check}")
+                
+            except Exception as e:
+                logger.error(f"[EMAIL] Failed to wrap in base layout: {e}. Using simple HTML.")
+                final_html_sanitized = body_html_sanitized
         
         # Plain text version
         final_text = rendered_body_text or strip_html(body_html_sanitized)
@@ -1221,6 +1235,25 @@ class EmailService:
             from_email_obj = Email(settings['from_email'], settings['from_name'])
             to_email_obj = To(to_email)
             
+            # 🔥 FIX 1: CRITICAL LOGGING - Verify HTML before send
+            logger.info(f"[EMAIL] PRE-SEND business_id={business_id} email_id={email_id}")
+            logger.info(f"[EMAIL] html_content exists: {bool(final_html_sanitized)}")
+            logger.info(f"[EMAIL] html_content length: {len(final_html_sanitized)}")
+            
+            # Log first 80 chars to verify it starts with proper HTML (not plain text)
+            html_start = final_html_sanitized[:80] if final_html_sanitized else ''
+            logger.info(f"[EMAIL] html_content[:80]: {html_start}")
+            
+            # Check if HTML is being sent as plain text (escaped)
+            if '&lt;' in html_start or '&gt;' in html_start:
+                logger.error(f"[EMAIL] 🚨 HTML IS ESCAPED! This will show as plain text in email! business_id={business_id}")
+            
+            # Verify HTML structure starts correctly
+            if not (html_start.strip().startswith('<!doctype html>') or 
+                    html_start.strip().startswith('<!DOCTYPE html>') or 
+                    html_start.strip().startswith('<html')):
+                logger.warning(f"[EMAIL] ⚠️ HTML does not start with proper doctype/html tag - might render incorrectly")
+            
             message = Mail(
                 from_email=from_email_obj,
                 to_emails=to_email_obj,
@@ -1233,12 +1266,26 @@ class EmailService:
             if settings.get('reply_to_enabled') and settings.get('reply_to'):
                 message.reply_to = Email(settings['reply_to'])
             
+            # 🔥 FIX 6: Log before sending
+            logger.info(f"[EMAIL] Sending to SendGrid: to={to_email} subject='{rendered_subject[:50]}'")
+            
             # Send email
             response = self.client.send(message)
             
+            # 🔥 FIX 6: CRITICAL - Log SendGrid response details
+            logger.info(f"[EMAIL] SendGrid response: status_code={response.status_code}")
+            logger.info(f"[EMAIL] SendGrid response headers: {dict(response.headers) if hasattr(response, 'headers') else 'N/A'}")
+            
+            # 🔥 FIX 6: Check for status 202 (SendGrid accepted) or 2xx success
             if response.status_code >= 200 and response.status_code < 300:
                 # Success - update status
                 provider_message_id = response.headers.get('X-Message-Id', None)
+                
+                # 🔥 FIX 6: Explicit logging for status 202 vs other 2xx
+                if response.status_code == 202:
+                    logger.info(f"[EMAIL] ✅ SendGrid ACCEPTED (202): business_id={business_id} email_id={email_id}")
+                else:
+                    logger.info(f"[EMAIL] ✅ SendGrid success ({response.status_code}): business_id={business_id} email_id={email_id}")
                 
                 db.session.execute(
                     sa_text("""
@@ -1265,8 +1312,19 @@ class EmailService:
                     'message': 'Email sent successfully'
                 }
             else:
-                # SendGrid returned error status
-                error_msg = f"SendGrid error: {response.status_code}"
+                # 🔥 FIX 6: SendGrid returned error status - log full details
+                error_msg = f"SendGrid error: status={response.status_code}"
+                try:
+                    # Safe decode with error handling
+                    if hasattr(response, 'body') and response.body:
+                        error_body = response.body.decode('utf-8', errors='replace')
+                        logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} body={error_body}")
+                        error_msg += f" body={error_body[:200]}"
+                    else:
+                        logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} (no body)")
+                except Exception as decode_error:
+                    logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} (decode error: {decode_error})")
+                
                 logger.error(f"[EMAIL] failed business_id={business_id} email_id={email_id} error={error_msg}")
                 
                 db.session.execute(

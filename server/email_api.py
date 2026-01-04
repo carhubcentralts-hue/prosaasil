@@ -31,6 +31,9 @@ _rate_limit_business = {}  # {business_id: [(timestamp, count)]}
 RATE_LIMIT_USER_HOURLY = 30  # emails per user per hour
 RATE_LIMIT_BUSINESS_DAILY = 500  # emails per business per day
 
+# Email validation constants
+MIN_HTML_LENGTH = 50  # Minimum HTML length to consider valid (chars)
+
 def get_current_business_id():
     """Get current business ID from authenticated user (populated by @require_api_auth)"""
     if hasattr(g, 'tenant') and g.tenant:
@@ -379,9 +382,18 @@ def send_email_to_lead(lead_id):
         logger.info(f"[EMAIL_TO_LEAD] lead_id={lead_id} subject_len={len(subject)} html_len={len(html)} text_len={len(plain_text) if plain_text else 0}")
         logger.debug(f"[EMAIL_TO_LEAD] Payload keys: {list(data.keys())}")
         
+        # 🔥 FIX 4: Validate required fields
         if not subject or not html:
             logger.warning(f"[EMAIL_TO_LEAD] Missing required fields: subject={bool(subject)} html={bool(html)}")
             return jsonify({'error': 'subject and html (or body_html) are required'}), 400
+        
+        # 🔥 FIX 4: Validate HTML length (atomic check before send)
+        if len(html) < MIN_HTML_LENGTH:
+            logger.error(f"[EMAIL_TO_LEAD] HTML too short ({len(html)} chars) - likely render failed")
+            return jsonify({
+                'error': 'Invalid HTML content',
+                'message': f'HTML content too short ({len(html)} chars). Please ensure render was successful.'
+            }), 400
         
         # 🔥 DEBUG LOGGING: Log final values before sending
         logger.info(f"[EMAIL_TO_LEAD] Validated - subject='{subject[:50]}...' html_bytes={len(html.encode('utf-8'))} text_bytes={len(plain_text.encode('utf-8')) if plain_text else 0}")
@@ -950,18 +962,28 @@ def render_theme_template():
         fields = data.get('fields') or {}
         lead_id = data.get('lead_id')
         
-        # Validate theme_id is provided
+        # 🔥 FIX 3: Validate theme_id is provided with clear error message
         if not theme_id:
-            return jsonify({'ok': False, 'error': 'theme_id is required'}), 400
+            logger.error(f"[EMAIL_API] render-theme called without theme_id: tenant_id={business_id} lead_id={lead_id}")
+            return jsonify({
+                'ok': False,
+                'error': 'theme_id is required',
+                'message': 'Must provide theme_id parameter (e.g., "classic_blue", "green_success")'
+            }), 400
         
-        # 🔒 SECURITY: Validate theme_id to prevent injection
+        # 🔥 FIX 3: Validate theme_id exists with helpful error
         from server.services.email_template_themes import EMAIL_TEMPLATE_THEMES
         if theme_id not in EMAIL_TEMPLATE_THEMES:
+            available_themes = ', '.join(EMAIL_TEMPLATE_THEMES.keys())
+            logger.error(f"[EMAIL_API] Invalid theme_id='{theme_id}' tenant_id={business_id} lead_id={lead_id}")
             return jsonify({
                 'ok': False,
                 'error': 'Invalid theme_id',
-                'message': f'Theme must be one of: {", ".join(EMAIL_TEMPLATE_THEMES.keys())}'
+                'message': f'Theme "{theme_id}" not found. Available themes: {available_themes}'
             }), 400
+        
+        # 🔥 FIX 3: Log successful theme selection
+        logger.info(f"[EMAIL_API] render-theme: theme_id={theme_id} tenant_id={business_id} lead_id={lead_id}")
         
         # 🔥 FIX: Always provide business and lead context with fallbacks to prevent undefined errors
         business_info = None
