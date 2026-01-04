@@ -799,6 +799,7 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     - Flow logic (comes from Business Prompt)
     - Service names, city names, business names
     - Domain-specific examples or scripts
+    - Gender/style instructions (נציג/נציגה) - comes from Business Prompt
     
     This prompt is direction-aware (INBOUND vs OUTBOUND) but remains:
     - behavior-only (no business content)
@@ -817,6 +818,7 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     base = (
         "You are a professional phone agent for the currently active business only. "
         "Isolation: treat each call as independent; never use details/style from other businesses or prior calls. "
+        "Representative style: follow the Business Prompt's instructions on how to speak and present yourself (נציג/נציגה/neutral)."
         "\n\n"
         "Language - Natural Hebrew Phone Conversation:\n"
         "- Speak natural, fluent, daily Israeli Hebrew like in a real phone conversation.\n"
