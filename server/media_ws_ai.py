@@ -10,7 +10,7 @@ from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
-from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES  # 🎤 Voice Library
+from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES, REALTIME_VOICES  # 🎤 Voice Library
 
 # 🔥 SERVER-FIRST scheduling (Realtime, no tools):
 # ⚠️⚠️⚠️ PERMANENTLY DISABLED ⚠️⚠️⚠️
@@ -3031,6 +3031,12 @@ class MediaStreamHandler:
                 force: Set to True to bypass hash check (for retry)
                 send_reason: Reason for send ("initial" or "retry")
             """
+            # 🔥 VOICE VALIDATION: Ensure only Realtime-supported voices are sent
+            if call_voice not in REALTIME_VOICES:
+                _orig_print(f"⚠️ [SESSION_CONFIG] CRITICAL: Invalid voice '{call_voice}' detected in _send_session_config!", flush=True)
+                logger.error(f"[SESSION_CONFIG] Invalid voice '{call_voice}' -> forcing DEFAULT_VOICE '{DEFAULT_VOICE}'")
+                call_voice = DEFAULT_VOICE
+            
             # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
             # Sanitize + hard cap to prevent silent starts / long delays.
             
@@ -3640,8 +3646,10 @@ class MediaStreamHandler:
                     call_voice = DEFAULT_VOICE
             
             # Validate voice is in allowed list (final safety check)
-            if call_voice not in OPENAI_VOICES:
-                logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} fallback={DEFAULT_VOICE}")
+            # 🔥 CRITICAL: Only use Realtime-supported voices to prevent session.update timeouts
+            if call_voice not in REALTIME_VOICES:
+                logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} fallback={DEFAULT_VOICE} (not in REALTIME_VOICES)")
+                _orig_print(f"⚠️ [VOICE_VALIDATION] Rejecting unsupported voice '{call_voice}' -> fallback to '{DEFAULT_VOICE}'")
                 call_voice = DEFAULT_VOICE
             
             self._call_voice = call_voice  # Store for session.update reuse

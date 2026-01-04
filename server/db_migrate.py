@@ -2087,6 +2087,64 @@ def apply_migrations():
         
         checkpoint("✅ Migration 60 completed - Email system tables created")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 61: Clean up invalid voice_id values in businesses table
+        # Only Realtime-supported voices are allowed
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 61: Cleaning up invalid voice_id values")
+        
+        try:
+            # Check if voice_id column exists
+            voice_id_exists = db.session.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'businesses' 
+                AND column_name = 'voice_id'
+            """)).fetchone()
+            
+            if voice_id_exists:
+                # Valid Realtime voices
+                valid_voices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse', 'marin', 'cedar']
+                default_voice = 'cedar'
+                
+                # Find businesses with invalid voices
+                invalid_count_result = db.session.execute(text("""
+                    SELECT COUNT(*) 
+                    FROM businesses 
+                    WHERE voice_id IS NULL 
+                       OR voice_id NOT IN :valid_voices
+                """), {"valid_voices": tuple(valid_voices)})
+                
+                invalid_count = invalid_count_result.scalar() or 0
+                
+                if invalid_count > 0:
+                    checkpoint(f"  Found {invalid_count} businesses with invalid voice_id values")
+                    
+                    # Update invalid voices to default
+                    db.session.execute(text("""
+                        UPDATE businesses 
+                        SET voice_id = :default_voice
+                        WHERE voice_id IS NULL 
+                           OR voice_id NOT IN :valid_voices
+                    """), {
+                        "default_voice": default_voice,
+                        "valid_voices": tuple(valid_voices)
+                    })
+                    
+                    checkpoint(f"  ✅ Updated {invalid_count} businesses to voice_id='{default_voice}'")
+                    migrations_applied.append('cleanup_invalid_voices')
+                else:
+                    checkpoint("  ✅ No invalid voice_id values found")
+            else:
+                checkpoint("  ℹ️ voice_id column does not exist - skipping")
+        
+        except Exception as e:
+            log.error(f"❌ Migration 61 (cleanup_invalid_voices) failed: {e}")
+            db.session.rollback()
+            raise
+        
+        checkpoint("✅ Migration 61 completed - Invalid voices cleaned up")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
