@@ -497,7 +497,7 @@ class LeadAutoStatusService:
             
             # Fallback: return base no_answer status if exists
             for status in full_statuses:
-                if status.name.lower() in ['no_answer', 'נא מענה']:
+                if status.name.lower() in ['no_answer', 'אין מענה']:
                     log.info(f"[AutoStatus] Fallback to base no_answer: '{label_lower}' → '{status.name}'")
                     return status.name
         
