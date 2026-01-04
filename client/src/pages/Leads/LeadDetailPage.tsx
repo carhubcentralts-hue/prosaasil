@@ -2855,6 +2855,7 @@ function EmailTab({ lead }: EmailTabProps) {
   const [availableThemes, setAvailableThemes] = useState<LuxuryTheme[]>([]);
   const [selectedThemeId, setSelectedThemeId] = useState('classic_blue');
   const [themesLoading, setThemesLoading] = useState(false);
+  const [themesError, setThemesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
@@ -2919,18 +2920,41 @@ function EmailTab({ lead }: EmailTabProps) {
   };
   
   const loadThemes = async () => {
+    setThemesLoading(true);
+    setThemesError(null);
     try {
-      setThemesLoading(true);
+      console.log('[LEAD_EMAIL] Fetching catalog...');
       const response = await http.get('/api/email/template-catalog');
-      if (response.ok && response.themes) {
-        setAvailableThemes(response.themes);
-        // Set default theme if available
-        if (response.themes.length > 0 && !selectedThemeId) {
-          setSelectedThemeId(response.themes[0].id);
+      
+      console.log('[LEAD_EMAIL] status', response.status || 200, 'data', response);
+      
+      // 🔥 FIX: Handle both response formats (themes at root or nested)
+      const raw = response;
+      const themes = raw?.themes ?? raw ?? [];
+      
+      console.log('[LEAD_EMAIL] Parsed themes count:', Array.isArray(themes) ? themes.length : 0);
+      
+      // 🔥 FIX: Always ensure we have an array
+      if (Array.isArray(themes) && themes.length > 0) {
+        setAvailableThemes(themes);
+        // Set default theme if not already selected
+        if (!selectedThemeId || selectedThemeId === 'classic_blue') {
+          setSelectedThemeId(themes[0].id);
         }
+        console.log('[LEAD_EMAIL] ✅ Loaded', themes.length, 'themes');
+      } else {
+        setAvailableThemes([]);
+        setThemesError('No themes available');
+        console.error('[LEAD_EMAIL] ❌ No themes returned, raw response:', raw);
       }
-    } catch (err) {
-      console.error('Failed to load themes:', err);
+    } catch (err: any) {
+      setAvailableThemes([]);
+      const errorMsg = err?.message || 'Failed to load themes';
+      setThemesError(errorMsg);
+      console.error('[LEAD_EMAIL] ❌ Failed to load themes:', {
+        error: errorMsg,
+        err
+      });
     } finally {
       setThemesLoading(false);
     }
@@ -3098,7 +3122,32 @@ function EmailTab({ lead }: EmailTabProps) {
               </label>
               
               {themesLoading ? (
-                <div className="text-sm text-gray-600">טוען עיצובים...</div>
+                <div className="text-sm text-gray-600 flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+                  <span>טוען עיצובים...</span>
+                </div>
+              ) : themesError ? (
+                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">
+                  ⚠️ שגיאה בטעינת עיצובים: {themesError}
+                  <button
+                    type="button"
+                    onClick={loadThemes}
+                    className="mr-2 text-red-700 underline hover:text-red-900"
+                  >
+                    נסה שוב
+                  </button>
+                </div>
+              ) : availableThemes.length === 0 ? (
+                <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                  ⚠️ לא נמצאו עיצובים זמינים
+                  <button
+                    type="button"
+                    onClick={loadThemes}
+                    className="mr-2 text-amber-700 underline hover:text-amber-900"
+                  >
+                    טען מחדש
+                  </button>
+                </div>
               ) : (
                 <select
                   value={selectedThemeId}
