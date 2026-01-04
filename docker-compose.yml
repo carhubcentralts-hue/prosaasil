@@ -24,6 +24,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        # 🔥 BUILD VERSION: Pass timestamp to track frontend builds
+        VITE_APP_VERSION: "${VITE_APP_VERSION:-$(date +%Y%m%d-%H%M%S)}"
     restart: unless-stopped
     depends_on:
       - backend

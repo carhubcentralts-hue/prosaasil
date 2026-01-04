@@ -812,6 +812,7 @@ class EmailService:
         # Build variables dict
         variables = {}
         
+        # 🔥 FIX: Always provide lead with fallback to prevent 'lead' is undefined
         if lead:
             variables['lead'] = {
                 'first_name': lead.get('first_name', ''),
@@ -819,21 +820,47 @@ class EmailService:
                 'email': lead.get('email', ''),
                 'phone': lead.get('phone_e164', lead.get('phone', ''))
             }
+        else:
+            variables['lead'] = {
+                'first_name': '',
+                'last_name': '',
+                'email': '',
+                'phone': ''
+            }
         
+        # 🔥 FIX: Always provide business with fallback to prevent 'business' is undefined
         if business:
             variables['business'] = {
                 'name': business.get('name', ''),
                 'phone': business.get('phone_e164', business.get('phone', ''))
             }
+        else:
+            # Fallback when business info not available
+            from types import SimpleNamespace
+            variables['business'] = {
+                'name': 'ProSaaS',
+                'phone': ''
+            }
         
+        # 🔥 FIX: Always provide agent with fallback to prevent 'agent' is undefined
         if agent:
             variables['agent'] = {
                 'name': agent.get('name', ''),
                 'email': agent.get('email', '')
             }
+        else:
+            variables['agent'] = {
+                'name': '',
+                'email': ''
+            }
         
         if extra_vars:
             variables.update(extra_vars)
+        
+        # 🔥 DEBUG: Log render context keys to help diagnose template issues
+        context_keys = list(variables.keys())
+        business_id_log = business.get('id', 'unknown') if business else 'no_business'
+        logger.debug(f"[EMAIL] render context keys={context_keys} business_id={business_id_log}")
         
         # Render subject, html, and text
         rendered_subject = render_variables(template.get('subject_template', ''), variables)

@@ -302,10 +302,12 @@ async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
             })
             
             # Send text for conversion to speech
+            # 🔥 FIX: Realtime API requires modalities to be ["audio", "text"], not ["audio"] alone
+            # Per OpenAI docs: "Supported combinations are: ['text'] and ['audio', 'text']"
             await client.send_event({
                 "type": "response.create",
                 "response": {
-                    "modalities": ["audio"],
+                    "modalities": ["audio", "text"],  # 🔥 Fixed: was ["audio"] which is invalid
                     "instructions": f"Say exactly: {text}"
                 }
             })
@@ -419,6 +421,9 @@ def preview_tts():
     # Log preview request
     logger.info(f"[AI][TTS_PREVIEW] business_id={business_id} voice={voice_id} engine={preview_engine} chars={len(text)}")
     
+    # 🔥 NEW: Track if we need to fallback to speech.create
+    attempted_realtime = False
+    
     try:
         audio_bytes = None
         content_type = 'audio/mpeg'  # Default for speech.create
@@ -445,11 +450,37 @@ def preview_tts():
         else:
             # Use Realtime API for cedar and other Realtime-only voices
             # 🔥 Returns WAV format (pcm16 wrapped with WAV header)
-            import asyncio
-            audio_bytes = asyncio.run(_generate_preview_via_realtime(voice_id, text))
-            content_type = 'audio/wav'
-            file_extension = 'wav'
-            logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes (wav)")
+            # 🔥 NEW: Fallback to speech.create if Realtime fails
+            try:
+                attempted_realtime = True
+                import asyncio
+                audio_bytes = asyncio.run(_generate_preview_via_realtime(voice_id, text))
+                content_type = 'audio/wav'
+                file_extension = 'wav'
+                logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes (wav)")
+            except Exception as realtime_error:
+                # 🔥 FALLBACK: If Realtime fails, try speech.create if voice is compatible
+                logger.warning(f"[TTS_PREVIEW] Realtime API failed for voice '{voice_id}': {realtime_error}")
+                
+                # Check if voice is compatible with speech.create for fallback
+                if voice_id in SPEECH_CREATE_VOICES:
+                    logger.info(f"[TTS_PREVIEW] Falling back to speech.create for voice '{voice_id}'")
+                    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                    
+                    response = client.audio.speech.create(
+                        model="tts-1",
+                        voice=voice_id,
+                        input=text,
+                        response_format="mp3"
+                    )
+                    
+                    audio_bytes = response.content
+                    content_type = 'audio/mpeg'
+                    file_extension = 'mp3'
+                    logger.info(f"[TTS_PREVIEW] speech.create fallback success: {len(audio_bytes)} bytes (mp3)")
+                else:
+                    # Voice not compatible with speech.create - re-raise the original error
+                    raise realtime_error
         
         # Create BytesIO object for send_file
         # 🔥 FIX: Don't close the stream in finally - Flask's send_file handles it
