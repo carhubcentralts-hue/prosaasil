@@ -968,8 +968,10 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
 
     # Keep the full text (do not sanitize for length here). Downstream callers may sanitize for TTS if needed.
     return (
+        f"## BUSINESS_PROMPT_START\n"
         f"BUSINESS PROMPT (Business ID: {business_id}, Name: {business_name}, Call: {direction_label})\n"
-        f"{business_prompt_text}"
+        f"{business_prompt_text}\n"
+        f"## BUSINESS_PROMPT_END"
     )
 
 
