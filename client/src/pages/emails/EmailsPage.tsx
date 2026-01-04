@@ -1280,60 +1280,30 @@ export function EmailsPage() {
               )}
               
               <form onSubmit={handleComposeEmail} className="space-y-4 md:space-y-5">
-                {/* Template Selector - Improved */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <label className="block text-sm font-semibold text-blue-900 mb-2">
-                    📝 בחר תבנית מוכנה (אופציונלי)
+                {/* 🎨 Luxury Theme Selector */}
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <label className="block text-sm font-semibold text-purple-900 mb-2">
+                    🎨 בחר עיצוב יוקרתי למייל
                   </label>
                   
-                  <div className="space-y-2">
-                    {templatesLoading ? (
-                      <div className="text-sm text-gray-600">טוען תבניות...</div>
-                    ) : templates.length > 0 ? (
-                      <>
-                        <select
-                          value={selectedTemplate?.id || ''}
-                          onChange={(e) => {
-                            const templateId = parseInt(e.target.value);
-                            const template = templates.find(t => t.id === templateId);
-                            if (template) {
-                              handleSelectTemplate(template);
-                            } else {
-                              setSelectedTemplate(null);
-                            }
-                          }}
-                          className="w-full px-4 py-2.5 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-base"
-                        >
-                          <option value="">-- בחר תבנית או כתוב בעצמך --</option>
-                          {templates.filter(t => t.is_active).map((template) => (
-                            <option key={template.id} value={template.id}>
-                              {template.name}
-                            </option>
-                          ))}
-                        </select>
-                        
-                        {selectedTemplate && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleResetToTemplate}
-                              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50 transition-colors"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                              אפס לתבנית המקורית
-                            </button>
-                            <span className="text-xs text-blue-700">
-                              ניתן לערוך את התוכן לפני השליחה
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-sm text-gray-500 bg-white p-3 rounded border border-gray-200">
-                        אין תבניות זמינות - ניתן לכתוב מייל חופשי למטה
-                      </div>
-                    )}
-                  </div>
+                  {themesLoading ? (
+                    <div className="text-sm text-gray-600">טוען עיצובים...</div>
+                  ) : (
+                    <select
+                      value={selectedThemeId}
+                      onChange={(e) => handleThemeChange(e.target.value)}
+                      className="w-full px-4 py-2.5 border-2 border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-white text-base"
+                    >
+                      {availableThemes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.name} - {theme.description}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-xs text-purple-600 mt-1">
+                    עיצובים מוכנים עם צבעים וסגנון מקצועי
+                  </p>
                 </div>
                 
                 {/* Recipient - Lead Picker */}
@@ -1404,13 +1374,30 @@ export function EmailsPage() {
                   </label>
                   <input
                     type="text"
-                    value={emailSubject}
-                    onChange={(e) => setEmailSubject(e.target.value)}
+                    value={themeFields.subject}
+                    onChange={(e) => setThemeFields({...themeFields, subject: e.target.value})}
                     placeholder="לדוגמה: הצעה מיוחדת במיוחד בשבילך"
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">נושא המייל שיוצג לנמען</p>
+                </div>
+                
+                {/* Greeting */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    ברכה פותחת
+                  </label>
+                  <input
+                    type="text"
+                    value={themeFields.greeting}
+                    onChange={(e) => setThemeFields({...themeFields, greeting: e.target.value})}
+                    placeholder='שלום {{lead.first_name}},'
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 ניתן להשתמש ב-{"{{lead.first_name}}"} לשם הליד
+                  </p>
                 </div>
                 
                 {/* Body */}
@@ -1419,17 +1406,78 @@ export function EmailsPage() {
                     תוכן המייל *
                   </label>
                   <textarea
-                    value={emailHtml}
-                    onChange={(e) => setEmailHtml(e.target.value)}
-                    placeholder="כתוב כאן את תוכן המייל... &#10;&#10;ניתן להשתמש ב-HTML לעיצוב, או כתיבה חופשית.&#10;&#10;דוגמה:&#10;שלום {{שם}},&#10;&#10;אנחנו שמחים להציע לך..."
-                    rows={12}
-                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-mono"
+                    value={themeFields.body}
+                    onChange={(e) => setThemeFields({...themeFields, body: e.target.value})}
+                    placeholder="כתוב כאן את תוכן המייל... &#10;&#10;אנחנו ב-{{business.name}} מספקים פתרונות מתקדמים.&#10;&#10;נשמח לשמוע ממך!"
+                    rows={8}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    💡 טיפ: תוכן התבנית מתומלל אוטומטית עם פרטי הליד
+                    תוכן המייל - ללא HTML, עיצוב אוטומטי
                   </p>
                 </div>
+                
+                {/* CTA Fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      טקסט כפתור (אופציונלי)
+                    </label>
+                    <input
+                      type="text"
+                      value={themeFields.cta_text}
+                      onChange={(e) => setThemeFields({...themeFields, cta_text: e.target.value})}
+                      placeholder="צור קשר עכשיו"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      קישור (אופציונלי)
+                    </label>
+                    <input
+                      type="url"
+                      value={themeFields.cta_url}
+                      onChange={(e) => setThemeFields({...themeFields, cta_url: e.target.value})}
+                      placeholder="https://example.com/contact"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                    />
+                  </div>
+                </div>
+                
+                {/* Footer - CRITICAL FIELD */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <label className="block text-sm font-semibold text-yellow-900 mb-2">
+                    ⚠️ פוטר המייל (חשוב!) *
+                  </label>
+                  <textarea
+                    value={themeFields.footer}
+                    onChange={(e) => setThemeFields({...themeFields, footer: e.target.value})}
+                    placeholder="אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.&#10;&#10;© {{business.name}} | כל הזכויות שמורות"
+                    rows={3}
+                    className="w-full px-4 py-3 border-2 border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm"
+                    required
+                  />
+                  <p className="text-xs text-yellow-700 mt-1">
+                    📌 הפוטר יופיע בכל המיילים שנשלחים מהעסק
+                  </p>
+                </div>
+                
+                {/* Preview Button */}
+                {selectedLead && (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={handlePreviewTheme}
+                      disabled={themePreviewLoading}
+                      className="flex items-center gap-2 px-6 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors border border-purple-300"
+                    >
+                      <Eye className="w-5 h-5" />
+                      {themePreviewLoading ? 'טוען...' : 'תצוגה מקדימה'}
+                    </button>
+                  </div>
+                )}
                 
                 {/* Actions */}
                 <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
