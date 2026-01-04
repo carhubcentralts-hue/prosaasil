@@ -3243,26 +3243,6 @@ function EmailTab({ lead }: EmailTabProps) {
           </form>
         </div>
       )}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={sending}
-              >
-                {sending ? 'שולח...' : 'שלח מייל'}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setShowCompose(false)}
-              >
-                ביטול
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
 
       {/* Email History */}
       {loading ? (
