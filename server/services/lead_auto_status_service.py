@@ -149,7 +149,7 @@ class LeadAutoStatusService:
         
         # Priority 2: Use keyword scoring on summary (preferred) or transcript
         if text_to_analyze and len(text_to_analyze) > 10:
-            suggested = self._map_from_keywords(text_to_analyze, valid_statuses_set)
+            suggested = self._map_from_keywords(text_to_analyze, valid_statuses_set, tenant_id)
             if suggested:
                 log.info(f"[AutoStatus] Suggested '{suggested}' from keywords for lead {lead_id}")
                 return suggested
@@ -414,28 +414,50 @@ class LeadAutoStatusService:
         
         return None
     
-    def _build_status_groups(self, valid_statuses: set) -> dict:
+    def _build_status_groups(self, valid_statuses: set, tenant_id: int) -> dict:
         """
-        Build semantic groups from business's available statuses
-        Returns dict mapping group names to available status names for that group
+        🆕 SMART: Build semantic groups using HEBREW LABELS from database!
+        
+        Instead of just checking English status names, this now:
+        1. Gets full status objects with Hebrew labels
+        2. Checks BOTH name AND label fields
+        3. Uses label (user-visible Hebrew text) for better matching
+        
+        Args:
+            valid_statuses: Set of valid status names
+            tenant_id: Business ID to fetch Hebrew labels
+            
+        Returns:
+            dict mapping group names to available status names for that group
         """
-        # Define status name/label synonyms for each semantic group
+        # Get full status objects with labels
+        full_statuses = self._get_valid_statuses_full(tenant_id)
+        
+        # Define status synonyms for each semantic group (Hebrew + English)
         groups = {
-            'APPOINTMENT_SET': ['qualified', 'appointment', 'meeting', 'נקבע', 'פגישה', 'סגירה'],
-            'HOT_INTERESTED': ['interested', 'hot', 'מעוניין', 'חם', 'מתעניין', 'המשך טיפול', 'פוטנציאל'],
-            'FOLLOW_UP': ['follow_up', 'callback', 'חזרה', 'תזכורת', 'תחזור', 'מאוחר יותר'],
-            'NOT_RELEVANT': ['not_relevant', 'not_interested', 'לא רלוונטי', 'לא מעוניין', 'להסיר', 'חסום'],
-            'NO_ANSWER': ['no_answer', 'אין מענה', 'לא ענה', 'תא קולי', 'busy', 'תפוס', 'failed', 'נכשל'],
+            'APPOINTMENT_SET': ['qualified', 'appointment', 'meeting', 'נקבע', 'פגישה', 'סגירה', 'פגישה קבועה', 'נקבעה פגישה'],
+            'HOT_INTERESTED': ['interested', 'hot', 'מעוניין', 'חם', 'מתעניין', 'המשך טיפול', 'פוטנציאל', 'warm', 'רותח'],
+            'FOLLOW_UP': ['follow_up', 'callback', 'חזרה', 'תזכורת', 'תחזור', 'מאוחר יותר', 'לחזור', 'תזמון מחדש'],
+            'NOT_RELEVANT': ['not_relevant', 'not_interested', 'לא רלוונטי', 'לא מעוניין', 'להסיר', 'חסום', 'דחייה', 'סירוב'],
+            'NO_ANSWER': ['no_answer', 'אין מענה', 'לא ענה', 'לא נענה', 'תא קולי', 'busy', 'תפוס', 'failed', 'נכשל', 'קו תפוס', 'משיבון'],
         }
         
         result = {}
         for group_name, synonyms in groups.items():
             # Find which statuses from this business match this group
+            # 🆕 CRITICAL: Check BOTH name AND label (label is in Hebrew!)
             matching = []
-            for status_name in valid_statuses:
-                status_lower = status_name.lower()
-                if any(syn.lower() in status_lower or status_lower in syn.lower() for syn in synonyms):
-                    matching.append(status_name)
+            for status_obj in full_statuses:
+                # Combine name + label for searching
+                searchable_text = status_obj.name.lower() if status_obj.name else ""
+                if status_obj.label:
+                    searchable_text += " " + status_obj.label.lower()
+                
+                # Check if any synonym matches
+                for syn in synonyms:
+                    if syn.lower() in searchable_text or searchable_text in syn.lower():
+                        matching.append(status_obj.name)
+                        break
             
             if matching:
                 # Prefer exact matches, then use first match
@@ -448,9 +470,12 @@ class LeadAutoStatusService:
         
         return result
     
-    def _map_from_keywords(self, text: str, valid_statuses: set) -> Optional[str]:
+    def _map_from_keywords(self, text: str, valid_statuses: set, tenant_id: int) -> Optional[str]:
         """
-        Map from text content using keyword scoring with priority-based tie-breaking
+        🆕 SUPER SMART: Map from text content using HEBREW LABELS from database!
+        
+        Now checks status labels (Hebrew user-facing text) not just English names!
+        This makes keyword matching MUCH better for Hebrew businesses.
         
         Priority order (highest to lowest):
         1. Appointment set
@@ -458,11 +483,19 @@ class LeadAutoStatusService:
         3. Follow up
         4. Not relevant
         5. No answer
+        
+        Args:
+            text: Call summary or transcript text
+            valid_statuses: Set of valid status names
+            tenant_id: Business ID to fetch Hebrew labels
+            
+        Returns:
+            Status name or None
         """
         text_lower = text.lower()
         
-        # Build status groups from available statuses
-        status_groups = self._build_status_groups(valid_statuses)
+        # Build status groups from available statuses WITH HEBREW LABELS
+        status_groups = self._build_status_groups(valid_statuses, tenant_id)
         
         # Score each pattern group (higher score = stronger match)
         scores = {}
@@ -472,7 +505,8 @@ class LeadAutoStatusService:
         not_relevant_keywords = [
             'לא מעוניין', 'לא רלוונטי', 'להסיר', 'תפסיקו', 'לא מתאים',
             'not interested', 'not relevant', 'remove me', 'stop calling',
-            'תמחקו אותי', 'אל תתקשרו', 'לא צריך', 'תורידו אותי', 'להפסיק'
+            'תמחקו אותי', 'אל תתקשרו', 'לא צריך', 'תורידו אותי', 'להפסיק',
+            'לא מתאים לי', 'זה לא בשבילי', 'אני לא צריך', 'אין לי עניין'
         ]
         not_relevant_score = sum(1 for kw in not_relevant_keywords if kw in text_lower)
         if not_relevant_score > 0 and 'NOT_RELEVANT' in status_groups:
@@ -481,7 +515,8 @@ class LeadAutoStatusService:
         # Pattern 1: Appointment / Meeting scheduled (HIGHEST PRIORITY)
         appointment_keywords = [
             'קבענו פגישה', 'נקבע', 'פגישה', 'meeting', 'appointment', 'scheduled', 'confirmed',
-            'בוקר מתאים', 'אחר הצהריים מתאים', 'ביום', 'בשעה'
+            'בוקר מתאים', 'אחר הצהריים מתאים', 'ביום', 'בשעה', 'נפגש',
+            'נקבעה פגישה', 'קבעתי פגישה', 'מתאים לי', 'אשמח להיפגש', 'בואו נפגש'
         ]
         appointment_score = sum(1 for kw in appointment_keywords if kw in text_lower)
         if appointment_score > 0 and 'APPOINTMENT_SET' in status_groups:
@@ -494,7 +529,8 @@ class LeadAutoStatusService:
                 'מעוניין', 'כן רוצה', 'תשלח פרטים', 'תשלחו פרטים', 'דברו איתי', 'מתאים לי',
                 'interested', 'yes please', 'send details', 'call me back', 'sounds good', 'sounds interesting',
                 'אני רוצה', 'נשמע טוב', 'נשמע מעניין', 'בואו נדבר', 'יכול להיות מעניין',
-                'תן הצעה', 'תתקשרו', 'כן', 'נשמע', 'יפה'
+                'תן הצעה', 'תתקשרו', 'כן', 'נשמע', 'יפה', 'אשמח לשמוע', 'תספר לי עוד',
+                'אני מתעניין', 'אני מתעניינת', 'זה מעניין', 'רוצה לשמוע', 'אשמח למידע'
             ]
             interested_score = sum(1 for kw in interested_keywords if kw in text_lower)
             if interested_score > 0 and 'HOT_INTERESTED' in status_groups:
@@ -504,7 +540,8 @@ class LeadAutoStatusService:
         follow_up_keywords = [
             'תחזרו', 'תחזור', 'מאוחר יותר', 'שבוע הבא', 'חודש הבא', 'תתקשרו שוב',
             'call back', 'follow up', 'later', 'next week', 'next month',
-            'בעוד כמה ימים', 'אחרי החגים', 'אחרי החג', 'בשבוע הבא', 'תזכיר לי'
+            'בעוד כמה ימים', 'אחרי החגים', 'אחרי החג', 'בשבוע הבא', 'תזכיר לי',
+            'חזור אליי', 'תחזרו מחר', 'בוא נדבר אחר כך', 'לא עכשיו', 'לא זמין עכשיו'
         ]
         follow_up_score = sum(1 for kw in follow_up_keywords if kw in text_lower)
         if follow_up_score > 0 and 'FOLLOW_UP' in status_groups:
@@ -516,7 +553,8 @@ class LeadAutoStatusService:
             'no answer', 'voicemail', 'not available', 'unavailable',
             'מכשיר כבוי', 'לא משיב', 'מספר לא זמין',
             'קו תפוס', 'busy', 'line busy', 'תפוס',  # 🆕 CRITICAL FIX: Include busy!
-            'שיחה נכשלה', 'call failed', 'failed', 'נכשל'  # 🆕 Include failed calls
+            'שיחה נכשלה', 'call failed', 'failed', 'נכשל',  # 🆕 Include failed calls
+            'לא נענה', 'לא השיב', 'לא הגיב', 'משיבון'
         ]
         no_answer_score = sum(1 for kw in no_answer_keywords if kw in text_lower)
         if no_answer_score > 0 and 'NO_ANSWER' in status_groups:
