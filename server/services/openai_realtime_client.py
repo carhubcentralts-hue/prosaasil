@@ -311,7 +311,7 @@ class OpenAIRealtimeClient:
                                 logger.error(f"[REALTIME] error: {error}")
                         
                         elif event_type == "session.updated":
-                            logger.info("[REALTIME] session.updated: configuration applied")
+                            logger.debug("[REALTIME] session.updated: configuration applied")
                         
                         # DO NOT LOG: response.audio_transcript.delta, response.content_part.*, 
                         # response.output_item.*, conversation.item.*, input_audio_buffer.*
@@ -507,7 +507,7 @@ class OpenAIRealtimeClient:
         vad_threshold: float = None,  # 🔥 BUILD 341: Default from config
         silence_duration_ms: int = None,  # 🔥 BUILD 341: Default from config
         prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
-        temperature: float = 0.18,
+        temperature: float = 0.1,  # 🔥 LOWERED from 0.18 to reduce hallucinations
         max_tokens: int = 300,
         transcription_prompt: str = "",  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
         tools: list = None,  # 🔥 NEW: Realtime API tools (for appointments)
@@ -527,7 +527,7 @@ class OpenAIRealtimeClient:
             vad_threshold: Voice activity detection threshold (0-1), defaults to SERVER_VAD_THRESHOLD from config
             silence_duration_ms: Silence duration to detect end of speech, defaults to SERVER_VAD_SILENCE_MS from config
             prefix_padding_ms: Audio padding before speech starts, defaults to SERVER_VAD_PREFIX_PADDING_MS from config
-            temperature: AI temperature (0.18-0.25 for Agent 3 spec)
+            temperature: AI temperature (0.1 recommended to reduce hallucinations)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
             force: Force resend even if hash matches (set to True during retry)

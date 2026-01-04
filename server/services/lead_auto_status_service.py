@@ -208,10 +208,20 @@ class LeadAutoStatusService:
         lead_id: int = None
     ) -> Optional[str]:
         """
-        🆕 INTELLIGENT STATUS SUGGESTION using OpenAI
+        🆕 INTELLIGENT STATUS SUGGESTION using OpenAI - Dynamic Hebrew Label Selection
         
         Uses GPT-4 to analyze the conversation and intelligently match
         to one of the available statuses for this business.
+        
+        🔥 NEW APPROACH (per requirement):
+        1. Send AI the Hebrew labels (for understanding context)
+        2. AI returns JSON with selected_label_he (Hebrew label it chose)
+        3. Backend maps label back to status_id
+        
+        This ensures:
+        - AI understands context through Hebrew labels
+        - Exact label matching prevents "inventing" statuses
+        - Works dynamically for any business's custom status names
         
         Args:
             conversation_text: Call summary or transcript
@@ -221,10 +231,11 @@ class LeadAutoStatusService:
             lead_id: Lead ID (for checking previous status)
             
         Returns:
-            Status name or None
+            Status name (status_id) or None
         """
         try:
             import os
+            import json
             from openai import OpenAI
             
             # Get OpenAI API key
@@ -235,188 +246,125 @@ class LeadAutoStatusService:
             
             client = OpenAI(api_key=api_key)
             
-            # 🆕 Check lead's current status AND call history for super smart progression!
-            current_status_info = ""
-            call_history_info = ""
-            
-            if tenant_id and lead_id:
-                try:
-                    from server.models_sql import Lead, CallLog
-                    
-                    # Get lead's current status
-                    lead = Lead.query.filter_by(id=lead_id).first()
-                    if lead and lead.status:
-                        current_status_info = f"\n\n🔍 **מידע נוסף - סטטוס נוכחי של הליד:**\nהליד כרגע בסטטוס: '{lead.status}'\n"
-                        
-                        # Check if it's a no-answer status with number
-                        status_lower = lead.status.lower()
-                        if ('no_answer' in status_lower or 
-                            'no answer' in status_lower or 
-                            'אין מענה' in status_lower or
-                            'לא ענה' in status_lower):
-                            
-                            numbers = re.findall(r'\d+', lead.status)
-                            if numbers:
-                                current_attempt = int(numbers[-1])
-                                next_attempt = current_attempt + 1
-                                current_status_info += f"💡 **חשוב**: הליד כבר ב-'אין מענה' ניסיון {current_attempt}.\n"
-                                current_status_info += f"אם זה שוב אין מענה, חפש סטטוס עם המספר {next_attempt} (למשל: no_answer_{next_attempt} או אין מענה {next_attempt})\n"
-                            else:
-                                current_status_info += f"💡 **חשוב**: הליד כבר ב-'אין מענה'.\n"
-                                current_status_info += f"אם זה שוב אין מענה, חפש סטטוס עם המספר 2 (למשל: no_answer_2 או אין מענה 2)\n"
-                    
-                    # 🆕 Get call history for this lead (last 5 calls)
-                    previous_calls = CallLog.query.filter_by(
-                        business_id=tenant_id,
-                        lead_id=lead_id
-                    ).order_by(CallLog.created_at.desc()).limit(5).all()
-                    
-                    if previous_calls:
-                        call_history_info = f"\n\n📋 **היסטוריית שיחות קודמות (עד 5 אחרונות):**\n"
-                        
-                        for idx, call in enumerate(previous_calls, 1):
-                            call_date = call.created_at.strftime("%d/%m %H:%M") if call.created_at else "תאריך לא ידוע"
-                            duration = f"{call.duration}s" if call.duration else "לא ידוע"
-                            
-                            # Get short summary or status
-                            call_desc = ""
-                            if call.summary and len(call.summary) > 0:
-                                # Take first line of summary (usually has duration + reason)
-                                first_line = call.summary.split('\n')[0][:80]
-                                call_desc = first_line
-                            elif call.duration:
-                                if call.duration < 5:
-                                    call_desc = f"שיחה קצרה ({duration}) - כנראה אין מענה"
-                                elif call.duration < 30:
-                                    call_desc = f"שיחה קצרה-בינונית ({duration})"
-                                else:
-                                    call_desc = f"שיחה ({duration})"
-                            else:
-                                call_desc = "שיחה ללא פרטים"
-                            
-                            call_history_info += f"{idx}. {call_date}: {call_desc}\n"
-                        
-                        call_history_info += f"\n💡 **שים לב לדפוס**: אם רוב השיחות קצרות/אין מענה, זה כנראה שוב אין מענה!\n"
-                        
-                except Exception as e:
-                    log.warning(f"[AutoStatus] Could not check lead status/history: {e}")
-            
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 CRITICAL FIX: Build status list showing BOTH id AND Hebrew label
-            # AI sees Hebrew to understand meaning, but MUST return only the status_id
-            # Format: "status_id" → תווית בעברית
+            # 🔥 DYNAMIC STATUS LIST: Build clean list with Hebrew labels for AI
+            # Format: Each line shows the Hebrew label (what AI understands)
+            # AI will select from these exact Hebrew labels only
             # ═══════════════════════════════════════════════════════════════════════
-            status_list_lines = []
             full_statuses = self._get_valid_statuses_full(tenant_id) if tenant_id else []
             
-            # Build a clean list of valid status_ids for the AI
-            valid_status_ids = []
+            if not full_statuses:
+                log.warning(f"[AutoStatus] No statuses found for tenant {tenant_id}")
+                return None
+            
+            # Build mapping: Hebrew label -> status_id (for reverse lookup)
+            label_to_status_id = {}
+            hebrew_labels_list = []
             
             for status in full_statuses:
-                status_id = status.name  # This is the ONLY valid value to return
+                status_id = status.name  # The actual ID to return
                 label_he = status.label or status.name  # Hebrew display name
-                desc = status.description or ""
                 
-                valid_status_ids.append(status_id)
-                
-                # Format: "status_id" → תווית (תיאור)
-                if desc:
-                    status_list_lines.append(f'"{status_id}" → {label_he} ({desc})')
-                else:
-                    status_list_lines.append(f'"{status_id}" → {label_he}')
+                # Store mapping for reverse lookup
+                label_to_status_id[label_he.strip()] = status_id
+                hebrew_labels_list.append(label_he.strip())
             
-            status_list = "\n".join(status_list_lines)
-            valid_ids_str = ", ".join([f'"{sid}"' for sid in valid_status_ids])
+            # Create clean list of Hebrew labels for the AI prompt
+            status_labels_formatted = "\n".join([f"- {label}" for label in hebrew_labels_list])
             
-            # 🔥 STRICT PROMPT: AI must return ONLY a status_id from the list
-            prompt = f"""סיכום שיחה {'נכנסת' if call_direction == 'inbound' else 'יוצאת'}:
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 CLEAN PROMPT: Two blocks only - summary + status list
+            # AI must return JSON with selected_label_he (exact Hebrew match)
+            # ═══════════════════════════════════════════════════════════════════════
+            prompt = f"""סיכום השיחה:
 {conversation_text}
-{current_status_info}{call_history_info}
 
-רשימת סטטוסים (פורמט: "status_id" → תווית בעברית):
-{status_list}
+רשימת הסטטוסים האפשריים (בחר אחד בדיוק מהרשימה):
+{status_labels_formatted}
 
-═══════════════════════════════════════════════════
-⚠️ הנחיה קריטית:
-בחר את הסטטוס המתאים ביותר לפי התווית בעברית.
-אבל החזר רק את ה-status_id (הטקסט בין הגרשיים) - לא את התווית!
+בחר בדיוק אחד מהסטטוסים מהרשימה. אסור להמציא. הפלט חייב להיות JSON בלבד."""
 
-ערכים חוקיים בלבד: {valid_ids_str}
-
-דוגמאות נכונות:
-- אם התווית היא "אין מענה" וה-id הוא "no_answer" → החזר: no_answer
-- אם התווית היא "מתעניין" וה-id הוא "interested" → החזר: interested
-- אם התווית היא "אין מענה 2" וה-id הוא "custom_abc123" → החזר: custom_abc123
-
-החזר רק את ה-status_id (ללא גרשיים) או "none" אם אין התאמה.
-═══════════════════════════════════════════════════"""
-
-            # Call OpenAI
+            # Call OpenAI with temperature=0 for deterministic output
             response = client.chat.completions.create(
                 model="gpt-4o-mini",  # Fast and cheap for this task
                 messages=[
                     {
                         "role": "system",
-                        "content": f"""אתה מערכת לניתוח שיחות ובחירת סטטוס ליד.
-
-המשימה: לבחור status_id מתוך רשימה סגורה.
+                        "content": """אתה מערכת לבחירת סטטוס ליד על פי סיכום שיחה.
 
 כללים מחייבים:
-1. קרא את התווית בעברית כדי להבין את המשמעות
-2. החזר רק את ה-status_id (הטקסט באנגלית/קוד) - לא את התווית בעברית!
-3. החזר ערך אחד בלבד מתוך הרשימה הסגורה
-4. אם אין התאמה, החזר "none"
+1. קרא את סיכום השיחה
+2. בחר סטטוס אחד בדיוק מתוך הרשימה שקיבלת
+3. אסור להמציא סטטוס - רק מה שברשימה!
+4. אם לא בטוח, החזר ערך ריק
 
-ערכים חוקיים: {valid_ids_str}
+פורמט הפלט (JSON בלבד):
+{"selected_label_he":"<הסטטוס בדיוק כפי שמופיע ברשימה>"}
 
-אסור להחזיר:
-- תווית בעברית (כמו "אין מענה")
-- וריאציות (כמו "no_answer_2" אם לא קיים ברשימה)
-- טקסט חופשי"""
+אם אין התאמה ברורה:
+{"selected_label_he":""}"""
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,  # Very low temperature for deterministic output
-                max_tokens=30
+                temperature=0,  # 🔥 temperature=0 for deterministic output (per requirement)
+                max_tokens=50
             )
             
-            suggested_status = response.choices[0].message.content.strip().lower()
-            # Clean up any quotes or extra whitespace
-            suggested_status = suggested_status.strip('"\'').strip()
+            ai_response = response.choices[0].message.content.strip()
+            log.debug(f"[AutoStatus] 🤖 AI raw response: '{ai_response}'")
             
-            log.info(f"[AutoStatus] 🤖 AI raw response: '{suggested_status}'")
-            log.info(f"[AutoStatus] 📋 Summary analyzed: '{conversation_text[:150]}...'")
-            log.info(f"[AutoStatus] 📝 Valid status_ids: {valid_status_ids[:10]}...")
-            
-            # Validate the suggested status is in our list (case-insensitive check)
-            valid_status_ids_lower = [sid.lower() for sid in valid_status_ids]
-            
-            if suggested_status in valid_status_ids_lower:
-                # Find the original case version
-                original_case_status = valid_status_ids[valid_status_ids_lower.index(suggested_status)]
-                log.info(f"[AutoStatus] ✅ AI suggested valid status: '{original_case_status}' - APPLYING!")
-                return original_case_status
-            elif suggested_status == "none":
-                log.info(f"[AutoStatus] ⚪ AI returned 'none' - no status change needed")
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 PARSE JSON RESPONSE: Extract selected_label_he
+            # ═══════════════════════════════════════════════════════════════════════
+            selected_label = ""
+            try:
+                # Try to parse as JSON
+                # Handle potential markdown code blocks
+                if ai_response.startswith('```'):
+                    ai_response = ai_response.split('```')[1]
+                    if ai_response.startswith('json'):
+                        ai_response = ai_response[4:]
+                    ai_response = ai_response.strip()
+                
+                parsed = json.loads(ai_response)
+                selected_label = parsed.get("selected_label_he", "").strip()
+            except json.JSONDecodeError:
+                # If JSON parsing fails, don't try to extract label from raw response
+                # This prevents incorrect matches from partial substring matching
+                log.warning(f"[AutoStatus] JSON parsing failed - no status change (raw: '{ai_response[:100]}')")
                 return None
-            else:
-                # 🔥 FALLBACK: Try to map AI response to valid status using label/synonym matching
-                # This handles edge cases where AI still returns a label or variant
-                log.warning(f"[AutoStatus] ⚠️ AI returned '{suggested_status}' - not in valid list, trying fallback mapping...")
-                
-                # Try label-based mapping
-                mapped_status = self._map_label_to_status_id(suggested_status, tenant_id)
-                if mapped_status:
-                    log.info(f"[AutoStatus] ✅ Fallback mapped '{suggested_status}' → '{mapped_status}'")
-                    return mapped_status
-                
-                log.warning(f"[AutoStatus] ❌ INVALID STATUS: AI returned '{suggested_status}' which doesn't match any valid status_id")
-                log.info(f"[AutoStatus] 📝 Valid status_ids were: {valid_status_ids}")
             
+            log.info(f"[AutoStatus] 📋 AI selected label: '{selected_label}'")
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 MAP LABEL BACK TO STATUS_ID: EXACT MATCH ONLY
+            # Per requirement: No exact match → don't change status at all
+            # This prevents incorrect status changes from fuzzy/partial matches
+            # ═══════════════════════════════════════════════════════════════════════
+            if not selected_label:
+                log.info(f"[AutoStatus] ⚪ AI returned empty selection - no status change")
+                return None
+            
+            # Exact match lookup (strict - no partial/fuzzy matching)
+            if selected_label in label_to_status_id:
+                status_id = label_to_status_id[selected_label]
+                log.info(f"[AutoStatus] ✅ Exact match: '{selected_label}' → status_id '{status_id}'")
+                return status_id
+            
+            # Try case-insensitive exact match as only fallback
+            for label, sid in label_to_status_id.items():
+                if label.lower().strip() == selected_label.lower().strip():
+                    log.info(f"[AutoStatus] ✅ Case-insensitive exact match: '{selected_label}' → '{sid}'")
+                    return sid
+            
+            # 🔥 NO PARTIAL MATCHING: If no exact match, don't change status
+            # This prevents incorrect status changes from "inventing" matches
+            log.warning(f"[AutoStatus] ❌ No exact match for '{selected_label}' - NOT changing status")
+            log.debug(f"[AutoStatus] Available labels were: {list(label_to_status_id.keys())}")
             return None
             
         except Exception as e:
-            log.error(f"[AutoStatus] Error in AI status suggestion: {e}")
+            log.error(f"[AutoStatus] Error in AI status suggestion: {e}", exc_info=True)
             return None
     
     def _map_label_to_status_id(self, label_or_variant: str, tenant_id: int) -> Optional[str]:
