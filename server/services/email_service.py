@@ -1094,10 +1094,11 @@ class EmailService:
         
         # 🔥 FIX: Check if HTML is already a full document (from theme render)
         # If it starts with <!DOCTYPE or <html, it's already complete - don't wrap again!
+        html_stripped_lower = body_html_sanitized.strip().lower()
         is_full_document = (
-            body_html_sanitized.strip().lower().startswith('<!doctype') or
-            body_html_sanitized.strip().startswith('<html') or
-            body_html_sanitized.strip().startswith('<?xml')
+            html_stripped_lower.startswith('<!doctype') or
+            html_stripped_lower.startswith('<html') or
+            html_stripped_lower.startswith('<?xml')
         )
         
         if is_full_document:

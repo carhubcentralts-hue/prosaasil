@@ -39,7 +39,10 @@ def test_all_themes_visual():
         html = get_template_html(theme_id, fields)
         
         # Verify it's a full document
-        assert html.strip().lower().startswith('<!doctype'), f"Theme {theme_id} should return full HTML"
+        html_lower = html.strip().lower()
+        assert html_lower.startswith('<!doctype'), f"Theme {theme_id} should return full HTML"
+        assert '</html>' in html_lower, f"Theme {theme_id} should have closing </html> tag"
+        assert '</body>' in html_lower, f"Theme {theme_id} should have closing </body> tag"
         
         # Verify theme colors are in the HTML
         assert colors['primary_color'] in html, f"Primary color missing in {theme_id}"
