@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw } from 'lucide-react';
+import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
@@ -122,6 +122,15 @@ export function EmailsPage() {
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewSubject, setPreviewSubject] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  
+  // Template editing state
+  const [showEditTemplateModal, setShowEditTemplateModal] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+  const [editTemplateName, setEditTemplateName] = useState('');
+  const [editTemplateSubject, setEditTemplateSubject] = useState('');
+  const [editTemplateHtml, setEditTemplateHtml] = useState('');
+  const [editTemplateText, setEditTemplateText] = useState('');
+  const [editTemplateLoading, setEditTemplateLoading] = useState(false);
   
   useEffect(() => {
     loadSettings();
@@ -424,6 +433,87 @@ export function EmailsPage() {
   const handleResetToTemplate = () => {
     if (selectedTemplate) {
       handleSelectTemplate(selectedTemplate);
+    }
+  };
+  
+  const handleEditTemplate = (template: EmailTemplate) => {
+    setEditingTemplate(template);
+    setEditTemplateName(template.name);
+    setEditTemplateSubject(template.subject_template);
+    setEditTemplateHtml(template.html_template);
+    setEditTemplateText(template.text_template || '');
+    setShowEditTemplateModal(true);
+  };
+  
+  const handleSaveTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!editingTemplate) return;
+    
+    if (!editTemplateName.trim() || !editTemplateSubject.trim() || !editTemplateHtml.trim()) {
+      setError('נא למלא את כל השדות הנדרשים');
+      return;
+    }
+    
+    setEditTemplateLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+    
+    try {
+      await axios.put(`/api/email/templates/${editingTemplate.id}`, {
+        name: editTemplateName.trim(),
+        subject_template: editTemplateSubject.trim(),
+        html_template: editTemplateHtml.trim(),
+        text_template: editTemplateText.trim() || null
+      });
+      
+      setSuccessMessage('התבנית עודכנה בהצלחה');
+      setShowEditTemplateModal(false);
+      await loadTemplates();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה בעדכון התבנית');
+    } finally {
+      setEditTemplateLoading(false);
+    }
+  };
+  
+  const handleCreateNewTemplate = () => {
+    setEditingTemplate(null);
+    setEditTemplateName('');
+    setEditTemplateSubject('');
+    setEditTemplateHtml('');
+    setEditTemplateText('');
+    setShowEditTemplateModal(true);
+  };
+  
+  const handleCreateTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!editTemplateName.trim() || !editTemplateSubject.trim() || !editTemplateHtml.trim()) {
+      setError('נא למלא את כל השדות הנדרשים');
+      return;
+    }
+    
+    setEditTemplateLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+    
+    try {
+      await axios.post('/api/email/templates', {
+        name: editTemplateName.trim(),
+        subject_template: editTemplateSubject.trim(),
+        html_template: editTemplateHtml.trim(),
+        text_template: editTemplateText.trim() || null,
+        type: 'custom'
+      });
+      
+      setSuccessMessage('התבנית נוצרה בהצלחה');
+      setShowEditTemplateModal(false);
+      await loadTemplates();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה ביצירת התבנית');
+    } finally {
+      setEditTemplateLoading(false);
     }
   };
   
@@ -756,6 +846,15 @@ export function EmailsPage() {
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">תבניות מייל</h2>
+                {isAdmin && (
+                  <button
+                    onClick={handleCreateNewTemplate}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    תבנית חדשה
+                  </button>
+                )}
               </div>
               
               {templatesLoading ? (
@@ -771,7 +870,7 @@ export function EmailsPage() {
                 <div className="grid gap-4">
                   {templates.map((template) => (
                     <div key={template.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start">
+                      <div className="flex justify-between items-start gap-4">
                         <div className="flex-1">
                           <h3 className="font-medium text-gray-900">{template.name}</h3>
                           <p className="text-sm text-gray-600 mt-1">{template.subject_template}</p>
@@ -779,13 +878,24 @@ export function EmailsPage() {
                             {template.type}
                           </span>
                         </div>
-                        <button
-                          onClick={() => handlePreviewTemplate(template)}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                        >
-                          <Eye className="w-4 h-4" />
-                          תצוגה מקדימה
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handlePreviewTemplate(template)}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                          >
+                            <Eye className="w-4 h-4" />
+                            תצוגה
+                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleEditTemplate(template)}
+                              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
+                            >
+                              <Pencil className="w-4 h-4" />
+                              ערוך
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1309,6 +1419,126 @@ export function EmailsPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Template Edit/Create Modal */}
+      {showEditTemplateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">
+                  {editingTemplate ? 'ערוך תבנית' : 'תבנית חדשה'}
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowEditTemplateModal(false);
+                    setEditingTemplate(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                  {error}
+                </div>
+              )}
+              
+              <form onSubmit={editingTemplate ? handleSaveTemplate : handleCreateTemplate} className="space-y-4">
+                {/* Template Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    שם התבנית *
+                  </label>
+                  <input
+                    type="text"
+                    value={editTemplateName}
+                    onChange={(e) => setEditTemplateName(e.target.value)}
+                    placeholder="לדוגמה: ברכת ברירת מחדל"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                
+                {/* Subject Template */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    נושא המייל *
+                  </label>
+                  <input
+                    type="text"
+                    value={editTemplateSubject}
+                    onChange={(e) => setEditTemplateSubject(e.target.value)}
+                    placeholder="לדוגמה: שלום מ-{{business.name}}"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 ניתן להשתמש ב: {`{{lead.first_name}}, {{business.name}}, {{agent.name}}`}
+                  </p>
+                </div>
+                
+                {/* HTML Template */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    תוכן המייל (HTML) *
+                  </label>
+                  <textarea
+                    value={editTemplateHtml}
+                    onChange={(e) => setEditTemplateHtml(e.target.value)}
+                    placeholder={`<p>שלום {% if lead %}{{lead.first_name}}{% else %}שם{% endif %},</p>\n<p>תוכן המייל...</p>\n{% if signature %}\n<p>{{signature}}</p>\n{% endif %}`}
+                    rows={15}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 ניתן להשתמש ב־HTML ובמשתנים: {`{{lead.first_name}}, {{business.name}}`}
+                    <br />
+                    💡 בלוקים תנאיים: {`{% if signature %}...{% endif %}`}
+                  </p>
+                </div>
+                
+                {/* Text Template (optional) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    תוכן טקסט רגיל (אופציונלי)
+                  </label>
+                  <textarea
+                    value={editTemplateText}
+                    onChange={(e) => setEditTemplateText(e.target.value)}
+                    placeholder="גרסת טקסט רגיל למיילים שלא תומכים ב-HTML"
+                    rows={8}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                {/* Actions */}
+                <div className="flex gap-2 pt-4">
+                  <button
+                    type="submit"
+                    disabled={editTemplateLoading}
+                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {editTemplateLoading ? 'שומר...' : (editingTemplate ? 'שמור שינויים' : 'צור תבנית')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditTemplateModal(false);
+                      setEditingTemplate(null);
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
