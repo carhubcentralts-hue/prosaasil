@@ -6,10 +6,6 @@
 # Stage 1: Build
 FROM node:20-slim AS builder
 
-# 🔥 BUILD VERSION: Accept build-time argument for version tracking
-ARG VITE_APP_VERSION
-ENV VITE_APP_VERSION=${VITE_APP_VERSION:-dev}
-
 WORKDIR /app
 
 # Copy package files
@@ -20,9 +16,6 @@ RUN npm install
 
 # Copy source code
 COPY client/ ./
-
-# 🔥 LOG: Show build version being used
-RUN echo "Building frontend with version: ${VITE_APP_VERSION}"
 
 # Build the application
 RUN npm run build
