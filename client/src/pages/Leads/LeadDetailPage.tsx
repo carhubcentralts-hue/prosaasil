@@ -2835,8 +2835,21 @@ interface EmailTabProps {
   lead: Lead;
 }
 
+interface EmailTemplate {
+  id: number;
+  name: string;
+  type: string;
+  subject_template: string;
+  html_template: string;
+  text_template: string;
+  is_active: boolean;
+}
+
 function EmailTab({ lead }: EmailTabProps) {
   const [emails, setEmails] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
@@ -2847,7 +2860,20 @@ function EmailTab({ lead }: EmailTabProps) {
 
   useEffect(() => {
     loadEmails();
+    loadTemplates();
   }, [lead.id]);
+  
+  const loadTemplates = async () => {
+    try {
+      setTemplatesLoading(true);
+      const response = await http.get('/api/email/templates');
+      setTemplates(response.data.templates || []);
+    } catch (err) {
+      console.error('Failed to load templates:', err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
 
   const loadEmails = async () => {
     try {
@@ -2858,6 +2884,37 @@ function EmailTab({ lead }: EmailTabProps) {
       console.error('Failed to load emails:', err);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const handleSelectTemplate = async (template: EmailTemplate) => {
+    setSelectedTemplate(template);
+    
+    // Load template content and populate form
+    try {
+      const leadData = {
+        first_name: lead.first_name,
+        last_name: lead.last_name,
+        email: lead.email
+      };
+      
+      const response = await http.post(`/api/email/templates/${template.id}/preview`, {
+        lead: leadData
+      });
+      
+      setSubject(response.data.preview.subject);
+      setBody(response.data.preview.text || response.data.preview.html.replace(/<[^>]*>/g, ''));
+    } catch (err) {
+      console.error('Failed to load template:', err);
+      // Fallback to template content directly
+      setSubject(template.subject_template);
+      setBody(template.text_template || template.html_template.replace(/<[^>]*>/g, ''));
+    }
+  };
+  
+  const handleResetToTemplate = () => {
+    if (selectedTemplate) {
+      handleSelectTemplate(selectedTemplate);
     }
   };
 
@@ -2881,13 +2938,14 @@ function EmailTab({ lead }: EmailTabProps) {
     try {
       await http.post(`/api/leads/${lead.id}/email`, {
         subject: subject.trim(),
-        html: `<p>${body.trim().replace(/\n/g, '<br>')}</p>`,
-        text: body.trim()
+        body_html: `<p>${body.trim().replace(/\n/g, '<br>')}</p>`,
+        body_text: body.trim()
       });
       
       setSuccess('המייל נשלח בהצלחה!');
       setSubject('');
       setBody('');
+      setSelectedTemplate(null);
       setShowCompose(false);
       await loadEmails();
     } catch (err: any) {
@@ -2947,6 +3005,54 @@ function EmailTab({ lead }: EmailTabProps) {
       {showCompose && lead.email && (
         <div className="mb-6 border border-gray-200 rounded-lg p-4 bg-gray-50">
           <form onSubmit={handleSendEmail} className="space-y-4">
+            {/* Template Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                בחר תבנית (אופציונלי):
+              </label>
+              
+              <div className="space-y-2">
+                {templatesLoading ? (
+                  <div className="text-sm text-gray-600">טוען תבניות...</div>
+                ) : templates.length > 0 ? (
+                  <>
+                    <select
+                      value={selectedTemplate?.id || ''}
+                      onChange={(e) => {
+                        const templateId = parseInt(e.target.value);
+                        const template = templates.find(t => t.id === templateId);
+                        if (template) {
+                          handleSelectTemplate(template);
+                        } else {
+                          setSelectedTemplate(null);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">-- בחר תבנית --</option>
+                      {templates.filter(t => t.is_active).map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {selectedTemplate && (
+                      <button
+                        type="button"
+                        onClick={handleResetToTemplate}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        🔄 אפס לתבנית המקורית
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500">אין תבניות זמינות</div>
+                )}
+              </div>
+            </div>
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 אל

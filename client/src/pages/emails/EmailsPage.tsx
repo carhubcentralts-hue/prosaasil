@@ -74,7 +74,7 @@ export function EmailsPage() {
   const [settings, setSettings] = useState<EmailSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'templates' | 'settings'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'leads' | 'templates' | 'settings'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -102,6 +102,11 @@ export function EmailsPage() {
   const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
   const [leadSearchLoading, setLeadSearchLoading] = useState(false);
   
+  // Leads tab state
+  const [allLeads, setAllLeads] = useState<Lead[]>([]);
+  const [allLeadsLoading, setAllLeadsLoading] = useState(false);
+  const [leadsFilter, setLeadsFilter] = useState('');
+  
   // Templates state
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
@@ -117,8 +122,10 @@ export function EmailsPage() {
       loadEmails();
     } else if (activeTab === 'templates') {
       loadTemplates();
+    } else if (activeTab === 'leads') {
+      loadAllLeads();
     }
-  }, [activeTab, statusFilter, searchQuery]);
+  }, [activeTab, statusFilter, searchQuery, leadsFilter]);
   
   // Load templates when compose modal opens
   useEffect(() => {
@@ -265,6 +272,29 @@ export function EmailsPage() {
     }
   };
   
+  const loadAllLeads = async () => {
+    try {
+      setAllLeadsLoading(true);
+      const params = new URLSearchParams();
+      if (leadsFilter) params.append('q', leadsFilter);
+      params.append('pageSize', '100'); // Load first 100 leads
+      
+      const response = await axios.get(`/api/leads?${params.toString()}`);
+      const leads = response.data.leads || [];
+      setAllLeads(leads.map((l: any) => ({
+        id: l.id,
+        first_name: l.first_name || '',
+        last_name: l.last_name || '',
+        email: l.email || '',
+        phone_e164: l.phone_e164 || ''
+      })));
+    } catch (err: any) {
+      console.error('Failed to load leads:', err);
+    } finally {
+      setAllLeadsLoading(false);
+    }
+  };
+  
   const handleComposeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -280,7 +310,8 @@ export function EmailsPage() {
       await axios.post(`/api/leads/${selectedLead.id}/email`, {
         to_email: selectedLead.email,
         subject: emailSubject.trim(),
-        html: emailHtml.trim()
+        body_html: emailHtml.trim(),
+        body_text: emailHtml.trim().replace(/<[^>]*>/g, '')
       });
       
       setSuccessMessage('מייל נשלח בהצלחה');
@@ -411,6 +442,17 @@ export function EmailsPage() {
               נשלחו
             </button>
             <button
+              onClick={() => setActiveTab('leads')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'leads'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Mail className="w-4 h-4 inline ml-2" />
+              שלח ללידים
+            </button>
+            <button
               onClick={() => setActiveTab('templates')}
               className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'templates'
@@ -438,7 +480,84 @@ export function EmailsPage() {
         
         {/* Content */}
         <div className="p-6">
-          {activeTab === 'templates' ? (
+          {activeTab === 'leads' ? (
+            // Leads Tab - Send emails to leads
+            <div>
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold">שלח מיילים ללידים</h2>
+                  <p className="text-sm text-gray-600 mt-1">בחר ליד ושלח מייל מותאם אישית</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={leadsFilter}
+                    onChange={(e) => setLeadsFilter(e.target.value)}
+                    placeholder="חפש ליד..."
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <Search className="w-5 h-5 text-gray-400" />
+                </div>
+              </div>
+              
+              {allLeadsLoading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="text-sm text-gray-600 mt-2">טוען לידים...</p>
+                </div>
+              ) : allLeads.length === 0 ? (
+                <div className="text-center py-12">
+                  <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">לא נמצאו לידים</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {allLeads.map((lead) => (
+                    <div key={lead.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-gray-900">
+                            {lead.first_name} {lead.last_name}
+                          </h3>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {lead.email && (
+                              <span className="ml-3">
+                                <Mail className="w-4 h-4 inline ml-1" />
+                                {lead.email}
+                              </span>
+                            )}
+                            {lead.phone_e164 && (
+                              <span>
+                                📞 {lead.phone_e164}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedLead(lead);
+                            setShowComposeModal(true);
+                          }}
+                          disabled={!lead.email}
+                          className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                            lead.email
+                              ? 'bg-blue-600 text-white hover:bg-blue-700'
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          <Send className="w-4 h-4" />
+                          שלח מייל
+                        </button>
+                      </div>
+                      {!lead.email && (
+                        <p className="text-xs text-red-600 mt-2">אין כתובת מייל לליד זה</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'templates' ? (
             // Templates Tab
             <div>
               <div className="flex justify-between items-center mb-4">
