@@ -815,11 +815,31 @@ export function BusinessAISettings() {
                 value={voiceLibrary.voiceId}
                 onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
                 className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
+                style={{
+                  direction: 'rtl',
+                  textAlign: 'right',
+                  minWidth: '280px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
                 title={voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.name || voiceLibrary.voiceId}
                 data-testid="select-voice"
               >
                 {voiceLibrary.availableVoices.map((voice) => (
-                  <option key={voice.id} value={voice.id} title={voice.name || voice.id}>
+                  <option 
+                    key={voice.id} 
+                    value={voice.id} 
+                    title={voice.name || voice.id}
+                    style={{
+                      direction: 'rtl',
+                      textAlign: 'right',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      padding: '8px 12px'
+                    }}
+                  >
                     {voice.name || voice.id}
                   </option>
                 ))}

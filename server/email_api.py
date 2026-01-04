@@ -833,3 +833,139 @@ def preview_template(template_id):
     except Exception as e:
         logger.error(f"[EMAIL_API] Failed to preview template {template_id}: {e}")
         return jsonify({'error': str(e)}), 500
+
+# ========================================================================
+# Email Template Themes - Luxury Pre-built Templates
+# ========================================================================
+
+@email_bp.route('/api/email/template-catalog', methods=['GET'])
+@require_api_auth
+def get_template_catalog():
+    """
+    Get catalog of luxury pre-built email templates
+    These are theme-based templates with simple fields (no HTML editing)
+    
+    Returns:
+        200: List of available template themes
+        403: No permission
+    """
+    try:
+        from server.services.email_template_themes import get_all_themes
+        
+        themes = get_all_themes()
+        
+        return jsonify({
+            'success': True,
+            'themes': themes,
+            'count': len(themes)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to get template catalog: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@email_bp.route('/api/email/render-theme', methods=['POST'])
+@require_api_auth
+def render_theme_template():
+    """
+    Render a theme-based email template with user fields
+    
+    Request body:
+        {
+            "theme_id": "classic_blue",
+            "fields": {
+                "subject": "Email subject",
+                "greeting": "שלום {{lead.first_name}},",
+                "body": "Email body content...",
+                "cta_text": "Click here",
+                "cta_url": "https://example.com",
+                "footer": "Footer text"
+            },
+            "lead_id": 123  // Optional: for variable substitution
+        }
+    
+    Returns:
+        200: Rendered HTML and text
+        400: Invalid data
+        403: No permission
+    """
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Business not found'}), 403
+        
+        data = request.get_json()
+        theme_id = data.get('theme_id', 'classic_blue')
+        fields = data.get('fields', {})
+        lead_id = data.get('lead_id')
+        
+        # Get business and lead info for variable substitution
+        business_info = None
+        lead_info = None
+        
+        try:
+            from sqlalchemy import text as sa_text
+            
+            # Get business info
+            biz_result = db.session.execute(
+                sa_text("SELECT name, phone_number FROM business WHERE id = :business_id"),
+                {"business_id": business_id}
+            ).fetchone()
+            if biz_result:
+                business_info = {
+                    'name': biz_result[0] or '',
+                    'phone': biz_result[1] or ''
+                }
+            
+            # Get lead info if provided
+            if lead_id:
+                lead_result = db.session.execute(
+                    sa_text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id AND tenant_id = :business_id"),
+                    {"lead_id": lead_id, "business_id": business_id}
+                ).fetchone()
+                if lead_result:
+                    lead_info = {
+                        'first_name': lead_result[0] or '',
+                        'last_name': lead_result[1] or '',
+                        'email': lead_result[2] or '',
+                        'phone': lead_result[3] or ''
+                    }
+        except Exception as e:
+            logger.warning(f"[EMAIL_API] Failed to fetch context info: {e}")
+        
+        # Render variables in all fields
+        from server.services.email_service import render_variables
+        variables = {}
+        if business_info:
+            variables['business'] = business_info
+        if lead_info:
+            variables['lead'] = lead_info
+        
+        # Render each field with variables
+        rendered_fields = {}
+        for key, value in fields.items():
+            if isinstance(value, str):
+                rendered_fields[key] = render_variables(value, variables)
+            else:
+                rendered_fields[key] = value
+        
+        # Generate HTML from theme
+        from server.services.email_template_themes import get_template_html
+        html = get_template_html(theme_id, rendered_fields)
+        
+        # Generate plain text version
+        from server.services.email_service import strip_html
+        text = strip_html(html)
+        
+        return jsonify({
+            'success': True,
+            'rendered': {
+                'subject': rendered_fields.get('subject', ''),
+                'html': html,
+                'text': text
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[EMAIL_API] Failed to render theme template: {e}")
+        return jsonify({'error': str(e)}), 500

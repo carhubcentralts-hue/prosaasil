@@ -105,6 +105,22 @@ export function EmailsPage() {
   const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
   const [leadSearchLoading, setLeadSearchLoading] = useState(false);
   
+  // 🎨 Luxury Theme Templates State
+  const [availableThemes, setAvailableThemes] = useState<any[]>([]);
+  const [selectedThemeId, setSelectedThemeId] = useState('classic_blue');
+  const [themesLoading, setThemesLoading] = useState(false);
+  const [themeFields, setThemeFields] = useState({
+    subject: '',
+    greeting: '',
+    body: '',
+    cta_text: '',
+    cta_url: '',
+    footer: ''
+  });
+  const [showThemePreview, setShowThemePreview] = useState(false);
+  const [themePreviewHtml, setThemePreviewHtml] = useState('');
+  const [themePreviewLoading, setThemePreviewLoading] = useState(false);
+  
   // Leads tab state
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
   const [allLeadsLoading, setAllLeadsLoading] = useState(false);
@@ -146,8 +162,13 @@ export function EmailsPage() {
   
   // Load templates when compose modal opens
   useEffect(() => {
-    if (showComposeModal && templates.length === 0) {
-      loadTemplates();
+    if (showComposeModal) {
+      if (templates.length === 0) {
+        loadTemplates();
+      }
+      if (availableThemes.length === 0) {
+        loadLuxuryThemes();
+      }
     }
   }, [showComposeModal]);
   
@@ -270,6 +291,62 @@ export function EmailsPage() {
     }
   };
   
+  // 🎨 Load Luxury Theme Templates
+  const loadLuxuryThemes = async () => {
+    try {
+      setThemesLoading(true);
+      const response = await axios.get('/api/email/template-catalog');
+      const themes = response.data.themes || [];
+      setAvailableThemes(themes);
+      
+      // Set default theme and fields
+      if (themes.length > 0) {
+        const defaultTheme = themes[0];
+        setSelectedThemeId(defaultTheme.id);
+        setThemeFields(defaultTheme.default_fields);
+      }
+    } catch (err: any) {
+      console.error('Failed to load luxury themes:', err);
+    } finally {
+      setThemesLoading(false);
+    }
+  };
+  
+  // 🎨 Handle Theme Selection Change
+  const handleThemeChange = (themeId: string) => {
+    setSelectedThemeId(themeId);
+    const theme = availableThemes.find(t => t.id === themeId);
+    if (theme) {
+      setThemeFields(theme.default_fields);
+    }
+  };
+  
+  // 🎨 Preview Theme-based Email
+  const handlePreviewTheme = async () => {
+    if (!selectedLead) {
+      setError('אנא בחר ליד לפני תצוגה מקדימה');
+      return;
+    }
+    
+    setThemePreviewLoading(true);
+    setShowThemePreview(true);
+    
+    try {
+      const response = await axios.post('/api/email/render-theme', {
+        theme_id: selectedThemeId,
+        fields: themeFields,
+        lead_id: selectedLead.id
+      });
+      
+      setThemePreviewHtml(response.data.rendered.html);
+    } catch (err: any) {
+      console.error('Failed to preview theme:', err);
+      setError('שגיאה בטעינת תצוגה מקדימה');
+    } finally {
+      setThemePreviewLoading(false);
+    }
+  };
+  
   const searchLeads = async () => {
     try {
       setLeadSearchLoading(true);
@@ -361,8 +438,13 @@ export function EmailsPage() {
   const handleComposeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedLead || !emailSubject.trim() || !emailHtml.trim()) {
-      setError('נא למלא את כל השדות ולבחור ליד');
+    if (!selectedLead) {
+      setError('נא לבחור ליד');
+      return;
+    }
+    
+    if (!themeFields.subject.trim() || !themeFields.body.trim()) {
+      setError('נא למלא לפחות נושא ותוכן המייל');
       return;
     }
     
@@ -370,10 +452,33 @@ export function EmailsPage() {
     setError(null);
     
     try {
+      // First, render the theme with user fields
+      const renderResponse = await axios.post('/api/email/render-theme', {
+        theme_id: selectedThemeId,
+        fields: themeFields,
+        lead_id: selectedLead.id
+      });
+      
+      const rendered = renderResponse.data.rendered;
+      
+      // Then send the rendered email
       await axios.post(`/api/leads/${selectedLead.id}/email`, {
         to_email: selectedLead.email,
-        subject: emailSubject.trim(),
-        body_html: emailHtml.trim(),
+        subject: rendered.subject,
+        body_html: rendered.html,
+        body_text: rendered.text
+      });
+      
+      setSuccessMessage('מייל נשלח בהצלחה');
+      setShowComposeModal(false);
+      resetComposeForm();
+      loadEmails();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
+    } finally {
+      setComposeLoading(false);
+    }
+  };
         body_text: emailHtml.trim().replace(/<[^>]*>/g, '')
       });
       
@@ -531,6 +636,15 @@ export function EmailsPage() {
     setEmailHtml('');
     setLeadSearchQuery('');
     setLeadSearchResults([]);
+    // Reset theme fields to default
+    if (availableThemes.length > 0) {
+      const defaultTheme = availableThemes.find(t => t.id === selectedThemeId);
+      if (defaultTheme) {
+        setThemeFields(defaultTheme.default_fields);
+      }
+    }
+    setShowThemePreview(false);
+    setThemePreviewHtml('');
   };
   
   const isAdmin = ['system_admin', 'owner', 'admin'].includes(user?.role || '');

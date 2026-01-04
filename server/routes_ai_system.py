@@ -452,20 +452,24 @@ def preview_tts():
             logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes (wav)")
         
         # Create BytesIO object for send_file
+        # 🔥 FIX: Don't close the stream in finally - Flask's send_file handles it
+        # Closing early causes "I/O operation on closed file" error
         audio_io = io.BytesIO(audio_bytes)
         audio_io.seek(0)
         
-        try:
-            # 🔥 Return binary audio response with correct content type
-            return send_file(
-                audio_io,
-                mimetype=content_type,
-                as_attachment=False,
-                download_name=f'preview.{file_extension}'
-            )
-        finally:
-            # Ensure audio stream is closed after sending
-            audio_io.close()
+        # 🔥 Return binary audio response with correct content type and headers
+        response = send_file(
+            audio_io,
+            mimetype=content_type,
+            as_attachment=False,
+            download_name=f'preview.{file_extension}'
+        )
+        
+        # Add cache control headers
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Content-Length'] = str(len(audio_bytes))
+        
+        return response
         
     except Exception as e:
         logger.error(f"[AI][TTS_PREVIEW] Failed to generate preview: {e}")
