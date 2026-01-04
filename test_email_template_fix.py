@@ -159,12 +159,12 @@ def test_all_themes():
 
 def test_get_all_themes():
     """Test the get_all_themes function"""
-    from server.services.email_template_themes import get_all_themes
+    from server.services.email_template_themes import get_all_themes, EMAIL_TEMPLATE_THEMES
     
     themes = get_all_themes()
     
     assert isinstance(themes, list)
-    assert len(themes) == 5  # Should have 5 themes
+    assert len(themes) == len(EMAIL_TEMPLATE_THEMES)  # Should match number of templates
     
     for theme in themes:
         assert "id" in theme
