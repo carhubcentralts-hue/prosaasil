@@ -6553,63 +6553,63 @@ class MediaStreamHandler:
                             
                             # Wait for audio to drain, then try to execute hangup
                             async def delayed_hangup():
-                                # 🔥 FIX: TRUE AUDIO DRAIN - Calculate exact time needed for remaining frames
-                                # Per expert feedback: Must wait for frames to actually PLAY, not just transmit
+                                # 🔥 FIX: CAPPED AUDIO DRAIN - Maximum 600ms wait to prevent UX stalls
+                                # Per expert feedback: Don't block on large queues, cap at 400-600ms
+                                # Issue: 240+ frames = 5+ second wait = "bot feels stuck"
+                                # Solution: Best-effort drain with hard cap, then proceed
                                 
                                 # Capture initial queue sizes at audio.done moment
                                 initial_q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                                 initial_tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                 total_frames_remaining = initial_q1_size + initial_tx_size
                                 
-                                if total_frames_remaining > 0:
-                                    # Calculate time needed: each frame = 20ms, plus 400ms buffer for Twilio playback
-                                    remaining_ms = total_frames_remaining * 20
-                                    buffer_ms = 400
-                                    total_wait_ms = remaining_ms + buffer_ms
-                                    _orig_print(f"⏳ [AUDIO DRAIN] {total_frames_remaining} frames remaining (q1={initial_q1_size}, tx={initial_tx_size}) → waiting {total_wait_ms}ms", flush=True)
+                                # 🔥 HARD CAP: Maximum 600ms total wait (regardless of queue size)
+                                MAX_DRAIN_MS = 600  # Cap at 600ms - prevents 5+ second waits
                                 
-                                # STEP 1: Wait for OpenAI queue to drain (max 30 seconds for long sentences)
-                                for i in range(300):  # 300 * 100ms = 30 seconds max (was 5s)
+                                if total_frames_remaining > 0:
+                                    # Calculate ideal time but respect the cap
+                                    remaining_ms = total_frames_remaining * 20
+                                    buffer_ms = 200  # Reduced buffer since we have hard cap
+                                    ideal_wait_ms = remaining_ms + buffer_ms
+                                    # Apply cap
+                                    capped_wait_ms = min(ideal_wait_ms, MAX_DRAIN_MS)
+                                    _orig_print(f"⏳ [AUDIO DRAIN] {total_frames_remaining} frames (ideal={ideal_wait_ms}ms, capped={capped_wait_ms}ms)", flush=True)
+                                
+                                # STEP 1: Best-effort wait with 600ms hard cap for BOTH queues
+                                # Split cap: 300ms for OpenAI queue, 300ms for TX queue
+                                drain_start = asyncio.get_event_loop().time()
+                                
+                                # Wait for OpenAI queue (max 300ms)
+                                for i in range(30):  # 30 * 10ms = 300ms max
                                     q1_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                                     if q1_size == 0:
                                         if DEBUG:
-                                            _orig_print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms", flush=True)
+                                            _orig_print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*10}ms", flush=True)
                                         break
-                                    await asyncio.sleep(0.1)
+                                    await asyncio.sleep(0.01)  # 10ms checks
                                 
-                                # STEP 2: Wait for Twilio TX queue to drain (max 60 seconds for long sentences)
-                                last_tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
-                                stuck_iterations = 0
-                                STUCK_THRESHOLD = 10  # 1000ms without progress (10 * 100ms) - increased from 500ms
-                                
-                                for i in range(600):  # 600 * 100ms = 60 seconds max (was 10s)
+                                # Wait for TX queue (max 300ms)
+                                for i in range(30):  # 30 * 10ms = 300ms max
                                     tx_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                                     if tx_size == 0:
                                         if DEBUG:
-                                            _orig_print(f"✅ [POLITE HANGUP] TX queue empty after {i*100}ms", flush=True)
+                                            _orig_print(f"✅ [POLITE HANGUP] TX queue empty after {i*10}ms", flush=True)
                                         break
-                                    
-                                    # Detect stuck queue (1000ms without progress)
-                                    if tx_size == last_tx_size:
-                                        stuck_iterations += 1
-                                        if stuck_iterations >= STUCK_THRESHOLD:
-                                            # Check if TX thread is dead or stop flag set
-                                            tx_running = getattr(self, 'tx_running', False)
-                                            if not tx_running:
-                                                # TX thread stopped but queue has frames - proceed with hangup
-                                                _orig_print(f"⚠️ [POLITE HANGUP] TX thread stopped with {tx_size} frames stuck - proceeding anyway", flush=True)
-                                                break
-                                    else:
-                                        stuck_iterations = 0
-                                    
-                                    last_tx_size = tx_size
-                                    await asyncio.sleep(0.1)
+                                    await asyncio.sleep(0.01)  # 10ms checks
                                 
-                                # STEP 3: Extra buffer for Twilio/network to actually PLAY the last frames
-                                # This is critical - Twilio needs time to play frames even after we send them
-                                playback_buffer_seconds = 0.5  # 500ms buffer for Twilio playback latency
-                                _orig_print(f"⏳ [AUDIO DRAIN] Queues empty, waiting {playback_buffer_seconds}s for Twilio playback", flush=True)
-                                await asyncio.sleep(playback_buffer_seconds)
+                                # Calculate actual drain time
+                                drain_elapsed_ms = (asyncio.get_event_loop().time() - drain_start) * 1000
+                                remaining_cap_ms = MAX_DRAIN_MS - drain_elapsed_ms
+                                
+                                # STEP 2: If we have time left in cap, use it for final buffer
+                                if remaining_cap_ms > 0:
+                                    final_buffer_s = min(remaining_cap_ms / 1000.0, 0.2)  # Max 200ms buffer
+                                    if final_buffer_s > 0:
+                                        _orig_print(f"⏳ [AUDIO DRAIN] Final buffer: {final_buffer_s*1000:.0f}ms (remaining from {MAX_DRAIN_MS}ms cap)", flush=True)
+                                        await asyncio.sleep(final_buffer_s)
+                                
+                                total_drain_ms = (asyncio.get_event_loop().time() - drain_start) * 1000
+                                _orig_print(f"✅ [AUDIO DRAIN] Complete in {total_drain_ms:.0f}ms (cap={MAX_DRAIN_MS}ms)", flush=True)
                                 
                                 # Now try to execute hangup via single source of truth
                                 await self.maybe_execute_hangup(via="audio.done", response_id=done_resp_id)
