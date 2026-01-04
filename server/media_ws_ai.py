@@ -3704,6 +3704,43 @@ class MediaStreamHandler:
                 realtime_tools = []  # Safe fallback - no tools
             
             # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 0.7: ADD CRM CONTEXT TO PROMPT (before session.update)
+            # ═══════════════════════════════════════════════════════════════════════
+            # Per requirement: CRM context must be in the instructions sent to session.update
+            # This ensures name/gender are available BEFORE first response.create
+            has_crm_context = False
+            if hasattr(self, '_crm_context_name') or hasattr(self, '_crm_context_gender'):
+                crm_name = getattr(self, '_crm_context_name', '')
+                crm_gender = getattr(self, '_crm_context_gender', '')
+                crm_email = getattr(self, '_crm_context_email', '')
+                crm_lead_id = getattr(self, '_crm_context_lead_id', None)
+                
+                # Only add CRM context if we have name or gender
+                if crm_name or crm_gender:
+                    crm_context_block = "\n\n## CRM_CONTEXT_START\n"
+                    crm_context_block += "Customer Information:\n"
+                    if crm_name:
+                        crm_context_block += f"- First Name: {crm_name}\n"
+                    if crm_gender:
+                        crm_context_block += f"- Gender: {crm_gender}\n"
+                    if crm_email:
+                        crm_context_block += f"- Email: {crm_email}\n"
+                    if crm_lead_id:
+                        crm_context_block += f"- Lead ID: {crm_lead_id}\n"
+                    crm_context_block += "\n## CRM_CONTEXT_END\n"
+                    
+                    # Add CRM context to greeting prompt
+                    greeting_prompt = greeting_prompt + crm_context_block
+                    has_crm_context = True
+                    
+                    print(f"✅ [CRM_CONTEXT] Added to instructions: name={crm_name if crm_name else 'NONE'}, gender={crm_gender if crm_gender else 'NONE'}")
+                    logger.info(f"[CRM_CONTEXT] Added to session instructions: name={'YES' if crm_name else 'NO'}, gender={'YES' if crm_gender else 'NO'}")
+                else:
+                    print(f"ℹ️ [CRM_CONTEXT] No name or gender available - skipping CRM context block")
+            else:
+                print(f"ℹ️ [CRM_CONTEXT] CRM fields not loaded - skipping CRM context block")
+            
+            # ═══════════════════════════════════════════════════════════════════════
             # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
             # ═══════════════════════════════════════════════════════════════════════
             _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
@@ -3796,8 +3833,36 @@ class MediaStreamHandler:
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
             
+            # 🔥 ACCEPTANCE CRITERIA B: Verify business prompt and CRM context are in instructions
+            # This logging confirms what was actually sent to OpenAI
+            instructions_len = len(greeting_prompt)
+            includes_business_prompt = "## BUSINESS_PROMPT_START" in greeting_prompt
+            includes_crm_context = "## CRM_CONTEXT_START" in greeting_prompt
+            
+            _orig_print(
+                f"[SESSION_VERIFY] instructions_len={instructions_len}, "
+                f"includes_business_prompt={includes_business_prompt}, "
+                f"includes_crm_context={includes_crm_context}",
+                flush=True
+            )
+            logger.info(
+                f"[SESSION_VERIFY] Prompt verification: "
+                f"len={instructions_len} business={includes_business_prompt} crm={includes_crm_context}"
+            )
+            
+            # Warn if business prompt marker is missing (should not happen)
+            if not includes_business_prompt:
+                logger.error(f"[SESSION_VERIFY] CRITICAL: Business prompt marker missing from instructions!")
+                _orig_print(f"🚨 [SESSION_VERIFY] Business prompt marker MISSING - prompt may be incomplete!", flush=True)
+            
             # 🔥 NEW: Mark timestamp for latency measurement
             t_session_confirmed = time.time()
+            self.t_session_confirmed = t_session_confirmed  # Store for latency logging
+            
+            # 🔥 ACCEPTANCE CRITERIA D: Log latency from WS open to session.updated
+            ws_open_to_session_ms = (t_session_confirmed - self.t0_connected) * 1000
+            _orig_print(f"[LATENCY] ws_open->session.updated={ws_open_to_session_ms:.0f}ms", flush=True)
+            logger.info(f"[LATENCY] ws_open to session.updated: {ws_open_to_session_ms:.0f}ms")
 
             # ─────────────────────────────────────────────────────────────────────
             # ✅ PROMPT SEPARATION ENFORCEMENT:
@@ -4951,6 +5016,12 @@ class MediaStreamHandler:
                 )
             
             self._last_response_create_ts = now
+            
+            # 🔥 ACCEPTANCE CRITERIA D: Log latency from session.updated to response.create
+            if is_greeting and hasattr(self, 't_session_confirmed'):
+                session_to_response_ms = (now - self.t_session_confirmed) * 1000
+                _orig_print(f"[LATENCY] session.updated->response.create={session_to_response_ms:.0f}ms", flush=True)
+                logger.info(f"[LATENCY] session.updated to response.create: {session_to_response_ms:.0f}ms (greeting)")
             
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
             
@@ -9880,6 +9951,131 @@ class MediaStreamHandler:
                             # 🔒 LOG BUSINESS ISOLATION: Track which business is handling this call
                             logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
                             _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
+                            
+                            # 🔥 STEP 1.5: LOAD CRM CONTEXT (Lead + Contact fields) IMMEDIATELY
+                            # This MUST happen BEFORE session.update to ensure name/gender/details are available
+                            # Per requirement: CRM context must be loaded before Realtime session starts
+                            lead_id_for_crm = getattr(self, 'outbound_lead_id', None)
+                            # Convert to int if it's a string
+                            if lead_id_for_crm and isinstance(lead_id_for_crm, str):
+                                try:
+                                    lead_id_for_crm = int(lead_id_for_crm)
+                                except ValueError:
+                                    lead_id_for_crm = None
+                            
+                            # Get phone number for fallback lookup
+                            phone_for_crm = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                            
+                            t_crm_start = time.time()
+                            crm_loaded = False
+                            crm_retry_count = 0
+                            crm_error_msg = None
+                            
+                            # Try to load CRM context with retry
+                            for attempt in range(2):  # Initial + 1 retry
+                                try:
+                                    from server.models_sql import Lead
+                                    
+                                    crm_lead = None
+                                    crm_name = ""
+                                    crm_gender = ""
+                                    crm_email = ""
+                                    crm_phone = ""
+                                    crm_tags = ""
+                                    
+                                    # Try to find Lead by lead_id or phone
+                                    if lead_id_for_crm:
+                                        crm_lead = Lead.query.filter_by(id=lead_id_for_crm, tenant_id=business_id_safe).first()
+                                    elif phone_for_crm:
+                                        # Generate phone variants for lookup
+                                        phone_variants = [phone_for_crm]
+                                        cleaned = phone_for_crm.replace('+', '').replace('-', '').replace(' ', '')
+                                        if phone_for_crm.startswith('+972'):
+                                            phone_variants.append('0' + cleaned[3:])
+                                        elif phone_for_crm.startswith('0'):
+                                            phone_variants.append('+972' + cleaned[1:])
+                                        
+                                        crm_lead = Lead.query.filter_by(
+                                            tenant_id=business_id_safe
+                                        ).filter(
+                                            Lead.phone_e164.in_(phone_variants)
+                                        ).order_by(Lead.updated_at.desc()).first()
+                                    
+                                    # Extract fields from Lead
+                                    if crm_lead:
+                                        # Get name (first name only for natural usage)
+                                        full_name = crm_lead.full_name or f"{crm_lead.first_name or ''} {crm_lead.last_name or ''}".strip()
+                                        if full_name and full_name != "ללא שם":
+                                            from server.services.realtime_prompt_builder import extract_first_name
+                                            first_name_result = extract_first_name(full_name)
+                                            # extract_first_name returns Optional[str], convert None to empty string
+                                            crm_name = first_name_result if first_name_result else ""
+                                        
+                                        # Get other fields (use empty string instead of None)
+                                        crm_gender = str(crm_lead.gender or "")
+                                        crm_email = str(crm_lead.email or "")
+                                        crm_phone = str(crm_lead.phone_e164 or "")
+                                        # Get tags if available
+                                        if hasattr(crm_lead, 'tags') and crm_lead.tags:
+                                            crm_tags = str(crm_lead.tags)
+                                    
+                                    # Store CRM context in instance (always store, even if empty)
+                                    self._crm_context_name = crm_name
+                                    self._crm_context_gender = crm_gender
+                                    self._crm_context_email = crm_email
+                                    self._crm_context_phone = crm_phone
+                                    self._crm_context_tags = crm_tags
+                                    self._crm_context_lead_id = lead_id_for_crm or (crm_lead.id if crm_lead else None)
+                                    
+                                    crm_loaded = True
+                                    t_crm_end = time.time()
+                                    crm_ms = (t_crm_end - t_crm_start) * 1000
+                                    
+                                    # 🔥 ACCEPTANCE CRITERIA: Log CRM context loading success
+                                    _orig_print(
+                                        f"[CRM_CONTEXT] loaded ok lead_id={self._crm_context_lead_id} "
+                                        f"name={crm_name if crm_name else 'NONE'} gender={crm_gender if crm_gender else 'NONE'} "
+                                        f"time={crm_ms:.0f}ms retry={crm_retry_count}",
+                                        flush=True
+                                    )
+                                    logger.info(
+                                        f"[CRM_CONTEXT] loaded ok lead_id={self._crm_context_lead_id} "
+                                        f"name={'YES' if crm_name else 'NO'} gender={'YES' if crm_gender else 'NO'} "
+                                        f"email={'YES' if crm_email else 'NO'} time={crm_ms:.0f}ms"
+                                    )
+                                    break  # Success - exit retry loop
+                                    
+                                except Exception as crm_err:
+                                    crm_error_msg = str(crm_err)
+                                    crm_retry_count = attempt + 1
+                                    
+                                    if attempt == 0:  # First attempt failed, try retry
+                                        time.sleep(0.3)  # Wait 300ms before retry
+                                        logger.warning(f"[CRM_CONTEXT] Load failed on attempt {attempt + 1}, retrying: {crm_err}")
+                                    else:  # Retry also failed
+                                        t_crm_end = time.time()
+                                        crm_ms = (t_crm_end - t_crm_start) * 1000
+                                        
+                                        # Initialize empty CRM context so we don't have None values
+                                        self._crm_context_name = ""
+                                        self._crm_context_gender = ""
+                                        self._crm_context_email = ""
+                                        self._crm_context_phone = ""
+                                        self._crm_context_tags = ""
+                                        self._crm_context_lead_id = lead_id_for_crm
+                                        
+                                        # 🔥 ACCEPTANCE CRITERIA: Log CRM context loading failure
+                                        _orig_print(
+                                            f"[CRM_CONTEXT] FAILED lead_id={lead_id_for_crm} "
+                                            f"error={crm_error_msg} retry={crm_retry_count} time={crm_ms:.0f}ms",
+                                            flush=True
+                                        )
+                                        logger.error(
+                                            f"[CRM_CONTEXT] FAILED lead_id={lead_id_for_crm} "
+                                            f"error={crm_error_msg} retry={crm_retry_count}"
+                                        )
+                                        # Continue with call even if CRM context failed
+                                        # AI will run without customer context
                             
                             # 🔥 PART D: PRE-BUILD FULL BUSINESS prompt here (while we have app context!)
                             # This eliminates redundant DB query later and enforces prompt separation.
