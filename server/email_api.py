@@ -919,6 +919,8 @@ def render_theme_template():
     """
     Render a theme-based email template with user fields
     
+    🔥 CRITICAL: Always returns {ok: true/false} format for consistency
+    
     Request body:
         {
             "theme_id": "classic_blue",
@@ -934,13 +936,10 @@ def render_theme_template():
         }
     
     Returns:
-        200: Rendered HTML and text
-        400: Invalid data
-        403: No permission
+        200: {ok: true, html: "...", rendered: {...}}
+        400: {ok: false, error: "..."}
+        500: {ok: false, error: "..."}
     """
-    # 🔥 FIX: Define html at the top to prevent "cannot access local variable" error
-    html = None
-    
     try:
         business_id = get_current_business_id()
         if not business_id:
@@ -971,14 +970,14 @@ def render_theme_template():
         try:
             from sqlalchemy import text as sa_text
             
-            # Get business info
+            # Get business info - ALWAYS provide fallback
             biz_result = db.session.execute(
                 sa_text("SELECT name, phone_number FROM business WHERE id = :business_id"),
                 {"business_id": business_id}
             ).fetchone()
-            if biz_result:
+            if biz_result and biz_result[0]:
                 business_info = {
-                    'name': biz_result[0] or 'ProSaaS',
+                    'name': biz_result[0],
                     'phone': biz_result[1] or ''
                 }
             else:
@@ -988,7 +987,7 @@ def render_theme_template():
                     'phone': ''
                 }
             
-            # Get lead info if provided
+            # Get lead info if provided - ALWAYS provide fallback
             if lead_id:
                 lead_result = db.session.execute(
                     sa_text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id AND tenant_id = :business_id"),
@@ -1038,17 +1037,28 @@ def render_theme_template():
             else:
                 rendered_fields[key] = value
         
-        # Generate HTML from theme
+        # Generate HTML from theme - this should NEVER fail with valid theme_id
         from server.services.email_template_themes import get_template_html
         html = get_template_html(theme_id, rendered_fields)
+        
+        # Validate HTML was generated
+        if not html or not isinstance(html, str):
+            logger.error(f"[EMAIL_API] get_template_html returned invalid html: type={type(html)}")
+            return jsonify({
+                'ok': False,
+                'error': 'Failed to generate HTML from theme'
+            }), 500
         
         # Generate plain text version
         from server.services.email_service import strip_html
         text = strip_html(html)
         
+        logger.info(f"[EMAIL_API] render_theme success: theme={theme_id}, business_id={business_id}, lead_id={lead_id}, html_len={len(html)}")
+        
+        # 🔥 CONSISTENT FORMAT: Always return {ok: true, ...}
         return jsonify({
             'ok': True,
-            'html': html,
+            'html': html,  # For backward compatibility
             'rendered': {
                 'subject': rendered_fields.get('subject', ''),
                 'html': html,
@@ -1058,4 +1068,8 @@ def render_theme_template():
         
     except Exception as e:
         logger.exception(f"[EMAIL_API] Failed to render theme template")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        # 🔥 CONSISTENT FORMAT: Always return {ok: false, error: ...}
+        return jsonify({
+            'ok': False,
+            'error': str(e)
+        }), 500

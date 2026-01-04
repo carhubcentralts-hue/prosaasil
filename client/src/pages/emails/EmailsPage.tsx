@@ -565,8 +565,14 @@ export function EmailsPage() {
   const handleComposeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // 🔥 FIX: Validate required fields
     if (!selectedLead) {
       setError('נא לבחור ליד');
+      return;
+    }
+    
+    if (!selectedThemeId) {
+      setError('נא לבחור תבנית עיצוב');
       return;
     }
     
@@ -579,29 +585,46 @@ export function EmailsPage() {
     setError(null);
     
     try {
-      // First, render the theme with user fields
+      // 🔥 FIX: First, render the theme with user fields
+      console.log('[COMPOSE] Rendering theme:', selectedThemeId, 'for lead:', selectedLead.id);
       const renderResponse = await axios.post('/api/email/render-theme', {
         theme_id: selectedThemeId,
         fields: themeFields,
         lead_id: selectedLead.id
       });
       
-      const rendered = renderResponse.data.rendered;
+      // 🔥 FIX: Support both response formats (ok/success)
+      if (renderResponse.data.ok === false || renderResponse.data.success === false) {
+        throw new Error(renderResponse.data.error || 'Render failed');
+      }
       
-      // Then send the rendered email
+      const rendered = renderResponse.data.rendered || renderResponse.data;
+      
+      if (!rendered || !rendered.html) {
+        throw new Error('No HTML returned from render');
+      }
+      
+      console.log('[COMPOSE] ✅ Render successful, sending email...');
+      
+      // 🔥 FIX: Then send the rendered email
       await axios.post(`/api/leads/${selectedLead.id}/email`, {
         to_email: selectedLead.email,
         subject: rendered.subject,
-        body_html: rendered.html,
+        html: rendered.html,  // 🔥 FIX: Use 'html' field (primary)
+        body_html: rendered.html,  // Also send as body_html for compatibility
+        text: rendered.text,
         body_text: rendered.text
       });
       
+      console.log('[COMPOSE] ✅ Email sent successfully');
       setSuccessMessage('מייל נשלח בהצלחה');
       setShowComposeModal(false);
       resetComposeForm();
       loadEmails();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
+      console.error('[COMPOSE] ❌ Failed:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'שגיאה בשליחת מייל';
+      setError(errorMsg);
     } finally {
       setComposeLoading(false);
     }
@@ -666,6 +689,11 @@ export function EmailsPage() {
       return;
     }
     
+    if (!selectedThemeId) {
+      setError('נא לבחור תבנית עיצוב');
+      return;
+    }
+    
     if (!themeFields.subject.trim() || !themeFields.body.trim()) {
       setError('נא למלא לפחות נושא ותוכן המייל');
       return;
@@ -679,6 +707,8 @@ export function EmailsPage() {
       let successCount = 0;
       let failCount = 0;
       
+      console.log('[BULK] Sending to', selectedLeads.length, 'leads');
+      
       // Send to each selected lead
       for (const lead of selectedLeads) {
         try {
@@ -689,22 +719,36 @@ export function EmailsPage() {
             lead_id: lead.id
           });
           
-          const rendered = renderResponse.data.rendered;
+          // 🔥 FIX: Support both response formats
+          if (renderResponse.data.ok === false || renderResponse.data.success === false) {
+            throw new Error(renderResponse.data.error || 'Render failed');
+          }
+          
+          const rendered = renderResponse.data.rendered || renderResponse.data;
+          
+          if (!rendered || !rendered.html) {
+            throw new Error('No HTML returned');
+          }
           
           // Then send the rendered email
           await axios.post(`/api/leads/${lead.id}/email`, {
             to_email: lead.email,
             subject: rendered.subject,
+            html: rendered.html,
             body_html: rendered.html,
+            text: rendered.text,
             body_text: rendered.text
           });
           
           successCount++;
+          console.log('[BULK] ✅ Sent to', lead.first_name, lead.last_name);
         } catch (err) {
-          console.error(`Failed to send email to lead ${lead.id}:`, err);
+          console.error(`[BULK] ❌ Failed to send email to lead ${lead.id}:`, err);
           failCount++;
         }
       }
+      
+      console.log('[BULK] Complete:', successCount, 'success', failCount, 'failed');
       
       if (successCount > 0) {
         setSuccessMessage(`${successCount} מיילים נשלחו בהצלחה${failCount > 0 ? `, ${failCount} נכשלו` : ''}`);
@@ -717,6 +761,7 @@ export function EmailsPage() {
       resetComposeForm();
       loadEmails();
     } catch (err: any) {
+      console.error('[BULK] ❌ Bulk send failed:', err);
       setError(err.response?.data?.error || 'שגיאה בשליחת מיילים');
     } finally {
       setBulkComposeLoading(false);

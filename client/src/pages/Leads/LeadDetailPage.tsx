@@ -2991,6 +2991,11 @@ function EmailTab({ lead }: EmailTabProps) {
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!selectedThemeId) {
+      setError('נא לבחור תבנית עיצוב');
+      return;
+    }
+    
     if (!themeFields.subject.trim() || !themeFields.body.trim()) {
       setError('נא למלא לפחות נושא ותוכן המייל');
       return;
@@ -3006,6 +3011,8 @@ function EmailTab({ lead }: EmailTabProps) {
     setSuccess(null);
     
     try {
+      console.log('[LEAD_EMAIL] Rendering theme:', selectedThemeId, 'for lead:', lead.id);
+      
       // First, render the theme with user fields
       const renderResponse = await http.post('/api/email/render-theme', {
         theme_id: selectedThemeId,
@@ -3013,16 +3020,30 @@ function EmailTab({ lead }: EmailTabProps) {
         lead_id: lead.id
       });
       
-      const rendered = renderResponse.rendered;
+      // 🔥 FIX: Support both response formats
+      if (renderResponse.ok === false || renderResponse.success === false) {
+        throw new Error(renderResponse.error || 'Render failed');
+      }
+      
+      const rendered = renderResponse.rendered || renderResponse;
+      
+      if (!rendered || !rendered.html) {
+        throw new Error('No HTML returned from render');
+      }
+      
+      console.log('[LEAD_EMAIL] ✅ Render successful, sending email...');
       
       // Then send the rendered email
       await http.post(`/api/leads/${lead.id}/email`, {
         to_email: lead.email,
         subject: rendered.subject,
+        html: rendered.html,
         body_html: rendered.html,
+        text: rendered.text,
         body_text: rendered.text
       });
       
+      console.log('[LEAD_EMAIL] ✅ Email sent successfully');
       setSuccess('המייל נשלח בהצלחה!');
       setThemeFields({
         subject: '',
@@ -3035,7 +3056,8 @@ function EmailTab({ lead }: EmailTabProps) {
       setShowCompose(false);
       await loadEmails();
     } catch (err: any) {
-      const errorMsg = err.response?.data?.message || err.response?.data?.error || 'שגיאה בשליחת המייל';
+      console.error('[LEAD_EMAIL] ❌ Failed:', err);
+      const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'שגיאה בשליחת המייל';
       setError(errorMsg);
     } finally {
       setSending(false);
