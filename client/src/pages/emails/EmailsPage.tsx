@@ -28,6 +28,9 @@ interface Lead {
   last_name: string;
   email: string;
   phone_e164: string;
+  status: string;
+  source?: string;
+  created_at?: string;
 }
 
 interface EmailTemplate {
@@ -106,6 +109,10 @@ export function EmailsPage() {
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
   const [allLeadsLoading, setAllLeadsLoading] = useState(false);
   const [leadsFilter, setLeadsFilter] = useState('');
+  const [leadsStatusFilter, setLeadsStatusFilter] = useState('');
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadsHasMore, setLeadsHasMore] = useState(true);
+  const [leadStatusUpdating, setLeadStatusUpdating] = useState<number | null>(null);
   
   // Templates state
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
@@ -123,9 +130,10 @@ export function EmailsPage() {
     } else if (activeTab === 'templates') {
       loadTemplates();
     } else if (activeTab === 'leads') {
-      loadAllLeads();
+      setLeadsPage(1);
+      loadAllLeads(false);
     }
-  }, [activeTab, statusFilter, searchQuery, leadsFilter]);
+  }, [activeTab, statusFilter, searchQuery, leadsFilter, leadsStatusFilter]);
   
   // Load templates when compose modal opens
   useEffect(() => {
@@ -272,26 +280,66 @@ export function EmailsPage() {
     }
   };
   
-  const loadAllLeads = async () => {
+  const loadAllLeads = async (append = false) => {
     try {
       setAllLeadsLoading(true);
       const params = new URLSearchParams();
       if (leadsFilter) params.append('q', leadsFilter);
-      params.append('pageSize', '100'); // Load first 100 leads
+      if (leadsStatusFilter) params.append('status', leadsStatusFilter);
+      params.append('page', append ? (leadsPage + 1).toString() : '1');
+      params.append('pageSize', '50'); // Load 50 leads per page
       
       const response = await axios.get(`/api/leads?${params.toString()}`);
       const leads = response.data.leads || [];
-      setAllLeads(leads.map((l: any) => ({
+      const total = response.data.total || 0;
+      
+      const mappedLeads = leads.map((l: any) => ({
         id: l.id,
         first_name: l.first_name || '',
         last_name: l.last_name || '',
         email: l.email || '',
-        phone_e164: l.phone_e164 || ''
-      })));
+        phone_e164: l.phone_e164 || '',
+        status: l.status || 'new',
+        source: l.source || '',
+        created_at: l.created_at || ''
+      }));
+      
+      if (append) {
+        setAllLeads(prev => [...prev, ...mappedLeads]);
+        setLeadsPage(prev => prev + 1);
+      } else {
+        setAllLeads(mappedLeads);
+        setLeadsPage(1);
+      }
+      
+      // Check if there are more leads to load
+      const currentTotal = append ? allLeads.length + mappedLeads.length : mappedLeads.length;
+      setLeadsHasMore(currentTotal < total);
     } catch (err: any) {
       console.error('Failed to load leads:', err);
     } finally {
       setAllLeadsLoading(false);
+    }
+  };
+  
+  const handleUpdateLeadStatus = async (leadId: number, newStatus: string) => {
+    try {
+      setLeadStatusUpdating(leadId);
+      await axios.patch(`/api/leads/${leadId}`, { status: newStatus });
+      
+      // Update local state
+      setAllLeads(prev => prev.map(lead => 
+        lead.id === leadId ? { ...lead, status: newStatus } : lead
+      ));
+      
+      setSuccessMessage('סטטוס הליד עודכן בהצלחה');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Failed to update lead status:', err);
+      setError('שגיאה בעדכון סטטוס הליד');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setLeadStatusUpdating(null);
     }
   };
   
@@ -391,6 +439,38 @@ export function EmailsPage() {
   
   const isAdmin = ['system_admin', 'owner', 'admin'].includes(user?.role || '');
   
+  // Helper function for status badges
+  const getStatusBadge = (status: string) => {
+    const statusConfig: Record<string, { color: string; label: string }> = {
+      'new': { color: 'bg-blue-100 text-blue-800', label: 'חדש' },
+      'attempting': { color: 'bg-yellow-100 text-yellow-800', label: 'מנסה ליצור קשר' },
+      'contacted': { color: 'bg-purple-100 text-purple-800', label: 'יצר קשר' },
+      'qualified': { color: 'bg-indigo-100 text-indigo-800', label: 'מוסמך' },
+      'won': { color: 'bg-green-100 text-green-800', label: 'נסגר' },
+      'lost': { color: 'bg-red-100 text-red-800', label: 'אבד' },
+      'unqualified': { color: 'bg-gray-100 text-gray-800', label: 'לא מוסמך' }
+    };
+    
+    const config = statusConfig[status.toLowerCase()] || statusConfig['new'];
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
+        {config.label}
+      </span>
+    );
+  };
+  
+  // Available status options for dropdown
+  const statusOptions = [
+    { value: '', label: 'כל הסטטוסים' },
+    { value: 'new', label: 'חדש' },
+    { value: 'attempting', label: 'מנסה ליצור קשר' },
+    { value: 'contacted', label: 'יצר קשר' },
+    { value: 'qualified', label: 'מוסמך' },
+    { value: 'won', label: 'נסגר' },
+    { value: 'lost', label: 'אבד' },
+    { value: 'unqualified', label: 'לא מוסמך' }
+  ];
+  
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Header */}
@@ -483,24 +563,64 @@ export function EmailsPage() {
           {activeTab === 'leads' ? (
             // Leads Tab - Send emails to leads
             <div>
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-xl font-semibold">שלח מיילים ללידים</h2>
-                  <p className="text-sm text-gray-600 mt-1">בחר ליד ושלח מייל מותאם אישית</p>
-                </div>
-                <div className="flex items-center gap-2">
+              {/* Header with title and description */}
+              <div className="mb-6">
+                <h2 className="text-xl md:text-2xl font-semibold">שלח מיילים ללידים</h2>
+                <p className="text-sm text-gray-600 mt-1">בחר ליד ושלח מייל מותאם אישית עם תבנית</p>
+              </div>
+              
+              {/* Filters - Mobile Responsive */}
+              <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:gap-3">
+                {/* Search Input */}
+                <div className="relative flex-1">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
                     type="text"
                     value={leadsFilter}
                     onChange={(e) => setLeadsFilter(e.target.value)}
-                    placeholder="חפש ליד..."
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="חפש לפי שם, טלפון או מייל..."
+                    className="w-full pr-10 pl-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  <Search className="w-5 h-5 text-gray-400" />
                 </div>
+                
+                {/* Status Filter */}
+                <div className="md:w-64">
+                  <select
+                    value={leadsStatusFilter}
+                    onChange={(e) => setLeadsStatusFilter(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+                  >
+                    {statusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Clear Filters Button */}
+                {(leadsFilter || leadsStatusFilter) && (
+                  <button
+                    onClick={() => {
+                      setLeadsFilter('');
+                      setLeadsStatusFilter('');
+                    }}
+                    className="px-4 py-2.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    נקה סינון
+                  </button>
+                )}
               </div>
               
-              {allLeadsLoading ? (
+              {/* Results Count */}
+              {!allLeadsLoading && allLeads.length > 0 && (
+                <div className="mb-4 text-sm text-gray-600">
+                  מציג {allLeads.length} לידים {leadsHasMore && '(טען עוד לראות יותר)'}
+                </div>
+              )}
+              
+              {/* Loading State */}
+              {allLeadsLoading && allLeads.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                   <p className="text-sm text-gray-600 mt-2">טוען לידים...</p>
@@ -509,52 +629,126 @@ export function EmailsPage() {
                 <div className="text-center py-12">
                   <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-600">לא נמצאו לידים</p>
+                  {(leadsFilter || leadsStatusFilter) && (
+                    <button
+                      onClick={() => {
+                        setLeadsFilter('');
+                        setLeadsStatusFilter('');
+                      }}
+                      className="mt-4 text-blue-600 hover:text-blue-800 text-sm"
+                    >
+                      נקה סינון
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div className="grid gap-3">
-                  {allLeads.map((lead) => (
-                    <div key={lead.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
-                      <div className="flex justify-between items-center">
-                        <div className="flex-1">
-                          <h3 className="font-medium text-gray-900">
-                            {lead.first_name} {lead.last_name}
-                          </h3>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {lead.email && (
-                              <span className="ml-3">
-                                <Mail className="w-4 h-4 inline ml-1" />
-                                {lead.email}
-                              </span>
-                            )}
-                            {lead.phone_e164 && (
-                              <span>
-                                📞 {lead.phone_e164}
-                              </span>
-                            )}
-                          </p>
+                <>
+                  {/* Leads Grid - Mobile Responsive */}
+                  <div className="space-y-3">
+                    {allLeads.map((lead) => (
+                      <div 
+                        key={lead.id} 
+                        className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow bg-white"
+                      >
+                        {/* Mobile: Stack layout, Desktop: Flex layout */}
+                        <div className="space-y-3 md:space-y-0 md:flex md:justify-between md:items-start">
+                          {/* Lead Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              <h3 className="font-medium text-gray-900 text-lg">
+                                {lead.first_name} {lead.last_name}
+                              </h3>
+                              {getStatusBadge(lead.status)}
+                            </div>
+                            
+                            {/* Contact Info - Wrap on mobile */}
+                            <div className="space-y-1 text-sm text-gray-600">
+                              {lead.email && (
+                                <div className="flex items-center gap-1 break-all">
+                                  <Mail className="w-4 h-4 flex-shrink-0" />
+                                  <span>{lead.email}</span>
+                                </div>
+                              )}
+                              {lead.phone_e164 && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-base">📞</span>
+                                  <span className="text-left" dir="ltr">{lead.phone_e164}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Status Update Dropdown */}
+                            <div className="mt-3">
+                              <select
+                                value={lead.status}
+                                onChange={(e) => handleUpdateLeadStatus(lead.id, e.target.value)}
+                                disabled={leadStatusUpdating === lead.id}
+                                className="text-sm px-3 py-1.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                              >
+                                <option value="new">חדש</option>
+                                <option value="attempting">מנסה ליצור קשר</option>
+                                <option value="contacted">יצר קשר</option>
+                                <option value="qualified">מוסמך</option>
+                                <option value="won">נסגר</option>
+                                <option value="lost">אבד</option>
+                                <option value="unqualified">לא מוסמך</option>
+                              </select>
+                              {leadStatusUpdating === lead.id && (
+                                <span className="mr-2 text-xs text-gray-500">מעדכן...</span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Action Button - Full width on mobile */}
+                          <div className="md:mr-4 md:flex-shrink-0">
+                            <button
+                              onClick={() => {
+                                setSelectedLead(lead);
+                                setShowComposeModal(true);
+                              }}
+                              disabled={!lead.email}
+                              className={`w-full md:w-auto px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium ${
+                                lead.email
+                                  ? 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+                                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              }`}
+                            >
+                              <Send className="w-4 h-4" />
+                              <span>שלח מייל</span>
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            setSelectedLead(lead);
-                            setShowComposeModal(true);
-                          }}
-                          disabled={!lead.email}
-                          className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${
-                            lead.email
-                              ? 'bg-blue-600 text-white hover:bg-blue-700'
-                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                          }`}
-                        >
-                          <Send className="w-4 h-4" />
-                          שלח מייל
-                        </button>
+                        
+                        {/* No Email Warning */}
+                        {!lead.email && (
+                          <div className="mt-3 text-xs text-red-600 bg-red-50 px-3 py-2 rounded">
+                            ⚠️ אין כתובת מייל לליד זה
+                          </div>
+                        )}
                       </div>
-                      {!lead.email && (
-                        <p className="text-xs text-red-600 mt-2">אין כתובת מייל לליד זה</p>
-                      )}
+                    ))}
+                  </div>
+                  
+                  {/* Load More Button */}
+                  {leadsHasMore && (
+                    <div className="mt-6 text-center">
+                      <button
+                        onClick={() => loadAllLeads(true)}
+                        disabled={allLeadsLoading}
+                        className="px-6 py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                      >
+                        {allLeadsLoading ? (
+                          <span className="flex items-center gap-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                            טוען...
+                          </span>
+                        ) : (
+                          'טען עוד לידים'
+                        )}
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           ) : activeTab === 'templates' ? (
@@ -832,33 +1026,36 @@ export function EmailsPage() {
       
       {/* Compose Email Modal */}
       {showComposeModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">שליחת מייל חדש</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[95vh] md:max-h-[90vh] overflow-y-auto">
+            <div className="p-4 md:p-6">
+              {/* Header */}
+              <div className="flex justify-between items-center mb-4 md:mb-6">
+                <h2 className="text-xl md:text-2xl font-bold">שליחת מייל חדש</h2>
                 <button
                   onClick={() => {
                     setShowComposeModal(false);
                     resetComposeForm();
                   }}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-gray-500 hover:text-gray-700 p-1"
+                  aria-label="סגור"
                 >
                   <X className="w-6 h-6" />
                 </button>
               </div>
               
+              {/* Error Message */}
               {error && (
                 <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
                   {error}
                 </div>
               )}
               
-              <form onSubmit={handleComposeEmail} className="space-y-4">
-                {/* Template Selector */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    בחר תבנית (אופציונלי):
+              <form onSubmit={handleComposeEmail} className="space-y-4 md:space-y-5">
+                {/* Template Selector - Improved */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <label className="block text-sm font-semibold text-blue-900 mb-2">
+                    📝 בחר תבנית מוכנה (אופציונלי)
                   </label>
                   
                   <div className="space-y-2">
@@ -877,9 +1074,9 @@ export function EmailsPage() {
                               setSelectedTemplate(null);
                             }
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-4 py-2.5 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-base"
                         >
-                          <option value="">-- בחר תבנית --</option>
+                          <option value="">-- בחר תבנית או כתוב בעצמך --</option>
                           {templates.filter(t => t.is_active).map((template) => (
                             <option key={template.id} value={template.id}>
                               {template.name}
@@ -888,17 +1085,25 @@ export function EmailsPage() {
                         </select>
                         
                         {selectedTemplate && (
-                          <button
-                            type="button"
-                            onClick={handleResetToTemplate}
-                            className="text-sm text-blue-600 hover:text-blue-800"
-                          >
-                            🔄 אפס לתבנית המקורית
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleResetToTemplate}
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50 transition-colors"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                              אפס לתבנית המקורית
+                            </button>
+                            <span className="text-xs text-blue-700">
+                              ניתן לערוך את התוכן לפני השליחה
+                            </span>
+                          </div>
                         )}
                       </>
                     ) : (
-                      <div className="text-sm text-gray-500">אין תבניות זמינות</div>
+                      <div className="text-sm text-gray-500 bg-white p-3 rounded border border-gray-200">
+                        אין תבניות זמינות - ניתן לכתוב מייל חופשי למטה
+                      </div>
                     )}
                   </div>
                 </div>
@@ -966,52 +1171,66 @@ export function EmailsPage() {
                 
                 {/* Subject */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    נושא *
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    נושא המייל *
                   </label>
                   <input
                     type="text"
                     value={emailSubject}
                     onChange={(e) => setEmailSubject(e.target.value)}
-                    placeholder="נושא המייל"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="לדוגמה: הצעה מיוחדת במיוחד בשבילך"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">נושא המייל שיוצג לנמען</p>
                 </div>
                 
                 {/* Body */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
                     תוכן המייל *
                   </label>
                   <textarea
                     value={emailHtml}
                     onChange={(e) => setEmailHtml(e.target.value)}
-                    placeholder="תוכן המייל (HTML)"
-                    rows={8}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="כתוב כאן את תוכן המייל... &#10;&#10;ניתן להשתמש ב-HTML לעיצוב, או כתיבה חופשית.&#10;&#10;דוגמה:&#10;שלום {{שם}},&#10;&#10;אנחנו שמחים להציע לך..."
+                    rows={12}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base font-mono"
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 טיפ: תוכן התבנית מתומלל אוטומטית עם פרטי הליד
+                  </p>
                 </div>
                 
                 {/* Actions */}
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={composeLoading}
-                    className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {composeLoading ? 'שולח...' : 'שלח מייל'}
-                  </button>
+                <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
                   <button
                     type="button"
                     onClick={() => {
                       setShowComposeModal(false);
                       resetComposeForm();
                     }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="w-full sm:w-auto px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
                   >
                     ביטול
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={composeLoading}
+                    className="w-full sm:flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed font-medium text-lg flex items-center justify-center gap-2"
+                  >
+                    {composeLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>שולח...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-5 h-5" />
+                        <span>שלח מייל</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
