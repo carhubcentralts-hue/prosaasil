@@ -93,6 +93,7 @@ export function EmailsPage() {
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [composeMode, setComposeMode] = useState<'lead' | 'manual'>('lead');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
   const [manualEmail, setManualEmail] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailHtml, setEmailHtml] = useState('');
@@ -118,6 +119,13 @@ export function EmailsPage() {
       loadTemplates();
     }
   }, [activeTab, statusFilter, searchQuery]);
+  
+  // Load templates when compose modal opens
+  useEffect(() => {
+    if (showComposeModal && templates.length === 0) {
+      loadTemplates();
+    }
+  }, [showComposeModal]);
   
   // Debounced lead search
   useEffect(() => {
@@ -305,8 +313,44 @@ export function EmailsPage() {
     }
   };
   
+  const handleSelectTemplate = async (template: EmailTemplate) => {
+    setSelectedTemplate(template);
+    
+    // Load template content and populate form
+    try {
+      const leadData = selectedLead ? {
+        first_name: selectedLead.first_name,
+        last_name: selectedLead.last_name,
+        email: selectedLead.email
+      } : {
+        first_name: 'שם',
+        last_name: 'לקוח',
+        email: 'example@test.com'
+      };
+      
+      const response = await axios.post(`/api/email/templates/${template.id}/preview`, {
+        lead: leadData
+      });
+      
+      setEmailSubject(response.data.preview.subject);
+      setEmailHtml(response.data.preview.html);
+    } catch (err: any) {
+      console.error('Failed to load template:', err);
+      // Fallback to template content directly
+      setEmailSubject(template.subject_template);
+      setEmailHtml(template.html_template);
+    }
+  };
+  
+  const handleResetToTemplate = () => {
+    if (selectedTemplate) {
+      handleSelectTemplate(selectedTemplate);
+    }
+  };
+  
   const resetComposeForm = () => {
     setSelectedLead(null);
+    setSelectedTemplate(null);
     setManualEmail('');
     setEmailSubject('');
     setEmailHtml('');
@@ -692,6 +736,54 @@ export function EmailsPage() {
               )}
               
               <form onSubmit={handleComposeEmail} className="space-y-4">
+                {/* Template Selector */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    בחר תבנית (אופציונלי):
+                  </label>
+                  
+                  <div className="space-y-2">
+                    {templatesLoading ? (
+                      <div className="text-sm text-gray-600">טוען תבניות...</div>
+                    ) : templates.length > 0 ? (
+                      <>
+                        <select
+                          value={selectedTemplate?.id || ''}
+                          onChange={(e) => {
+                            const templateId = parseInt(e.target.value);
+                            const template = templates.find(t => t.id === templateId);
+                            if (template) {
+                              handleSelectTemplate(template);
+                            } else {
+                              setSelectedTemplate(null);
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">-- בחר תבנית --</option>
+                          {templates.filter(t => t.is_active).map((template) => (
+                            <option key={template.id} value={template.id}>
+                              {template.name}
+                            </option>
+                          ))}
+                        </select>
+                        
+                        {selectedTemplate && (
+                          <button
+                            type="button"
+                            onClick={handleResetToTemplate}
+                            className="text-sm text-blue-600 hover:text-blue-800"
+                          >
+                            🔄 אפס לתבנית המקורית
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-sm text-gray-500">אין תבניות זמינות</div>
+                    )}
+                  </div>
+                </div>
+                
                 {/* Recipient - Lead Picker */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
