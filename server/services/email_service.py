@@ -1301,11 +1301,15 @@ class EmailService:
                 # 🔥 FIX 6: SendGrid returned error status - log full details
                 error_msg = f"SendGrid error: status={response.status_code}"
                 try:
-                    error_body = response.body.decode('utf-8') if hasattr(response, 'body') else 'N/A'
-                    logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} body={error_body}")
-                    error_msg += f" body={error_body[:200]}"
-                except:
-                    logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code}")
+                    # Safe decode with error handling
+                    if hasattr(response, 'body') and response.body:
+                        error_body = response.body.decode('utf-8', errors='replace')
+                        logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} body={error_body}")
+                        error_msg += f" body={error_body[:200]}"
+                    else:
+                        logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} (no body)")
+                except Exception as decode_error:
+                    logger.error(f"[EMAIL] ❌ SendGrid FAILED: status={response.status_code} (decode error: {decode_error})")
                 
                 logger.error(f"[EMAIL] failed business_id={business_id} email_id={email_id} error={error_msg}")
                 

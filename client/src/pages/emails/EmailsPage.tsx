@@ -3,6 +3,9 @@ import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, E
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
+// Email validation constants
+const MIN_HTML_LENGTH_FRONTEND = 200; // Minimum HTML length for frontend validation (chars)
+
 interface EmailMessage {
   id: number;
   to_email: string;
@@ -626,7 +629,7 @@ export function EmailsPage() {
       const htmlLength = rendered.html.length;
       console.log('[COMPOSE] ✅ Render successful, HTML length:', htmlLength);
       
-      if (htmlLength < 200) {
+      if (htmlLength < MIN_HTML_LENGTH_FRONTEND) {
         throw new Error(`Rendered HTML too short (${htmlLength} chars) - render may have failed`);
       }
       

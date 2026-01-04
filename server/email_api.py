@@ -31,6 +31,9 @@ _rate_limit_business = {}  # {business_id: [(timestamp, count)]}
 RATE_LIMIT_USER_HOURLY = 30  # emails per user per hour
 RATE_LIMIT_BUSINESS_DAILY = 500  # emails per business per day
 
+# Email validation constants
+MIN_HTML_LENGTH = 50  # Minimum HTML length to consider valid (chars)
+
 def get_current_business_id():
     """Get current business ID from authenticated user (populated by @require_api_auth)"""
     if hasattr(g, 'tenant') and g.tenant:
@@ -385,7 +388,7 @@ def send_email_to_lead(lead_id):
             return jsonify({'error': 'subject and html (or body_html) are required'}), 400
         
         # 🔥 FIX 4: Validate HTML length (atomic check before send)
-        if len(html) < 50:
+        if len(html) < MIN_HTML_LENGTH:
             logger.error(f"[EMAIL_TO_LEAD] HTML too short ({len(html)} chars) - likely render failed")
             return jsonify({
                 'error': 'Invalid HTML content',

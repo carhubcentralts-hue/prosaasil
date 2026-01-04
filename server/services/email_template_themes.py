@@ -3,6 +3,9 @@ Email Template Themes - Luxury Pre-built Templates
 Professional email templates with different visual styles
 """
 from html import escape as html_escape
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 🎨 Luxury Email Templates Catalog
 # Each template has a unique visual style with colors, buttons, and layout
@@ -145,8 +148,6 @@ def get_template_html(theme_id: str, fields: dict) -> str:
         Body fragment HTML (inner content only) with inline styles for theme colors
     """
     if theme_id not in EMAIL_TEMPLATE_THEMES:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"[EMAIL_THEMES] Invalid theme_id '{theme_id}', using classic_blue fallback")
         theme_id = "classic_blue"  # Fallback to default
     
@@ -154,8 +155,6 @@ def get_template_html(theme_id: str, fields: dict) -> str:
     colors = theme["theme"]
     
     # 🔥 FIX 7: Log theme colors to verify correct theme is being used
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(f"[EMAIL_THEMES] Rendering theme_id={theme_id} primary_color={colors['primary_color']} button_bg={colors['button_bg']}")
     
     # Extract fields with defaults
