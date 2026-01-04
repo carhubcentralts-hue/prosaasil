@@ -104,6 +104,7 @@ export function EmailsPage() {
   const [availableThemes, setAvailableThemes] = useState<any[]>([]);
   const [selectedThemeId, setSelectedThemeId] = useState('classic_blue');
   const [themesLoading, setThemesLoading] = useState(false);
+  const [themesError, setThemesError] = useState<string | null>(null);
   const [themeFields, setThemeFields] = useState({
     subject: '',
     greeting: '',
@@ -160,14 +161,16 @@ export function EmailsPage() {
     }
   }, [activeTab, statusFilter, searchQuery, leadsFilter, leadsStatusFilter]);
   
+  // 🔥 FIX: Load themes once on mount, not dependent on modal
+  useEffect(() => {
+    loadLuxuryThemes();
+  }, []);
+  
   // Load templates when compose modal opens
   useEffect(() => {
     if (showComposeModal) {
       if (templates.length === 0) {
         loadTemplates();
-      }
-      if (availableThemes.length === 0) {
-        loadLuxuryThemes();
       }
     }
   }, [showComposeModal]);
@@ -348,38 +351,72 @@ export function EmailsPage() {
     }
   };
   
-  // 🎨 Load Luxury Theme Templates
+  // 🎨 Load Luxury Theme Templates - 🔥 FIX: Robust loading with proper error handling
   const loadLuxuryThemes = async () => {
+    setThemesLoading(true);
+    setThemesError(null);
     try {
-      setThemesLoading(true);
+      console.log('[THEMES] Fetching catalog...');
       const response = await axios.get('/api/email/template-catalog');
-      const themes = response.data.themes || [];
-      setAvailableThemes(themes);
       
-      // Set default theme and fields
-      if (themes.length > 0) {
+      console.log('[THEMES] status', response.status, 'data', response.data);
+      
+      // 🔥 FIX: Handle both response formats (themes at root or nested)
+      const raw = response.data;
+      const themes = raw?.themes ?? raw ?? [];
+      
+      console.log('[THEMES] Parsed themes count:', themes.length);
+      
+      // 🔥 FIX: Always ensure we have an array (never undefined or null)
+      if (Array.isArray(themes) && themes.length > 0) {
+        setAvailableThemes(themes);
+        
+        // Set default theme and fields
         const defaultTheme = themes[0];
         setSelectedThemeId(defaultTheme.id);
-        setThemeFields(defaultTheme.default_fields);
+        if (defaultTheme.default_fields) {
+          setThemeFields(defaultTheme.default_fields);
+        }
+        console.log('[THEMES] ✅ Loaded', themes.length, 'themes, default:', defaultTheme.id);
+      } else {
+        // No themes received - set empty array and error
+        setAvailableThemes([]);
+        setThemesError('No themes available');
+        console.error('[THEMES] ❌ No themes returned from API, raw response:', raw);
       }
     } catch (err: any) {
-      console.error('Failed to load luxury themes:', err);
+      // 🔥 FIX: On error, set empty array (not undefined) and show error
+      setAvailableThemes([]);
+      const errorMsg = err?.response?.data?.error || err?.message || 'Failed to load themes';
+      setThemesError(errorMsg);
+      console.error('[THEMES] ❌ Failed to load luxury themes:', {
+        status: err?.response?.status,
+        statusText: err?.response?.statusText,
+        error: errorMsg,
+        data: err?.response?.data
+      });
     } finally {
       setThemesLoading(false);
     }
   };
   
-  // 🎨 Handle Theme Selection Change
+  // 🎨 Handle Theme Selection Change - 🔥 FIX: Safe theme lookup
   const handleThemeChange = (themeId: string) => {
     setSelectedThemeId(themeId);
     const theme = availableThemes.find(t => t.id === themeId);
-    if (theme) {
+    if (theme && theme.default_fields) {
       setThemeFields(theme.default_fields);
     }
   };
   
-  // 🎨 Preview Theme-based Email
+  // 🎨 Preview Theme-based Email - 🔥 FIX: Better error handling and validation
   const handlePreviewTheme = async () => {
+    // 🔥 FIX: Validate required fields before preview
+    if (!selectedThemeId) {
+      setError('בחר תבנית לפני תצוגה מקדימה');
+      return;
+    }
+    
     if (!selectedLead) {
       setError('אנא בחר ליד לפני תצוגה מקדימה');
       return;
@@ -387,6 +424,7 @@ export function EmailsPage() {
     
     setThemePreviewLoading(true);
     setShowThemePreview(true);
+    setError(null);
     
     try {
       const response = await axios.post('/api/email/render-theme', {
@@ -395,10 +433,22 @@ export function EmailsPage() {
         lead_id: selectedLead.id
       });
       
-      setThemePreviewHtml(response.data.rendered.html);
+      // 🔥 FIX: Support both response formats (ok/success)
+      if (response.data.ok === false || response.data.success === false) {
+        throw new Error(response.data.error || 'Render failed');
+      }
+      
+      const html = response.data.rendered?.html || response.data.html;
+      if (!html) {
+        throw new Error('No HTML returned from render');
+      }
+      
+      setThemePreviewHtml(html);
     } catch (err: any) {
-      console.error('Failed to preview theme:', err);
-      setError('שגיאה בטעינת תצוגה מקדימה');
+      console.error('[EmailsPage] Failed to preview theme:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'שגיאה בטעינת תצוגה מקדימה';
+      setError(errorMsg);
+      setShowThemePreview(false);  // Close preview on error
     } finally {
       setThemePreviewLoading(false);
     }
@@ -515,8 +565,14 @@ export function EmailsPage() {
   const handleComposeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // 🔥 FIX: Validate required fields
     if (!selectedLead) {
       setError('נא לבחור ליד');
+      return;
+    }
+    
+    if (!selectedThemeId) {
+      setError('נא לבחור תבנית עיצוב');
       return;
     }
     
@@ -529,29 +585,46 @@ export function EmailsPage() {
     setError(null);
     
     try {
-      // First, render the theme with user fields
+      // 🔥 FIX: First, render the theme with user fields
+      console.log('[COMPOSE] Rendering theme:', selectedThemeId, 'for lead:', selectedLead.id);
       const renderResponse = await axios.post('/api/email/render-theme', {
         theme_id: selectedThemeId,
         fields: themeFields,
         lead_id: selectedLead.id
       });
       
-      const rendered = renderResponse.data.rendered;
+      // 🔥 FIX: Support both response formats (ok/success)
+      if (renderResponse.data.ok === false || renderResponse.data.success === false) {
+        throw new Error(renderResponse.data.error || 'Render failed');
+      }
       
-      // Then send the rendered email
+      const rendered = renderResponse.data.rendered || renderResponse.data;
+      
+      if (!rendered || !rendered.html) {
+        throw new Error('No HTML returned from render');
+      }
+      
+      console.log('[COMPOSE] ✅ Render successful, sending email...');
+      
+      // 🔥 FIX: Then send the rendered email
       await axios.post(`/api/leads/${selectedLead.id}/email`, {
         to_email: selectedLead.email,
         subject: rendered.subject,
-        body_html: rendered.html,
+        html: rendered.html,  // 🔥 FIX: Use 'html' field (primary)
+        body_html: rendered.html,  // Also send as body_html for compatibility
+        text: rendered.text,
         body_text: rendered.text
       });
       
+      console.log('[COMPOSE] ✅ Email sent successfully');
       setSuccessMessage('מייל נשלח בהצלחה');
       setShowComposeModal(false);
       resetComposeForm();
       loadEmails();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בשליחת מייל');
+      console.error('[COMPOSE] ❌ Failed:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'שגיאה בשליחת מייל';
+      setError(errorMsg);
     } finally {
       setComposeLoading(false);
     }
@@ -616,6 +689,11 @@ export function EmailsPage() {
       return;
     }
     
+    if (!selectedThemeId) {
+      setError('נא לבחור תבנית עיצוב');
+      return;
+    }
+    
     if (!themeFields.subject.trim() || !themeFields.body.trim()) {
       setError('נא למלא לפחות נושא ותוכן המייל');
       return;
@@ -629,6 +707,8 @@ export function EmailsPage() {
       let successCount = 0;
       let failCount = 0;
       
+      console.log('[BULK] Sending to', selectedLeads.length, 'leads');
+      
       // Send to each selected lead
       for (const lead of selectedLeads) {
         try {
@@ -639,22 +719,36 @@ export function EmailsPage() {
             lead_id: lead.id
           });
           
-          const rendered = renderResponse.data.rendered;
+          // 🔥 FIX: Support both response formats
+          if (renderResponse.data.ok === false || renderResponse.data.success === false) {
+            throw new Error(renderResponse.data.error || 'Render failed');
+          }
+          
+          const rendered = renderResponse.data.rendered || renderResponse.data;
+          
+          if (!rendered || !rendered.html) {
+            throw new Error('No HTML returned');
+          }
           
           // Then send the rendered email
           await axios.post(`/api/leads/${lead.id}/email`, {
             to_email: lead.email,
             subject: rendered.subject,
+            html: rendered.html,
             body_html: rendered.html,
+            text: rendered.text,
             body_text: rendered.text
           });
           
           successCount++;
+          console.log('[BULK] ✅ Sent to', lead.first_name, lead.last_name);
         } catch (err) {
-          console.error(`Failed to send email to lead ${lead.id}:`, err);
+          console.error(`[BULK] ❌ Failed to send email to lead ${lead.id}:`, err);
           failCount++;
         }
       }
+      
+      console.log('[BULK] Complete:', successCount, 'success', failCount, 'failed');
       
       if (successCount > 0) {
         setSuccessMessage(`${successCount} מיילים נשלחו בהצלחה${failCount > 0 ? `, ${failCount} נכשלו` : ''}`);
@@ -667,6 +761,7 @@ export function EmailsPage() {
       resetComposeForm();
       loadEmails();
     } catch (err: any) {
+      console.error('[BULK] ❌ Bulk send failed:', err);
       setError(err.response?.data?.error || 'שגיאה בשליחת מיילים');
     } finally {
       setBulkComposeLoading(false);
@@ -1138,6 +1233,14 @@ export function EmailsPage() {
                   
                   {themesLoading ? (
                     <div className="text-sm text-gray-600">טוען עיצובים...</div>
+                  ) : themesError ? (
+                    <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">
+                      ⚠️ {themesError}
+                    </div>
+                  ) : availableThemes.length === 0 ? (
+                    <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg">
+                      ⚠️ לא נמצאו עיצובים
+                    </div>
                   ) : (
                     <select
                       value={templateDefaultTheme}
@@ -1579,6 +1682,28 @@ export function EmailsPage() {
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
                       <span>טוען עיצובים...</span>
                     </div>
+                  ) : themesError ? (
+                    <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">
+                      ⚠️ שגיאה בטעינת עיצובים: {themesError}
+                      <button
+                        type="button"
+                        onClick={loadLuxuryThemes}
+                        className="mr-2 text-red-700 underline hover:text-red-900"
+                      >
+                        נסה שוב
+                      </button>
+                    </div>
+                  ) : availableThemes.length === 0 ? (
+                    <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                      ⚠️ לא נמצאו עיצובים זמינים
+                      <button
+                        type="button"
+                        onClick={loadLuxuryThemes}
+                        className="mr-2 text-amber-700 underline hover:text-amber-900"
+                      >
+                        טען מחדש
+                      </button>
+                    </div>
                   ) : (
                     <select
                       value={selectedThemeId}
@@ -2011,6 +2136,14 @@ export function EmailsPage() {
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
                       <span>טוען עיצובים...</span>
+                    </div>
+                  ) : themesError ? (
+                    <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">
+                      ⚠️ {themesError}
+                    </div>
+                  ) : availableThemes.length === 0 ? (
+                    <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                      ⚠️ לא נמצאו עיצובים זמינים
                     </div>
                   ) : (
                     <select

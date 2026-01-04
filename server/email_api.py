@@ -862,30 +862,64 @@ def get_template_catalog():
     Get catalog of luxury pre-built email templates
     These are theme-based templates with simple fields (no HTML editing)
     
+    🔥 CRITICAL: Always returns static 5 themes - no dependency on DB or tenant
+    
     Returns:
-        200: List of available template themes
+        200: List of available template themes (always 5 themes)
         403: No permission
     """
     try:
+        business_id = get_current_business_id()
+        
+        # 🔥 FIX: Always return static themes from code - no DB dependency
         from server.services.email_template_themes import get_all_themes
         
         themes = get_all_themes()
         
+        # 🔥 LOG: Always log for debugging
+        logger.info(f"[EMAIL_CATALOG] tenant_id={business_id}, themes_count={len(themes)}")
+        
+        # 🔥 FIX: Consistent format with 'ok' field for compatibility
         return jsonify({
+            'ok': True,
             'success': True,
             'themes': themes,
             'count': len(themes)
         }), 200
         
     except Exception as e:
-        logger.error(f"[EMAIL_API] Failed to get template catalog: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"[EMAIL_CATALOG] Failed to get template catalog")
+        # 🔥 FIX: On error, still return basic themes as fallback
+        fallback_themes = [
+            {
+                "id": "classic_blue",
+                "name": "Classic Blue",
+                "description": "תבנית כחולה קלאסית",
+                "default_fields": {
+                    "subject": "",
+                    "greeting": "שלום {{lead.first_name}},",
+                    "body": "",
+                    "cta_text": "",
+                    "cta_url": "",
+                    "footer": "© {{business.name}}"
+                }
+            }
+        ]
+        return jsonify({
+            'ok': True,
+            'success': True,
+            'themes': fallback_themes,
+            'count': len(fallback_themes),
+            'warning': 'Using fallback themes due to error'
+        }), 200
 
 @email_bp.route('/api/email/render-theme', methods=['POST'])
 @require_api_auth
 def render_theme_template():
     """
     Render a theme-based email template with user fields
+    
+    🔥 CRITICAL: Always returns {ok: true/false} format for consistency
     
     Request body:
         {
@@ -902,47 +936,58 @@ def render_theme_template():
         }
     
     Returns:
-        200: Rendered HTML and text
-        400: Invalid data
-        403: No permission
+        200: {ok: true, html: "...", rendered: {...}}
+        400: {ok: false, error: "..."}
+        500: {ok: false, error: "..."}
     """
     try:
         business_id = get_current_business_id()
         if not business_id:
-            return jsonify({'error': 'Business not found'}), 403
+            return jsonify({'ok': False, 'error': 'Business not found'}), 403
         
-        data = request.get_json()
-        theme_id = data.get('theme_id', 'classic_blue')
-        fields = data.get('fields', {})
+        data = request.get_json(force=True) or {}
+        theme_id = data.get('theme_id')
+        fields = data.get('fields') or {}
         lead_id = data.get('lead_id')
+        
+        # Validate theme_id is provided
+        if not theme_id:
+            return jsonify({'ok': False, 'error': 'theme_id is required'}), 400
         
         # 🔒 SECURITY: Validate theme_id to prevent injection
         from server.services.email_template_themes import EMAIL_TEMPLATE_THEMES
         if theme_id not in EMAIL_TEMPLATE_THEMES:
             return jsonify({
+                'ok': False,
                 'error': 'Invalid theme_id',
                 'message': f'Theme must be one of: {", ".join(EMAIL_TEMPLATE_THEMES.keys())}'
             }), 400
         
-        # Get business and lead info for variable substitution
+        # 🔥 FIX: Always provide business and lead context with fallbacks to prevent undefined errors
         business_info = None
         lead_info = None
         
         try:
             from sqlalchemy import text as sa_text
             
-            # Get business info
+            # Get business info - ALWAYS provide fallback
             biz_result = db.session.execute(
                 sa_text("SELECT name, phone_number FROM business WHERE id = :business_id"),
                 {"business_id": business_id}
             ).fetchone()
-            if biz_result:
+            if biz_result and biz_result[0]:
                 business_info = {
-                    'name': biz_result[0] or '',
+                    'name': biz_result[0],
                     'phone': biz_result[1] or ''
                 }
+            else:
+                # Fallback if business not found
+                business_info = {
+                    'name': 'ProSaaS',
+                    'phone': ''
+                }
             
-            # Get lead info if provided
+            # Get lead info if provided - ALWAYS provide fallback
             if lead_id:
                 lead_result = db.session.execute(
                     sa_text("SELECT first_name, last_name, email, phone_e164 FROM leads WHERE id = :lead_id AND tenant_id = :business_id"),
@@ -950,21 +995,39 @@ def render_theme_template():
                 ).fetchone()
                 if lead_result:
                     lead_info = {
-                        'first_name': lead_result[0] or '',
+                        'first_name': lead_result[0] or 'שם',
                         'last_name': lead_result[1] or '',
                         'email': lead_result[2] or '',
                         'phone': lead_result[3] or ''
                     }
+                else:
+                    # Lead ID provided but not found - use placeholders
+                    lead_info = {
+                        'first_name': 'שם',
+                        'last_name': '',
+                        'email': '',
+                        'phone': ''
+                    }
+            else:
+                # No lead ID - use placeholders
+                lead_info = {
+                    'first_name': 'שם',
+                    'last_name': '',
+                    'email': '',
+                    'phone': ''
+                }
         except Exception as e:
             logger.warning(f"[EMAIL_API] Failed to fetch context info: {e}")
+            # Provide fallbacks even on DB errors
+            business_info = {'name': 'ProSaaS', 'phone': ''}
+            lead_info = {'first_name': 'שם', 'last_name': '', 'email': '', 'phone': ''}
         
-        # Render variables in all fields
+        # 🔥 FIX: Render variables in all fields with proper context
         from server.services.email_service import render_variables
-        variables = {}
-        if business_info:
-            variables['business'] = business_info
-        if lead_info:
-            variables['lead'] = lead_info
+        variables = {
+            'business': business_info,
+            'lead': lead_info
+        }
         
         # Render each field with variables
         rendered_fields = {}
@@ -974,16 +1037,28 @@ def render_theme_template():
             else:
                 rendered_fields[key] = value
         
-        # Generate HTML from theme
+        # Generate HTML from theme - this should NEVER fail with valid theme_id
         from server.services.email_template_themes import get_template_html
         html = get_template_html(theme_id, rendered_fields)
+        
+        # Validate HTML was generated
+        if not html or not isinstance(html, str):
+            logger.error(f"[EMAIL_API] get_template_html returned invalid html: type={type(html)}")
+            return jsonify({
+                'ok': False,
+                'error': 'Failed to generate HTML from theme'
+            }), 500
         
         # Generate plain text version
         from server.services.email_service import strip_html
         text = strip_html(html)
         
+        logger.info(f"[EMAIL_API] render_theme success: theme={theme_id}, business_id={business_id}, lead_id={lead_id}, html_len={len(html)}")
+        
+        # 🔥 CONSISTENT FORMAT: Always return {ok: true, ...}
         return jsonify({
-            'success': True,
+            'ok': True,
+            'html': html,  # For backward compatibility
             'rendered': {
                 'subject': rendered_fields.get('subject', ''),
                 'html': html,
@@ -992,5 +1067,9 @@ def render_theme_template():
         }), 200
         
     except Exception as e:
-        logger.error(f"[EMAIL_API] Failed to render theme template: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.exception(f"[EMAIL_API] Failed to render theme template")
+        # 🔥 CONSISTENT FORMAT: Always return {ok: false, error: ...}
+        return jsonify({
+            'ok': False,
+            'error': str(e)
+        }), 500
