@@ -45,7 +45,8 @@ def sanitize_prompt_text(text: str, max_length: int = 3000) -> dict:
         flags["has_url"] = True
     if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text):
         flags["has_email"] = True
-    if re.search(r'(\+?972|0)\s?5[0-9][\s\-]?[0-9]{3}[\s\-]?[0-9]{4}', text):
+    # Israeli phone patterns
+    if re.search(r'(\+?972[\s\-]?|0)5[0-9][\s\-]?[0-9]{3}[\s\-]?[0-9]{4}', text):
         flags["has_phone"] = True
     
     # 1. Remove URLs and domains
