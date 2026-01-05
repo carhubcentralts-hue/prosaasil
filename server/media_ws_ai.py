@@ -30,6 +30,11 @@ DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 
+# 🔥 DEV MODE: Development-only logging helper
+# DEBUG=0 → DEV_MODE=True (verbose development logs)
+# DEBUG=1 → DEV_MODE=False (production, minimal logs)
+DEV_MODE = (os.getenv("DEBUG", "1") == "0")
+
 # 🔥 REMOVED: Extra debug flags - use only DEBUG=0 or DEBUG=1
 # Per user requirement: "שיש כמה שפחות לוגים בdebug 1!!!!"
 # All verbose logging is now controlled by DEBUG flag only
@@ -44,6 +49,29 @@ def _dprint(*args, **kwargs):
 def force_print(*args, **kwargs):
     """Always print (for critical errors only)"""
     _orig_print(*args, **kwargs)
+
+def devlog(msg: str, **kwargs):
+    """
+    🔧 DEV TRACE: Log only in development mode (DEBUG=0)
+    
+    Purpose: Detailed trace logs for debugging AI cutoffs and response lifecycle.
+    All logs use [DEV_TRACE] prefix for easy filtering.
+    
+    Args:
+        msg: Main log message
+        **kwargs: Additional context fields (will be logged as key=value)
+    """
+    if DEV_MODE:
+        # Format additional context
+        context_parts = []
+        for key, value in kwargs.items():
+            # Truncate long values for readability
+            if isinstance(value, str) and len(value) > 50:
+                value = value[:47] + "..."
+            context_parts.append(f"{key}={value}")
+        
+        context_str = " " + " ".join(context_parts) if context_parts else ""
+        _orig_print(f"[DEV_TRACE] {msg}{context_str}", flush=True)
 
 # חונקים כל print במודול הזה כש-DEBUG=0
 builtins.print = _dprint
@@ -5385,6 +5413,34 @@ class MediaStreamHandler:
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
+                        
+                        # 🔧 DEV TRACE A: response.done handler - comprehensive state snapshot
+                        devlog(
+                            f"response.done: {resp_id[:20] if resp_id != '?' else 'unknown'}...",
+                            status=status,
+                            reason=status_details.get("reason", "N/A") if isinstance(status_details, dict) else "N/A",
+                            output_count=len(output),
+                            call_state=self.call_state.value if hasattr(self, 'call_state') else "unknown",
+                            is_ai_speaking=self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else "N/A",
+                            pending_hangup=getattr(self, 'pending_hangup', False),
+                            pending_hangup_response_id=getattr(self, 'pending_hangup_response_id', 'None')[:20] if getattr(self, 'pending_hangup_response_id', None) else 'None',
+                            tx_queue_len=self.tx_q.qsize() if hasattr(self, 'tx_q') else 0,
+                            realtime_queue_len=self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0,
+                            frames_sent=self._response_tracking.get(resp_id, {}).get('frames_sent', 0) if hasattr(self, '_response_tracking') and resp_id != '?' else 0
+                        )
+                        
+                        # 🔧 DEV TRACE: Additional log for INCOMPLETE status (content_filter cutoffs)
+                        if status == "incomplete":
+                            reason = status_details.get("reason", "unknown") if isinstance(status_details, dict) else "unknown"
+                            devlog(
+                                f"INCOMPLETE TRACE: {resp_id[:20] if resp_id != '?' else 'unknown'}...",
+                                status=status,
+                                reason=reason,
+                                last_user_text="[see conversation_history]",
+                                last_assistant_preview="[see conversation_history]",
+                                pending_hangup=getattr(self, 'pending_hangup', False),
+                                will_cancel_hangup=(reason == "content_filter" and getattr(self, 'pending_hangup', False))
+                            )
 
                         # 🔥 CRITICAL FIX: Block POLITE_HANGUP if response ended with status=incomplete
                         # When OpenAI returns status=incomplete with reason=content_filter, the response
@@ -6193,6 +6249,16 @@ class MediaStreamHandler:
                             if DEBUG:
                                 print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
                             print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
+                            
+                            # 🔧 DEV TRACE C: First audio.delta - AI starts speaking
+                            devlog(
+                                f"AI_START_SPEAKING: {response_id[:20] if response_id else 'unknown'}...",
+                                timestamp_ms=int(now * 1000),
+                                is_ai_speaking_transition="False→True",
+                                call_state=self.call_state.value if hasattr(self, 'call_state') else "unknown",
+                                response_grace_active=(now - self._response_created_ts < 0.5) if hasattr(self, '_response_created_ts') else False
+                            )
+                            
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True
@@ -6414,6 +6480,19 @@ class MediaStreamHandler:
                         if done_resp_id:
                             # Track this response as done
                             self.audio_done_by_response_id[done_resp_id] = True
+                            
+                            # 🔧 DEV TRACE B: response.audio.done handler - timing and queue state
+                            was_ai_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
+                            devlog(
+                                f"response.audio.done: {done_resp_id[:20]}...",
+                                call_state=self.call_state.value if hasattr(self, 'call_state') else "unknown",
+                                pending_hangup=getattr(self, 'pending_hangup', False),
+                                pending_hangup_response_id=getattr(self, 'pending_hangup_response_id', 'None')[:20] if getattr(self, 'pending_hangup_response_id', None) else 'None',
+                                tx_queue_len=self.tx_q.qsize() if hasattr(self, 'tx_q') else 0,
+                                realtime_queue_len=self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0,
+                                is_ai_speaking_before=was_ai_speaking,
+                                is_ai_speaking_after="[will be cleared after queue drain]"
+                            )
                             
                             # Cleanup: Keep only last 2 response_ids to prevent memory leak
                             if len(self.audio_done_by_response_id) > 2:
@@ -8430,6 +8509,16 @@ class MediaStreamHandler:
                 
                 cancelled_id = self.active_response_id
                 cancel_event = {"type": "response.cancel", "response_id": cancelled_id}
+                
+                # 🔧 DEV TRACE D: Response cancel - barge-in triggered
+                devlog(
+                    f"CANCEL_RESPONSE: {cancelled_id[:20] if cancelled_id else 'unknown'}...",
+                    trigger="barge_in",
+                    ai_speaking=ai_speaking,
+                    call_state=self.call_state.value if hasattr(self, 'call_state') else "unknown",
+                    tx_queue_len=self.tx_q.qsize() if hasattr(self, 'tx_q') else 0,
+                    realtime_queue_len=self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                )
                 
                 try:
                     future = asyncio.run_coroutine_threadsafe(
@@ -12856,6 +12945,18 @@ class MediaStreamHandler:
                             and not self.hangup_triggered
                             and not getattr(self, "pending_hangup", False)
                         ):
+                            # 🔧 DEV TRACE E: Silence watchdog disconnect
+                            devlog(
+                                f"SILENCE_DISCONNECT: {hard_timeout:.0f}s",
+                                trigger="watchdog",
+                                call_state=self.call_state.value if hasattr(self, 'call_state') else "unknown",
+                                is_ai_speaking=self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False,
+                                tx_queue_len=tx_queue_size,
+                                realtime_queue_len=realtime_queue_size,
+                                last_activity_ago_sec=int(now_ts - last_activity),
+                                now_ts=int(now_ts)
+                            )
+                            
                             print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity detected (last_activity={now_ts - last_activity:.1f}s ago)")
                             print(f"📞 [AUTO_DISCONNECT] Disconnecting due to prolonged silence - prevents wasted minutes")
                             # Trigger immediate hangup - don't wait for goodbye
