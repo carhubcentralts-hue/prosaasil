@@ -75,7 +75,9 @@ def sanitize_prompt_text(text: str, max_length: int = 3000) -> dict:
     
     # 5. Remove long identifier patterns (UUIDs, long mixed alnum)
     # Match: 10+ chars with mixed letters and numbers (likely IDs)
-    text = re.sub(r'\b[a-zA-Z0-9]{10,}\b', '', text)
+    # CRITICAL: Don't match regular numbers like "2019" or "10"
+    # Only match if there are BOTH letters AND numbers in sequence
+    text = re.sub(r'\b(?=.*[a-zA-Z])(?=.*[0-9])[a-zA-Z0-9]{10,}\b', '', text)
     # UUID pattern specifically
     text = re.sub(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', '', text, flags=re.IGNORECASE)
     

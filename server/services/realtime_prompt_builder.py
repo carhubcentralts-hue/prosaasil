@@ -572,18 +572,17 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     """
     parts = []
     
-    if customer_name:
-        parts.append(f"Customer name is available: {customer_name}.")
-    else:
-        parts.append("Customer name is not available.")
-    
-    # Additional context hint - natural language
-    if use_name_policy and customer_name:
-        parts.append("Business policy requests using the name naturally in conversation.")
+    if customer_name and use_name_policy:
+        # Simple, natural, no "policy" or "requests" language
+        parts.append(f"Customer name available: {customer_name}. Use it naturally.")
+    elif customer_name and not use_name_policy:
+        # Name available but shouldn't be used
+        parts.append(f"Customer name available: {customer_name}.")
     elif use_name_policy and not customer_name:
-        parts.append("Business requests using name if available, but name is not provided.")
+        # Policy wants name but none provided
+        parts.append("Customer name not available.")
     
-    return " ".join(parts)
+    return " ".join(parts) if parts else ""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1029,17 +1028,19 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     # 🔥 ULTRA-LEAN System Prompt: Pure principles only (no scripts, steps, or flow)
     # Business content comes from DB Business Prompt (single source of truth)
     base = (
-        "Speak Hebrew by default, natural and short.\n"
+        "You are a real-time voice assistant for ProSaaS business calls.\n"
         "\n"
-        "If caller clearly does not speak Hebrew, ask once which language they prefer, then continue in their language.\n"
+        "Default output language: Hebrew.\n"
+        "If the caller clearly speaks another language, continue in that language.\n"
+        "If unclear, ask once: \"נוח לך בעברית או באנגלית?\"\n"
         "\n"
-        "Follow the business script exactly as provided.\n"
+        "Tone: short, calm, professional, human.\n"
+        "Do not invent facts. If needed, ask one short clarification question.\n"
         "\n"
-        "Do not invent facts. If missing info, ask one short clarification question.\n"
+        "The business prompt is the primary source for what to say and when to end the call.\n"
+        "Do not end the call unless the business prompt explicitly instructs it.\n"
         "\n"
-        "Do not end the call unless the business script explicitly instructs it.\n"
-        "\n"
-        "If audio is cut, unclear, or interrupted, continue by repeating the last question briefly."
+        "If audio is cut, unclear, or interrupted, continue naturally by briefly repeating the last question."
     )
 
     d = (call_direction or "").strip().lower()
