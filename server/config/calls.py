@@ -187,10 +187,19 @@ BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged
 EARLY_BARGE_IN_MIN_DURATION_MS = 150  # 150ms sweet spot (120-180ms range)
 EARLY_BARGE_IN_VERIFY_RMS = True  # Verify RMS above threshold during duration
 
-# 🔥 ANTI-ECHO COOLDOWN: Reduced from 300ms to allow faster barge-in
-# Original 300ms was too slow - user wants ~150-250ms total interrupt latency
-ANTI_ECHO_COOLDOWN_MS = 100  # Reduced to 100ms (was 300ms) - faster barge-in
+# 🔥 CRITICAL FIX: ANTI-ECHO PROTECTION
+# 100ms was too short - AI echo bounces back within this window causing false barge-in
+# Changed to 200ms for safer echo protection (compromise between 100ms and old 300ms)
+ANTI_ECHO_COOLDOWN_MS = 200  # 200ms anti-echo window (was 100ms - too short!)
 ANTI_ECHO_RMS_MULTIPLIER = 1.8  # During cooldown, require RMS > (vad_threshold * 1.8) for "real speech"
+
+# 🔥 CRITICAL FIX: Last AI Audio Age Gate
+# Additional gate: If AI sent audio very recently (<150ms ago), block barge-in (likely echo)
+LAST_AI_AUDIO_MIN_AGE_MS = 150  # Must be 150ms+ since last AI audio to allow barge-in
+
+# 🔥 CRITICAL FIX: Interrupt Lock Duration
+# Prevent multiple cancel/clear/flush in rapid succession from same utterance
+BARGE_IN_INTERRUPT_LOCK_MS = 700  # 700ms interrupt lock (prevents spam interrupts)
 
 # Greeting-specific protection (applied during greeting playback only)
 GREETING_PROTECT_DURATION_MS = 500  # Protect greeting for first 500ms

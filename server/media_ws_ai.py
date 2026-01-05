@@ -99,7 +99,8 @@ try:
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
         NOISE_GATE_MIN_FRAMES,
         GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS,
-        EARLY_BARGE_IN_MIN_DURATION_MS, EARLY_BARGE_IN_VERIFY_RMS, ANTI_ECHO_COOLDOWN_MS
+        EARLY_BARGE_IN_MIN_DURATION_MS, EARLY_BARGE_IN_VERIFY_RMS, ANTI_ECHO_COOLDOWN_MS,
+        LAST_AI_AUDIO_MIN_AGE_MS, BARGE_IN_INTERRUPT_LOCK_MS
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -120,7 +121,9 @@ except ImportError:
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
     EARLY_BARGE_IN_MIN_DURATION_MS = 150  # Fallback for early barge-in
     EARLY_BARGE_IN_VERIFY_RMS = True
-    ANTI_ECHO_COOLDOWN_MS = 100  # Fallback for anti-echo cooldown
+    ANTI_ECHO_COOLDOWN_MS = 200  # Fallback for anti-echo cooldown (safer than 100ms)
+    LAST_AI_AUDIO_MIN_AGE_MS = 150  # Fallback for last AI audio age gate
+    BARGE_IN_INTERRUPT_LOCK_MS = 700  # Fallback for interrupt lock
     AUDIO_CONFIG = {
         "simple_mode": True,
         "audio_guard_enabled": False,
@@ -5954,8 +5957,8 @@ class MediaStreamHandler:
                             self._realtime_speech_started_ts = time.time()
                             continue
                     
-                    # 🔥 GATE 3 - Reduced anti-echo cooldown (100ms instead of 300ms)
-                    # Only apply minimal delay right after AI starts to avoid echo
+                    # 🔥 GATE 3 - Anti-echo cooldown (200ms - safer than 100ms)
+                    # Only apply delay right after AI starts to avoid echo
                     if hasattr(self, '_ai_speech_start') and self._ai_speech_start:
                         time_since_ai_started_ms = (time.time() - self._ai_speech_start) * 1000
                         if time_since_ai_started_ms < ANTI_ECHO_COOLDOWN_MS:
@@ -5965,14 +5968,27 @@ class MediaStreamHandler:
                             self._realtime_speech_started_ts = time.time()
                             continue
                     
-                    # 🔥 GATE 4: INTERRUPT SEQUENCE - Atomic + Idempotent
+                    # 🔥 CRITICAL FIX: GATE 3b - Last AI audio age check
+                    # If AI sent audio.delta very recently (<150ms), this is likely echo - BLOCK
+                    # This prevents false barge-in from AI echo bouncing back into microphone
+                    if self.last_ai_audio_ts:
+                        last_ai_audio_age_ms = (time.time() - self.last_ai_audio_ts) * 1000
+                        if last_ai_audio_age_ms < LAST_AI_AUDIO_MIN_AGE_MS:
+                            print(f"⏸️ [ECHO_PROTECTION] AI audio too recent ({last_ai_audio_age_ms:.0f}ms < {LAST_AI_AUDIO_MIN_AGE_MS}ms) - blocking barge-in")
+                            # Mark speech active but don't interrupt - this is likely echo
+                            self._realtime_speech_active = True
+                            self._realtime_speech_started_ts = time.time()
+                            continue
+                    
+                    # 🔥 CRITICAL FIX: GATE 4 - Interrupt lock (700ms)
+                    # Prevent multiple cancel/clear/flush in rapid succession from same utterance
                     # Check if we should interrupt (not already in cooldown)
                     interrupt_in_progress = getattr(self, '_interrupt_in_progress', False)
                     if interrupt_in_progress:
                         last_interrupt_ts = getattr(self, '_last_interrupt_ts', 0)
                         elapsed_ms = (time.time() - last_interrupt_ts) * 1000
-                        if elapsed_ms < 700:
-                            print(f"⏸️ [BARGE-IN] Interrupt cooldown ({elapsed_ms:.0f}ms < 700ms) - skipping")
+                        if elapsed_ms < BARGE_IN_INTERRUPT_LOCK_MS:
+                            print(f"⏸️ [BARGE-IN] Interrupt lock active ({elapsed_ms:.0f}ms < {BARGE_IN_INTERRUPT_LOCK_MS}ms) - preventing spam")
                             continue
                     
                     # All gates passed - trigger early barge-in
@@ -6052,9 +6068,9 @@ class MediaStreamHandler:
                     
                     # Unlock interrupt after short delay (async)
                     async def _unlock_interrupt():
-                        await asyncio.sleep(0.7)  # 700ms cooldown
+                        await asyncio.sleep(BARGE_IN_INTERRUPT_LOCK_MS / 1000.0)  # Use constant
                         self._interrupt_in_progress = False
-                        print(f"🔓 [BARGE-IN] Interrupt cooldown completed - ready for next")
+                        print(f"🔓 [BARGE-IN] Interrupt lock released after {BARGE_IN_INTERRUPT_LOCK_MS}ms - ready for next")
                     
                     asyncio.create_task(_unlock_interrupt())
                     
