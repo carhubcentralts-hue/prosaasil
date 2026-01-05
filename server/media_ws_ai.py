@@ -5474,12 +5474,6 @@ class MediaStreamHandler:
                                     if self.call_state == CallState.CLOSING:
                                         self.call_state = CallState.ACTIVE
                                         logger.info(f"[INCOMPLETE_RESPONSE] Reverting CLOSING → ACTIVE for incomplete response")
-                                
-                                # 🆕 AUTO-RECOVERY: Generate safe fallback response for content_filter
-                                # Per requirement: on content_filter → immediately create new short safe response
-                                # This prevents "silent hangup" and keeps conversation flowing
-                                logger.info(f"[CONTENT_FILTER_RECOVERY] Auto-generating safe fallback response")
-                                asyncio.create_task(self._auto_recover_from_content_filter())
                             else:
                                 # Other incomplete reasons (timeout, etc.) - log but don't cancel hangup
                                 logger.debug(f"[INCOMPLETE_RESPONSE] Response {resp_id[:20]}... incomplete (reason={reason}) - not cancelling hangup")
@@ -8406,65 +8400,6 @@ class MediaStreamHandler:
         logger.warning(f"[DEPRECATED] _send_server_event_to_ai called but does nothing. "
                       f"Remove this call. Preview: '{message_text[:100]}'")
         return
-    
-    async def _auto_recover_from_content_filter(self):
-        """
-        🆕 AUTO-RECOVERY: Generate safe fallback response after content_filter truncation
-        
-        Per requirement: when response.done comes with status=incomplete reason=content_filter,
-        immediately create a new short safe response to continue the conversation.
-        
-        This prevents "silent hangup" and keeps the conversation flowing naturally.
-        
-        Safe fallback responses are:
-        - Short (1-2 sentences)
-        - Neutral and polite
-        - Continue conversation naturally
-        - In Hebrew (or user's current language)
-        """
-        try:
-            logger.info("[CONTENT_FILTER_RECOVERY] Generating safe fallback response")
-            
-            # Wait a brief moment to ensure the incomplete response is fully processed
-            await asyncio.sleep(0.5)
-            
-            # Check if we still need recovery (user might have started speaking)
-            if self._realtime_speech_active or self.user_has_spoken:
-                logger.info("[CONTENT_FILTER_RECOVERY] Recovery cancelled - user is speaking")
-                return
-            
-            # Check if AI is already speaking (another response might have been triggered)
-            if self.is_ai_speaking_event.is_set():
-                logger.info("[CONTENT_FILTER_RECOVERY] Recovery cancelled - AI already speaking")
-                return
-            
-            # Generate safe fallback response
-            # Use Hebrew by default (system is Hebrew-first)
-            safe_responses = [
-                "מעניין. ספר לי עוד.",  # Interesting. Tell me more.
-                "הבנתי. מה עוד?",  # I understand. What else?
-                "בסדר. איך אני יכול לעזור?",  # Okay. How can I help?
-                "רגע, בוא נעבור הלאה.",  # Wait, let's move forward.
-                "טוב. במה אני יכול לסייע?",  # Good. What can I assist with?
-            ]
-            
-            # Pick a random safe response to avoid repetition
-            import random
-            fallback_text = random.choice(safe_responses)
-            
-            logger.info(f"[CONTENT_FILTER_RECOVERY] Sending safe fallback: '{fallback_text}'")
-            
-            # Send the fallback response through the Realtime API
-            if hasattr(self, 'realtime_client') and self.realtime_client:
-                await self.realtime_client.send_text_response(fallback_text)
-                logger.info("[CONTENT_FILTER_RECOVERY] Safe fallback response sent successfully")
-            else:
-                logger.error("[CONTENT_FILTER_RECOVERY] No realtime_client available")
-                
-        except Exception as e:
-            logger.error(f"[CONTENT_FILTER_RECOVERY] Error during recovery: {e}")
-            import traceback
-            traceback.print_exc()
     
     async def _send_silence_warning(self):
         """
