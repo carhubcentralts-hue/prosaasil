@@ -52,9 +52,9 @@ BARGE_IN_MIN_RMS_MULTIPLIER = 1.4  # RMS validation multiplier
 ```python
 transcription_config = {
     "model": "gpt-4o-transcribe",
-    "language": "he",        # Explicit Hebrew
-    "temperature": 0.0       # NEW: Stable, no hallucinations
+    "language": "he",        # Explicit Hebrew for accurate transcription
 }
+# Note: temperature control is at session level, not transcription level
 ```
 
 ### 3. Debounce Logic (`server/media_ws_ai.py`)

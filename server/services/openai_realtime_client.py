@@ -565,11 +565,10 @@ class OpenAIRealtimeClient:
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
         # - Explicit Hebrew language setting (MANDATORY)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
-        # - Temperature 0.0 for stability (no hallucinations)
+        # NOTE: Temperature control is at session level (line 602), not transcription level
         transcription_config = {
             "model": "gpt-4o-transcribe",  # Better Hebrew accuracy than whisper-1
             "language": "he",  # 🔥 CRITICAL: Explicit Hebrew - mandatory per הנחיה!
-            "temperature": 0.0  # 🔥 NEW: Zero temperature for stable transcription (no guessing)
         }
         
         # Add transcription prompt if provided (business-specific vocabulary)
