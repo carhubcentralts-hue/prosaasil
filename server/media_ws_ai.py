@@ -2089,6 +2089,13 @@ class MediaStreamHandler:
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
         
+        # 🔥 NEW: Barge-in debouncing (per הנחיה - anti-false-positive)
+        # Wait 150ms + verify 7 consecutive frames before triggering barge-in
+        self._barge_in_debounce_start_ts = None  # When speech_started triggered
+        self._barge_in_debounce_frames_count = 0  # Count of consecutive frames during debounce
+        self._barge_in_debounce_verified = False  # True once debounce + frames validated
+        self._barge_in_baseline_rms = None  # Baseline RMS for threshold calculation
+        
         # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
         # This is THE key to making barge-in actually listen (not just stop talking)
         self.user_speaking = False  # True from speech_started until speech_stopped+transcription.completed
@@ -4612,6 +4619,95 @@ class MediaStreamHandler:
                 if _frames_sent == 0:
                     _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
                 
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 NEW: BARGE-IN DEBOUNCE VALIDATION (per הנחיה)
+                # ═══════════════════════════════════════════════════════════════════════
+                # Check if we're in debounce period and should validate frames for barge-in
+                if (self._barge_in_debounce_start_ts and 
+                    not self._barge_in_debounce_verified and 
+                    self.active_response_id):
+                    
+                    # Calculate elapsed time since speech_started
+                    debounce_elapsed_ms = (time.time() - self._barge_in_debounce_start_ts) * 1000
+                    
+                    # Decode audio to calculate RMS
+                    try:
+                        import base64
+                        audio_bytes = base64.b64decode(audio_chunk)
+                        # Calculate RMS of this frame
+                        pcm_data = mulaw_to_pcm16_fast(audio_bytes)
+                        import array
+                        samples = array.array('h', pcm_data)
+                        rms = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
+                        
+                        # Get RMS threshold from config (baseline * multiplier)
+                        from server.config.calls import BARGE_IN_MIN_RMS_MULTIPLIER, BARGE_IN_VOICE_FRAMES
+                        min_rms = ECHO_GATE_MIN_RMS * BARGE_IN_MIN_RMS_MULTIPLIER  # e.g., 275 * 1.4 = 385
+                        
+                        # Count consecutive frames above threshold
+                        if rms >= min_rms:
+                            self._barge_in_debounce_frames_count += 1
+                        else:
+                            # Reset counter if we get a frame below threshold (not consecutive)
+                            self._barge_in_debounce_frames_count = 0
+                        
+                        # Check if debounce period passed (150ms)
+                        if debounce_elapsed_ms >= BARGE_IN_DEBOUNCE_MS:
+                            # Debounce complete - check if we have enough consecutive frames
+                            if self._barge_in_debounce_frames_count >= BARGE_IN_VOICE_FRAMES:
+                                # ✅ VERIFIED REAL SPEECH - Trigger barge-in!
+                                self._barge_in_debounce_verified = True
+                                _orig_print(f"✅ [BARGE-IN VERIFIED] {self._barge_in_debounce_frames_count} consecutive frames ({debounce_elapsed_ms:.0f}ms) - CANCELING AI!", flush=True)
+                                
+                                # NOW execute the actual barge-in (same logic as before)
+                                self.barge_in_stop_tx = True
+                                self.barge_in_active = True
+                                self._barge_in_started_ts = time.time()
+                                
+                                # Clear flags
+                                self.is_ai_speaking_event.clear()
+                                self.speaking = False
+                                if hasattr(self, 'ai_response_active'):
+                                    self.ai_response_active = False
+                                
+                                # Flush queues
+                                self._flush_tx_queue()
+                                
+                                # Send clear to Twilio
+                                if self.stream_sid:
+                                    try:
+                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                        self._ws_send(json.dumps(clear_event))
+                                    except Exception:
+                                        pass
+                                
+                                # Cancel response in OpenAI
+                                if self.realtime_client:
+                                    response_id_to_cancel = self.active_response_id
+                                    if self._should_send_cancel(response_id_to_cancel):
+                                        self.cancel_in_flight = True
+                                        try:
+                                            await self.realtime_client.cancel_response(response_id_to_cancel)
+                                            self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in_debounced")
+                                            _orig_print(f"✅ [BARGE-IN] Response cancelled: {response_id_to_cancel[:20]}...", flush=True)
+                                        except Exception as e:
+                                            error_str = str(e).lower()
+                                            if 'not_active' not in error_str:
+                                                _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                                            self.cancel_in_flight = False
+                            else:
+                                # ❌ FALSE POSITIVE - Not enough consecutive frames
+                                _orig_print(f"❌ [BARGE-IN REJECTED] Only {self._barge_in_debounce_frames_count}/{BARGE_IN_VOICE_FRAMES} frames - ignoring (beep/click)", flush=True)
+                                # Reset debounce state
+                                self._barge_in_debounce_start_ts = None
+                                self._barge_in_debounce_frames_count = 0
+                                self._barge_in_debounce_verified = False
+                    except Exception as e:
+                        # Don't break audio pipeline on error, just log
+                        if DEBUG:
+                            logger.warning(f"[BARGE-IN DEBOUNCE] Error processing frame: {e}")
+                # ═══════════════════════════════════════════════════════════════════════
+                
                 await client.send_audio_chunk(audio_chunk)
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
@@ -5838,62 +5934,35 @@ class MediaStreamHandler:
                     # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
                     # The old code had too many guards that prevented barge-in from working
                     # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
+                    # 
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 NEW REQUIREMENT (per הנחיה): DEBOUNCED BARGE-IN
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Problem: Immediate cancel on speech_started causes false positives from beeps/clicks
+                    # Solution: Wait 150ms + verify 7 consecutive frames before canceling
+                    #
+                    # Rules:
+                    # 1. On speech_started: Start 150ms debounce timer, don't cancel yet
+                    # 2. During debounce: Count consecutive audio frames above RMS threshold
+                    # 3. After 150ms: If 7+ consecutive frames detected → CANCEL (real speech)
+                    # 4. If < 7 frames → IGNORE (false positive beep/click)
+                    #
+                    # Per הנחיה: "אל תעצרו על speech_started מיד. הוסיפו debounce של 150ms + 
+                    # דרישה ל־7 פריימים רצופים מעל RMS מינימלי לפני cancel/clear"
+                    # ═══════════════════════════════════════════════════════════════════════
                     
                     has_active_response = bool(self.active_response_id)
                     
-                    # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
-                    # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
+                    # 🆕 START DEBOUNCE: Mark when speech_started received
+                    if not self._barge_in_debounce_start_ts:
+                        self._barge_in_debounce_start_ts = time.time()
+                        self._barge_in_debounce_frames_count = 0
+                        self._barge_in_debounce_verified = False
+                        _orig_print(f"⏱️ [BARGE-IN DEBOUNCE] Started 150ms timer - verifying real speech...", flush=True)
                     
-                    # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
-                    _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
-                    
-                    # שלב 1: עצירה מיידית של שידור אודיו
-                    self.barge_in_stop_tx = True
-                    self.barge_in_active = True
-                    self._barge_in_started_ts = time.time()
-                    _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
-                    
-                    # שלב 2: ניקוי דגלים
-                    self.is_ai_speaking_event.clear()
-                    self.speaking = False
-                    if hasattr(self, 'ai_response_active'):
-                        self.ai_response_active = False
-                    _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
-                    
-                    # שלב 3: ניקוי תורים
-                    self._flush_tx_queue()
-                    _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
-                    
-                    # שלב 4: שליחת clear ל-Twilio
-                    if self.stream_sid:
-                        try:
-                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                            self._ws_send(json.dumps(clear_event))
-                            _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
-                        except Exception as e:
-                            pass
-                    
-                    # שלב 5: ביטול response ב-OpenAI (אם יש)
-                    if has_active_response and self.realtime_client:
-                        response_id_to_cancel = self.active_response_id
-                        # רק אם עוד לא ביטלנו את אותו response
-                        if self._should_send_cancel(response_id_to_cancel):
-                            self.cancel_in_flight = True
-                            try:
-                                await self.realtime_client.cancel_response(response_id_to_cancel)
-                                self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
-                            except Exception as e:
-                                error_str = str(e).lower()
-                                if 'not_active' in error_str or 'no active' in error_str:
-                                    _orig_print(f"ℹ️ [BARGE-IN] Response כבר לא פעיל (זה בסדר)", flush=True)
-                                else:
-                                    _orig_print(f"⚠️ [BARGE-IN] שגיאה בביטול: {e}", flush=True)
-                                self.cancel_in_flight = False
-                        else:
-                            _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
-                    
-                    _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
+                    # The actual cancellation will happen in the audio frame processing loop
+                    # after debounce period + frame count verification
+                    # For now, just set flags and continue normal processing
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -5908,6 +5977,17 @@ class MediaStreamHandler:
                         print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
                         self._openai_speech_started_confirmed = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🔥 NEW: Reset barge-in debounce state when speech stops
+                    if self._barge_in_debounce_start_ts:
+                        if not self._barge_in_debounce_verified:
+                            # Speech ended before debounce verified - log it
+                            elapsed_ms = (time.time() - self._barge_in_debounce_start_ts) * 1000
+                            _orig_print(f"🔕 [BARGE-IN DEBOUNCE] Speech stopped after {elapsed_ms:.0f}ms without verification - resetting", flush=True)
+                        # Reset debounce state for next speech_started
+                        self._barge_in_debounce_start_ts = None
+                        self._barge_in_debounce_frames_count = 0
+                        self._barge_in_debounce_verified = False
                     
                     # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
                     # Don't allow response.create between speech_stopped and transcription

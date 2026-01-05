@@ -42,67 +42,70 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 STABLE VAD CONFIGURATION - Production-ready values for Hebrew calls
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE - FALSE POSITIVE REDUCTION:
-# - threshold 0.87: INCREASED from 0.85 to further reduce false triggers from background noise
-#   User reported "AI speaks for ~20s then enters CLOSING state" due to background noise
-#   Higher threshold ensures only real customer speech is detected, not ambient sounds
-# - silence_duration_ms 600: HEBREW-SAFE - doesn't cut off natural pauses (unchanged)
-# - prefix_padding_ms 300: Standard padding for Hebrew syllables (unchanged)
+# TUNING RATIONALE - FALSE POSITIVE REDUCTION (Updated per הנחיה):
+# - threshold 0.90: INCREASED from 0.87 (+0.03) to reduce false triggers from background noise
+#   Per requirement: "VAD פחות טריגרי" - higher threshold filters beeps/clicks/background noise
+#   Still catches real customer speech but requires stronger signal to trigger
+# - silence_duration_ms 700: INCREASED from 600ms (+100ms) to avoid triggering on clicks
+#   Per requirement: "להאריך Silence כדי לא להידלק על קליק"
+#   Requires longer true silence before considering turn complete
+# - prefix_padding_ms 600: INCREASED from 500ms (+100ms) for better speech capture
+#   Per requirement: "להעלות Prefix padding קצת" - prevents clipping first syllables
 # - create_response: true (automatic response generation on turn end)
 #
 # 🎯 HYSTERESIS APPROACH:
 # OpenAI's server_vad has built-in hysteresis:
-# - 0.87 start threshold: Higher to avoid false triggers from ambient noise
+# - 0.90 start threshold: Higher to avoid false triggers from ambient noise/beeps
 # - Implicit higher continue threshold: Maintains speech detection once started
 #
 # 🎯 ENV OVERRIDE: Can be tuned in production without code changes
-# export SERVER_VAD_THRESHOLD=0.90  # Further increase if still too many false triggers
-# export SERVER_VAD_THRESHOLD=0.85  # Decrease if missing too much quiet speech
-# export SERVER_VAD_SILENCE_MS=550  # Faster response (test with Hebrew first!)
-# export SERVER_VAD_SILENCE_MS=700  # Safer for Hebrew natural pauses
+# export SERVER_VAD_THRESHOLD=0.92  # Further increase if still too many false triggers
+# export SERVER_VAD_THRESHOLD=0.88  # Decrease if missing too much quiet speech
+# export SERVER_VAD_SILENCE_MS=650  # Compromise between 600-700
+# export SERVER_VAD_SILENCE_MS=800  # Even safer for Hebrew natural pauses
 #
 # ⚠️ MONITORING REQUIRED:
-# - If still false triggers → increase to 0.90 (more conservative)
-# - If missing quiet speech ("כן", "לא") → decrease gradually to 0.85-0.82
-# - If cutting off Hebrew speech → increase silence_ms to 650-700
-# - If feels sluggish → can try 550ms (test carefully!)
+# - If still false triggers → increase to 0.92 (more conservative)
+# - If missing quiet speech ("כן", "לא") → decrease gradually to 0.88-0.85
+# - If cutting off Hebrew speech → increase silence_ms to 750-800
+# - If feels sluggish → can try 650ms (test carefully!)
 #
-# Current settings (0.87/600ms/300ms) provide:
-# ✅ Reduced false positives from background noise (main fix)
+# Current settings (0.90/700ms/600ms) provide:
+# ✅ Significantly reduced false positives from background noise (main fix)
 # ✅ Still catches real speech including quiet speakers
-# ✅ Hebrew-safe silence duration (600ms handles natural pauses)
+# ✅ Hebrew-safe silence duration (700ms handles natural pauses + prevents click triggers)
 # ✅ Better barge-in accuracy without false interruptions
 # ═══════════════════════════════════════════════════════════════════════════════
 import os
 
 # Read from environment with validation
-_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.87")
-_vad_silence_str = os.getenv("SERVER_VAD_SILENCE_MS", "600")
+_vad_threshold_str = os.getenv("SERVER_VAD_THRESHOLD", "0.90")
+_vad_silence_str = os.getenv("SERVER_VAD_SILENCE_MS", "700")
 
 try:
     SERVER_VAD_THRESHOLD = float(_vad_threshold_str)
     # Validate bounds: 0.0 to 1.0
     if not 0.0 <= SERVER_VAD_THRESHOLD <= 1.0:
-        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.87")
-        SERVER_VAD_THRESHOLD = 0.87
+        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.90")
+        SERVER_VAD_THRESHOLD = 0.90
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.87")
-    SERVER_VAD_THRESHOLD = 0.87
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.90")
+    SERVER_VAD_THRESHOLD = 0.90
 
 try:
     SERVER_VAD_SILENCE_MS = int(_vad_silence_str)
     # Validate positive integer
     if SERVER_VAD_SILENCE_MS <= 0:
-        print(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 600")
-        SERVER_VAD_SILENCE_MS = 600
+        print(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 700")
+        SERVER_VAD_SILENCE_MS = 700
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 600")
-    SERVER_VAD_SILENCE_MS = 600
+    print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 700")
+    SERVER_VAD_SILENCE_MS = 700
 
-# 🔥 TRANSCRIPTION IMPROVEMENT: Increased from 300ms to 500ms
+# 🔥 TRANSCRIPTION IMPROVEMENT: Increased from 500ms to 600ms (+100ms per הנחיה)
 # Prevents clipping of initial syllables when speech starts from complete silence
-# 200ms increase provides better capture of speech onset without VAD hesitation
-SERVER_VAD_PREFIX_PADDING_MS = 500  # Increased padding to avoid clipping speech start (was 300ms)
+# Per requirement: "להעלות Prefix padding קצת" for better speech capture without clipping
+SERVER_VAD_PREFIX_PADDING_MS = 600  # Increased padding to avoid clipping speech start (was 500ms)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
@@ -122,23 +125,23 @@ VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 GREETING FIX: ECHO GATE - Balance between noise protection and speech capture
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (optimized for transcription accuracy):
-# - RMS 250: Lower threshold for easier gate opening at speech start
-#   (reduced from 270 - prevents clipping initial syllables when transitioning from silence)
-#   Real speech still passes through easily while maintaining reasonable noise filtering
+# TUNING RATIONALE (optimized for transcription accuracy + FALSE POSITIVE REDUCTION):
+# - RMS 275: INCREASED from 250 (+10% per הנחיה) to reduce false triggers
+#   Per requirement: "סף אנרגיה (RMS) — הכי עדין, הכי אפקטיבי נגד פיפס"
+#   Higher threshold filters beeps/clicks while still allowing real speech
+#   +10% increase (250 → 275) provides better noise rejection without blocking speech
 # - Frames 6: Requires 120ms of consistent audio (unchanged - proven noise filtering)
 #
-# 🎯 TRANSCRIPTION IMPROVEMENT:
-# The lowered threshold (270→250) helps when speech starts from complete silence:
-# ✅ Gate opens faster when user begins speaking
-# ✅ Initial syllables captured more reliably
+# 🎯 TRANSCRIPTION IMPROVEMENT + NOISE FILTERING:
+# The +10% increase (250→275) provides optimal balance:
+# ✅ Filters out beeps/clicks/background noise effectively
+# ✅ Still allows real speech to pass through easily
 # ✅ Better transcription accuracy overall
-# ✅ Still filters background noise effectively
+# ✅ Reduces false barge-in triggers significantly
 #
-# Previous setting (270.0) was too aggressive - caused VAD "hesitation" at speech onset
-# from complete silence, leading to clipped syllables and reduced transcription quality
+# Per הנחיה: "העלאה קטנה של הסף: +8% עד +15%" - we use +10% (middle of range)
 # ═══════════════════════════════════════════════════════════════════════════════
-ECHO_GATE_MIN_RMS = 250.0       # Reduced: easier gate opening for better speech capture (was 270.0)
+ECHO_GATE_MIN_RMS = 275.0       # Increased: +10% for better noise filtering (was 250.0)
 ECHO_GATE_MIN_FRAMES = 6        # Unchanged: requires 120ms consistent audio
 
 # 🔥 TRANSCRIPTION IMPROVEMENT: Gate re-enable decay after END OF UTTERANCE
@@ -149,37 +152,42 @@ ECHO_GATE_DECAY_MS = 200  # 200ms decay - prevents clipping end/start of turns
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 BARGE-IN FIX: Stricter validation to reduce false positives
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (per user feedback - false barge-in cutting mid-sentence):
-# - Frames 10: Requires 200ms+ of consistent speech to trigger interruption (was 6 frames/120ms)
-#   Increased from 6 to 10 frames to reduce false positives from noise/echo/clicks
-#   This still allows fast barge-in but filters out brief sounds better
-# - Debounce 350ms: Prevents rapid re-triggering after barge-in (unchanged)
+# TUNING RATIONALE (per הנחיה - debouncing + consecutive frames):
+# - Debounce 150ms: NEW REQUIREMENT - Wait 150ms before triggering barge-in
+#   Per requirement: "Debounce לברג-אין: אל תעצור מיד על speech_started"
+#   Prevents false triggers from single beeps/clicks - requires sustained speech
+# - Frames 7: DECREASED from 10 to 7 (140ms) for balanced responsiveness
+#   Per requirement: "N פריימים רצופים במקום פיפס אחד - 6–8 פריימים"
+#   7 frames = 140ms of consecutive audio (middle of 6-8 range, 20ms per frame)
+#   Filters out brief noise while still allowing natural barge-in
+# - RMS Multiplier 1.4: NEW - Minimum RMS threshold for barge-in validation
+#   Per requirement: "סף RMS מינימלי לברג-אין (baseline_noise * 1.4)"
+#   Ensures audio is real speech, not ambient noise
 #
-# 🔥 ANTI-ECHO COOLDOWN: Added to prevent false barge-in from AI audio echo
-# - ANTI_ECHO_COOLDOWN_MS: Window after AI starts speaking where barge-in is more strict
-# - During this window, require both speech_started event AND RMS above threshold
+# 🎯 DEBOUNCE + FRAMES APPROACH:
+# ❌ OLD: Immediate cancel on speech_started - caused false positives from noise
+# ✅ NEW: Wait 150ms + verify 7 consecutive frames above RMS threshold
 #
-# APPROACH:
-# ❌ OLD: Required 120ms of voice (6 frames) - still had false positives from echo/noise
-# ✅ NEW: Requires 200ms of voice (10 frames) - significantly reduces false triggers
-#
-# Golden Rule: speech_started => cancel ALWAYS when active_response_id exists
-# - voice_frames provides reliable noise filtering (200ms sustained sound)
-# - Primary trigger is speech_started event itself
+# Golden Rule: speech_started => wait 150ms => verify frames => cancel if valid
+# - Debounce provides time window to verify real speech vs noise
+# - Consecutive frames ensure sustained audio, not brief spikes
+# - RMS threshold ensures audio has sufficient energy (not background hum)
 # - Idempotency protection via _should_send_cancel() prevents double-cancel
 #
 # ⚠️ MONITORING REQUIRED:
-# - If barge-in feels slow → can decrease to 8 frames (160ms) but monitor closely
-# - If still false triggers → increase ANTI_ECHO_COOLDOWN_MS or RMS threshold
+# - If barge-in feels slow → can decrease debounce to 120ms (minimum safe)
+# - If still false triggers → increase frames to 8-9 or RMS multiplier to 1.5-1.6
+# - If missing real interruptions → decrease frames to 6 or debounce to 120ms
 #
-# Current settings (10 frames/350ms) provide:
-# ✅ More confident interruption detection (200ms vs old 120ms)
-# ✅ Significantly reduced false triggers from echo/noise/breathing
-# ✅ Still fast enough for natural conversation interruption
-# ✅ No double triggers - 350ms debounce prevents rapid re-triggering
+# Current settings (150ms/7frames/1.4x) provide:
+# ✅ Significantly reduced false positives from beeps/clicks/noise
+# ✅ Still fast enough for natural conversation interruption (~290ms total)
+# ✅ Better validation of real speech vs ambient sounds
+# ✅ No double triggers - debounce prevents rapid re-triggering
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 10  # Stricter: 200ms - reduces false positives significantly (was 6)
-BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged)
+BARGE_IN_DEBOUNCE_MS = 150  # NEW: Wait 150ms before triggering barge-in (per הנחיה)
+BARGE_IN_VOICE_FRAMES = 7   # Balanced: 140ms - reduced from 10 for responsiveness (was 10)
+BARGE_IN_MIN_RMS_MULTIPLIER = 1.4  # NEW: RMS must be 1.4x baseline for barge-in (per הנחיה)
 
 # 🔥 EARLY BARGE-IN: Minimum continuous speech duration before triggering interrupt
 # User requirement: Interrupt should happen on speech START, not END OF UTTERANCE
