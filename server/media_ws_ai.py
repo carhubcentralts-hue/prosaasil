@@ -5851,138 +5851,129 @@ class MediaStreamHandler:
                     is_in_cooldown = time_since_ai_audio < ANTI_ECHO_COOLDOWN_MS
                     
                     if is_in_cooldown:
-                        # Within cooldown window - require higher voice frames threshold
-                        # During this window, be more cautious about triggering barge-in
-                        print(f"⚠️ [ANTI_ECHO] Speech {time_since_ai_audio:.0f}ms after AI (within {ANTI_ECHO_COOLDOWN_MS}ms cooldown) - stricter validation")
-                        # Note: RMS validation would happen here if we had RMS data, but OpenAI VAD
-                        # doesn't provide RMS. The increased BARGE_IN_VOICE_FRAMES handles this.
-
-                    # 🔥 REMOVED: greeting_lock check - allow speech detection during greeting
-                    
-                    # Track utterance start for validation
-                    self._candidate_user_speaking = True
-                    self._utterance_start_ts = time.time()
-                    # ✅ HARD SILENCE WATCHDOG: treat speech_started as user activity
-                    # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
-                    self._last_user_voice_started_ts = time.time()
-                    
-                    # 🔥 SILENCE WATCHDOG: Update activity timestamp on VAD detection (not just transcription)
-                    # This ensures watchdog tracks actual audio activity, not just completed transcripts
-                    self._last_activity_ts = time.time()
-                    
-                    # Set user_speaking to block new AI responses until transcription completes
-                    self.user_speaking = True
-                    if DEBUG:
-                        logger.debug(f"[TURN_TAKING] user_speaking=True - blocking response.create")
+                        # Within cooldown window - BLOCK barge-in to prevent echo false positives
+                        print(f"🛡️ [ANTI_ECHO] BLOCKING barge-in - speech {time_since_ai_audio:.0f}ms after AI (within {ANTI_ECHO_COOLDOWN_MS}ms cooldown)")
+                        print(f"🛡️ [ANTI_ECHO] This prevents false positives from echo/noise. Waiting for cooldown to expire...")
+                        # Don't execute barge-in logic below - skip it entirely
+                        # User speech will be processed normally via transcription
                     else:
-                        print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
-                    
-                    # Set user_has_spoken flag (user has interacted)
-                    if not self.user_has_spoken:
-                        self.user_has_spoken = True
-                        print(f"✅ [FIRST_SPEECH] user_has_spoken=True")
-                    
-                    # Reset loop guard when user speaks
-                    if self._consecutive_ai_responses > 0:
-                        self._consecutive_ai_responses = 0
-                        print(f"✅ [LOOP_GUARD] Reset counter on user speech")
-                    if self._loop_guard_engaged:
-                        self._loop_guard_engaged = False
-                        print(f"✅ [LOOP_GUARD] Disengaged on user speech")
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
-                    # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
-                    # ═══════════════════════════════════════════════════════════════════════
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # Requirements per הנחיה:
-                    # 1. If active_response_id is empty → do nothing
-                    # 2. If active_response_status != "in_progress" → do nothing
-                    # 3. If cancel_in_flight == True → do nothing (already canceling)
-                    # 4. Otherwise: Set cancel_in_flight=True, send cancel ONCE, mark locally
-                    # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
-                    # ═══════════════════════════════════════════════════════════════════════
-                    
-                    # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
-                    # The old code had too many guards that prevented barge-in from working
-                    # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
-                    
-                    has_active_response = bool(self.active_response_id)
-                    is_ai_currently_speaking = self.is_ai_speaking_event.is_set()
-                    
-                    # 🔥 BUG FIX: Only trigger barge-in if AI is actually speaking or has active response
-                    # This prevents false positive barge-ins during complete silence
-                    # Root cause: speech_started was triggering barge-in unconditionally
-                    # Fix: Check if there's anything to interrupt before executing barge-in logic
-                    if not (has_active_response or is_ai_currently_speaking):
-                        # No active AI response - nothing to barge in on!
-                        # This is normal: user speaking when AI is silent
-                        continue
-                    
-                    # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
-                    # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
-                    
-                    # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
-                    _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
-                    
-                    # שלב 1: עצירה מיידית של שידור אודיו
-                    self.barge_in_stop_tx = True
-                    self.barge_in_active = True
-                    self._barge_in_started_ts = time.time()
-                    _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
-                    
-                    # שלב 2: ניקוי דגלים
-                    self.is_ai_speaking_event.clear()
-                    self.speaking = False
-                    if hasattr(self, 'ai_response_active'):
-                        self.ai_response_active = False
-                    _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
-                    
-                    # שלב 3: ניקוי תורים
-                    self._flush_tx_queue()
-                    _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
-                    
-                    # שלב 4: שליחת clear ל-Twilio
-                    if self.stream_sid:
-                        try:
-                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                            self._ws_send(json.dumps(clear_event))
-                            _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
-                        except Exception as e:
-                            pass
-                    
-                    # שלב 5: ביטול response ב-OpenAI (אם יש)
-                    if has_active_response and self.realtime_client:
-                        response_id_to_cancel = self.active_response_id
-                        # רק אם עוד לא ביטלנו את אותו response
-                        if self._should_send_cancel(response_id_to_cancel):
-                            self.cancel_in_flight = True
-                            try:
-                                await self.realtime_client.cancel_response(response_id_to_cancel)
-                                self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
-                            except Exception as e:
-                                error_str = str(e).lower()
-                                if 'not_active' in error_str or 'no active' in error_str:
-                                    _orig_print(f"ℹ️ [BARGE-IN] Response כבר לא פעיל (זה בסדר)", flush=True)
-                                else:
-                                    _orig_print(f"⚠️ [BARGE-IN] שגיאה בביטול: {e}", flush=True)
-                                self.cancel_in_flight = False
+                        # Cooldown expired - proceed with normal barge-in logic
+                        # 🔥 REMOVED: greeting_lock check - allow speech detection during greeting
+                        
+                        # Track utterance start for validation
+                        self._candidate_user_speaking = True
+                        self._utterance_start_ts = time.time()
+                        # ✅ HARD SILENCE WATCHDOG: treat speech_started as user activity
+                        # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
+                        self._last_user_voice_started_ts = time.time()
+                        
+                        # 🔥 SILENCE WATCHDOG: Update activity timestamp on VAD detection (not just transcription)
+                        # This ensures watchdog tracks actual audio activity, not just completed transcripts
+                        self._last_activity_ts = time.time()
+                        
+                        # Set user_speaking to block new AI responses until transcription completes
+                        self.user_speaking = True
+                        if DEBUG:
+                            logger.debug(f"[TURN_TAKING] user_speaking=True - blocking response.create")
                         else:
-                            _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
-                    
-                    _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
+                            print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
+                        
+                        # Set user_has_spoken flag (user has interacted)
+                        if not self.user_has_spoken:
+                            self.user_has_spoken = True
+                            print(f"✅ [FIRST_SPEECH] user_has_spoken=True")
+                        
+                        # Reset loop guard when user speaks
+                        if self._consecutive_ai_responses > 0:
+                            self._consecutive_ai_responses = 0
+                            print(f"✅ [LOOP_GUARD] Reset counter on user speech")
+                        if self._loop_guard_engaged:
+                            self._loop_guard_engaged = False
+                            print(f"✅ [LOOP_GUARD] Disengaged on user speech")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
+                        # 
+                        # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
+                        # - Don't wait for is_ai_speaking flag
+                        # - Don't wait for voice_frames counter
+                        # - Cancel immediately and flush audio queues
+                        # 
+                        # Exception: Still protect greeting_lock (hard lock during greeting)
+                        # ═══════════════════════════════════════════════════════════════════════
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # Requirements per הנחיה:
+                        # 1. If active_response_id is empty → do nothing
+                        # 2. If active_response_status != "in_progress" → do nothing
+                        # 3. If cancel_in_flight == True → do nothing (already canceling)
+                        # 4. Otherwise: Set cancel_in_flight=True, send cancel ONCE, mark locally
+                        # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
+                        # ═══════════════════════════════════════════════════════════════════════
+                        
+                        # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
+                        # The old code had too many guards that prevented barge-in from working
+                        # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
+                        
+                        has_active_response = bool(self.active_response_id)
+                        
+                        # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
+                        # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
+                        
+                        # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
+                        _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
+                        
+                        # שלב 1: עצירה מיידית של שידור אודיו
+                        self.barge_in_stop_tx = True
+                        self.barge_in_active = True
+                        self._barge_in_started_ts = time.time()
+                        _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
+                        
+                        # שלב 2: ניקוי דגלים
+                        self.is_ai_speaking_event.clear()
+                        self.speaking = False
+                        if hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
+                        
+                        # שלב 3: ניקוי תורים
+                        self._flush_tx_queue()
+                        _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
+                        
+                        # שלב 4: שליחת clear ל-Twilio
+                        if self.stream_sid:
+                            try:
+                                clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                self._ws_send(json.dumps(clear_event))
+                                _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
+                            except Exception as e:
+                                pass
+                        
+                        # שלב 5: ביטול response ב-OpenAI (אם יש)
+                        if has_active_response and self.realtime_client:
+                            response_id_to_cancel = self.active_response_id
+                            # רק אם עוד לא ביטלנו את אותו response
+                            if self._should_send_cancel(response_id_to_cancel):
+                                self.cancel_in_flight = True
+                                try:
+                                    await self.realtime_client.cancel_response(response_id_to_cancel)
+                                    self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
+                                    _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
+                                except Exception as e:
+                                    error_str = str(e).lower()
+                                    if 'not_active' in error_str or 'no active' in error_str:
+                                        _orig_print(f"ℹ️ [BARGE-IN] Response כבר לא פעיל (זה בסדר)", flush=True)
+                                    else:
+                                        _orig_print(f"⚠️ [BARGE-IN] שגיאה בביטול: {e}", flush=True)
+                                    self.cancel_in_flight = False
+                            else:
+                                _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
+                        
+                        _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
