@@ -5944,7 +5944,22 @@ class MediaStreamHandler:
                     # 🔥 GATE 1 (Fast): Check if AI is truly speaking now
                     if not self.is_ai_speaking_now():
                         # AI is NOT speaking - this is just normal user speech, NOT barge-in
-                        print(f"👤 [USER_SPEECH] User speaking while AI silent (not barge-in)")
+                        # 🔥 PLAYOUT TRUTH: Show why we think AI is silent
+                        now = time.time()
+                        playout_status = "no_playout_ts"
+                        if hasattr(self, 'ai_playout_until_ts'):
+                            if self.ai_playout_until_ts > now:
+                                playout_remaining_ms = (self.ai_playout_until_ts - now) * 1000
+                                playout_status = f"playout_active_{playout_remaining_ms:.0f}ms"
+                            else:
+                                elapsed_since_playout = (now - self.ai_playout_until_ts) * 1000
+                                playout_status = f"playout_ended_{elapsed_since_playout:.0f}ms_ago"
+                        
+                        tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                        last_audio_age = (now - self.last_ai_audio_ts) * 1000 if self.last_ai_audio_ts else 9999
+                        
+                        print(f"👤 [USER_SPEECH] User speaking while AI silent (not barge-in) - "
+                              f"playout_status={playout_status} tx_q={tx_q_size} last_audio_age_ms={last_audio_age:.0f}")
                         # Continue to mark speech active, but don't cancel anything
                         self._realtime_speech_active = True
                         self._realtime_speech_started_ts = time.time()
@@ -5994,10 +6009,17 @@ class MediaStreamHandler:
                     realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                     tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                     
+                    # 🔥 PLAYOUT TRUTH: Show playout timestamp status for debugging
+                    now = time.time()
+                    playout_remaining_ms = 0
+                    if hasattr(self, 'ai_playout_until_ts') and self.ai_playout_until_ts > now:
+                        playout_remaining_ms = (self.ai_playout_until_ts - now) * 1000
+                    
                     _orig_print(
                         f"🎙️ [EARLY_BARGE_IN] ⚡ Triggered on speech START (not END!) "
                         f"speech_duration_ms={speech_duration_ms:.0f} "
                         f"ai_audio_age_ms={ai_audio_age_ms:.0f} "
+                        f"playout_remaining_ms={playout_remaining_ms:.0f} "
                         f"realtime_q={realtime_q} tx_q={tx_q}",
                         flush=True
                     )
@@ -9478,6 +9500,22 @@ class MediaStreamHandler:
                     try:
                         self.tx_q.put(twilio_frame, timeout=0.5)  # Wait up to 500ms for space
                         self.realtime_tx_frames += 1
+                        
+                        # 🔥 PLAYOUT TRUTH: Update playout timestamp when frames move to TX queue
+                        # This ensures is_ai_speaking_now() knows audio is still playing
+                        now = time.time()
+                        queue_size = self.tx_q.qsize()
+                        frame_pacing_ms = getattr(self, '_frame_pacing_ms', 20)
+                        grace_ms = getattr(self, '_playout_grace_ms', 250)
+                        
+                        # Total playout time = (queue frames * 20ms) + (this frame * 20ms) + grace
+                        total_playout_ms = (queue_size + 1) * frame_pacing_ms + grace_ms
+                        new_playout_ts = now + (total_playout_ms / 1000.0)
+                        
+                        # Update playout timestamp (monotonic - always extends)
+                        if not hasattr(self, 'ai_playout_until_ts') or new_playout_ts > self.ai_playout_until_ts:
+                            self.ai_playout_until_ts = new_playout_ts
+                        
                     except queue.Full:
                         # Queue is STILL full after 500ms timeout - this is exceptional
                         # Only happens if TX thread is stalled/dead
