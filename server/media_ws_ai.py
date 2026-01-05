@@ -5387,31 +5387,40 @@ class MediaStreamHandler:
                         resp_id = response.get("id", "?")
 
                         # 🔥 CRITICAL FIX: Block POLITE_HANGUP if response ended with status=incomplete
-                        # When OpenAI returns status=incomplete (e.g., content_filter), the response was
-                        # truncated mid-sentence and is NOT a natural end-of-turn. Allowing hangup in
-                        # this state causes the bot to cut sentences mid-speech.
+                        # When OpenAI returns status=incomplete with reason=content_filter, the response
+                        # was truncated mid-sentence by content moderation and is NOT a natural end-of-turn.
+                        # Allowing hangup in this state causes the bot to cut sentences mid-speech.
                         # 
-                        # Rule: response.done with status=incomplete is NOT a valid completion:
+                        # Rule: response.done with status=incomplete + reason=content_filter is NOT valid:
                         # - ❌ Not end-of-turn
                         # - ❌ Not safe to hang up
                         # - ✅ Continue conversation or let next response complete
+                        # 
+                        # 🎯 SURGICAL: Only cancel for content_filter (not other incomplete reasons like timeout)
                         if status == "incomplete":
                             reason = status_details.get("reason", "unknown") if isinstance(status_details, dict) else "unknown"
-                            force_print(f"⚠️ [INCOMPLETE_RESPONSE] resp_id={resp_id[:20]}... status=incomplete reason={reason} - CANCELLING pending hangup")
-                            logger.warning(f"[INCOMPLETE_RESPONSE] Response ended incomplete (reason={reason}) - this is NOT a natural completion")
                             
-                            # Cancel any pending hangup for THIS response_id
-                            # This prevents POLITE_HANGUP from executing when response.audio.done arrives
-                            if self.pending_hangup and self.pending_hangup_response_id == resp_id:
-                                force_print(f"🚫 [INCOMPLETE_RESPONSE] Cancelling pending hangup for incomplete response {resp_id[:20]}...")
-                                self.pending_hangup = False
-                                self.pending_hangup_response_id = None
-                                self.pending_hangup_reason = None
-                                self.pending_hangup_source = None
-                                # Don't transition to CLOSING - stay in ACTIVE for next response
-                                if self.call_state == CallState.CLOSING:
-                                    self.call_state = CallState.ACTIVE
-                                    force_print(f"📞 [STATE] Reverting CLOSING → ACTIVE (incomplete response)")
+                            # Only cancel hangup for content_filter (specific case that causes mid-sentence cutoff)
+                            if reason == "content_filter":
+                                logger.warning(f"[INCOMPLETE_RESPONSE] Response {resp_id[:20]}... ended incomplete (content_filter) - cancelling pending hangup")
+                                
+                                # Cancel any pending hangup for THIS response_id
+                                # This prevents POLITE_HANGUP from executing when response.audio.done arrives
+                                if self.pending_hangup and self.pending_hangup_response_id == resp_id:
+                                    logger.info(f"[INCOMPLETE_RESPONSE] Cancelling pending hangup for incomplete response {resp_id[:20]}...")
+                                    self.pending_hangup = False
+                                    self.pending_hangup_response_id = None
+                                    self.pending_hangup_reason = None
+                                    self.pending_hangup_source = None
+                                    
+                                    # Only revert CLOSING → ACTIVE if we were the ones who set it
+                                    # (checked via response_id match above)
+                                    if self.call_state == CallState.CLOSING:
+                                        self.call_state = CallState.ACTIVE
+                                        logger.info(f"[INCOMPLETE_RESPONSE] Reverting CLOSING → ACTIVE for incomplete response")
+                            else:
+                                # Other incomplete reasons (timeout, etc.) - log but don't cancel hangup
+                                logger.debug(f"[INCOMPLETE_RESPONSE] Response {resp_id[:20]}... incomplete (reason={reason}) - not cancelling hangup")
                         
                         # NOTE: greeting_lock must be released only after response.audio.done (playback-end),
                         # not on response.done (generation-end).
