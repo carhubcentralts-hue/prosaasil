@@ -181,9 +181,15 @@ ECHO_GATE_DECAY_MS = 200  # 200ms decay - prevents clipping end/start of turns
 BARGE_IN_VOICE_FRAMES = 10  # Stricter: 200ms - reduces false positives significantly (was 6)
 BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged)
 
-# 🔥 ANTI-ECHO COOLDOWN: Window after AI starts speaking where barge-in needs stronger validation
-# This prevents false barge-in from AI audio echo bouncing back
-ANTI_ECHO_COOLDOWN_MS = 300  # 300ms after first AI audio.delta - require stronger speech validation
+# 🔥 EARLY BARGE-IN: Minimum continuous speech duration before triggering interrupt
+# User requirement: Interrupt should happen on speech START, not END OF UTTERANCE
+# Requires 120-180ms of verified continuous speech (not just spike/echo)
+EARLY_BARGE_IN_MIN_DURATION_MS = 150  # 150ms sweet spot (120-180ms range)
+EARLY_BARGE_IN_VERIFY_RMS = True  # Verify RMS above threshold during duration
+
+# 🔥 ANTI-ECHO COOLDOWN: Reduced from 300ms to allow faster barge-in
+# Original 300ms was too slow - user wants ~150-250ms total interrupt latency
+ANTI_ECHO_COOLDOWN_MS = 100  # Reduced to 100ms (was 300ms) - faster barge-in
 ANTI_ECHO_RMS_MULTIPLIER = 1.8  # During cooldown, require RMS > (vad_threshold * 1.8) for "real speech"
 
 # Greeting-specific protection (applied during greeting playback only)

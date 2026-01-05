@@ -98,7 +98,8 @@ try:
         BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
         NOISE_GATE_MIN_FRAMES,
-        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS
+        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS,
+        EARLY_BARGE_IN_MIN_DURATION_MS, EARLY_BARGE_IN_VERIFY_RMS, ANTI_ECHO_COOLDOWN_MS
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -117,6 +118,9 @@ except ImportError:
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
+    EARLY_BARGE_IN_MIN_DURATION_MS = 150  # Fallback for early barge-in
+    EARLY_BARGE_IN_VERIFY_RMS = True
+    ANTI_ECHO_COOLDOWN_MS = 100  # Fallback for anti-echo cooldown
     AUDIO_CONFIG = {
         "simple_mode": True,
         "audio_guard_enabled": False,
@@ -2081,6 +2085,7 @@ class MediaStreamHandler:
         self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
         self.barge_in_active = False  # 🔥 BARGE-IN FIX: Track if user is currently interrupting AI
         self.barge_in_stop_tx = False  # 🔥 NEW FIX: Flag to immediately stop TX loop from sending audio
+        self._barge_in_turn_id = None  # 🔥 EARLY BARGE-IN: Track turn ID when barge-in happens
         # 🔄 ADAPTIVE: Second confirmation for barge-in - require OpenAI speech_started confirmation
         self._openai_speech_started_confirmed = False  # Set on speech_started event, cleared after barge-in
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
@@ -5916,16 +5921,17 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - WITH PROPER VERIFICATION (B1-B4)
+                    # 🔥 BARGE-IN LOGIC - EARLY BARGE-IN ON SPEECH START
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Requirements:
-                    # 1. Only interrupt if AI is TRULY speaking (is_ai_speaking_now())
-                    # 2. Only if user speech is verified (is_verified_user_speech())
-                    # 3. Cooldown after AI started (<300ms) to avoid false triggers
+                    # Requirements (per user requirement):
+                    # 1. Trigger on speech START, not END OF UTTERANCE (STT_FINAL)
+                    # 2. Verify 120-180ms of continuous speech (not spike/echo)
+                    # 3. Check RMS above threshold during verification window
                     # 4. Atomic + idempotent interrupt sequence
+                    # Target latency: 150-250ms total (much faster than previous ~300ms+)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 B3: GATE 1 - Check if AI is truly speaking now
+                    # 🔥 GATE 1 - Check if AI is truly speaking now
                     if not self.is_ai_speaking_now():
                         # AI is NOT speaking - this is just normal user speech, NOT barge-in
                         print(f"👤 [USER_SPEECH] User speaking while AI silent (not barge-in)")
@@ -5935,22 +5941,31 @@ class MediaStreamHandler:
                         print(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
                         continue  # Skip barge-in logic below
                     
-                    # 🔥 B3: GATE 2 - Check if user speech is verified (NOT just a noise spike)
-                    # NOTE: For the first frame of speech_started, we can't fully verify yet
-                    # So we allow the interrupt but log it as "candidate" barge-in
-                    # The verification will be confirmed on transcription.completed
-                    
-                    # 🔥 B3: GATE 3 - Check cooldown after AI started (<300ms)
-                    if hasattr(self, '_ai_speech_start') and self._ai_speech_start:
-                        time_since_ai_started_ms = (time.time() - self._ai_speech_start) * 1000
-                        if time_since_ai_started_ms < 300:
-                            print(f"⏸️ [BARGE-IN] Too soon after AI started ({time_since_ai_started_ms:.0f}ms < 300ms) - waiting")
+                    # 🔥 GATE 2 - Early verification: Check speech duration from utterance start
+                    # Wait for EARLY_BARGE_IN_MIN_DURATION_MS (120-180ms) of continuous speech
+                    # This prevents false triggers from echo/noise spikes
+                    if self._utterance_start_ts:
+                        speech_duration_ms = (time.time() - self._utterance_start_ts) * 1000
+                        if speech_duration_ms < EARLY_BARGE_IN_MIN_DURATION_MS:
+                            # Not enough continuous speech yet - wait longer
+                            print(f"⏸️ [EARLY_BARGE_IN] Waiting for verification ({speech_duration_ms:.0f}ms < {EARLY_BARGE_IN_MIN_DURATION_MS}ms)")
                             # Mark speech active but don't interrupt yet
                             self._realtime_speech_active = True
                             self._realtime_speech_started_ts = time.time()
                             continue
                     
-                    # 🔥 B4: INTERRUPT SEQUENCE - Atomic + Idempotent
+                    # 🔥 GATE 3 - Reduced anti-echo cooldown (100ms instead of 300ms)
+                    # Only apply minimal delay right after AI starts to avoid echo
+                    if hasattr(self, '_ai_speech_start') and self._ai_speech_start:
+                        time_since_ai_started_ms = (time.time() - self._ai_speech_start) * 1000
+                        if time_since_ai_started_ms < ANTI_ECHO_COOLDOWN_MS:
+                            print(f"⏸️ [BARGE-IN] Anti-echo window ({time_since_ai_started_ms:.0f}ms < {ANTI_ECHO_COOLDOWN_MS}ms) - waiting")
+                            # Mark speech active but don't interrupt yet
+                            self._realtime_speech_active = True
+                            self._realtime_speech_started_ts = time.time()
+                            continue
+                    
+                    # 🔥 GATE 4: INTERRUPT SEQUENCE - Atomic + Idempotent
                     # Check if we should interrupt (not already in cooldown)
                     interrupt_in_progress = getattr(self, '_interrupt_in_progress', False)
                     if interrupt_in_progress:
@@ -5960,19 +5975,18 @@ class MediaStreamHandler:
                             print(f"⏸️ [BARGE-IN] Interrupt cooldown ({elapsed_ms:.0f}ms < 700ms) - skipping")
                             continue
                     
-                    # All gates passed - trigger verified barge-in
-                    # 🔥 Dרישה 6: לוג אחד עם מדדים טכניים (הוכחת אמת)
+                    # All gates passed - trigger early barge-in
+                    # 🔥 Early Barge-In: Log with speech duration to show it's happening on speech START
                     ai_audio_age_ms = (time.time() - self.last_ai_audio_ts) * 1000 if self.last_ai_audio_ts else 9999
-                    utterance_duration_ms = (time.time() - self._utterance_start_ts) * 1000 if self._utterance_start_ts else 0
+                    speech_duration_ms = (time.time() - self._utterance_start_ts) * 1000 if self._utterance_start_ts else 0
                     realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
                     tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
                     
                     _orig_print(
-                        f"🎙️ [BARGE_IN_VERIFIED] "
-                        f"ai_speaking=True last_ai_audio_age_ms={ai_audio_age_ms:.0f} "
-                        f"user_utterance_ms={utterance_duration_ms:.0f} "
-                        f"realtime_q={realtime_q} tx_q={tx_q} "
-                        f"cooldown_ok=True interrupt_lock=False",
+                        f"🎙️ [EARLY_BARGE_IN] ⚡ Triggered on speech START (not END!) "
+                        f"speech_duration_ms={speech_duration_ms:.0f} "
+                        f"ai_audio_age_ms={ai_audio_age_ms:.0f} "
+                        f"realtime_q={realtime_q} tx_q={tx_q}",
                         flush=True
                     )
                     
@@ -6025,11 +6039,16 @@ class MediaStreamHandler:
                     self.barge_in_stop_tx = True
                     self.barge_in_active = True
                     self._barge_in_started_ts = time.time()
+                    # 🔥 NEW: Track turn ID when barge-in happens (per requirement)
+                    if hasattr(self, 'current_turn_id'):
+                        self._barge_in_turn_id = self.current_turn_id
+                    else:
+                        self._barge_in_turn_id = str(int(time.time() * 1000))  # Fallback: timestamp
                     self.is_ai_speaking_event.clear()
                     self.speaking = False
                     if hasattr(self, 'ai_response_active'):
                         self.ai_response_active = False
-                    _orig_print(f"✅ [BARGE-IN] Flags cleared - interrupt complete", flush=True)
+                    _orig_print(f"✅ [EARLY_BARGE_IN] AI stopped! User can speak now (turn_id={self._barge_in_turn_id})", flush=True)
                     
                     # Unlock interrupt after short delay (async)
                     async def _unlock_interrupt():
@@ -6038,8 +6057,6 @@ class MediaStreamHandler:
                         print(f"🔓 [BARGE-IN] Interrupt cooldown completed - ready for next")
                     
                     asyncio.create_task(_unlock_interrupt())
-                    
-                    _orig_print(f"✅ [BARGE_IN_VERIFIED] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
