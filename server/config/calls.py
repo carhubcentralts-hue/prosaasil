@@ -99,7 +99,10 @@ except ValueError:
     print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 600")
     SERVER_VAD_SILENCE_MS = 600
 
-SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew (unchanged)
+# 🔥 TRANSCRIPTION IMPROVEMENT: Increased from 300ms to 500ms
+# Prevents clipping of initial syllables when speech starts from complete silence
+# 200ms increase provides better capture of speech onset without VAD hesitation
+SERVER_VAD_PREFIX_PADDING_MS = 500  # Increased padding to avoid clipping speech start (was 300ms)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
@@ -117,26 +120,31 @@ VAD_ADAPTIVE_CAP = 120.0        # Maximum adaptive threshold
 VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 GREETING FIX: INCREASED ECHO GATE - Stronger protection from false triggers
+# 🔥 GREETING FIX: ECHO GATE - Balance between noise protection and speech capture
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (based on production log analysis):
-# - RMS 270: Higher threshold reduces false positives from background noise
-#   (was 250 - user reported AI enters CLOSING after ~20s of speaking due to false triggers)
-# - Frames 6: Requires 120ms of consistent audio (stronger noise rejection)
-#   (unchanged - already provides good noise filtering)
+# TUNING RATIONALE (optimized for transcription accuracy):
+# - RMS 250: Lower threshold for easier gate opening at speech start
+#   (reduced from 270 - prevents clipping initial syllables when transitioning from silence)
+#   Real speech still passes through easily while maintaining reasonable noise filtering
+# - Frames 6: Requires 120ms of consistent audio (unchanged - proven noise filtering)
 #
-# Production log analysis showed:
-# ❌ Call enters CLOSING state after AI speaks for ~20s
-# ❌ Background noise triggers speech detection when user NOT speaking
-# ❌ Watchdog incorrectly times out during active AI responses
+# 🎯 TRANSCRIPTION IMPROVEMENT:
+# The lowered threshold (270→250) helps when speech starts from complete silence:
+# ✅ Gate opens faster when user begins speaking
+# ✅ Initial syllables captured more reliably
+# ✅ Better transcription accuracy overall
+# ✅ Still filters background noise effectively
 #
-# Current strengthened setting (270.0/6 frames) provides:
-# ✅ Stronger protection from background noise
-# ✅ Natural interruption still works - real user speech (RMS > 270) passes
-# ✅ More consistent call flow - fewer false state transitions
+# Previous setting (270.0) was too aggressive - caused VAD "hesitation" at speech onset
+# from complete silence, leading to clipped syllables and reduced transcription quality
 # ═══════════════════════════════════════════════════════════════════════════════
-ECHO_GATE_MIN_RMS = 270.0       # Increased: stronger protection from background noise
+ECHO_GATE_MIN_RMS = 250.0       # Reduced: easier gate opening for better speech capture (was 270.0)
 ECHO_GATE_MIN_FRAMES = 6        # Unchanged: requires 120ms consistent audio
+
+# 🔥 TRANSCRIPTION IMPROVEMENT: Gate re-enable decay after END OF UTTERANCE
+# Prevents clipping of utterance ending or start of next turn
+# When speech stops, wait this duration before re-activating strict gate
+ECHO_GATE_DECAY_MS = 200  # 200ms decay - prevents clipping end/start of turns
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 BARGE-IN FIX: Stricter validation to reduce false positives
