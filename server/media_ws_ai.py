@@ -5455,6 +5455,34 @@ class MediaStreamHandler:
                                 # Retry once with safe minimal prompt (no CRM context)
                                 if not self._content_filter_retried and call_duration < 60:
                                     self._content_filter_retried = True
+                                    
+                                    # 🔥 CRITICAL: Wait for audio queues to drain before retry
+                                    # This prevents race condition / overlap with existing audio
+                                    _orig_print(f"🔄 [CONTENT_FILTER] Waiting for audio queues to drain before retry...", flush=True)
+                                    
+                                    # Check queue sizes
+                                    realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                                    tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                                    
+                                    if realtime_q > 0 or tx_q > 0:
+                                        _orig_print(f"⏳ [CONTENT_FILTER] Queues not empty (realtime={realtime_q}, tx={tx_q}) - waiting for drain...", flush=True)
+                                        
+                                        # Wait for queues to drain (max 2 seconds)
+                                        drain_start = time.time()
+                                        while (time.time() - drain_start) < 2.0:
+                                            realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                                            tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                                            
+                                            if realtime_q == 0 and tx_q == 0:
+                                                _orig_print(f"✅ [CONTENT_FILTER] Queues drained in {(time.time() - drain_start)*1000:.0f}ms", flush=True)
+                                                break
+                                            
+                                            await asyncio.sleep(0.05)  # Check every 50ms
+                                        else:
+                                            _orig_print(f"⚠️ [CONTENT_FILTER] Timeout waiting for drain (realtime={realtime_q}, tx={tx_q}) - proceeding anyway", flush=True)
+                                    else:
+                                        _orig_print(f"✅ [CONTENT_FILTER] Queues already empty", flush=True)
+                                    
                                     _orig_print(f"🔄 [CONTENT_FILTER] Sending safe fallback message...", flush=True)
                                     
                                     # Send safe fallback message (short, business-only, Hebrew)
@@ -5954,33 +5982,13 @@ class MediaStreamHandler:
                     
                     has_active_response = bool(self.active_response_id)
                     
-                    # שלב 1: עצירה מיידית של שידור אודיו
-                    self.barge_in_stop_tx = True
-                    self.barge_in_active = True
-                    self._barge_in_started_ts = time.time()
-                    _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
+                    # 🔥 ATOMIC INTERRUPT SEQUENCE - Fixed order:
+                    # 1. cancel_response() / stop generation
+                    # 2. clear/truncate (Twilio)
+                    # 3. flush_tx_queue()
+                    # 4. interrupt_lock (700ms) - already set above
                     
-                    # שלב 2: ניקוי דגלים
-                    self.is_ai_speaking_event.clear()
-                    self.speaking = False
-                    if hasattr(self, 'ai_response_active'):
-                        self.ai_response_active = False
-                    _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
-                    
-                    # שלב 3: ניקוי תורים
-                    self._flush_tx_queue()
-                    _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
-                    
-                    # שלב 4: שליחת clear ל-Twilio
-                    if self.stream_sid:
-                        try:
-                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                            self._ws_send(json.dumps(clear_event))
-                            _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
-                        except Exception as e:
-                            pass
-                    
-                    # שלב 5: ביטול response ב-OpenAI (אם יש)
+                    # Step 1: ביטול response ב-OpenAI (אם יש)
                     if has_active_response and self.realtime_client:
                         response_id_to_cancel = self.active_response_id
                         # רק אם עוד לא ביטלנו את אותו response
@@ -5989,7 +5997,7 @@ class MediaStreamHandler:
                             try:
                                 await self.realtime_client.cancel_response(response_id_to_cancel)
                                 self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
+                                _orig_print(f"✅ [BARGE-IN] Step 1: response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
                             except Exception as e:
                                 error_str = str(e).lower()
                                 if 'not_active' in error_str or 'no active' in error_str:
@@ -5999,6 +6007,29 @@ class MediaStreamHandler:
                                 self.cancel_in_flight = False
                         else:
                             _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
+                    
+                    # Step 2: שליחת clear ל-Twilio
+                    if self.stream_sid:
+                        try:
+                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                            self._ws_send(json.dumps(clear_event))
+                            _orig_print(f"✅ [BARGE-IN] Step 2: נשלח clear ל-Twilio", flush=True)
+                        except Exception as e:
+                            pass
+                    
+                    # Step 3: ניקוי תורים (flush_tx_queue)
+                    self._flush_tx_queue()
+                    _orig_print(f"✅ [BARGE-IN] Step 3: תורים נוקו", flush=True)
+                    
+                    # Clear flags after interrupt sequence
+                    self.barge_in_stop_tx = True
+                    self.barge_in_active = True
+                    self._barge_in_started_ts = time.time()
+                    self.is_ai_speaking_event.clear()
+                    self.speaking = False
+                    if hasattr(self, 'ai_response_active'):
+                        self.ai_response_active = False
+                    _orig_print(f"✅ [BARGE-IN] Flags cleared - interrupt complete", flush=True)
                     
                     # Unlock interrupt after short delay (async)
                     async def _unlock_interrupt():
