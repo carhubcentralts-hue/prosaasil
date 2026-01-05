@@ -3,7 +3,7 @@ WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 🚫 Google STT/TTS DISABLED for production stability
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata, array
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -95,7 +95,7 @@ try:
         AUDIO_CONFIG, SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
-        BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
+        BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS, BARGE_IN_MIN_RMS_MULTIPLIER,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
         NOISE_GATE_MIN_FRAMES,
         GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS
@@ -112,6 +112,7 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     BARGE_IN_VOICE_FRAMES = 8
     BARGE_IN_DEBOUNCE_MS = 350
+    BARGE_IN_MIN_RMS_MULTIPLIER = 1.4  # 🔥 FIX: Add missing fallback value
     GREETING_PROTECT_DURATION_MS = 500
     GREETING_MIN_SPEECH_DURATION_MS = 250
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
@@ -4632,16 +4633,13 @@ class MediaStreamHandler:
                     
                     # Decode audio to calculate RMS
                     try:
-                        import base64
                         audio_bytes = base64.b64decode(audio_chunk)
                         # Calculate RMS of this frame
                         pcm_data = mulaw_to_pcm16_fast(audio_bytes)
-                        import array
                         samples = array.array('h', pcm_data)
                         rms = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
                         
                         # Get RMS threshold from config (baseline * multiplier)
-                        from server.config.calls import BARGE_IN_MIN_RMS_MULTIPLIER, BARGE_IN_VOICE_FRAMES
                         min_rms = ECHO_GATE_MIN_RMS * BARGE_IN_MIN_RMS_MULTIPLIER  # e.g., 275 * 1.4 = 385
                         
                         # Count consecutive frames above threshold
