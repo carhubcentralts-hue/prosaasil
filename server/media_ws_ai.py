@@ -2069,6 +2069,14 @@ class MediaStreamHandler:
         self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
         self.last_user_turn_id = None  # Last user conversation item ID
         
+        # 🔥 PLAYOUT TRUTH: Track actual audio playout to customer (not just receipt from OpenAI)
+        # The truth of "AI speaking" is when audio is PLAYING to customer, not when we receive it
+        self.ai_playout_until_ts = 0.0  # Monotonic timestamp until when AI audio will be playing (playout truth)
+        self.ai_generation_id = 0  # Generation counter - incremented on each response.created
+        self.current_generation_id = 0  # Current active generation ID
+        self._frame_pacing_ms = 20  # Each audio frame = 20ms
+        self._playout_grace_ms = 250  # Grace period for playout estimation (network/buffer delays)
+        
         # 🚀 PARALLEL STARTUP: Event to signal business info is ready
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
         self.last_ai_turn_id = None  # Last AI conversation item ID
@@ -6178,6 +6186,13 @@ class MediaStreamHandler:
                     status = response.get("status", "?")
                     _orig_print(f"🎯 [RESPONSE.CREATED] id={response_id[:20] if response_id else '?'}... status={status} modalities={modalities} output_format={output_audio_format}", flush=True)
                     if response_id:
+                        # 🔥 GENERATION ID: Increment generation counter for race condition prevention
+                        # Each new response gets a unique generation ID to prevent late frames from old responses
+                        if hasattr(self, 'ai_generation_id'):
+                            self.ai_generation_id += 1
+                            self.current_generation_id = self.ai_generation_id
+                            _orig_print(f"🆔 [GENERATION] New generation started: gen_id={self.current_generation_id} response_id={response_id[:20]}...", flush=True)
+                        
                         # 🔥 BARGE-IN FIX: Set BOTH active_response_id AND ai_response_active immediately
                         # Per הנחיה: Enable barge-in detection on response.created (not audio.delta)
                         # This allows cancellation even if audio hasn't started yet
@@ -6583,6 +6598,13 @@ class MediaStreamHandler:
                                     remaining_ms = total_frames_remaining * 20
                                     buffer_ms = 400
                                     total_wait_ms = remaining_ms + buffer_ms
+                                    
+                                    # 🔥 PLAYOUT TRUTH: Update playout timestamp for audio drain
+                                    now = time.time()
+                                    grace_ms = getattr(self, '_playout_grace_ms', 250)
+                                    drain_playout_ms = total_wait_ms + grace_ms
+                                    self.ai_playout_until_ts = now + (drain_playout_ms / 1000.0)
+                                    
                                     _orig_print(f"⏳ [AUDIO DRAIN] {total_frames_remaining} frames remaining (q1={initial_q1_size}, tx={initial_tx_size}) → waiting {total_wait_ms}ms", flush=True)
                                 
                                 # STEP 1: Wait for OpenAI queue to drain (max 30 seconds for long sentences)
@@ -6627,6 +6649,9 @@ class MediaStreamHandler:
                                 playback_buffer_seconds = 0.5  # 500ms buffer for Twilio playback latency
                                 _orig_print(f"⏳ [AUDIO DRAIN] Queues empty, waiting {playback_buffer_seconds}s for Twilio playback", flush=True)
                                 await asyncio.sleep(playback_buffer_seconds)
+                                
+                                # 🔥 PLAYOUT TRUTH: Clear playout timestamp after drain completes
+                                self.ai_playout_until_ts = 0.0
                                 
                                 # Now try to execute hangup via single source of truth
                                 await self.maybe_execute_hangup(via="audio.done", response_id=done_resp_id)
@@ -8377,40 +8402,48 @@ class MediaStreamHandler:
     
     def is_ai_speaking_now(self) -> bool:
         """
-        🔥 BARGE-IN FIX: Determine if AI is TRULY speaking right now
+        🔥 PLAYOUT TRUTH FIX: Determine if AI is TRULY speaking to the customer RIGHT NOW
         
-        Primary truth: audio activity timestamp (last_ai_audio_ts)
-        Secondary: queue sizes (ONLY when gated by recent audio)
+        The ONLY truth that matters: Is audio currently PLAYING to the customer?
+        Not when we received it from OpenAI, but when it's being HEARD by the customer.
         
-        Rules (priority order):
-        1. time_now - last_ai_audio_ts < 0.40s → True (PRIMARY TRUTH)
-        2. Queue sizes ONLY if recent audio activity:
-           - if (tx_q > 0 or realtime_q > 0) AND (time_now - last_ai_audio_ts < 1.2s) → True
-        3. Else → False
+        Primary truth sources (checked in order):
+        1. ai_playout_until_ts - Calculated timestamp when playout will complete
+           - Updated when frames enqueued to tx_queue (now + queue_ms + grace)
+           - Updated during AUDIO_DRAIN (now + drain_wait_ms + grace)
+        2. tx_queue size > 0 with small grace (150-250ms for network buffer)
+        3. Fallback to legacy last_ai_audio_ts for backwards compatibility
         
         Returns:
-            True if AI is actively speaking, False otherwise
+            True if AI audio is actively PLAYING to customer, False otherwise
         """
         now = time.time()
         
-        # Rule 1: PRIMARY TRUTH - Recent audio activity (< 400ms)
+        # Rule 1: PLAYOUT TRUTH - Primary source of truth
+        # If we have a playout timestamp, use it as the authoritative answer
+        if hasattr(self, 'ai_playout_until_ts') and self.ai_playout_until_ts > 0:
+            if now < self.ai_playout_until_ts:
+                return True
+        
+        # Rule 2: TX QUEUE SIZE - Audio waiting to be sent to Twilio (with grace period)
+        # Check if there's audio in the queue that will be sent/played soon
+        tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+        if tx_q_size > 0:
+            # Add small grace period (150-250ms) for frames in queue
+            grace_ms = getattr(self, '_playout_grace_ms', 250)
+            if self.last_ai_audio_ts:
+                elapsed_ms = (now - self.last_ai_audio_ts) * 1000
+                if elapsed_ms < grace_ms:
+                    return True
+        
+        # Rule 3: FALLBACK - Legacy last_ai_audio_ts check (keep for backwards compat)
+        # Recent audio activity (< 400ms) - might still be playing
         if self.last_ai_audio_ts:
             elapsed_ms = (now - self.last_ai_audio_ts) * 1000
             if elapsed_ms < 400:
                 return True
         
-        # Rule 2: SECONDARY - Queue sizes only if somewhat recent audio (< 1200ms)
-        if self.last_ai_audio_ts:
-            elapsed_ms = (now - self.last_ai_audio_ts) * 1000
-            if elapsed_ms < 1200:
-                # Check queue sizes
-                realtime_q_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
-                tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
-                
-                if realtime_q_size > 0 or tx_q_size > 0:
-                    return True
-        
-        # Rule 3: No recent activity and no queued audio
+        # Rule 4: No active playout detected
         return False
     
     def is_verified_user_speech(self) -> bool:
@@ -11574,6 +11607,7 @@ class MediaStreamHandler:
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         🔥 VERIFICATION #3: Block enqueue when session is closed
         🔥 NEW: Queue backlog monitoring - prevent overflow that causes "weird speech"
+        🔥 PLAYOUT TRUTH: Update ai_playout_until_ts when enqueuing audio frames
         """
         # 🔥 VERIFICATION #3: No enqueue after close
         if self.closed:
@@ -11598,6 +11632,32 @@ class MediaStreamHandler:
                 pass  # Allow clear/mark commands through
             else:
                 return  # Silently drop AI audio during barge-in
+        
+        # 🔥 PLAYOUT TRUTH: Update playout timestamp when enqueuing audio frames
+        # This is THE source of truth for "is AI speaking to customer"
+        is_audio_frame = isinstance(item, dict) and item.get("type") == "media"
+        if is_audio_frame:
+            # Calculate playout time: now + queue_time + frame_time + grace
+            now = time.time()
+            queue_size = self.tx_q.qsize()
+            frame_pacing_ms = getattr(self, '_frame_pacing_ms', 20)
+            grace_ms = getattr(self, '_playout_grace_ms', 250)
+            
+            # Total time = (queue frames * 20ms) + (this frame * 20ms) + grace
+            queue_time_ms = queue_size * frame_pacing_ms
+            frame_time_ms = frame_pacing_ms
+            total_playout_ms = queue_time_ms + frame_time_ms + grace_ms
+            
+            # Update playout timestamp (monotonic - always extends, never shortens)
+            new_playout_ts = now + (total_playout_ms / 1000.0)
+            if not hasattr(self, 'ai_playout_until_ts') or new_playout_ts > self.ai_playout_until_ts:
+                self.ai_playout_until_ts = new_playout_ts
+            
+            # Also update last_ai_audio_ts for TX send (maintains echo detection)
+            self.last_ai_audio_ts = now
+            if hasattr(self, '_last_ai_audio_ts'):
+                self._last_ai_audio_ts = now
+        
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
@@ -15917,11 +15977,24 @@ class MediaStreamHandler:
         Flushes:
         1. realtime_audio_out_queue - Audio from OpenAI not yet in TX queue
         2. tx_q - Audio waiting to be sent to Twilio
+        
+        🔥 PLAYOUT TRUTH: Resets playout timestamp to 0 (AI stopped speaking immediately)
+        🔥 GENERATION ID: Marks current generation as cancelled (ignores late frames)
         """
         realtime_flushed = 0
         tx_flushed = 0
         
         try:
+            # 🔥 PLAYOUT TRUTH: Clear playout timestamp immediately
+            # This is THE moment AI stops speaking to the customer
+            self.ai_playout_until_ts = 0.0
+            
+            # 🔥 GENERATION ID: Increment generation to ignore late frames from old response
+            # Any frames still in flight from the cancelled response will be ignored
+            if hasattr(self, 'ai_generation_id'):
+                self.ai_generation_id += 1
+                _orig_print(f"🆔 [GENERATION] Cancelled generation, new gen_id={self.ai_generation_id}", flush=True)
+            
             # Flush OpenAI → TX queue (realtime_audio_out_queue)
             if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
                 while True:
