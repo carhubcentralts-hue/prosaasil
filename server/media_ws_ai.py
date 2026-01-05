@@ -5919,6 +5919,16 @@ class MediaStreamHandler:
                     # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
                     
                     has_active_response = bool(self.active_response_id)
+                    is_ai_currently_speaking = self.is_ai_speaking_event.is_set()
+                    
+                    # 🔥 BUG FIX: Only trigger barge-in if AI is actually speaking or has active response
+                    # This prevents false positive barge-ins during complete silence
+                    # Root cause: speech_started was triggering barge-in unconditionally
+                    # Fix: Check if there's anything to interrupt before executing barge-in logic
+                    if not (has_active_response or is_ai_currently_speaking):
+                        # No active AI response - nothing to barge in on!
+                        # This is normal: user speaking when AI is silent
+                        continue
                     
                     # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
                     # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
