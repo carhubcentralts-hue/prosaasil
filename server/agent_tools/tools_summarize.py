@@ -134,26 +134,26 @@ def _generate_structured_summary(conversation_text: str, max_words: int = 120) -
     try:
         client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        prompt = f"""סכם את השיחה הבאה בעברית במבנה מובנה:
+        prompt = f"""Summarize the conversation in Hebrew.
 
-שיחה:
+Conversation:
 {conversation_text[:2000]}
 
-חלץ:
-1. כוונה עיקרית (key_intent): למה הלקוח פנה?
-2. טיפול/שירות שנבחר (chosen_treatment): מה הוזמן?
-3. זמן מועדף (preferred_time): מתי הלקוח רוצה?
-4. צעד הבא (next_step): מה צריך לקרות אחר כך?
-5. סנטימנט (sentiment): חיובי/שלילי/ניטרלי
-6. נקודות עיקריות (bullets): 2-3 נקודות חשובות
+Extract:
+1. key_intent: Why did the customer reach out?
+2. chosen_treatment: What service was chosen?
+3. preferred_time: When does the customer want service?
+4. next_step: What should happen next?
+5. sentiment: positive/negative/neutral
+6. bullets: 2-3 key points
 
-השב בפורמט JSON בלבד:
-{{"key_intent": "...", "chosen_treatment": "...", "preferred_time": "...", "next_step": "...", "sentiment": "...", "bullets": ["...", "..."], "summary_text": "סיכום קצר במילים {max_words}"}}"""
+Respond in JSON only:
+{{"key_intent": "...", "chosen_treatment": "...", "preferred_time": "...", "next_step": "...", "sentiment": "...", "bullets": ["...", "..."], "summary_text": "Brief summary in {max_words} words"}}"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "אתה עוזר מקצועי לסיכום שיחות CRM בעברית. תמיד השב בJSON בלבד."},
+                {"role": "system", "content": "Summarize CRM conversations in Hebrew. Respond in JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,

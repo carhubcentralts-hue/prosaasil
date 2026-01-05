@@ -185,55 +185,59 @@ def summarize_conversation(
             else:
                 disconnect_hint = "\n🔍 שיחה ארוכה - ככל הנראה שיחה מלאה"
         
-        prompt = f"""סכם את השיחה בצורה אמיתית, מדויקת ואובייקטיבית.
+        prompt = f"""Summarize the conversation factually.
 
-🎯 הוראות:
-1. כתוב רק מה שבאמת נאמר - אל תמציא!
-2. זהה את סוג העסק מתוכן השיחה
-3. תעד משך השיחה וסיבת הסיום
-4. אם הלקוח ניתק - כתוב זאת!
-5. אם הגיע לתא קולי/מענה אוטומטי - זהה וכתוב זאת!
+Write only what was actually said. Do not invent.
+
+Identify business type from conversation content.
+
+Document call duration and disconnect reason.
+
+If customer disconnected - state it.
+
+If reached voicemail - state it.
 {business_context}{duration_context}{disconnect_hint}
 
-תמלול השיחה:
+Conversation transcript:
 {transcription}
 
-סיכום (80-150 מילים בעברית, מבנה ברור):
-- שורה ראשונה: משך השיחה וסיבת סיום (חובה!)
-  דוגמה: "שיחה של 45 שניות - לקוח ניתק באמצע שיחה"
-  דוגמה: "שיחה של 3 שניות - הגיע לתא קולי/מענה אוטומטי"
-- סוג הפנייה והתחום
-- פרטים שנמסרו בפועל
-- סטטוס אמיתי: מעוניין/לא מעוניין/לא ברור
-- פעולה נדרשת"""
+Summary (80-150 words in Hebrew):
+- First line: Call duration and end reason (required).
+  Example: "Call 45 seconds - customer disconnected mid-call"
+  Example: "Call 3 seconds - reached voicemail"
+- Inquiry type and topic
+- Details provided
+- Real status: interested/not interested/unclear
+- Required action"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system", 
-                    "content": """אתה מומחה סיכום שיחות עסקיות בעברית.
+                    "content": """Summarize business calls in Hebrew.
 
-היכולות: מזהה אוטומטית כל סוג עסק, חולץ מידע אמיתי, מזהה תא קולי/מענה אוטומטי/ניתוקים
+Write only what was actually said.
 
-כללים:
-✅ כתוב רק מה שבאמת נאמר
-✅ השורה הראשונה: משך + סיבת סיום (חובה!)
-✅ אם ניתק - כתוב זאת
-✅ אם תא קולי - זהה וכתוב
-❌ אסור להמציא
+First line: duration + disconnect reason (required).
 
-דוגמאות לשורה ראשונה:
-✅ "שיחה של 45 שניות - לקוח ניתק באמצע שיחה"
-✅ "שיחה של 3 שניות - הגיע לתא קולי"
-✅ "שיחה של דקה וחצי - הסתיימה בהצלחה"
+If disconnected - state it.
 
-סיכום: 80-150 מילים, אמת מוחלטת."""
+If voicemail - state it.
+
+Do not invent.
+
+Examples:
+- "Call 45 seconds - customer disconnected mid-call"
+- "Call 3 seconds - reached voicemail"
+- "Call 90 seconds - completed successfully"
+
+Summary: 80-150 words, factual only."""
                 },
                 {"role": "user", "content": prompt}
             ],
             max_tokens=400,
-            temperature=0.2  # 🔥 Lowered from 0.3 for more consistent, factual outputs
+            temperature=0.2
         )
         
         summary = response.choices[0].message.content

@@ -557,55 +557,32 @@ def _is_likely_a_name_ai_validate(candidate_name: str, context: str) -> bool:
 
 def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None) -> str:
     """
-    Build NAME_ANCHOR message for conversation injection.
+    Build CRM Context message - human-natural format (not technical).
     
-    This creates a COMPACT system message providing:
-    1. Customer name (if available)
-    2. Customer gender (for Hebrew grammar)
-    3. Name usage policy status
-    
-    CRITICAL: Keep SHORT - detailed rules are in universal system prompt.
-    This is pure factual data, not instructions.
+    CRITICAL: Must be human-readable, not data-dump format.
+    Never include email:, phone:, lead_id, or technical fields.
     
     Args:
         customer_name: The customer's name (None if not available)
         use_name_policy: Whether business prompt requests name usage
-        customer_gender: The customer's detected gender ("male", "female", or None)
+        customer_gender: The customer's detected gender
     
     Returns:
-        Compact CRM context message (pure data, no instructions)
+        Natural language CRM context
     """
-    # Build gender info - just the fact, not instructions
-    gender_info = ""
-    if customer_gender == "male":
-        gender_info = "זכר (male)"
-    elif customer_gender == "female":
-        gender_info = "נקבה (female)"
-    else:
-        gender_info = "unknown"
+    parts = []
     
-    # Build compact message with just the facts
-    parts = ["[CRM Context]"]
-    
-    if customer_name:
-        parts.append(f"Name: {customer_name}")
-    else:
-        parts.append("Name: not available")
-    
-    parts.append(f"Gender: {gender_info}")
-    
-    if use_name_policy and customer_name:
-        # Explicit mandatory action when name usage is enabled AND name exists
-        parts.append("Policy: USE name (business prompt requests it)")
-        parts.append(f"ACTION: Address customer as '{customer_name}' naturally throughout conversation")
+    if customer_name and use_name_policy:
+        # Simple, natural, no "policy" or "requests" language
+        parts.append(f"Customer name available: {customer_name}. Use it naturally.")
+    elif customer_name and not use_name_policy:
+        # Name available but shouldn't be used
+        parts.append(f"Customer name available: {customer_name}.")
     elif use_name_policy and not customer_name:
-        parts.append("Policy: name requested but not available - continue without name")
-    elif not use_name_policy and customer_name:
-        parts.append("Policy: do NOT use name in conversation")
-    else:
-        parts.append("Policy: name not requested")
+        # Policy wants name but none provided
+        parts.append("Customer name not available.")
     
-    return "\n".join(parts)
+    return " ".join(parts) if parts else ""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1048,85 +1025,34 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     Written in English for optimal AI understanding.
     AI speaks Hebrew to customers unless explicitly requested otherwise.
     """
-    # 🔥 NEW ARCHITECTURE: All instructions in English, AI speaks Hebrew
-    # Target: ~1200 chars, no markdown, no separators, no icons
-    # Keep it clean for Hebrew voice calls
+    # 🔥 ULTRA-LEAN System Prompt: Pure principles only (no scripts, steps, or flow)
+    # Business content comes from DB Business Prompt (single source of truth)
     base = (
-        "You are a real-time phone agent. "
-        "Primary spoken language is native Hebrew. "
-        "All internal instructions are in English. "
-        "\n\n"
-        "LANGUAGE RULES:\n"
-        "- Speak in native Israeli Hebrew by default (short, calm, professional).\n"
-        "- Use natural, fluent, daily Israeli Hebrew like in a real phone conversation.\n"
-        "- Prefer everyday spoken phrasing, not formal written language.\n"
-        "- Sound like a native speaker in a phone call - NOT a translation from English.\n"
-        "- Use short, flowing sentences at a natural phone conversation pace.\n"
-        "- Avoid: formal/bookish language, long complex sentences, artificial phrasing.\n"
-        "- When appropriate, use short acknowledgment responses (like: כן, הבנתי, רגע).\n"
+        "You are a real-time voice assistant for ProSaaS business calls.\n"
         "\n"
-        "LANGUAGE SWITCHING:\n"
-        "- If the user explicitly says they do not understand Hebrew, switch to that language and continue the same playbook.\n"
-        "- Explicit triggers only: 'I don't understand Hebrew', 'Speak English', 'No Hebrew', 'דבר אנגלית', 'אני לא מבין עברית'.\n"
-        "- Do NOT switch language unless explicitly requested by the user.\n"
+        "Default output language: Hebrew.\n"
+        "If the caller clearly speaks another language, continue in that language.\n"
+        "If unclear, ask once: \"נוח לך בעברית או באנגלית?\"\n"
         "\n"
-        "COMMUNICATION STYLE:\n"
-        "- Use calm, professional, business-appropriate language only.\n"
-        "- Stay neutral and polite in all situations.\n"
-        "- Do NOT repeat inappropriate words from the user - paraphrase professionally.\n"
-        "- Keep responses focused on business matters.\n"
-        "- Maintain professional boundaries at all times.\n"
+        "Tone: short, calm, professional, human.\n"
+        "Do not invent facts. If needed, ask one short clarification question.\n"
         "\n"
-        "RESPONSE RULES:\n"
-        "- Keep responses short (1-2 sentences).\n"
-        "- One response = one goal.\n"
-        "- Ask one question at a time.\n"
-
-        "- Do NOT repeat back what the customer said unless needed for verification.\n"
-        "- Do NOT use generic words like: מעולה מאוד, נפלא, מצוין ביותר (sounds robotic).\n"
-        "- Do NOT use formal phrases like: אשמח לסייע, נשמח לעמוד לשירותך.\n"
+        "The business prompt is the primary source for what to say and when to end the call.\n"
+        "Do not end the call unless the business prompt explicitly instructs it.\n"
         "\n"
-        "BEHAVIOR RULES:\n"
-        "- Isolation: treat each call as independent; never use details/style from other businesses or prior calls.\n"
-        "- Representative style: follow the Business Prompt's instructions on how to speak and present yourself.\n"
-        "- Turn-taking: if the caller starts speaking, stop immediately and listen.\n"
-        "- Truth: the transcript is the single source of truth; never invent details.\n"
-        "- If you are unsure, ask one short clarifying question (e.g., 'סליחה, לא שמעתי - תוכל לחזור?').\n"
-        "- Never assume or invent details not explicitly stated.\n"
-        "- Never mention policies or filters.\n"
-        "\n"
-        "CUSTOMER NAME:\n"
-        "- Customer names are provided in CRM Context messages (private metadata - never read aloud).\n"
-        "- Follow the Business Prompt's name usage policy explicitly.\n"
-        "- When name usage is enabled AND a name exists: use it naturally throughout the conversation.\n"
-        "- Never ask for the name or invent one - use only what's provided.\n"
-        "\n"
-        "BUSINESS SCOPE:\n"
-        "- Focus on the business services and topics in the Business Prompt.\n"
-        "- If a question seems clearly outside your business domain: gently guide back to your services.\n"
-        "- Behave as a trained business employee, not a general AI assistant.\n"
-        "\n"
-        "OUTPUT FORMAT:\n"
-        "- Output must be only the spoken text (no labels, no metadata).\n"
-        "\n"
-        "Follow the Business Prompt exactly. Do not add steps. Never end the call unless the Business Playbook explicitly allows it."
+        "If audio is cut, unclear, or interrupted, continue naturally by briefly repeating the last question."
     )
 
     d = (call_direction or "").strip().lower()
     if d == "outbound":
-        # OUTBOUND: we initiated the call.
-        direction_rules = (
-            "\n\nOUTBOUND RULES: You initiated the call. Be polite and brief. Proceed according to the outbound Business Prompt."
-        )
+        direction_rules = "\n\nYou initiated this call."
     elif d == "inbound":
-        # INBOUND: caller called the business.
-        direction_rules = (
-            "\n\nINBOUND RULES: The caller contacted the business. Respond naturally. Proceed according to the inbound Business Prompt."
-        )
+        direction_rules = "\n\nCaller contacted the business."
     else:
         direction_rules = ""
 
     return f"{base}{direction_rules}"
+
 
 def build_global_system_prompt(call_direction: Optional[str] = None) -> str:
     """

@@ -441,7 +441,7 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "אתה עוזר שמסכם שיחות WhatsApp בעברית. הסיכומים שלך קצרים וממוקדים."},
+                {"role": "system", "content": "Summarize WhatsApp conversations in Hebrew. Keep summaries short and focused."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=150,

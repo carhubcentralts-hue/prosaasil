@@ -73,31 +73,28 @@ def _extract_phone_from_text(text: str) -> Optional[str]:
 
 def _build_compact_prompt(today_str: str, weekday_hebrew: str, tomorrow_str: str) -> str:
     """
-    🎯 NLP EXTRACTION PROMPT - Technical extraction rules ONLY
+    Appointment extraction prompt - extraction rules only.
     
-    ✅ Contains: Entity extraction rules
-    ❌ Does NOT contain: How to speak, greetings, conversation flow
-    
-    This prompt is for DATA EXTRACTION, not conversation behavior.
+    English instructions, no conversation guidance.
     """
     return f"""Extract appointment data from Hebrew conversation.
 Today: {today_str} ({weekday_hebrew})
 
 Return JSON:
-{{"action":"hours_info|ask|confirm|none","date":"YYYY-MM-DD|null","time":"HH:MM|null","name":"שם|null","phone":"05X...|null","confidence":0.0-1.0}}
+{{"action":"hours_info|ask|confirm|none","date":"YYYY-MM-DD|null","time":"HH:MM|null","name":"name|null","phone":"05X...|null","confidence":0.0-1.0}}
 
-Action Detection Rules:
-- hours_info: Customer asking about opening hours (NOT booking appointment)
-- ask: Customer requesting availability for specific date/time
-- confirm: Customer explicitly confirmed (כן/בסדר/מושלם/אוקיי/מתאים) AND name + date + time exist
-- none: No appointment-related action detected
+Action:
+- hours_info: asking about hours (not booking)
+- ask: requesting availability
+- confirm: confirmed (and has name + date + time)
+- none: no appointment action
 
-Entity Extraction Rules:
-1. Search entire conversation for: date, time, name, phone
-2. Date mapping: "היום"={today_str}, "מחר"={tomorrow_str}
-3. Date mapping (weekday words): if customer says "ראשון/שני/שלישי/רביעי/חמישי/שישי/שבת" return the nearest upcoming date for that weekday (relative to Today).
-4. Time mapping: "בשש"=18:00, "בשבע וחצי"=19:30, "בשמונה"=20:00
-5. Name: Generic names (לקוח/אדון/גברת) = null (wait for actual name)
+Entity rules:
+1. Search conversation for: date, time, name, phone
+2. Date: "today"={today_str}, "tomorrow"={tomorrow_str}
+3. Weekday: nearest upcoming date for that weekday
+4. Time: "six"=18:00, "seven thirty"=19:30
+5. Name: Generic = null (wait for actual name)
 6. Phone: Extract Israeli format (05X... or +972-5X...)
 7. Confidence: >80% if all required fields present
 

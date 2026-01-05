@@ -362,6 +362,16 @@ class AIService:
             system_prompt = system_prompt.replace("{{BUSINESS_NAME}}", business_name)
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
+            # 🔥 SANITIZE business prompt (remove URLs, normalize punctuation, clean IDs)
+            from server.services.prompt_sanitizer import sanitize_prompt_text
+            sanitized_result = sanitize_prompt_text(system_prompt, max_length=3000)
+            system_prompt = sanitized_result["sanitized_text"]
+            flags = sanitized_result["flags"]
+            
+            # Log sanitization flags (NOT values - only boolean flags)
+            if any(flags.values()):
+                logger.info(f"🧹 Sanitized business prompt - flags: {flags}")
+            
             # 🔥 ADD DYNAMIC POLICY TO PROMPT (hours, slots, etc.) 
             try:
                 from server.policy.business_policy import get_business_policy

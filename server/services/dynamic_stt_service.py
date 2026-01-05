@@ -106,17 +106,13 @@ def get_business_vocabulary(business_id: int) -> Dict[str, Any]:
 
 def build_dynamic_stt_prompt(business_id: int, active_task: str = "") -> str:
     """
-    Build a TELEPHONY-OPTIMIZED STT prompt for OpenAI transcription
+    Build telephony-optimized STT prompt for OpenAI transcription.
     
-    🔥 BUILD 206: Expert recommendations for 8kHz G.711 μ-law telephony:
-    - Keep prompt VERY short (under 100 chars)
-    - Focus on BEHAVIOR not vocabulary lists
-    - Tell model what NOT to do (prevent hallucinations)
-    - Business name + 4-6 key terms MAX
+    Short, behavior-focused (not vocabulary lists).
     
     Args:
         business_id: Business ID
-        active_task: Current task context (e.g., "booking", "inquiry")
+        active_task: Current task context
     
     Returns:
         Telephony-optimized transcription prompt
@@ -125,18 +121,14 @@ def build_dynamic_stt_prompt(business_id: int, active_task: str = "") -> str:
     
     business_name = vocab.get("business_name", "")
     
-    # 🔥 BUILD 206: TELEPHONY-OPTIMIZED prompt structure
-    # Core instruction: behavior-focused, not vocabulary-focused
-    # Expert recommendation: "תמלל עברית בשיחה טלפונית. הימנע מהוספת מילים."
+    # Core telephony instruction
+    prompt_parts = ["Transcribe Hebrew phone call."]
     
-    # Start with core telephony instruction
-    prompt_parts = ["תמלל עברית בשיחה טלפונית."]
-    
-    # Add business context (very brief)
+    # Brief business context
     if business_name:
-        prompt_parts.append(f"עסק: {business_name}.")
+        prompt_parts.append(f"Business: {business_name}.")
     
-    # Add ONLY 4-6 key hints (expert recommendation)
+    # Only 4-6 key hints
     hints = []
     services = vocab.get("services", [])[:3]
     staff = vocab.get("staff", [])[:2]
@@ -146,7 +138,7 @@ def build_dynamic_stt_prompt(business_id: int, active_task: str = "") -> str:
         hints.extend(staff)
     
     if hints:
-        prompt_parts.append(f"מילים: {', '.join(hints[:5])}.")
+        prompt_parts.append(f"Keywords: {', '.join(hints[:5])}.")
     
     # Critical: anti-hallucination instruction
     prompt_parts.append("רק תמלל, לא להוסיף.")
@@ -222,17 +214,19 @@ async def semantic_post_process(
             messages=[
                 {
                     "role": "system",
-                    "content": f"""אתה מתקן תמלולים עבריים. הקשר: {context}
-תפקידך: תקן שגיאות תמלול ברורות בהתאם להקשר העסקי.
-כללים:
-1. רק תקן טעויות ברורות (כמו "תפורת" → "תספורת")
-2. אל תוסיף או תמציא מילים
-3. אם הטקסט נכון או לא ברור - החזר אותו כמו שהוא
-4. החזר רק את הטקסט המתוקן, בלי הסברים"""
+                    "content": f"""Fix Hebrew transcription errors. Context: {context}
+
+Fix only clear mistakes.
+
+Do not add or invent words.
+
+If correct or unclear, return unchanged.
+
+Return only corrected text, no explanation."""
                 },
                 {
                     "role": "user",
-                    "content": f"תקן: {transcript}"
+                    "content": f"Fix: {transcript}"
                 }
             ]
         )
