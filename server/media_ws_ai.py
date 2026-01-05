@@ -586,6 +586,128 @@ class AudioState:
             return self.ema_noise_floor + VAD_ADAPTIVE_OFFSET
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 BARGE-IN VERIFICATION HELPER - Prevents false interrupts during audio generation
+# ═══════════════════════════════════════════════════════════════════════════════
+def _is_verified_barge_in(handler) -> bool:
+    """
+    🔥 CRITICAL: Verify that a barge-in is REAL before sending interrupt/clear/truncate
+    
+    This prevents race conditions where the system stops AI mid-sentence without actual user speech.
+    
+    ALL guards must pass to return True:
+    1. is_ai_speaking == True AND active_response_id exists (AI is actually speaking)
+    2. now - last_ai_audio_start_ts > 300ms (cooldown after AI starts speaking)
+    3. consecutive_voice_frames >= 10 OR voice_duration >= 200ms (sustained voice)
+    4. Voice is sustained (NOT just a single RMS spike)
+    
+    Args:
+        handler: MediaStreamHandler instance with state to check
+    
+    Returns:
+        True if ALL guards pass, False otherwise (DO NOT INTERRUPT)
+    """
+    now = time.time()
+    
+    # Guard 1: AI must be actively speaking with an active response
+    # This is THE key check - only interrupt if AI is actually generating audio
+    is_ai_speaking = getattr(handler, 'is_ai_speaking_event', None)
+    is_ai_speaking = is_ai_speaking.is_set() if is_ai_speaking else False
+    active_response_id = getattr(handler, 'active_response_id', None)
+    
+    if not is_ai_speaking or not active_response_id:
+        _orig_print(
+            f"🛡️ [BARGE-IN GUARD 1] AI not speaking (is_ai_speaking={is_ai_speaking}, "
+            f"active_response_id={'Yes' if active_response_id else 'None'}) - NO NEED TO INTERRUPT",
+            flush=True
+        )
+        return False
+    
+    # Guard 2: Cooldown window after AI starts speaking
+    # Prevents echo from AI's own voice from triggering barge-in
+    # This MUST use last_ai_audio_START_ts, not last_ai_audio_ts
+    last_ai_start_ts = getattr(handler, '_last_ai_audio_start_ts', None)
+    audio_state = getattr(handler, 'audio_state', None)
+    if audio_state and audio_state.last_ai_audio_start_ts:
+        last_ai_start_ts = audio_state.last_ai_audio_start_ts
+    
+    elapsed_ms = None
+    if not last_ai_start_ts:
+        # No AI start timestamp - this shouldn't happen if is_ai_speaking=True
+        # Allow barge-in to be safe
+        _orig_print(f"⚠️ [BARGE-IN GUARD 2] No last_ai_audio_start_ts - allowing (safety)", flush=True)
+    else:
+        elapsed_ms = (now - last_ai_start_ts) * 1000
+        cooldown_ms = ANTI_ECHO_COOLDOWN_MS  # 300ms
+        if elapsed_ms < cooldown_ms:
+            _orig_print(
+                f"🛡️ [BARGE-IN GUARD 2] elapsed={elapsed_ms:.0f}ms < cooldown={cooldown_ms}ms - "
+                f"ANTI-ECHO WINDOW (too soon after AI started speaking)",
+                flush=True
+            )
+            return False
+    
+    # Guard 3: Sustained voice detection
+    # Require either: consecutive_voice_frames >= 10 OR voice_duration >= 200ms
+    # This prevents single RMS spikes from triggering barge-in
+    
+    # Check consecutive voice frames
+    verified_frames = 0
+    if audio_state:
+        verified_frames = audio_state.consecutive_voice_frames
+    else:
+        # Fallback to handler's direct counter
+        verified_frames = getattr(handler, 'barge_in_voice_frames', 0)
+    
+    # Check voice duration
+    voice_started_ts = getattr(audio_state, 'voice_started_ts', None) if audio_state else None
+    voice_duration_ms = 0
+    if voice_started_ts:
+        voice_duration_ms = (now - voice_started_ts) * 1000
+    
+    min_frames = BARGE_IN_VOICE_FRAMES  # 10 frames = 200ms
+    min_duration_ms = 200  # 200ms minimum
+    
+    frames_ok = verified_frames >= min_frames
+    duration_ok = voice_duration_ms >= min_duration_ms
+    
+    if not frames_ok and not duration_ok:
+        _orig_print(
+            f"🛡️ [BARGE-IN GUARD 3] NOT SUSTAINED VOICE - "
+            f"frames={verified_frames} (need {min_frames}), "
+            f"duration={voice_duration_ms:.0f}ms (need {min_duration_ms}ms)",
+            flush=True
+        )
+        return False
+    
+    # Guard 4: NOT just a spike - voice must be sustained over time
+    # Check that voice_started_ts exists and is recent enough
+    # This prevents old voice_started_ts from allowing false barge-in
+    if voice_started_ts:
+        time_since_voice_start = (now - voice_started_ts) * 1000
+        # If voice started more than 2 seconds ago, this is stale - reject
+        if time_since_voice_start > 2000:
+            _orig_print(
+                f"🛡️ [BARGE-IN GUARD 4] STALE VOICE STATE - "
+                f"voice_started {time_since_voice_start:.0f}ms ago (max 2000ms)",
+                flush=True
+            )
+            return False
+    
+    # ✅ ALL GUARDS PASSED - This is a verified, legitimate barge-in
+    _orig_print(
+        f"✅ [BARGE-IN VERIFIED] All guards passed - SAFE TO INTERRUPT AI",
+        flush=True
+    )
+    _orig_print(
+        f"   is_ai_speaking=True, active_response_id={active_response_id[:20] if active_response_id else 'None'}..., "
+        f"cooldown_elapsed={elapsed_ms:.0f}ms if elapsed_ms else 'N/A', "
+        f"verified_frames={verified_frames}, voice_duration={voice_duration_ms:.0f}ms",
+        flush=True
+    )
+    return True
+
+
 # 🔧 APPOINTMENT VALIDATION HELPER
 def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     """
@@ -6018,11 +6140,29 @@ class MediaStreamHandler:
                         
                         has_active_response = bool(self.active_response_id)
                         
-                        # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
-                        # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 CRITICAL FIX: VERIFY BARGE-IN BEFORE INTERRUPTING
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # Issue: speech_started can fire from echo, noise, or timing edge cases
+                        # Solution: Only interrupt if _is_verified_barge_in() returns True
+                        # 
+                        # This prevents:
+                        # - response.incomplete during audio generation
+                        # - Mid-sentence cuts when there's no real user speech
+                        # - Race conditions where timing causes false interrupts
+                        # ═══════════════════════════════════════════════════════════════════════
                         
-                        # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
-                        _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
+                        # 🛡️ MASTER GUARD: Check if this is a VERIFIED barge-in
+                        if not _is_verified_barge_in(self):
+                            _orig_print(f"🛡️ [BARGE-IN] speech_started detected but NOT VERIFIED - NOT INTERRUPTING AI", flush=True)
+                            # Still enable bypass for noise gate (OpenAI needs audio)
+                            self._realtime_speech_active = True
+                            self._realtime_speech_started_ts = time.time()
+                            # But DON'T interrupt the AI - let it finish speaking
+                            continue
+                        
+                        # ✅ VERIFIED BARGE-IN - Safe to interrupt
+                        _orig_print(f"🎙️ [BARGE-IN] VERIFIED - עוצר את הבוט מיד!", flush=True)
                         
                         # שלב 1: עצירה מיידית של שידור אודיו
                         self.barge_in_stop_tx = True
@@ -6263,6 +6403,11 @@ class MediaStreamHandler:
                             self.speaking_start_ts = now
                             self.speaking = True
                             self._last_ai_audio_start_ts = now
+                            
+                            # 🔥 BARGE-IN FIX: Also update AudioState for verification
+                            if hasattr(self, 'audio_state') and self.audio_state:
+                                self.audio_state.last_ai_audio_start_ts = now
+                            
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
@@ -11224,8 +11369,17 @@ class MediaStreamHandler:
         print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
 
     def _interrupt_speaking(self):
-        """✅ FIXED: עצירה מיידית של דיבור הבוט - סדר פעולות נכון"""
-        print("🚨 INTERRUPT_START: Beginning full interrupt sequence")
+        """
+        ✅ עצירה מיידית של דיבור הבוט - סדר פעולות נכון
+        
+        🔥 BARGE-IN FIX: Added verification check to prevent false interrupts
+        """
+        # 🛡️ VERIFICATION: Only interrupt if this is a verified barge-in
+        if not _is_verified_barge_in(self):
+            print("🛡️ INTERRUPT_BLOCKED: Not a verified barge-in - NOT INTERRUPTING")
+            return
+        
+        print("🚨 INTERRUPT_START: Beginning full interrupt sequence (verified barge-in)")
         
         # ✅ STEP 1: שלח clear לטוויליו ראשון
         if not self.ws_connection_failed:
