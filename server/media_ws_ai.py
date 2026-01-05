@@ -6660,6 +6660,11 @@ class MediaStreamHandler:
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
                     
+                    # 🔥 BARGE-IN FIX: Hard reset _last_ai_audio_ts on audio completion
+                    # This prevents phantom "AI speaking" state from queue remnants
+                    # Per requirement: Reset timestamp so is_ai_speaking_now() returns False
+                    self._last_ai_audio_ts = None
+                    
                     # 🔥 Track when AI finished speaking (for metrics only, no cooldown enforcement)
                     self._ai_finished_speaking_ts = time.time()
                     
