@@ -587,38 +587,57 @@ class AudioState:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 AI SPEAKING DETECTION - Single source of truth from watchdog logic
+# 🔥 AI SPEAKING DETECTION - HYBRID: timestamp + flag + queues (in priority order)
 # ═══════════════════════════════════════════════════════════════════════════════
 def is_ai_speaking_now(handler) -> bool:
     """
-    🔥 SINGLE SOURCE OF TRUTH: Determine if AI is currently speaking
+    🔥 HYBRID DETECTION: Determine if AI is currently speaking
     
-    Uses the EXACT SAME LOGIC as the 20-second silence watchdog.
-    This is the ONLY way to determine if AI is speaking - no other flags/timers.
+    Priority order (most reliable first):
+    1. PRIMARY: last_ai_audio_ts < 400ms (most reliable - updated on every audio.delta)
+    2. SECONDARY: is_ai_speaking flag (helper, but never alone - needs recent audio)
+    3. TERTIARY: Watchdog queues (backup only - needs recent audio)
     
-    AI is speaking if and only if there is audio in the transmission queues:
-    - realtime_audio_out_queue has frames waiting to be sent
-    - tx_q has frames waiting to be transmitted to Twilio
+    Why this order?
+    - last_ai_audio_ts is updated on EVERY audio.delta, making it the most reliable
+    - is_ai_speaking flag can get stuck True, so it's never used alone
+    - Queue size can include remnants/drain/latency, so it needs recent audio gate
     
-    This matches the watchdog's logic at line ~2696-2705 which resets activity
-    timestamp when queues have audio.
+    CRITICAL: Queues NEVER stand alone - always gated by recent audio timestamp
     
     Args:
         handler: MediaStreamHandler instance
     
     Returns:
-        True if AI is actively speaking (audio in queues), False otherwise
+        True if AI is actively speaking, False otherwise
     """
-    # Check realtime_audio_out_queue
-    q1_size = handler.realtime_audio_out_queue.qsize() if hasattr(handler, 'realtime_audio_out_queue') else 0
+    now = time.time()
+    last_ai_audio_ts = getattr(handler, '_last_ai_audio_ts', None)
     
-    # Check tx_q (Twilio transmission queue)
+    # PRIMARY: Recent realtime audio activity (most reliable ground truth)
+    # This timestamp is updated on every audio.delta event
+    if last_ai_audio_ts and (now - last_ai_audio_ts) < 0.4:
+        return True
+    
+    # SECONDARY: State flag (never alone - must have recent audio)
+    # The flag can get stuck, so we gate it with timestamp
+    is_ai_speaking_flag = getattr(handler, 'is_ai_speaking_event', None)
+    is_ai_speaking = is_ai_speaking_flag.is_set() if is_ai_speaking_flag else False
+    if is_ai_speaking and last_ai_audio_ts and (now - last_ai_audio_ts) < 1.2:
+        return True
+    
+    # TERTIARY: Watchdog queues ONLY if we recently had AI audio
+    # Queues alone can have remnants - must be gated by recent audio
+    q1_size = handler.realtime_audio_out_queue.qsize() if hasattr(handler, 'realtime_audio_out_queue') else 0
     tx_size = handler.tx_q.qsize() if hasattr(handler, 'tx_q') else 0
     
-    # AI is speaking if ANY queue has audio
-    total_queued = q1_size + tx_size
+    if (q1_size > 0 or tx_size > 0):
+        # CRITICAL: Never return True from queues alone
+        # Only consider speaking if we recently had AI audio (within 1.2s)
+        return bool(last_ai_audio_ts and (now - last_ai_audio_ts) < 1.2)
     
-    return total_queued > 0
+    # No evidence of AI speaking
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -628,11 +647,15 @@ def _is_verified_barge_in(handler) -> bool:
     """
     🔥 CRITICAL: Verify that a barge-in is REAL before sending interrupt/clear/truncate
     
-    Uses WATCHDOG LOGIC as single source of truth for "AI is speaking".
-    This prevents race conditions where the system stops AI mid-sentence without actual user speech.
+    Uses HYBRID WATCHDOG+REALTIME logic to detect if AI is speaking.
+    This prevents race conditions and false positives from queue remnants.
+    
+    IMPORTANT: This function should ONLY be called when user is speaking.
+    It determines if that user speech qualifies as a "barge-in" (interrupting AI)
+    or just normal "user speech" (when AI is silent).
     
     GATE CONDITIONS (both must be true):
-    1. is_ai_speaking_now() == True (AI actually transmitting audio - from watchdog)
+    1. is_ai_speaking_now() == True (AI actually speaking - hybrid detection)
     2. active_response_id exists (valid response to cancel)
     
     VERIFICATION CONDITIONS (sustained voice):
@@ -643,17 +666,17 @@ def _is_verified_barge_in(handler) -> bool:
         handler: MediaStreamHandler instance with state to check
     
     Returns:
-        True if ALL conditions pass, False otherwise (DO NOT INTERRUPT)
+        True if ALL conditions pass (this is BARGE-IN), False otherwise (this is USER_SPEECH)
     """
     now = time.time()
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # GATE 1: AI must be actively speaking (WATCHDOG TRUTH SOURCE)
+    # GATE 1: AI must be actively speaking (HYBRID WATCHDOG+REALTIME)
     # ═══════════════════════════════════════════════════════════════════════════════
-    # Use is_ai_speaking_now() which checks the EXACT SAME queues as the watchdog
-    # This is the ONLY reliable way to know if AI is speaking
+    # Use is_ai_speaking_now() which combines flags + timestamps + queues
+    # This is critical to distinguish BARGE-IN from normal USER_SPEECH
     if not is_ai_speaking_now(handler):
-        # AI is NOT speaking (no audio in queues) - no need to interrupt
+        # AI is NOT speaking - this is just normal USER_SPEECH, not a barge-in
         # Return immediately without any cancel/clear/truncate operations
         return False
     
@@ -6079,16 +6102,20 @@ class MediaStreamHandler:
                         # ═══════════════════════════════════════════════════════════════════════
                         
                         # 🛡️ MASTER GUARD: Check if this is a VERIFIED barge-in
+                        # This distinguishes between:
+                        # - BARGE-IN: User speaks while AI is speaking (verified by is_ai_speaking_now)
+                        # - USER_SPEECH: User speaks while AI is silent (normal conversation)
                         if not _is_verified_barge_in(self):
-                            _orig_print(f"🛡️ [BARGE-IN] speech_started detected but NOT VERIFIED - NOT INTERRUPTING AI", flush=True)
+                            # AI is NOT speaking - this is normal USER_SPEECH, not barge-in
+                            _orig_print(f"🎤 [USER_SPEECH] User speaking (AI is silent) - normal conversation flow", flush=True)
                             # Still enable bypass for noise gate (OpenAI needs audio)
                             self._realtime_speech_active = True
                             self._realtime_speech_started_ts = time.time()
-                            # But DON'T interrupt the AI - let it finish speaking
+                            # But DON'T interrupt the AI - no need (AI not speaking)
                             continue
                         
-                        # ✅ VERIFIED BARGE-IN - Safe to interrupt
-                        _orig_print(f"🎙️ [BARGE-IN] VERIFIED - עוצר את הבוט מיד!", flush=True)
+                        # ✅ VERIFIED BARGE-IN - User is interrupting AI while AI is speaking
+                        _orig_print(f"🎙️ [BARGE-IN] VERIFIED - User interrupting AI - עוצר את הבוט מיד!", flush=True)
                         
                         # שלב 1: עצירה מיידית של שידור אודיו
                         self.barge_in_stop_tx = True
