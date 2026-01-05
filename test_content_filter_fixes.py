@@ -54,17 +54,28 @@ def test_url_removal():
 
 
 def test_id_removal():
-    """Test that technical IDs are removed"""
-    text1 = "Lead ID: 12345 and call_id=abc-def"
+    """Test that technical IDs are removed (but NOT regular numbers)"""
+    # Should remove technical IDs
+    text1 = "Lead ID: abc123def456 and call_id=uuid-long-string-here"
     sanitized1 = sanitize_for_realtime(text1)
-    assert "Lead ID: 12345" not in sanitized1, "Lead ID should be removed"
-    assert "call_id=abc-def" not in sanitized1, "call_id should be removed"
+    assert "call_id=uuid-long-string-here" not in sanitized1, "call_id should be removed"
+    assert "abc123def456" not in sanitized1, "Long ID should be removed"
     
-    text2 = "Business ID: 789, tenant_id: 456"
+    text2 = "Business ID: verylongid12345, tenant_id: another-long-one"
     sanitized2 = sanitize_for_realtime(text2)
-    assert "Business ID: 789" not in sanitized2, "Business ID should be removed"
+    assert "verylongid12345" not in sanitized2, "Long Business ID should be removed"
     
-    print("✅ ID removal test passed")
+    # Should KEEP regular numbers
+    text3 = "יש לי 3 עובדים ובשנת 2019 פתחנו"
+    sanitized3 = sanitize_for_realtime(text3)
+    assert "3" in sanitized3, "Regular number 3 should be kept"
+    assert "2019" in sanitized3, "Year 2019 should be kept"
+    
+    text4 = "Business ID: 123 is short"  # Short ID (3 digits) - should be kept
+    sanitized4 = sanitize_for_realtime(text4)
+    assert "123" in sanitized4, "Short number should be kept (not an ID pattern)"
+    
+    print("✅ ID removal test passed (preserves regular numbers)")
 
 
 def test_technical_markers_removal():
@@ -118,19 +129,19 @@ def test_pii_analysis():
     assert analysis3['contains_url'] == True, "Should detect URL"
     assert "https://example.com" not in str(analysis3), "Should not contain actual URL"
     
-    # Text with ID
-    text4 = "Lead ID: 12345"
+    # Text with technical ID (long)
+    text4 = "Lead ID: abc123def456789"
     analysis4 = analyze_text_for_pii(text4)
-    assert analysis4['contains_id'] == True, "Should detect ID"
-    assert "12345" not in str(analysis4), "Should not contain actual ID"
+    assert analysis4['contains_id'] == True, "Should detect long ID"
+    assert "abc123def456789" not in str(analysis4), "Should not contain actual ID"
     
-    # Text with no PII
-    text5 = "שלום, איך אפשר לעזור?"
+    # Text with regular numbers (should NOT detect as ID)
+    text5 = "יש לי 3 עובדים ובשנת 2019 פתחנו"
     analysis5 = analyze_text_for_pii(text5)
     assert analysis5['contains_email'] == False, "Should not detect email"
     assert analysis5['contains_phone'] == False, "Should not detect phone"
     assert analysis5['contains_url'] == False, "Should not detect URL"
-    assert analysis5['contains_id'] == False, "Should not detect ID"
+    assert analysis5['contains_id'] == False, "Should not detect ID from regular numbers"
     
     # Check hash is present
     assert 'text_hash' in analysis5, "Should have hash"
@@ -155,14 +166,16 @@ def test_real_world_prompt_with_pii():
     Customer name: John Doe
     Email: john.doe@company.com
     Phone: 054-1234567
-    Lead ID: 12345
+    Lead ID: abc123def456789
     Website: https://company.co.il
     
-    Business ID: 789
+    Business ID: verylongid123456789
     
     ##CRM_CONTEXT_START##
     Full context here...
     ##CRM_CONTEXT_END##
+    
+    יש לי 3 עובדים ובשנת 2019 פתחנו
     
     Help the customer with their inquiry!!!!
     """
@@ -190,11 +203,15 @@ def test_real_world_prompt_with_pii():
     assert "john.doe@company.com" not in sanitized
     assert "054-1234567" not in sanitized
     assert "https://company.co.il" not in sanitized
-    assert "Lead ID: 12345" not in sanitized
-    assert "Business ID: 789" not in sanitized
+    assert "abc123def456789" not in sanitized
+    assert "verylongid123456789" not in sanitized
     assert "##CRM_CONTEXT_START##" not in sanitized
     assert "##CRM_CONTEXT_END##" not in sanitized
     assert "!!!!" not in sanitized
+    
+    # Should preserve regular numbers
+    assert "3" in sanitized, "Regular number 3 should be kept"
+    assert "2019" in sanitized, "Year 2019 should be kept"
     
     # Should still have business context
     assert "Tech Company" in sanitized

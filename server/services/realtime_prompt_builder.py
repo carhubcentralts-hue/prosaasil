@@ -804,10 +804,11 @@ def analyze_text_for_pii(text: str) -> Dict[str, Any]:
         re.search(r'\b[a-zA-Z0-9-]+\.(com|net|org|co\.il|il)[^\s]*', text)
     )
     
-    # ID patterns
+    # ID patterns - only technical IDs, NOT regular numbers
     contains_id = bool(
-        re.search(r'\b(?:lead_id|call_id|business_id|tenant_id|user_id|response_id)\s*[=:]\s*[^\s,]+', text, re.IGNORECASE) or
-        re.search(r'\b(?:Business|Lead|Call|Response)\s+ID\s*[=:]?\s*[0-9]+', text, re.IGNORECASE)
+        re.search(r'\b(?:lead_id|call_id|business_id|tenant_id|user_id|response_id|session_id|stream_sid)\s*[=:]\s*[^\s,]+', text, re.IGNORECASE) or
+        re.search(r'\b(?:Business|Lead|Call|Response|Session|Stream)\s+(?:ID|Id)\s*[=:]?\s*[a-zA-Z0-9_-]{8,}', text, re.IGNORECASE) or
+        re.search(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b', text)  # UUID
     )
     
     # Hash for correlation (NOT for reconstruction)
@@ -892,18 +893,26 @@ def sanitize_for_realtime(text: str, max_chars: int = 3000) -> str:
     )
     
     # 🔥 RULE 4: Remove technical IDs and markers
+    # ⚠️ CAREFUL: Only remove specific ID patterns, NOT regular numbers!
     # Remove patterns like: lead_id=123, call_id=abc, Business ID: 456
+    # But keep regular numbers: "יש לי 3 עובדים", "שנת 2019"
     text = re.sub(
-        r'\b(?:lead_id|call_id|business_id|tenant_id|user_id|response_id)\s*[=:]\s*[^\s,]+',
+        r'\b(?:lead_id|call_id|business_id|tenant_id|user_id|response_id|session_id|stream_sid)\s*[=:]\s*[^\s,]+',
         '',
         text,
         flags=re.IGNORECASE
     )
     text = re.sub(
-        r'\b(?:Business|Lead|Call|Response)\s+ID\s*[=:]?\s*[0-9]+',
+        r'\b(?:Business|Lead|Call|Response|Session|Stream|Tenant)\s+(?:ID|Id)\s*[=:]?\s*[a-zA-Z0-9_-]{8,}',  # Only long IDs (8+ chars)
         '',
         text,
         flags=re.IGNORECASE
+    )
+    # Remove UUIDs (pattern: 8-4-4-4-12 hex chars)
+    text = re.sub(
+        r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b',
+        '',
+        text
     )
     
     # 🔥 RULE 5: Remove technical markers and system manipulation patterns

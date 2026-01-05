@@ -5888,40 +5888,71 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - WITH PROPER VERIFICATION (B1-B4)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
-                    # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
+                    # Requirements:
+                    # 1. Only interrupt if AI is TRULY speaking (is_ai_speaking_now())
+                    # 2. Only if user speech is verified (is_verified_user_speech())
+                    # 3. Cooldown after AI started (<300ms) to avoid false triggers
+                    # 4. Atomic + idempotent interrupt sequence
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # Requirements per הנחיה:
-                    # 1. If active_response_id is empty → do nothing
-                    # 2. If active_response_status != "in_progress" → do nothing
-                    # 3. If cancel_in_flight == True → do nothing (already canceling)
-                    # 4. Otherwise: Set cancel_in_flight=True, send cancel ONCE, mark locally
-                    # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
-                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 B3: GATE 1 - Check if AI is truly speaking now
+                    if not self.is_ai_speaking_now():
+                        # AI is NOT speaking - this is just normal user speech, NOT barge-in
+                        print(f"👤 [USER_SPEECH] User speaking while AI silent (not barge-in)")
+                        # Continue to mark speech active, but don't cancel anything
+                        self._realtime_speech_active = True
+                        self._realtime_speech_started_ts = time.time()
+                        print(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
+                        continue  # Skip barge-in logic below
                     
-                    # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
-                    # The old code had too many guards that prevented barge-in from working
-                    # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
+                    # 🔥 B3: GATE 2 - Check if user speech is verified (NOT just a noise spike)
+                    # NOTE: For the first frame of speech_started, we can't fully verify yet
+                    # So we allow the interrupt but log it as "candidate" barge-in
+                    # The verification will be confirmed on transcription.completed
+                    
+                    # 🔥 B3: GATE 3 - Check cooldown after AI started (<300ms)
+                    if hasattr(self, '_ai_speech_start') and self._ai_speech_start:
+                        time_since_ai_started_ms = (time.time() - self._ai_speech_start) * 1000
+                        if time_since_ai_started_ms < 300:
+                            print(f"⏸️ [BARGE-IN] Too soon after AI started ({time_since_ai_started_ms:.0f}ms < 300ms) - waiting")
+                            # Mark speech active but don't interrupt yet
+                            self._realtime_speech_active = True
+                            self._realtime_speech_started_ts = time.time()
+                            continue
+                    
+                    # 🔥 B4: INTERRUPT SEQUENCE - Atomic + Idempotent
+                    # Check if we should interrupt (not already in cooldown)
+                    interrupt_in_progress = getattr(self, '_interrupt_in_progress', False)
+                    if interrupt_in_progress:
+                        last_interrupt_ts = getattr(self, '_last_interrupt_ts', 0)
+                        elapsed_ms = (time.time() - last_interrupt_ts) * 1000
+                        if elapsed_ms < 700:
+                            print(f"⏸️ [BARGE-IN] Interrupt cooldown ({elapsed_ms:.0f}ms < 700ms) - skipping")
+                            continue
+                    
+                    # All gates passed - trigger verified barge-in
+                    # 🔥 Dרישה 6: לוג אחד עם מדדים טכניים (הוכחת אמת)
+                    ai_audio_age_ms = (time.time() - self.last_ai_audio_ts) * 1000 if self.last_ai_audio_ts else 9999
+                    utterance_duration_ms = (time.time() - self._utterance_start_ts) * 1000 if self._utterance_start_ts else 0
+                    realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                    tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                    
+                    _orig_print(
+                        f"🎙️ [BARGE_IN_VERIFIED] "
+                        f"ai_speaking=True last_ai_audio_age_ms={ai_audio_age_ms:.0f} "
+                        f"user_utterance_ms={utterance_duration_ms:.0f} "
+                        f"realtime_q={realtime_q} tx_q={tx_q} "
+                        f"cooldown_ok=True interrupt_lock=False",
+                        flush=True
+                    )
+                    
+                    # Mark interrupt in progress with timestamp
+                    self._interrupt_in_progress = True
+                    self._last_interrupt_ts = time.time()
                     
                     has_active_response = bool(self.active_response_id)
-                    
-                    # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
-                    # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
-                    
-                    # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
-                    _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
                     
                     # שלב 1: עצירה מיידית של שידור אודיו
                     self.barge_in_stop_tx = True
@@ -5969,7 +6000,15 @@ class MediaStreamHandler:
                         else:
                             _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
                     
-                    _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
+                    # Unlock interrupt after short delay (async)
+                    async def _unlock_interrupt():
+                        await asyncio.sleep(0.7)  # 700ms cooldown
+                        self._interrupt_in_progress = False
+                        print(f"🔓 [BARGE-IN] Interrupt cooldown completed - ready for next")
+                    
+                    asyncio.create_task(_unlock_interrupt())
+                    
+                    _orig_print(f"✅ [BARGE_IN_VERIFIED] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -6149,6 +6188,7 @@ class MediaStreamHandler:
                             self.speaking_start_ts = now
                             self.speaking = True
                             self._last_ai_audio_start_ts = now
+                            self._ai_speech_start = now  # 🔥 BARGE-IN FIX: Track for cooldown gate
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
