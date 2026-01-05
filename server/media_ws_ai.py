@@ -5386,6 +5386,33 @@ class MediaStreamHandler:
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
 
+                        # 🔥 CRITICAL FIX: Block POLITE_HANGUP if response ended with status=incomplete
+                        # When OpenAI returns status=incomplete (e.g., content_filter), the response was
+                        # truncated mid-sentence and is NOT a natural end-of-turn. Allowing hangup in
+                        # this state causes the bot to cut sentences mid-speech.
+                        # 
+                        # Rule: response.done with status=incomplete is NOT a valid completion:
+                        # - ❌ Not end-of-turn
+                        # - ❌ Not safe to hang up
+                        # - ✅ Continue conversation or let next response complete
+                        if status == "incomplete":
+                            reason = status_details.get("reason", "unknown") if isinstance(status_details, dict) else "unknown"
+                            force_print(f"⚠️ [INCOMPLETE_RESPONSE] resp_id={resp_id[:20]}... status=incomplete reason={reason} - CANCELLING pending hangup")
+                            logger.warning(f"[INCOMPLETE_RESPONSE] Response ended incomplete (reason={reason}) - this is NOT a natural completion")
+                            
+                            # Cancel any pending hangup for THIS response_id
+                            # This prevents POLITE_HANGUP from executing when response.audio.done arrives
+                            if self.pending_hangup and self.pending_hangup_response_id == resp_id:
+                                force_print(f"🚫 [INCOMPLETE_RESPONSE] Cancelling pending hangup for incomplete response {resp_id[:20]}...")
+                                self.pending_hangup = False
+                                self.pending_hangup_response_id = None
+                                self.pending_hangup_reason = None
+                                self.pending_hangup_source = None
+                                # Don't transition to CLOSING - stay in ACTIVE for next response
+                                if self.call_state == CallState.CLOSING:
+                                    self.call_state = CallState.ACTIVE
+                                    force_print(f"📞 [STATE] Reverting CLOSING → ACTIVE (incomplete response)")
+                        
                         # NOTE: greeting_lock must be released only after response.audio.done (playback-end),
                         # not on response.done (generation-end).
                         if DEBUG:
