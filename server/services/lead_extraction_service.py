@@ -138,44 +138,44 @@ def extract_city_and_service_from_summary(summary_text: str) -> dict:
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
         # Build prompt - focused on summary extraction
-        system_prompt = """You are a data extraction engine for Hebrew phone call summaries.
+        system_prompt = """Extract data from Hebrew call summaries.
 
-GOAL:
-Extract exactly TWO pieces of information from the call summary:
-  1) CITY: The city where the service is needed (in Hebrew)
-  2) SERVICE TYPE: The type of service/professional the customer needs (in Hebrew)
+Extract two items:
+1. CITY: Where service is needed (Hebrew)
+2. SERVICE TYPE: Type of service needed (Hebrew)
 
-STRICT RULES:
-- Use ONLY information explicitly mentioned in the summary
-- Do NOT invent or guess city or service
-- If uncertain, leave the field empty
-- Return both canonical name (city) and raw input (raw_city) if mentioned
-- For service, extract the SPECIFIC service mentioned (e.g., "תיקון מנעול חכם", "חשמלאי", "קיצור דלתות")
+Rules:
+- Use only information in summary
+- Do not invent or guess
+- If not mentioned: return null
+- Return JSON only
+- If uncertain, leave empty
+- Return canonical name (city) and raw input (raw_city)
+- For service, extract specific service mentioned
 
-OUTPUT FORMAT (JSON ONLY):
+Output JSON:
 {
-  "city": "<Hebrew city name or empty string>",
-  "raw_city": "<Raw city input from customer or empty string>",
-  "service_category": "<Hebrew service/professional type or empty string>",
-  "confidence": <float between 0.0 and 1.0>
+  "city": "<Hebrew city name or empty>",
+  "raw_city": "<Raw city from customer or empty>",
+  "service_category": "<Hebrew service type or empty>",
+  "confidence": <float 0.0-1.0>
 }
 
-CONFIDENCE SCORING:
-- 0.9-1.0: Both city and service explicitly mentioned
-- 0.7-0.9: Both found but one needs inference
-- 0.5-0.7: Only one clearly mentioned
-- 0.0-0.5: Weak or no evidence
+Confidence:
+- 0.9-1.0: Both city and service explicit
+- 0.7-0.9: Both found, one inferred
+- 0.5-0.7: Only one clear
+- 0.0-0.5: Weak evidence
 
 Examples:
-- "לקוח צריך פורץ מנעולים בתל אביב" → {"city": "תל אביב", "raw_city": "תל אביב", "service_category": "פורץ מנעולים", "confidence": 0.95}
-- "לקוח מעוניין בתיקון מנעול חכם בעיר בית שאן" → {"city": "בית שאן", "raw_city": "בית שאן", "service_category": "תיקון מנעול חכם", "confidence": 0.95}
+- "Customer needs locksmith in Tel Aviv" → {"city": "Tel Aviv", "raw_city": "Tel Aviv", "service_category": "locksmith", "confidence": 0.95}
 """
         
-        user_prompt = f"""Extract city and service from this call summary (in Hebrew):
+        user_prompt = f"""Extract city and service from call summary (Hebrew):
 
 \"\"\"{summary_text}\"\"\"
 
-Return ONLY valid JSON with the four required fields: city, raw_city, service_category, confidence.
+Return JSON with four fields: city, raw_city, service_category, confidence.
 """
         
         # Call OpenAI
@@ -297,45 +297,45 @@ STRICT RULES:
 - Do NOT invent or guess a city or service that is not clearly supported by the transcript
 - If the customer mentions an area or landmark (e.g., "אזור קניון הזהב"), map it to the correct city
 - If you are uncertain about either field, leave it empty (empty string)
-- The conversation is in Hebrew, but you will respond in JSON
-- Look for direct statements like: "אני צריך..." (service), "אני גר ב..." (city), "באזור..." (city)
+- Respond in JSON
+- Look for direct statements
 
-OUTPUT FORMAT (JSON ONLY):
+Output JSON:
 {
-  "service": "<Hebrew service name or empty string if not found>",
-  "city": "<Hebrew city name or empty string if not found>",
-  "confidence": <float between 0.0 and 1.0 representing confidence in BOTH values together>
+  "service": "<Hebrew service name or empty>",
+  "city": "<Hebrew city name or empty>",
+  "confidence": <float 0.0-1.0>
 }
 
-CONFIDENCE SCORING:
-- 0.9-1.0: Both service and city explicitly mentioned with clear context
-- 0.7-0.9: Both found but one is inferred from context
-- 0.5-0.7: One clearly mentioned, other inferred or missing
-- 0.0-0.5: Weak or no evidence for either field
+Confidence:
+- 0.9-1.0: Both explicit with clear context
+- 0.7-0.9: Both found, one inferred
+- 0.5-0.7: One clear, other inferred or missing
+- 0.0-0.5: Weak or no evidence
 
-Examples of GOOD extractions:
-- "אני צריך פורץ מנעולים בראשון לציון" → {"service": "פורץ מנעולים", "city": "ראשון לציון", "confidence": 0.95}
-- "יש לי בעיה עם המנעול, אני גר בתל אביב" → {"service": "תיקון מנעולים", "city": "תל אביב", "confidence": 0.85}
+Good extractions:
+- "I need locksmith in Rishon LeZion" → {"service": "locksmith", "city": "Rishon LeZion", "confidence": 0.95}
+- "Problem with lock, live in Tel Aviv" → {"service": "lock repair", "city": "Tel Aviv", "confidence": 0.85}
 
-Examples of WEAK extractions (return low confidence or empty):
-- "כן, אני צריך עזרה" → {"service": "", "city": "", "confidence": 0.0} (too vague)
-- "תודה, להתראות" → {"service": "", "city": "", "confidence": 0.0} (no info)
+Weak extractions (low confidence or empty):
+- "Yes, need help" → {"service": "", "city": "", "confidence": 0.0}
+- "Thanks, bye" → {"service": "", "city": "", "confidence": 0.0}
 """
         
         # Add business context if provided
         if business_prompt and len(business_prompt) > 50:
             # Extract relevant parts of business prompt (first 500 chars)
             business_context = business_prompt[:500]
-            system_prompt += f"\n\nBUSINESS CONTEXT (for domain understanding):\n{business_context}\n"
+            system_prompt += f"\n\nBusiness context:\n{business_context}\n"
             logger.info(f"[OFFLINE_EXTRACT] Added business context: {len(business_context)} chars")
         
         # Build user prompt with transcript
-        user_prompt = f"""This is the FULL transcript of the call (in Hebrew):
+        user_prompt = f"""Full call transcript (Hebrew):
 
 \"\"\"{transcript}\"\"\"
 
-Extract the service and city according to the rules above.
-Return ONLY valid JSON with the three required fields: service, city, confidence.
+Extract service and city.
+Return JSON with three fields: service, city, confidence.
 """
         
         # Call OpenAI with timeout
