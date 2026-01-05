@@ -558,7 +558,7 @@ class OpenAIRealtimeClient:
                 if silence_duration_ms is None:
                     silence_duration_ms = 600  # Match default from config (was 900)
                 if prefix_padding_ms is None:
-                    prefix_padding_ms = 300  # Match default from config (was 400)
+                    prefix_padding_ms = 500  # Match default from config - increased for better speech capture
                 logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
         # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW
         # Per הנחיה: Use Realtime capabilities, no local noise-floor guards

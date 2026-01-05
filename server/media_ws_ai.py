@@ -97,7 +97,7 @@ try:
     from server.config.calls import (
         AUDIO_CONFIG, SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
-        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
+        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES, ECHO_GATE_DECAY_MS,
         BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
         NOISE_GATE_MIN_FRAMES,
@@ -114,6 +114,7 @@ except ImportError:
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
+    ECHO_GATE_DECAY_MS = 200  # Fallback value
     BARGE_IN_VOICE_FRAMES = 10  # Updated: 200ms - reduces false positives (was 8)
     BARGE_IN_DEBOUNCE_MS = 350
     GREETING_PROTECT_DURATION_MS = 500
@@ -2143,6 +2144,10 @@ class MediaStreamHandler:
         self._realtime_speech_active = False  # Set on speech_started, cleared on speech_stopped
         self._realtime_speech_started_ts = None  # When speech_started was received (for timeout)
         self._realtime_speech_timeout_sec = 30.0  # Auto-clear after 30 seconds if no speech_stopped (was 5s - too short!)
+        
+        # 🔥 TRANSCRIPTION IMPROVEMENT: Gate decay timing
+        # Prevents clipping end/start of turns by keeping gate open for decay period after speech stops
+        self._speech_stopped_ts = None  # Timestamp when speech stopped (for decay calculation)
         
         # 🔥 BUILD 187: CANCELLED RESPONSE RECOVERY
         # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
@@ -5982,12 +5987,15 @@ class MediaStreamHandler:
                 
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
-                    self._realtime_speech_active = False
+                    # 🔥 TRANSCRIPTION IMPROVEMENT: Add decay before re-enabling gate
+                    # Store timestamp when speech stopped, gate will re-enable after decay period
+                    self._speech_stopped_ts = time.time()
+                    print(f"🎤 [BUILD 166] Speech ended - gate decay started ({ECHO_GATE_DECAY_MS}ms)")
+                    
                     # 🔄 ADAPTIVE: Clear OpenAI confirmation flag when speech stops
                     if self._openai_speech_started_confirmed:
                         print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
                         self._openai_speech_started_confirmed = False
-                    print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                     
                     # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
                     # Don't allow response.create between speech_stopped and transcription
@@ -10302,13 +10310,29 @@ class MediaStreamHandler:
                     # This prevents Whisper/Realtime from hallucinating on background noise
                     # 🔥 BUILD 166: BYPASS noise gate when OpenAI is actively processing speech
                     # OpenAI needs continuous audio stream to detect speech end
+                    # 🔥 TRANSCRIPTION IMPROVEMENT: Add decay period before re-enabling gate
                     # Safety timeout: auto-reset if speech_stopped never arrives
-                    speech_bypass_active = self._realtime_speech_active
+                    
+                    # Check if we're in decay period (gate stays open after speech stops)
+                    in_decay_period = False
+                    if hasattr(self, '_speech_stopped_ts') and self._speech_stopped_ts:
+                        decay_elapsed_ms = (time.time() - self._speech_stopped_ts) * 1000
+                        if decay_elapsed_ms < ECHO_GATE_DECAY_MS:
+                            in_decay_period = True
+                        else:
+                            # Decay period expired, fully re-enable gate
+                            if self._realtime_speech_active:
+                                self._realtime_speech_active = False
+                                print(f"🎤 [GATE_DECAY] Decay period complete ({decay_elapsed_ms:.0f}ms) - gate RE-ENABLED")
+                            self._speech_stopped_ts = None
+                    
+                    speech_bypass_active = self._realtime_speech_active or in_decay_period
                     if speech_bypass_active and self._realtime_speech_started_ts:
                         elapsed = time.time() - self._realtime_speech_started_ts
                         if elapsed > self._realtime_speech_timeout_sec:
                             self._realtime_speech_active = False
                             speech_bypass_active = False
+                            self._speech_stopped_ts = None
                             print(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
                     
                     # 🔥 BUILD 302: BARGE-IN BYPASS - During barge-in, NEVER treat anything as noise
