@@ -560,15 +560,16 @@ class OpenAIRealtimeClient:
                 if prefix_padding_ms is None:
                     prefix_padding_ms = 500  # Match default from config - increased for better speech capture
                 logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
-        # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW
-        # Per הנחיה: Use Realtime capabilities, no local noise-floor guards
+        # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW (per הנחיה)
+        # Per requirement: "לקבע שפה עברית לתמלול + להוריד יצירתיות"
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
+        # - Explicit Hebrew language setting (MANDATORY)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
-        # - Explicit Hebrew language setting
-        # - Request logprobs for confidence scoring (if supported)
+        # - Temperature 0.0 for stability (no hallucinations)
         transcription_config = {
             "model": "gpt-4o-transcribe",  # Better Hebrew accuracy than whisper-1
-            "language": "he"  # Explicit Hebrew - mandatory for accuracy!
+            "language": "he",  # 🔥 CRITICAL: Explicit Hebrew - mandatory per הנחיה!
+            "temperature": 0.0  # 🔥 NEW: Zero temperature for stable transcription (no guessing)
         }
         
         # Add transcription prompt if provided (business-specific vocabulary)
