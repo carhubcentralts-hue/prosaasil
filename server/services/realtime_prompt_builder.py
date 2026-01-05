@@ -766,6 +766,7 @@ def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     - Remove heavy formatting / non-speech symbols that can confuse TTS
     - Flatten newlines (both actual and escaped) into spaces
     - Hard-cap size (Realtime is sensitive to large instructions)
+    - 🔥 CRITICAL FIX: Mitigate content filter triggers
     """
     if not text:
         return ""
@@ -785,9 +786,60 @@ def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     text = re.sub(r"[`*_>#|]+", " ", text)
     text = re.sub(r"[•●▪▫◆◇■□]+", " ", text)
 
+    # 🔥 CONTENT FILTER MITIGATION: Remove or replace potentially problematic patterns
+    # These patterns can trigger OpenAI's content moderation in Hebrew contexts
+    
+    # Remove excessive punctuation that might look aggressive (!!!!, ????)
+    text = re.sub(r"([!?]){3,}", r"\1\1", text)  # Reduce multiple !!! or ??? to just !!
+    
+    # Remove ALL CAPS sections (more than 4 consecutive caps) - can seem aggressive
+    def lowercase_caps(match):
+        caps_text = match.group(0)
+        # Keep acronyms (2-4 chars), lowercase longer sequences
+        if len(caps_text) > 4:
+            return caps_text.lower()
+        return caps_text
+    text = re.sub(r'\b[A-ZА-ЯЁ]{5,}\b', lowercase_caps, text)
+    
+    # Remove repetitive patterns that might trigger spam detection
+    # e.g., "!!!!!!!" or "??????" or "הההההה"
+    text = re.sub(r'(.)\1{4,}', r'\1\1\1', text)  # Reduce to max 3 repetitions
+    
+    # Remove URLs/links that might contain problematic content
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'www\.\S+', '', text)
+    
+    # Remove email addresses (might contain sensitive info)
+    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[email]', text)
+    
+    # Remove phone numbers in various formats (privacy concern)
+    text = re.sub(r'(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', '[phone]', text)
+    
+    # 🔥 HEBREW-SPECIFIC: Normalize Hebrew text encoding
+    # Replace Hebrew vowel marks (nikud) which can cause encoding issues
+    # Nikud range: U+0591 to U+05C7
+    text = re.sub(r'[\u0591-\u05C7]', '', text)
+    
+    # Normalize Hebrew whitespace and remove RTL/LTR marks that can cause issues
+    text = re.sub(r'[\u200e\u200f\u202a-\u202e]', '', text)  # Remove direction marks
+    
+    # 🔥 SAFETY: Remove potentially sensitive instruction patterns
+    # These might trigger content policy if they look like jailbreak attempts
+    sensitive_patterns = [
+        r'ignore\s+previous\s+instructions',
+        r'disregard\s+all\s+prior',
+        r'forget\s+everything',
+        r'התעלם\s+מהוראות',
+        r'שכח\s+הכל',
+    ]
+    for pattern in sensitive_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+
     # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
 
+    # 🔥 CONTENT LENGTH OPTIMIZATION: Keep prompts concise to reduce filter risk
+    # Shorter prompts = less chance of triggering content moderation
     if max_chars and len(text) > max_chars:
         cut = text[:max_chars]
         # Try to cut at a natural boundary, but don't over-trim.
@@ -869,12 +921,14 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "- Do NOT repeat inappropriate words from the user - paraphrase professionally.\n"
         "- Keep responses focused on business matters.\n"
         "- Maintain professional boundaries at all times.\n"
+        "- CRITICAL: Avoid any content that could trigger content moderation.\n"
+        "- Use simple, clear, direct language without exaggeration or intensity.\n"
+        "- If a topic seems sensitive, acknowledge briefly and redirect to business matters.\n"
         "\n"
         "RESPONSE RULES:\n"
         "- Keep responses short (1-2 sentences).\n"
         "- One response = one goal.\n"
         "- Ask one question at a time.\n"
-
         "- Do NOT repeat back what the customer said unless needed for verification.\n"
         "- Do NOT use generic words like: מעולה מאוד, נפלא, מצוין ביותר (sounds robotic).\n"
         "- Do NOT use formal phrases like: אשמח לסייע, נשמח לעמוד לשירותך.\n"
