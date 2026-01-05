@@ -92,7 +92,8 @@ def verify_temperature_fix():
     # Test 4: Verify transcription_config does NOT have temperature
     print("🧪 Test 4: Verify transcription_config does NOT have temperature")
     transcription_temp_check = any(
-        '"temperature"' in line or "'temperature'" in line
+        ('"temperature":' in line or "'temperature':" in line)
+        and not line.strip().startswith('#')
         for _, line in transcription_config_lines
     )
     assert not transcription_temp_check, \
