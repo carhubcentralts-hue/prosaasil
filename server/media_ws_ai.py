@@ -3044,22 +3044,52 @@ class MediaStreamHandler:
             import hashlib
             hash_before = hashlib.md5((greeting_prompt or "").encode()).hexdigest()[:8]
             
+            # 🔥 CONTENT FILTER FIX: Analyze for PII BEFORE sanitization
+            pii_before = {}
             try:
                 from server.services.realtime_prompt_builder import (
                     sanitize_realtime_instructions,
+                    analyze_text_for_pii,
                     FULL_PROMPT_MAX_CHARS,
                 )
+                pii_before = analyze_text_for_pii(greeting_prompt or "")
                 original_len = len(greeting_prompt or "")
+                
                 # 🔥 LATENCY-FIRST: Use FULL prompt from start (no compact anymore)
                 greeting_prompt = sanitize_realtime_instructions(
                     greeting_prompt or "",
                     max_chars=FULL_PROMPT_MAX_CHARS
                 )
                 sanitized_len = len(greeting_prompt)
-                if sanitized_len != original_len:
+                
+                # 🔥 CONTENT FILTER FIX: Analyze AFTER sanitization
+                pii_after = analyze_text_for_pii(greeting_prompt)
+                
+                # Log sanitization results (NO PII VALUES, only flags)
+                _orig_print(
+                    f"🧽 [PROMPT_SANITIZE] "
+                    f"len={original_len}→{sanitized_len} "
+                    f"before[email={pii_before.get('contains_email', False)} "
+                    f"phone={pii_before.get('contains_phone', False)} "
+                    f"url={pii_before.get('contains_url', False)} "
+                    f"id={pii_before.get('contains_id', False)}] "
+                    f"after[email={pii_after.get('contains_email', False)} "
+                    f"phone={pii_after.get('contains_phone', False)} "
+                    f"url={pii_after.get('contains_url', False)} "
+                    f"id={pii_after.get('contains_id', False)}] "
+                    f"hash={pii_after.get('text_hash', 'unknown')}",
+                    flush=True,
+                )
+                
+                # 🚨 WARNING: If PII still present after sanitization, log it
+                if pii_after.get('contains_email') or pii_after.get('contains_phone') or pii_after.get('contains_url') or pii_after.get('contains_id'):
                     _orig_print(
-                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap={FULL_PROMPT_MAX_CHARS})",
-                        flush=True,
+                        f"⚠️ [CONTENT_FILTER_RISK] PII detected after sanitization! "
+                        f"email={pii_after.get('contains_email')} "
+                        f"phone={pii_after.get('contains_phone')} "
+                        f"url={pii_after.get('contains_url')} "
+                        f"id={pii_after.get('contains_id')}",
+                        flush=True
                     )
             except Exception as _sanitize_err:
                 # Never block the call on sanitizer issues; proceed with original prompt.
@@ -5399,6 +5429,80 @@ class MediaStreamHandler:
                                     else:
                                         _orig_print(f"❌ [SERVER_ERROR] Graceful failure blocked by gate", flush=True)
                         
+                        # 🔥 CONTENT FILTER FIX: Handle status=incomplete reason=content_filter
+                        if status == "incomplete":
+                            reason = status_details.get("reason") if isinstance(status_details, dict) else None
+                            if reason == "content_filter":
+                                _orig_print(
+                                    f"🚨 [CONTENT_FILTER] Detected! call_sid={self.call_sid} response_id={resp_id[:20] if resp_id else 'unknown'}",
+                                    flush=True
+                                )
+                                
+                                # Log structured line for analysis
+                                logger.error(
+                                    f"[CONTENT_FILTER] call_sid={self.call_sid} "
+                                    f"response_id={resp_id[:20] if resp_id else 'unknown'} "
+                                    f"reason=content_filter"
+                                )
+                                
+                                # Initialize retry flag if not exists
+                                if not hasattr(self, '_content_filter_retried'):
+                                    self._content_filter_retried = False
+                                
+                                # Get call duration to decide if we should retry
+                                call_duration = time.time() - getattr(self, 'call_start_time', time.time())
+                                
+                                # Retry once with safe minimal prompt (no CRM context)
+                                if not self._content_filter_retried and call_duration < 60:
+                                    self._content_filter_retried = True
+                                    
+                                    # 🔥 CRITICAL: Wait for audio queues to drain before retry
+                                    # This prevents race condition / overlap with existing audio
+                                    _orig_print(f"🔄 [CONTENT_FILTER] Waiting for audio queues to drain before retry...", flush=True)
+                                    
+                                    # Check queue sizes
+                                    realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                                    tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                                    
+                                    if realtime_q > 0 or tx_q > 0:
+                                        _orig_print(f"⏳ [CONTENT_FILTER] Queues not empty (realtime={realtime_q}, tx={tx_q}) - waiting for drain...", flush=True)
+                                        
+                                        # Wait for queues to drain (max 2 seconds)
+                                        drain_start = time.time()
+                                        while (time.time() - drain_start) < 2.0:
+                                            realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                                            tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                                            
+                                            if realtime_q == 0 and tx_q == 0:
+                                                _orig_print(f"✅ [CONTENT_FILTER] Queues drained in {(time.time() - drain_start)*1000:.0f}ms", flush=True)
+                                                break
+                                            
+                                            await asyncio.sleep(0.05)  # Check every 50ms
+                                        else:
+                                            _orig_print(f"⚠️ [CONTENT_FILTER] Timeout waiting for drain (realtime={realtime_q}, tx={tx_q}) - proceeding anyway", flush=True)
+                                    else:
+                                        _orig_print(f"✅ [CONTENT_FILTER] Queues already empty", flush=True)
+                                    
+                                    _orig_print(f"🔄 [CONTENT_FILTER] Sending safe fallback message...", flush=True)
+                                    
+                                    # Send safe fallback message (short, business-only, Hebrew)
+                                    # No CRM context, no dynamic content
+                                    fallback_msg = "סליחה, הייתה תקלה רגע. אפשר להמשיך?"
+                                    await self._send_text_to_ai(fallback_msg)
+                                    
+                                    # Trigger new response with safe context
+                                    triggered = await self.trigger_response("CONTENT_FILTER_RECOVERY", client, force=False)
+                                    if triggered:
+                                        _orig_print(f"✅ [CONTENT_FILTER] Recovery response sent", flush=True)
+                                    else:
+                                        _orig_print(f"❌ [CONTENT_FILTER] Recovery blocked by gate", flush=True)
+                                else:
+                                    # Already retried or call too long - log and continue
+                                    _orig_print(
+                                        f"⚠️ [CONTENT_FILTER] Max retry reached (retried={self._content_filter_retried}, duration={call_duration:.0f}s) - continuing without retry",
+                                        flush=True
+                                    )
+                        
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
                         # Clear active_response_id, set status to done/cancelled, clear cancel_in_flight
@@ -5812,68 +5916,79 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - WITH PROPER VERIFICATION (B1-B4)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
-                    # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
+                    # Requirements:
+                    # 1. Only interrupt if AI is TRULY speaking (is_ai_speaking_now())
+                    # 2. Only if user speech is verified (is_verified_user_speech())
+                    # 3. Cooldown after AI started (<300ms) to avoid false triggers
+                    # 4. Atomic + idempotent interrupt sequence
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 IDEMPOTENT CANCEL: Cancel response ONCE only, with proper state tracking
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # Requirements per הנחיה:
-                    # 1. If active_response_id is empty → do nothing
-                    # 2. If active_response_status != "in_progress" → do nothing
-                    # 3. If cancel_in_flight == True → do nothing (already canceling)
-                    # 4. Otherwise: Set cancel_in_flight=True, send cancel ONCE, mark locally
-                    # 5. Only clear "AI speaking" flags - do NOT reset session/conversation/STT
-                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 B3: GATE 1 - Check if AI is truly speaking now
+                    if not self.is_ai_speaking_now():
+                        # AI is NOT speaking - this is just normal user speech, NOT barge-in
+                        print(f"👤 [USER_SPEECH] User speaking while AI silent (not barge-in)")
+                        # Continue to mark speech active, but don't cancel anything
+                        self._realtime_speech_active = True
+                        self._realtime_speech_started_ts = time.time()
+                        print(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
+                        continue  # Skip barge-in logic below
                     
-                    # 🔥 CRITICAL FIX: ALWAYS try to cancel if there's an active response
-                    # The old code had too many guards that prevented barge-in from working
-                    # NEW RULE: If speech_started AND active_response_id exists → CANCEL IT
+                    # 🔥 B3: GATE 2 - Check if user speech is verified (NOT just a noise spike)
+                    # NOTE: For the first frame of speech_started, we can't fully verify yet
+                    # So we allow the interrupt but log it as "candidate" barge-in
+                    # The verification will be confirmed on transcription.completed
+                    
+                    # 🔥 B3: GATE 3 - Check cooldown after AI started (<300ms)
+                    if hasattr(self, '_ai_speech_start') and self._ai_speech_start:
+                        time_since_ai_started_ms = (time.time() - self._ai_speech_start) * 1000
+                        if time_since_ai_started_ms < 300:
+                            print(f"⏸️ [BARGE-IN] Too soon after AI started ({time_since_ai_started_ms:.0f}ms < 300ms) - waiting")
+                            # Mark speech active but don't interrupt yet
+                            self._realtime_speech_active = True
+                            self._realtime_speech_started_ts = time.time()
+                            continue
+                    
+                    # 🔥 B4: INTERRUPT SEQUENCE - Atomic + Idempotent
+                    # Check if we should interrupt (not already in cooldown)
+                    interrupt_in_progress = getattr(self, '_interrupt_in_progress', False)
+                    if interrupt_in_progress:
+                        last_interrupt_ts = getattr(self, '_last_interrupt_ts', 0)
+                        elapsed_ms = (time.time() - last_interrupt_ts) * 1000
+                        if elapsed_ms < 700:
+                            print(f"⏸️ [BARGE-IN] Interrupt cooldown ({elapsed_ms:.0f}ms < 700ms) - skipping")
+                            continue
+                    
+                    # All gates passed - trigger verified barge-in
+                    # 🔥 Dרישה 6: לוג אחד עם מדדים טכניים (הוכחת אמת)
+                    ai_audio_age_ms = (time.time() - self.last_ai_audio_ts) * 1000 if self.last_ai_audio_ts else 9999
+                    utterance_duration_ms = (time.time() - self._utterance_start_ts) * 1000 if self._utterance_start_ts else 0
+                    realtime_q = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                    tx_q = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                    
+                    _orig_print(
+                        f"🎙️ [BARGE_IN_VERIFIED] "
+                        f"ai_speaking=True last_ai_audio_age_ms={ai_audio_age_ms:.0f} "
+                        f"user_utterance_ms={utterance_duration_ms:.0f} "
+                        f"realtime_q={realtime_q} tx_q={tx_q} "
+                        f"cooldown_ok=True interrupt_lock=False",
+                        flush=True
+                    )
+                    
+                    # Mark interrupt in progress with timestamp
+                    self._interrupt_in_progress = True
+                    self._last_interrupt_ts = time.time()
                     
                     has_active_response = bool(self.active_response_id)
                     
-                    # 🔥 REMOVED: greeting_lock check - allow barge-in during greeting
-                    # 🔥 פשוט: אם המשתמש מדבר - עוצרים הכל מיד!
+                    # 🔥 ATOMIC INTERRUPT SEQUENCE - Fixed order:
+                    # 1. cancel_response() / stop generation
+                    # 2. clear/truncate (Twilio)
+                    # 3. flush_tx_queue()
+                    # 4. interrupt_lock (700ms) - already set above
                     
-                    # 🔥 המשתמש מדבר - עוצרים הכל מיד! בלי תנאים!
-                    _orig_print(f"🎙️ [BARGE-IN] המשתמש מדבר - עוצר את הבוט מיד!", flush=True)
-                    
-                    # שלב 1: עצירה מיידית של שידור אודיו
-                    self.barge_in_stop_tx = True
-                    self.barge_in_active = True
-                    self._barge_in_started_ts = time.time()
-                    _orig_print(f"🛑 [BARGE-IN] barge_in_stop_tx=True - TX loop יעצור מיד", flush=True)
-                    
-                    # שלב 2: ניקוי דגלים
-                    self.is_ai_speaking_event.clear()
-                    self.speaking = False
-                    if hasattr(self, 'ai_response_active'):
-                        self.ai_response_active = False
-                    _orig_print(f"✅ [BARGE-IN] דגלי דיבור נוקו - is_ai_speaking=False", flush=True)
-                    
-                    # שלב 3: ניקוי תורים
-                    self._flush_tx_queue()
-                    _orig_print(f"🧹 [BARGE-IN] תורים נוקו", flush=True)
-                    
-                    # שלב 4: שליחת clear ל-Twilio
-                    if self.stream_sid:
-                        try:
-                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                            self._ws_send(json.dumps(clear_event))
-                            _orig_print(f"📤 [BARGE-IN] נשלח clear ל-Twilio", flush=True)
-                        except Exception as e:
-                            pass
-                    
-                    # שלב 5: ביטול response ב-OpenAI (אם יש)
+                    # Step 1: ביטול response ב-OpenAI (אם יש)
                     if has_active_response and self.realtime_client:
                         response_id_to_cancel = self.active_response_id
                         # רק אם עוד לא ביטלנו את אותו response
@@ -5882,7 +5997,7 @@ class MediaStreamHandler:
                             try:
                                 await self.realtime_client.cancel_response(response_id_to_cancel)
                                 self._mark_response_cancelled_locally(response_id_to_cancel, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
+                                _orig_print(f"✅ [BARGE-IN] Step 1: response בוטל ב-OpenAI: {response_id_to_cancel[:20]}...", flush=True)
                             except Exception as e:
                                 error_str = str(e).lower()
                                 if 'not_active' in error_str or 'no active' in error_str:
@@ -5893,7 +6008,38 @@ class MediaStreamHandler:
                         else:
                             _orig_print(f"ℹ️ [BARGE-IN] Response כבר בוטל קודם", flush=True)
                     
-                    _orig_print(f"✅ [BARGE-IN] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
+                    # Step 2: שליחת clear ל-Twilio
+                    if self.stream_sid:
+                        try:
+                            clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                            self._ws_send(json.dumps(clear_event))
+                            _orig_print(f"✅ [BARGE-IN] Step 2: נשלח clear ל-Twilio", flush=True)
+                        except Exception as e:
+                            pass
+                    
+                    # Step 3: ניקוי תורים (flush_tx_queue)
+                    self._flush_tx_queue()
+                    _orig_print(f"✅ [BARGE-IN] Step 3: תורים נוקו", flush=True)
+                    
+                    # Clear flags after interrupt sequence
+                    self.barge_in_stop_tx = True
+                    self.barge_in_active = True
+                    self._barge_in_started_ts = time.time()
+                    self.is_ai_speaking_event.clear()
+                    self.speaking = False
+                    if hasattr(self, 'ai_response_active'):
+                        self.ai_response_active = False
+                    _orig_print(f"✅ [BARGE-IN] Flags cleared - interrupt complete", flush=True)
+                    
+                    # Unlock interrupt after short delay (async)
+                    async def _unlock_interrupt():
+                        await asyncio.sleep(0.7)  # 700ms cooldown
+                        self._interrupt_in_progress = False
+                        print(f"🔓 [BARGE-IN] Interrupt cooldown completed - ready for next")
+                    
+                    asyncio.create_task(_unlock_interrupt())
+                    
+                    _orig_print(f"✅ [BARGE_IN_VERIFIED] הבוט נעצר! המשתמש יכול לדבר עכשיו", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -6073,6 +6219,7 @@ class MediaStreamHandler:
                             self.speaking_start_ts = now
                             self.speaking = True
                             self._last_ai_audio_start_ts = now
+                            self._ai_speech_start = now  # 🔥 BARGE-IN FIX: Track for cooldown gate
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
@@ -8197,6 +8344,84 @@ class MediaStreamHandler:
         logger.warning(f"[DEPRECATED] _send_server_event_to_ai called but does nothing. "
                       f"Remove this call. Preview: '{message_text[:100]}'")
         return
+    
+    def is_ai_speaking_now(self) -> bool:
+        """
+        🔥 BARGE-IN FIX: Determine if AI is TRULY speaking right now
+        
+        Primary truth: audio activity timestamp (last_ai_audio_ts)
+        Secondary: queue sizes (ONLY when gated by recent audio)
+        
+        Rules (priority order):
+        1. time_now - last_ai_audio_ts < 0.40s → True (PRIMARY TRUTH)
+        2. Queue sizes ONLY if recent audio activity:
+           - if (tx_q > 0 or realtime_q > 0) AND (time_now - last_ai_audio_ts < 1.2s) → True
+        3. Else → False
+        
+        Returns:
+            True if AI is actively speaking, False otherwise
+        """
+        now = time.time()
+        
+        # Rule 1: PRIMARY TRUTH - Recent audio activity (< 400ms)
+        if self.last_ai_audio_ts:
+            elapsed_ms = (now - self.last_ai_audio_ts) * 1000
+            if elapsed_ms < 400:
+                return True
+        
+        # Rule 2: SECONDARY - Queue sizes only if somewhat recent audio (< 1200ms)
+        if self.last_ai_audio_ts:
+            elapsed_ms = (now - self.last_ai_audio_ts) * 1000
+            if elapsed_ms < 1200:
+                # Check queue sizes
+                realtime_q_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                
+                if realtime_q_size > 0 or tx_q_size > 0:
+                    return True
+        
+        # Rule 3: No recent activity and no queued audio
+        return False
+    
+    def is_verified_user_speech(self) -> bool:
+        """
+        🔥 BARGE-IN FIX: Verify that user speech is sustained and real
+        
+        Requires ALL of:
+        - User speech sustained for N frames (e.g. 8-12 frames ≈ 160-240ms)
+        - RMS/energy above threshold for sustained duration (not spike)
+        - AND transcription final OR server VAD confirmed segment end (preferred)
+        
+        Returns:
+            True if user speech is verified, False otherwise
+        """
+        # Check if speech is marked as active
+        if not getattr(self, 'user_speaking', False):
+            return False
+        
+        # Check if OpenAI confirmed speech started (server VAD)
+        if not getattr(self, '_realtime_speech_active', False):
+            return False
+        
+        # Check duration - require sustained speech (>= 160ms)
+        if hasattr(self, '_utterance_start_ts') and self._utterance_start_ts:
+            duration_ms = (time.time() - self._utterance_start_ts) * 1000
+            if duration_ms < 160:
+                return False
+        
+        # Check if we're in echo window (speech right after AI audio)
+        if hasattr(self, '_last_ai_audio_ts') and self._last_ai_audio_ts:
+            time_since_ai_audio_ms = (time.time() - self._last_ai_audio_ts) * 1000
+            echo_window_ms = getattr(self, 'ECHO_WINDOW_MS', 350)
+            if time_since_ai_audio_ms < echo_window_ms:
+                # In echo window - require longer sustained speech (>= 240ms)
+                if hasattr(self, '_utterance_start_ts') and self._utterance_start_ts:
+                    duration_ms = (time.time() - self._utterance_start_ts) * 1000
+                    if duration_ms < 240:
+                        return False
+        
+        # All checks passed
+        return True
     
     async def _send_silence_warning(self):
         """

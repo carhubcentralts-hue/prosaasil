@@ -758,18 +758,224 @@ COMPACT_GREETING_MAX_CHARS = 420  # Legacy - not used anymore (LATENCY-FIRST)
 FULL_PROMPT_MAX_CHARS = 8000  # ⚠️ This is a LIMIT, not a target! Keep actual prompts 2000-4000 chars for best performance
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 CONTENT FILTER FIX: PII & Risky Pattern Sanitization
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_text_for_pii(text: str) -> Dict[str, Any]:
+    """
+    Analyze text for PII patterns WITHOUT extracting actual values.
+    
+    Returns metrics dict with:
+    - contains_email: bool
+    - contains_phone: bool
+    - contains_url: bool
+    - contains_id: bool
+    - text_hash: str (sha1 for correlation, NOT the actual text)
+    """
+    if not text:
+        return {
+            "contains_email": False,
+            "contains_phone": False,
+            "contains_url": False,
+            "contains_id": False,
+            "text_hash": "",
+        }
+    
+    import hashlib
+    
+    # Email pattern
+    contains_email = bool(re.search(
+        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+        text
+    ))
+    
+    # Phone patterns (Israeli + international)
+    contains_phone = bool(
+        re.search(r'\b(?:\+?972[-.\s]?)?0?5[0-9][-.\s]?[0-9]{7}\b', text) or  # Israeli mobile
+        re.search(r'\b[0-9]{2,3}[-.\s][0-9]{7}\b', text) or  # Israeli landline
+        re.search(r'\b(?:\+?[0-9]{1,3}[-.\s]?)?[(]?[0-9]{3}[)]?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b', text)  # International
+    )
+    
+    # URL patterns
+    contains_url = bool(
+        re.search(r'https?://[^\s]+', text) or
+        re.search(r'www\.[^\s]+', text) or
+        re.search(r'\b[a-zA-Z0-9-]+\.(com|net|org|co\.il|il)[^\s]*', text)
+    )
+    
+    # ID patterns - only technical IDs, NOT regular numbers
+    contains_id = bool(
+        re.search(r'\b(?:lead_id|call_id|business_id|tenant_id|user_id|response_id|session_id|stream_sid)\s*[=:]\s*[^\s,]+', text, re.IGNORECASE) or
+        re.search(r'\b(?:Business|Lead|Call|Response|Session|Stream)\s+(?:ID|Id)\s*[=:]?\s*[a-zA-Z0-9_-]{8,}', text, re.IGNORECASE) or
+        re.search(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b', text)  # UUID
+    )
+    
+    # Hash for correlation (NOT for reconstruction)
+    text_hash = hashlib.sha1(text.encode('utf-8')).hexdigest()[:12]
+    
+    return {
+        "contains_email": contains_email,
+        "contains_phone": contains_phone,
+        "contains_url": contains_url,
+        "contains_id": contains_id,
+        "text_hash": text_hash,
+    }
+
+
+def sanitize_for_realtime(text: str, max_chars: int = 3000) -> str:
+    """
+    🔥 CONTENT FILTER FIX: Comprehensive sanitization for OpenAI Realtime API
+    
+    Removes ALL PII and risky patterns that could trigger content_filter:
+    - Emails → [email]
+    - Phone numbers → [phone]
+    - URLs → removed
+    - IDs (lead_id, call_id, etc.) → removed
+    - Technical markers (##, BEGIN/END blocks) → removed
+    - Excessive punctuation (!!!, ???) → normalized
+    - RTL/LTR control chars → removed
+    - Hebrew niqqud → removed
+    - Repeated whitespace → collapsed
+    
+    Args:
+        text: Input text to sanitize
+        max_chars: Maximum character limit (default 3000)
+    
+    Returns:
+        Sanitized text safe for Realtime API
+    """
+    if not text:
+        return ""
+    
+    # 🔥 RULE 1: Remove emails
+    # Pattern: matches common email formats
+    text = re.sub(
+        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+        '[email]',
+        text
+    )
+    
+    # 🔥 RULE 2: Remove phone numbers
+    # Patterns: Israeli (05X-XXXXXXX, 972-5X-XXXXXXX) and international
+    text = re.sub(
+        r'\b(?:\+?972[-.\s]?)?0?5[0-9][-.\s]?[0-9]{7}\b',  # Israeli mobile
+        '[phone]',
+        text
+    )
+    text = re.sub(
+        r'\b[0-9]{2,3}[-.\s][0-9]{7}\b',  # Israeli landline (02-1234567, 03-1234567, etc.)
+        '[phone]',
+        text
+    )
+    text = re.sub(
+        r'\b(?:\+?[0-9]{1,3}[-.\s]?)?[(]?[0-9]{3}[)]?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b',  # International
+        '[phone]',
+        text
+    )
+    
+    # 🔥 RULE 3: Remove URLs
+    # Pattern: matches http(s)://, www., and common domains
+    text = re.sub(
+        r'https?://[^\s]+',
+        '',
+        text
+    )
+    text = re.sub(
+        r'www\.[^\s]+',
+        '',
+        text
+    )
+    text = re.sub(
+        r'\b[a-zA-Z0-9-]+\.(com|net|org|co\.il|il)[^\s]*',
+        '',
+        text
+    )
+    
+    # 🔥 RULE 4: Remove technical IDs and markers
+    # ⚠️ CAREFUL: Only remove specific ID patterns, NOT regular numbers!
+    # Remove patterns like: lead_id=123, call_id=abc, Business ID: 456
+    # But keep regular numbers: "יש לי 3 עובדים", "שנת 2019"
+    text = re.sub(
+        r'\b(?:lead_id|call_id|business_id|tenant_id|user_id|response_id|session_id|stream_sid)\s*[=:]\s*[^\s,]+',
+        '',
+        text,
+        flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r'\b(?:Business|Lead|Call|Response|Session|Stream|Tenant)\s+(?:ID|Id)\s*[=:]?\s*[a-zA-Z0-9_-]{8,}',  # Only long IDs (8+ chars)
+        '',
+        text,
+        flags=re.IGNORECASE
+    )
+    # Remove UUIDs (pattern: 8-4-4-4-12 hex chars)
+    text = re.sub(
+        r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b',
+        '',
+        text
+    )
+    
+    # 🔥 RULE 5: Remove technical markers and system manipulation patterns
+    # Remove ##MARKERS##, BEGIN/END blocks, CRM_CONTEXT markers
+    text = re.sub(r'##[A-Z_]+(?:_START|_END|_BEGIN)?##', '', text)
+    text = re.sub(r'(?:BEGIN|END|START)_[A-Z_]+', '', text)
+    text = re.sub(r'CRM_CONTEXT(?:_START|_END)?', '', text)
+    text = re.sub(r'(?:BUSINESS|SYSTEM)_PROMPT(?:_START|_END)?', '', text)
+    
+    # 🔥 RULE 6: Normalize excessive punctuation
+    # !!!! → !   ???? → ?   ... → .
+    text = re.sub(r'!{2,}', '!', text)
+    text = re.sub(r'\?{2,}', '?', text)
+    text = re.sub(r'\.{3,}', '.', text)
+    
+    # 🔥 RULE 7: Remove RTL/LTR control characters
+    # These can confuse TTS and are not needed
+    text = re.sub(r'[\u200E\u200F\u202A-\u202E]', '', text)
+    
+    # 🔥 RULE 8: Remove Hebrew niqqud (vowel marks)
+    # Optional: helps reduce token count and TTS confusion
+    text = re.sub(r'[\u0591-\u05C7]', '', text)
+    
+    # 🔥 RULE 9: Collapse repeated whitespace
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
+    
+    # 🔥 RULE 10: Cap length with smart truncation
+    if max_chars and len(text) > max_chars:
+        logger.warning(f"[SANITIZE] Truncating text from {len(text)} to {max_chars} chars")
+        cut = text[:max_chars]
+        # Try to cut at natural boundary
+        boundary = max(
+            cut.rfind('. '),
+            cut.rfind('? '),
+            cut.rfind('! '),
+            cut.rfind(' '),
+        )
+        if boundary >= int(max_chars * 0.7):  # Keep at least 70% if boundary found
+            text = cut[:boundary].strip()
+        else:
+            text = cut.strip()
+    
+    return text
+
+
 def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     """
     Sanitize text before sending to OpenAI Realtime `session.update.instructions`.
 
     Goals:
+    - Remove PII and risky patterns (via sanitize_for_realtime)
     - Remove heavy formatting / non-speech symbols that can confuse TTS
     - Flatten newlines (both actual and escaped) into spaces
     - Hard-cap size (Realtime is sensitive to large instructions)
     """
     if not text:
         return ""
+    
+    # 🔥 STEP 1: Remove PII and risky patterns FIRST
+    text = sanitize_for_realtime(text, max_chars=max_chars * 2)  # Allow more space for formatting removal
 
+    # 🔥 STEP 2: Remove formatting and markdown
     # Remove fenced code blocks entirely (rare but can appear in prompts)
     text = _MARKDOWN_FENCE_RE.sub(" ", text)
 
@@ -788,6 +994,7 @@ def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
 
+    # 🔥 STEP 3: Final length cap (after all processing)
     if max_chars and len(text) > max_chars:
         cut = text[:max_chars]
         # Try to cut at a natural boundary, but don't over-trim.
