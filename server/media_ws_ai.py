@@ -5657,10 +5657,11 @@ class MediaStreamHandler:
                                 )
                                 
                                 # 🔍 DIAGNOSTICS: Log call metadata to identify patterns
+                                call_sid_preview = self.call_sid[:10] + '...' if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
                                 logger.info(
                                     f"[CONTENT_FILTER] Call metadata: business_id={self.business_id}, "
                                     f"call_direction={getattr(self, 'call_direction', 'unknown')}, "
-                                    f"call_sid={self.call_sid[:10]}... if hasattr(self, 'call_sid') else 'unknown'}"
+                                    f"call_sid={call_sid_preview}"
                                 )
                                 
                                 # Cancel any pending hangup for THIS response_id
