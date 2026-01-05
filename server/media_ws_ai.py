@@ -3044,22 +3044,52 @@ class MediaStreamHandler:
             import hashlib
             hash_before = hashlib.md5((greeting_prompt or "").encode()).hexdigest()[:8]
             
+            # 🔥 CONTENT FILTER FIX: Analyze for PII BEFORE sanitization
+            pii_before = {}
             try:
                 from server.services.realtime_prompt_builder import (
                     sanitize_realtime_instructions,
+                    analyze_text_for_pii,
                     FULL_PROMPT_MAX_CHARS,
                 )
+                pii_before = analyze_text_for_pii(greeting_prompt or "")
                 original_len = len(greeting_prompt or "")
+                
                 # 🔥 LATENCY-FIRST: Use FULL prompt from start (no compact anymore)
                 greeting_prompt = sanitize_realtime_instructions(
                     greeting_prompt or "",
                     max_chars=FULL_PROMPT_MAX_CHARS
                 )
                 sanitized_len = len(greeting_prompt)
-                if sanitized_len != original_len:
+                
+                # 🔥 CONTENT FILTER FIX: Analyze AFTER sanitization
+                pii_after = analyze_text_for_pii(greeting_prompt)
+                
+                # Log sanitization results (NO PII VALUES, only flags)
+                _orig_print(
+                    f"🧽 [PROMPT_SANITIZE] "
+                    f"len={original_len}→{sanitized_len} "
+                    f"before[email={pii_before.get('contains_email', False)} "
+                    f"phone={pii_before.get('contains_phone', False)} "
+                    f"url={pii_before.get('contains_url', False)} "
+                    f"id={pii_before.get('contains_id', False)}] "
+                    f"after[email={pii_after.get('contains_email', False)} "
+                    f"phone={pii_after.get('contains_phone', False)} "
+                    f"url={pii_after.get('contains_url', False)} "
+                    f"id={pii_after.get('contains_id', False)}] "
+                    f"hash={pii_after.get('text_hash', 'unknown')}",
+                    flush=True,
+                )
+                
+                # 🚨 WARNING: If PII still present after sanitization, log it
+                if pii_after.get('contains_email') or pii_after.get('contains_phone') or pii_after.get('contains_url') or pii_after.get('contains_id'):
                     _orig_print(
-                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap={FULL_PROMPT_MAX_CHARS})",
-                        flush=True,
+                        f"⚠️ [CONTENT_FILTER_RISK] PII detected after sanitization! "
+                        f"email={pii_after.get('contains_email')} "
+                        f"phone={pii_after.get('contains_phone')} "
+                        f"url={pii_after.get('contains_url')} "
+                        f"id={pii_after.get('contains_id')}",
+                        flush=True
                     )
             except Exception as _sanitize_err:
                 # Never block the call on sanitizer issues; proceed with original prompt.
@@ -5398,6 +5428,52 @@ class MediaStreamHandler:
                                         _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
                                     else:
                                         _orig_print(f"❌ [SERVER_ERROR] Graceful failure blocked by gate", flush=True)
+                        
+                        # 🔥 CONTENT FILTER FIX: Handle status=incomplete reason=content_filter
+                        if status == "incomplete":
+                            reason = status_details.get("reason") if isinstance(status_details, dict) else None
+                            if reason == "content_filter":
+                                _orig_print(
+                                    f"🚨 [CONTENT_FILTER] Detected! call_sid={self.call_sid} response_id={resp_id[:20] if resp_id else 'unknown'}",
+                                    flush=True
+                                )
+                                
+                                # Log structured line for analysis
+                                logger.error(
+                                    f"[CONTENT_FILTER] call_sid={self.call_sid} "
+                                    f"response_id={resp_id[:20] if resp_id else 'unknown'} "
+                                    f"reason=content_filter"
+                                )
+                                
+                                # Initialize retry flag if not exists
+                                if not hasattr(self, '_content_filter_retried'):
+                                    self._content_filter_retried = False
+                                
+                                # Get call duration to decide if we should retry
+                                call_duration = time.time() - getattr(self, 'call_start_time', time.time())
+                                
+                                # Retry once with safe minimal prompt (no CRM context)
+                                if not self._content_filter_retried and call_duration < 60:
+                                    self._content_filter_retried = True
+                                    _orig_print(f"🔄 [CONTENT_FILTER] Sending safe fallback message...", flush=True)
+                                    
+                                    # Send safe fallback message (short, business-only, Hebrew)
+                                    # No CRM context, no dynamic content
+                                    fallback_msg = "סליחה, הייתה תקלה רגע. אפשר להמשיך?"
+                                    await self._send_text_to_ai(fallback_msg)
+                                    
+                                    # Trigger new response with safe context
+                                    triggered = await self.trigger_response("CONTENT_FILTER_RECOVERY", client, force=False)
+                                    if triggered:
+                                        _orig_print(f"✅ [CONTENT_FILTER] Recovery response sent", flush=True)
+                                    else:
+                                        _orig_print(f"❌ [CONTENT_FILTER] Recovery blocked by gate", flush=True)
+                                else:
+                                    # Already retried or call too long - log and continue
+                                    _orig_print(
+                                        f"⚠️ [CONTENT_FILTER] Max retry reached (retried={self._content_filter_retried}, duration={call_duration:.0f}s) - continuing without retry",
+                                        flush=True
+                                    )
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # Per הנחיה: IDEMPOTENT CANCEL - Clear state only for matching response_id
@@ -8197,6 +8273,84 @@ class MediaStreamHandler:
         logger.warning(f"[DEPRECATED] _send_server_event_to_ai called but does nothing. "
                       f"Remove this call. Preview: '{message_text[:100]}'")
         return
+    
+    def is_ai_speaking_now(self) -> bool:
+        """
+        🔥 BARGE-IN FIX: Determine if AI is TRULY speaking right now
+        
+        Primary truth: audio activity timestamp (last_ai_audio_ts)
+        Secondary: queue sizes (ONLY when gated by recent audio)
+        
+        Rules (priority order):
+        1. time_now - last_ai_audio_ts < 0.40s → True (PRIMARY TRUTH)
+        2. Queue sizes ONLY if recent audio activity:
+           - if (tx_q > 0 or realtime_q > 0) AND (time_now - last_ai_audio_ts < 1.2s) → True
+        3. Else → False
+        
+        Returns:
+            True if AI is actively speaking, False otherwise
+        """
+        now = time.time()
+        
+        # Rule 1: PRIMARY TRUTH - Recent audio activity (< 400ms)
+        if self.last_ai_audio_ts:
+            elapsed_ms = (now - self.last_ai_audio_ts) * 1000
+            if elapsed_ms < 400:
+                return True
+        
+        # Rule 2: SECONDARY - Queue sizes only if somewhat recent audio (< 1200ms)
+        if self.last_ai_audio_ts:
+            elapsed_ms = (now - self.last_ai_audio_ts) * 1000
+            if elapsed_ms < 1200:
+                # Check queue sizes
+                realtime_q_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+                tx_q_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+                
+                if realtime_q_size > 0 or tx_q_size > 0:
+                    return True
+        
+        # Rule 3: No recent activity and no queued audio
+        return False
+    
+    def is_verified_user_speech(self) -> bool:
+        """
+        🔥 BARGE-IN FIX: Verify that user speech is sustained and real
+        
+        Requires ALL of:
+        - User speech sustained for N frames (e.g. 8-12 frames ≈ 160-240ms)
+        - RMS/energy above threshold for sustained duration (not spike)
+        - AND transcription final OR server VAD confirmed segment end (preferred)
+        
+        Returns:
+            True if user speech is verified, False otherwise
+        """
+        # Check if speech is marked as active
+        if not getattr(self, 'user_speaking', False):
+            return False
+        
+        # Check if OpenAI confirmed speech started (server VAD)
+        if not getattr(self, '_realtime_speech_active', False):
+            return False
+        
+        # Check duration - require sustained speech (>= 160ms)
+        if hasattr(self, '_utterance_start_ts') and self._utterance_start_ts:
+            duration_ms = (time.time() - self._utterance_start_ts) * 1000
+            if duration_ms < 160:
+                return False
+        
+        # Check if we're in echo window (speech right after AI audio)
+        if hasattr(self, '_last_ai_audio_ts') and self._last_ai_audio_ts:
+            time_since_ai_audio_ms = (time.time() - self._last_ai_audio_ts) * 1000
+            echo_window_ms = getattr(self, 'ECHO_WINDOW_MS', 350)
+            if time_since_ai_audio_ms < echo_window_ms:
+                # In echo window - require longer sustained speech (>= 240ms)
+                if hasattr(self, '_utterance_start_ts') and self._utterance_start_ts:
+                    duration_ms = (time.time() - self._utterance_start_ts) * 1000
+                    if duration_ms < 240:
+                        return False
+        
+        # All checks passed
+        return True
     
     async def _send_silence_warning(self):
         """
