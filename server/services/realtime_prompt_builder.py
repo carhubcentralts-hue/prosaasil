@@ -1098,15 +1098,20 @@ def _extract_business_prompt_text(
 
 def build_full_business_prompt(business_id: int, call_direction: str = "inbound") -> str:
     """
-    FULL Business Prompt (business-only).
+    FULL Business Prompt with System Rules.
     
     🔥 SINGLE INJECTION POINT: This is used ONCE at call start.
     NO compact version. NO upgrade. FULL prompt from beginning.
 
     IMPORTANT:
-    - Contains ALL business content and flow
+    - Contains SYSTEM rules + BUSINESS content (complete prompt)
     - Injected via session.update.instructions
-    - NO separate conversation.item.create for business content
+    - NO separate conversation.item.create for system rules
+    
+    This combines:
+    1. System behavior rules (universal)
+    2. Appointment instructions (if applicable)
+    3. Business prompt content
     """
     from server.models_sql import Business, BusinessSettings
 
@@ -1119,6 +1124,7 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
 
     business_name = business.name or "Business"
 
+    # Get business prompt based on direction
     if call_direction == "outbound":
         ai_prompt_raw = settings.outbound_ai_prompt if (settings and settings.outbound_ai_prompt) else ""
         direction_label = "OUTBOUND"
@@ -1145,13 +1151,46 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
             logger.error(f"[PROMPT ERROR] No prompts available for business_id={business_id} - configuration required")
             return ""
 
-    # Keep the full text (do not sanitize for length here). Downstream callers may sanitize for TTS if needed.
-    return (
-        f"## BUSINESS_PROMPT_START\n"
-        f"BUSINESS PROMPT (Business ID: {business_id}, Name: {business_name}, Call: {direction_label})\n"
-        f"{business_prompt_text}\n"
-        f"## BUSINESS_PROMPT_END"
+    # 🔥 LAYER 1: Add system behavior rules
+    system_rules = _build_universal_system_prompt(call_direction=call_direction)
+    
+    # 🔥 LAYER 2: Add appointment instructions if applicable
+    appointment_instructions = ""
+    if settings:
+        call_control_settings = getattr(settings, "call_control_settings", None) or {}
+        enable_calendar_scheduling = call_control_settings.get("enable_calendar_scheduling", False)
+        call_goal = call_control_settings.get("call_goal", "lead_only")
+        
+        if call_goal == 'appointment' and enable_calendar_scheduling:
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(business_id, prompt_text=None)
+            
+            tz = pytz.timezone(policy.tz)
+            today = datetime.now(tz)
+            today_date = today.strftime("%d/%m/%Y")
+            weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            weekday_name = weekday_names[today.weekday()]
+            
+            appointment_instructions = (
+                f"\n\nAPPOINTMENT SCHEDULING (STRICT, technical): Today is {weekday_name} {today_date}. "
+                f"Slot size: {policy.slot_size_min}min. "
+                "Never skip steps. Required before booking: (1) customer's FULL NAME (first and last name - not just 'לקוח' or generic terms), (2) full date (must include weekday), (3) time. "
+                "CRITICAL: Always ask for the customer's full name before booking. Examples: 'על איזה שם לרשום את הפגישה?', 'מה השם המלא שלך?'. "
+                "If anything is missing, ask ONLY for the missing field (one question at a time). "
+                "Understanding time/date: the customer may say relative time references (today/tomorrow) - always restate as a weekday + full date + HH:MM confirmation question. "
+            )
+
+    # 🔥 COMBINE ALL LAYERS (system + appointment + business)
+    full_prompt = (
+        f"{system_rules}{appointment_instructions}\n\n"
+        f"BUSINESS PROMPT (Business ID: {business_id}, Name: {business_name}, Call: {direction_label}):\n"
+        f"{business_prompt_text}\n\n"
+        f"CALL TYPE: {direction_label.upper()}. {'The customer called the business.' if call_direction == 'inbound' else 'You are calling the customer.'} Follow the business prompt for flow."
     )
+    
+    logger.info(f"✅ [FULL_BUSINESS] Built complete prompt: {len(full_prompt)} chars (system + appointment + business)")
+    
+    return full_prompt
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
