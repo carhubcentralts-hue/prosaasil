@@ -4134,53 +4134,6 @@ class MediaStreamHandler:
                 # Customer name is now injected ONLY via NAME_ANCHOR at call start.
                 # This prevents duplicate injections and reduces model confusion.
                 pass  # 🔥 NO-OP: CRM context injection disabled
-                            
-                            # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
-                            # 🔒 CRITICAL: This ensures ALL updates (recording/transcript/summary) use call_sid -> lead_id mapping
-                            if lead_id and hasattr(self, 'call_sid') and self.call_sid:
-                                try:
-                                    from server.models_sql import CallLog
-                                    from server.db import db
-                                    from sqlalchemy.orm import scoped_session, sessionmaker
-                                    
-                                    # ✅ P0-1: Create new session for this background thread
-                                    engine = db.engine
-                                    Session = scoped_session(sessionmaker(bind=engine))
-                                    session = Session()
-                                    
-                                    try:
-                                        call_log = session.query(CallLog).filter_by(call_sid=self.call_sid).first()
-                                        if call_log:
-                                            if not call_log.lead_id:
-                                                call_log.lead_id = lead_id
-                                                session.commit()
-                                                print(f"✅ [LEAD_ID_LOCK] Linked CallLog {self.call_sid} to lead {lead_id}")
-                                            elif call_log.lead_id != lead_id:
-                                                # 🔒 CRITICAL: lead_id already set but differs
-                                                # This indicates a race condition or duplicate call handling
-                                                # Always use the FIRST locked lead_id to maintain consistency
-                                                print(f"❌ [LEAD_ID_LOCK] CONFLICT! CallLog {self.call_sid} has lead_id={call_log.lead_id}, attempted {lead_id}")
-                                                print(f"🔒 [LEAD_ID_LOCK] Keeping original lead_id={call_log.lead_id} (first-lock-wins)")
-                                                # Update local context to match DB
-                                                self.crm_context.lead_id = call_log.lead_id
-                                            else:
-                                                print(f"✅ [LEAD_ID_LOCK] CallLog {self.call_sid} already linked to lead {lead_id}")
-                                        else:
-                                            print(f"⚠️ [LEAD_ID_LOCK] CallLog not found for {self.call_sid} - will be created by webhook")
-                                    except Exception as commit_error:
-                                        session.rollback()
-                                        print(f"⚠️ [CRM] DB error linking CallLog: {commit_error}")
-                                    finally:
-                                        session.close()
-                                        Session.remove()
-                                except Exception as link_error:
-                                    print(f"⚠️ [CRM] Failed to link CallLog to lead: {link_error}")
-                            
-                            print(f"✅ [CRM] Context ready (background): lead_id={lead_id}, direction={call_direction}")
-                    except Exception as e:
-                        print(f"⚠️ [CRM] Background init failed: {e}")
-                        self.crm_context = None
-                threading.Thread(target=_init_crm_background, daemon=True).start()
             else:
                 print(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
                 self.crm_context = None
