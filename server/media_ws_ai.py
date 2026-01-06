@@ -3798,99 +3798,15 @@ class MediaStreamHandler:
             t_session_confirmed = time.time()
 
             # ─────────────────────────────────────────────────────────────────────
-            # ✅ PROMPT SEPARATION ENFORCEMENT:
-            # Inject GLOBAL SYSTEM prompt separately, never inside session.update.instructions.
-            # This must happen before the first response.create so behavior rules apply to greeting,
-            # while session.updated.instructions remains business-only COMPACT.
+            # 🔥 ARCHITECTURE DECISION: System Prompt in session.update ONLY
             # ─────────────────────────────────────────────────────────────────────
-            if not getattr(self, "_global_system_prompt_injected", False):
-                try:
-                    from server.services.realtime_prompt_builder import build_global_system_prompt
-                    system_prompt = build_global_system_prompt(call_direction=call_direction)
-
-                    # 🔥 SERVER-FIRST APPOINTMENTS: Hard role separation rule.
-                    # The server is the source-of-truth for booking; the model must not claim bookings on its own.
-                    if getattr(self, "_server_first_scheduling_enabled", False):
-                        system_prompt = (
-                            f"{system_prompt} "
-                            "Appointments rule: never say you booked/scheduled/changed an appointment. "
-                            "Only ask for missing details. "
-                            "If you receive a SERVER instruction to repeat an exact sentence, repeat it verbatim and nothing else."
-                        )
-
-                    # 🔥 FIX #3: Inject dynamic "today" context (helps prevent year/weekday hallucinations).
-                    # Keep it short and purely factual.
-                    # ⚠️ IMPORTANT: This context is NOT included in hash calculation to prevent duplicate detection issues
-                    try:
-                        import pytz
-                        from datetime import datetime
-                        from server.policy.business_policy import get_business_policy
-                        from server.services.hebrew_datetime import hebrew_weekday_name
-
-                        policy = get_business_policy(business_id_safe, prompt_text=None)
-                        tz = pytz.timezone(getattr(policy, "tz", "Asia/Jerusalem") or "Asia/Jerusalem")
-                        today = datetime.now(tz).date()
-                        system_prompt = (
-                            f"{system_prompt} "
-                            f"Context: TODAY_ISO={today.isoformat()}. "
-                            f"TODAY_WEEKDAY_HE={hebrew_weekday_name(today)}. "
-                            f"TIMEZONE={getattr(policy, 'tz', 'Asia/Jerusalem')}."
-                        )
-                    except Exception:
-                        pass
-
-                    if system_prompt and system_prompt.strip():
-                        # 🔥 ANTI-DUPLICATE: Calculate hash fingerprint for system prompt
-                        # ⚠️ NORMALIZE before hashing: strip whitespace, normalize newlines, remove dynamic content
-                        import hashlib
-                        import re
-                        
-                        # Helper: Normalize text for hash calculation
-                        def normalize_for_hash(text):
-                            """Normalize text for consistent hash calculation"""
-                            if not text:
-                                return ""
-                            # Strip leading/trailing whitespace
-                            text = text.strip()
-                            # Normalize line endings (\r\n -> \n)
-                            text = text.replace('\r\n', '\n')
-                            # Remove dynamic elements that change per call
-                            # Remove TODAY_ISO, TODAY_WEEKDAY_HE, TIMEZONE (these are added dynamically above)
-                            text = re.sub(r'Context: TODAY_ISO=[^\s]+\.?\s*', '', text)
-                            text = re.sub(r'TODAY_WEEKDAY_HE=[^\s]+\.?\s*', '', text)
-                            text = re.sub(r'TIMEZONE=[^\s\.]+\.?\s*', '', text)
-                            # Remove any remaining "Context: " prefix if empty
-                            text = re.sub(r'\s*Context:\s*\.?\s*', '', text)
-                            return text.strip()
-                        
-                        normalized_system = normalize_for_hash(system_prompt)
-                        system_hash = hashlib.md5(normalized_system.encode()).hexdigest()[:8]
-                        
-                        # Store hash to prevent duplicate injection
-                        self._system_prompt_hash = system_hash
-                        
-                        await client.send_event(
-                            {
-                                "type": "conversation.item.create",
-                                "item": {
-                                    "type": "message",
-                                    "role": "system",
-                                    "content": [
-                                        {
-                                            "type": "input_text",
-                                            "text": system_prompt,
-                                        }
-                                    ],
-                                },
-                            }
-                        )
-                        self._global_system_prompt_injected = True
-                        self._system_items_count = 1
-                        logger.info(f"[PROMPT_SEPARATION] Injected global SYSTEM prompt hash={system_hash}")
-                        _orig_print(f"[PROMPT_SEPARATION] global_system_prompt=injected hash={system_hash}", flush=True)
-                except Exception as e:
-                    # Do not fail call if this injection fails; COMPACT still provides business script.
-                    logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
+            # System behavior rules are included in session.update.instructions (FULL prompt).
+            # NO separate conversation.item.create for system rules.
+            # This prevents duplication and ensures single source of truth.
+            #
+            # REMOVED: Global system prompt injection via conversation.item.create
+            # All system rules are now part of the FULL prompt sent in session.update.
+            # ─────────────────────────────────────────────────────────────────────
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 🔥 NAME ANCHOR SYSTEM: Persistent customer name + usage policy
@@ -4063,16 +3979,16 @@ class MediaStreamHandler:
                 traceback.print_exc()
             
             # 🔥 PROMPT_SUMMARY: Single-line summary of all injected prompts
-            # This makes it easy to verify no duplicates at call start
-            system_count = getattr(self, '_system_items_count', 0)
-            business_count = 0  # Will be 1 after PROMPT_UPGRADE
+            # System rules are now part of FULL prompt (session.update), not separate
+            system_count = 0  # No separate system injection (included in FULL prompt)
+            business_count = 1  # FULL prompt sent in session.update
             name_count = getattr(self, '_name_anchor_count', 0)
-            system_hash = getattr(self, '_system_prompt_hash', 'none')
-            business_hash = 'none'  # Will be set after PROMPT_UPGRADE
+            system_hash = 'in_full_prompt'  # System rules included in business prompt
+            business_hash = hash_prompt(full_prompt) if full_prompt else 'none'
             name_hash = getattr(self, '_name_anchor_hash', 'none')
             
-            _orig_print(f"[PROMPT_SUMMARY] system={system_count} business={business_count} name_anchor={name_count} hashes: sys={system_hash}, biz={business_hash}, name={name_hash}", flush=True)
-            logger.info(f"[PROMPT_SUMMARY] Prompt injection summary at call start: system={system_count}, business={business_count}, name_anchor={name_count}")
+            _orig_print(f"[PROMPT_SUMMARY] system=0 (in_full) business={business_count} name_anchor={name_count} hashes: biz={business_hash}, name={name_hash}", flush=True)
+            logger.info(f"[PROMPT_SUMMARY] Prompt injection summary at call start: system=0 (included in FULL), business={business_count}, name_anchor={name_count}")
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -4297,18 +4213,17 @@ class MediaStreamHandler:
             
             # 🔒 FINAL PROMPT INTEGRITY SUMMARY
             # This log confirms that prompts were sent exactly once with no duplications
-            # NOTE: system=universal in our architecture (same prompt injected once)
-            system_injected = 1 if getattr(self, '_global_system_prompt_injected', False) else 0
+            # NOTE: System rules are now part of FULL prompt (no separate injection)
             name_injected = 1 if getattr(self, '_name_anchor_hash', None) else 0
-            business_hash = getattr(self, '_business_prompt_hash', 'none')
+            business_hash = hash_prompt(full_prompt) if full_prompt else 'none'
             
             _orig_print(
-                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal=0 "
+                f"[PROMPT_FINAL_SUMMARY] system=0 (in_full) universal=0 "
                 f"business=1 name_anchor={name_injected} business_hash={business_hash}",
                 flush=True
             )
             logger.info(
-                f"[PROMPT_FINAL_SUMMARY] system={system_injected} universal=0 "
+                f"[PROMPT_FINAL_SUMMARY] system=0 (included in FULL) universal=0 "
                 f"business=1 name_anchor={name_injected}"
             )
             
