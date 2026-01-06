@@ -1,0 +1,68 @@
+"""
+Name Validation - Single Source of Truth
+==========================================
+
+Centralized validation for customer names to prevent placeholder/invalid values.
+This is the ONLY place where invalid name patterns are defined.
+
+All name validation across the codebase should import from here.
+"""
+
+# 🔥 SINGLE SOURCE OF TRUTH: Invalid name placeholders
+# This list is used across the entire codebase for name validation
+INVALID_NAME_PLACEHOLDERS = {
+    # Generic placeholders
+    'none', 'null', 'unknown', 'test', '-', 'n/a', 'na', 'n.a.', 'undefined',
+    
+    # Hebrew placeholders
+    'לא ידוע', 'ללא שם', 'אין שם', 'לקוח', 
+    
+    # English customer references
+    'customer', 'client', 'user', 'guest',
+    
+    # File/folder names (not people)
+    'בית', 'תמונה', 'מסמך', 'קובץ', 'תיקיה', 'folder', 'file',
+    
+    # Generic name-related words
+    'שם', 'name', 'משתמש',
+    
+    # Test/example values
+    'טסט', 'בדיקה', 'דוגמה', 'example', 'אורח'
+}
+
+
+def is_valid_customer_name(name: str) -> bool:
+    """
+    Validate that customer name is real data, not a placeholder.
+    
+    This is the ONLY validation function for customer names.
+    All code should use this instead of implementing their own checks.
+    
+    Args:
+        name: The customer name to validate
+        
+    Returns:
+        True if name is valid (not a placeholder), False otherwise
+        
+    Examples:
+        >>> is_valid_customer_name("דני")
+        True
+        >>> is_valid_customer_name("ללא שם")
+        False
+        >>> is_valid_customer_name("")
+        False
+        >>> is_valid_customer_name("test")
+        False
+    """
+    if not name or not isinstance(name, str):
+        return False
+    
+    name_lower = name.strip().lower()
+    if not name_lower:
+        return False
+    
+    # Check against invalid placeholders
+    if name_lower in INVALID_NAME_PLACEHOLDERS:
+        return False
+    
+    return True
