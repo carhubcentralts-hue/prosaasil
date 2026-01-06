@@ -11,22 +11,30 @@ All name validation across the codebase should import from here.
 # 🔥 SINGLE SOURCE OF TRUTH: Invalid name placeholders
 # This list is used across the entire codebase for name validation
 INVALID_NAME_PLACEHOLDERS = {
-    # Generic placeholders
+    # ─── Generic Placeholders ───
+    # Common placeholder values that are not real names
     'none', 'null', 'unknown', 'test', '-', 'n/a', 'na', 'n.a.', 'undefined',
     
-    # Hebrew placeholders
+    # ─── Hebrew Placeholders ───
+    # ללא שם = "no name", לא ידוע = "unknown", אין שם = "no name", לקוח = "customer"
     'לא ידוע', 'ללא שם', 'אין שם', 'לקוח', 
     
-    # English customer references
+    # ─── English Customer References ───
+    # Generic role names, not individual identities
     'customer', 'client', 'user', 'guest',
     
-    # File/folder names (not people)
+    # ─── File/Folder Names ───
+    # בית = "house/home", תמונה = "picture", מסמך = "document", קובץ/תיקיה = "file/folder"
+    # These appear in file uploads but are not customer names
     'בית', 'תמונה', 'מסמך', 'קובץ', 'תיקיה', 'folder', 'file',
     
-    # Generic name-related words
+    # ─── Generic Name-Related Words ───
+    # שם = "name", משתמש = "user" - meta words about names, not actual names
     'שם', 'name', 'משתמש',
     
-    # Test/example values
+    # ─── Test/Example Values ───
+    # טסט/בדיקה/דוגמה = "test/check/example", אורח = "guest"
+    # Common in QA/testing but not real customer names
     'טסט', 'בדיקה', 'דוגמה', 'example', 'אורח'
 }
 

@@ -17,6 +17,11 @@ def hash_prompt(text: str, normalize: bool = True) -> str:
     This is the ONLY function for hashing prompts in the system.
     All injection guards should use this to prevent duplicates.
     
+    Note: Uses MD5 for speed and simplicity in de-duplication context.
+    This is NOT for security purposes - only for detecting duplicate content.
+    MD5 is sufficient for this use case (collision probability negligible
+    for prompt texts of different semantic content).
+    
     Args:
         text: The prompt text to hash
         normalize: Whether to normalize text before hashing (default: True)
@@ -41,6 +46,7 @@ def hash_prompt(text: str, normalize: bool = True) -> str:
         text = _normalize_for_hash(text)
     
     try:
+        # MD5 is fast and adequate for content de-duplication (not security)
         return hashlib.md5(text.encode('utf-8')).hexdigest()[:8]
     except Exception:
         # Fallback for encoding errors
