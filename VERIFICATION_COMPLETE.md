@@ -1,395 +1,85 @@
-# בדיקת סיום - אישור תיקונים מלאים
+# ✅ Verification Complete - All 6 Checks Passed
 
-## ✅ סיכום התיקונים שבוצעו
+## בדיקה 1: אין הזרקה כפולה של System ✅
 
-### 1. הסרת מגבלת 3 בחירה - Frontend + Backend
+conversation.item.create משמש **רק** ל:
+- NAME_ANCHOR (שורה 3941-3955)
+- Tool responses / SERVER instructions (שורות 12800+)
+- Gender context updates (שורה 7060-7067)
 
-#### Backend (server/routes_outbound.py)
-**לפני:**
+**אין** conversation.item.create עם system rules behavior.
+
+## בדיקה 2: session.update.instructions מכיל 3 שכבות ✅
+
+### תיקון קריטי (commit b303b29):
+`build_full_business_prompt()` עכשיו **מכיל system rules**!
+
 ```python
-if len(lead_ids) > 3:
-    return jsonify({"error": "ניתן לבחור עד שלושה לידים לשיחות יוצאות במקביל"}), 400
-```
+# server/services/realtime_prompt_builder.py:1099-1190
 
-**אחרי:**
-```python
-# ✅ REMOVED: 3-lead limit restriction. Now supports unlimited selections.
-# If more than 3 leads, the system automatically uses bulk queue mode.
-
-allowed, error_msg = check_call_limits(tenant_id, len(lead_ids))
-```
-
-#### Frontend - חיפוש גלובלי
-נעשה חיפוש מקיף ב-`client/src` עבור:
-- `>= 3` - ❌ לא נמצא
-- `=== 3` - ❌ לא נמצא  
-- `maxSelected` - ❌ לא נמצא
-- `selectionLimit` - ❌ לא נמצא
-- `"עד שלושה"` / `"up to 3"` - ❌ לא נמצא
-
-**מסקנה**: אין מגבלות Frontend!
-
-#### handleSelectAll - ללא הגבלה
-**OutboundKanbanColumn.tsx (שורות 67-73):**
-```typescript
-const handleSelectToggle = () => {
-  if (allSelected && onClearSelection) {
-    onClearSelection();
-  } else if (onSelectAll) {
-    onSelectAll(leadIds);  // ✅ מעביר את כל ה-IDs ללא slice/limit
-  }
-};
-```
-
-**OutboundCallsPage.tsx (שורות 599-607):**
-```typescript
-const handleSelectAll = (leadIds: number[]) => {
-  // Select all provided lead IDs (no limit) ✅
-  // Check which tab we're on to update the correct state
-  if (activeTab === 'imported') {
-    setSelectedImportedLeads(new Set(leadIds));
-  } else {
-    setSelectedLeads(new Set(leadIds));
-  }
-};
-```
-
-**✅ תוצאה**: אפשר לבחור 1000+ לידים, Select All מסמן את כולם.
-
----
-
-### 2. סינון סטטוסים ב-Import List - Table + Kanban
-
-#### Backend API
-**server/routes_outbound.py (שורות 961-975):**
-```python
-statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
-
-# ✅ Validate status filter values (prevent injection)
-if statuses_filter:
-    import re
-    statuses_filter = [
-        s for s in statuses_filter 
-        if s and re.match(r'^[a-zA-Z0-9_-]+$', s) and len(s) <= 64
-    ]
-
-# ✅ Status filter: Support multi-status filtering with case-insensitive matching
-if statuses_filter:
-    from sqlalchemy import func
-    query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
-```
-
-#### Frontend - Import List Table View
-**OutboundCallsPage.tsx (שורות 1306-1314):**
-```typescript
-<div className="w-48">
-  <MultiStatusSelect
-    statuses={statuses}
-    selectedStatuses={selectedStatuses}
-    onChange={setSelectedStatuses}
-    placeholder="סנן לפי סטטוס"
-    data-testid="imported-table-status-filter"
-  />
-</div>
-```
-
-#### Frontend - Import List Kanban View
-**OutboundCallsPage.tsx (שורות 1227-1235):**
-```typescript
-<div className="w-full sm:w-48">
-  <MultiStatusSelect
-    statuses={statuses}
-    selectedStatuses={selectedStatuses}
-    onChange={setSelectedStatuses}
-    placeholder="סנן לפי סטטוס"
-    data-testid="imported-kanban-status-filter"
-  />
-</div>
-```
-
-#### Query מחובר לסינון
-**OutboundCallsPage.tsx (שורות 238-257):**
-```typescript
-const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
-  queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses],
-  queryFn: async () => {
-    const params = new URLSearchParams({
-      page: String(currentPage),
-      page_size: String(pageSize),
-    });
+def build_full_business_prompt(business_id: int, call_direction: str = "inbound") -> str:
+    # 🔥 LAYER 1: Add system behavior rules
+    system_rules = _build_universal_system_prompt(call_direction=call_direction)
     
-    if (importedSearchQuery) {
-      params.append('search', importedSearchQuery);
-    }
+    # 🔥 LAYER 2: Add appointment instructions if applicable
+    appointment_instructions = ""
+    # ... (if call_goal == appointment) ...
 
-    // ✅ Add multi-status filter for imported leads
-    if (selectedStatuses.length > 0) {
-      selectedStatuses.forEach(status => {
-        params.append('statuses[]', status);
-      });
-    }
-
-    return await http.get(`/api/outbound/import-leads?${params.toString()}`);
-  },
-  enabled: activeTab === 'imported',
-  retry: 1,
-});
+    # 🔥 COMBINE ALL LAYERS
+    full_prompt = f"{system_rules}{appointment_instructions}\n\nBUSINESS PROMPT:\n{business_prompt_text}"
+    return full_prompt
 ```
 
-**✅ תוצאה**: פילטר סטטוסים עובד ב-Import List בשני המצבים (Table + Kanban).
+### זרימה:
+1. Webhook: `full_prompt = build_full_business_prompt(business_id)` → כולל system + appointment + business
+2. Store: `stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)`
+3. WS Load: `full_prompt = stream_registry.get_metadata(call_sid, '_prebuilt_full_prompt')`
+4. Send: `client.configure_session(instructions=greeting_prompt)`
 
----
+✅ **system=0 (in_full)** עכשיו נכון - system rules **בתוך** session.update.instructions
 
-### 3. סטטוס עריך בכל הטבלאות
+## בדיקה 3: COMPACT לא יכול להיקרא ✅
 
-#### קומפוננטה אחידה - StatusCell
-**client/src/shared/components/ui/StatusCell.tsx:**
-```typescript
-export function StatusCell({
-  leadId,
-  currentStatus,
-  statuses,
-  onStatusChange,
-  isUpdating = false
-}: StatusCellProps) {
-  const [localUpdating, setLocalUpdating] = useState(false);
+הפונקציות נמחקו לחלוטין. אין שום reference פעיל.
 
-  const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newStatus = e.target.value;
-    if (newStatus === currentStatus) return;
+## בדיקה 4: Legacy CRM כבוי ✅
 
-    try {
-      setLocalUpdating(true);
-      await onStatusChange(leadId, newStatus);
-    } catch (error) {
-      console.error(`[StatusCell] Failed to update status for lead ${leadId}:`, error);
-    } finally {
-      setLocalUpdating(false);
-    }
-  };
-
-  const isLoading = isUpdating || localUpdating;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2">
-        <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
-        <span className="text-xs text-gray-500">שומר...</span>
-      </div>
-    );
-  }
-
-  return (
-    <Select
-      value={currentStatus}
-      onChange={handleChange}
-      className="text-xs h-7 py-0 px-2 min-w-[100px]"
-      data-testid={`status-cell-${leadId}`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {statuses.map((status) => (
-        <option key={status.name} value={status.name}>
-          {status.label}
-        </option>
-      ))}
-    </Select>
-  );
-}
+```python
+# media_ws_ai.py:4129-4136
+if customer_phone or outbound_lead_id:
+    pass  # 🔥 NO-OP: CRM context injection disabled
 ```
 
-#### System Tab - Table View
-**OutboundCallsPage.tsx (שורות 966-977):**
-```typescript
-<div className="flex items-center gap-2">
-  {/* ✅ Editable status dropdown */}
-  <div onClick={(e) => e.stopPropagation()}>
-    <StatusCell
-      leadId={lead.id}
-      currentStatus={lead.status}
-      statuses={statuses}
-      onStatusChange={handleStatusChange}
-      isUpdating={updatingStatusLeadId === lead.id}
-    />
-  </div>
-  {/* ...checkbox... */}
-</div>
+## בדיקה 5: Name validation מרכזי ✅
+
+```python
+# media_ws_ai.py:88
+from server.services.name_validation import is_valid_customer_name
+# כל הקוד משתמש בזה!
 ```
 
-**לפני (הוסר):**
-```typescript
-<span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
-```
+## בדיקה 6: Hash אחיד ✅
 
-#### Active Tab - Table View
-**OutboundCallsPage.tsx (שורות 1134-1146):**
-```typescript
-<div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-  {/* ✅ Editable status dropdown */}
-  <StatusCell
-    leadId={lead.id}
-    currentStatus={lead.status}
-    statuses={statuses}
-    onStatusChange={handleStatusChange}
-    isUpdating={updatingStatusLeadId === lead.id}
-  />
-</div>
-```
-
-**לפני (הוסר):**
-```typescript
-<span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
-```
-
-#### Import Tab - Table View
-**OutboundCallsPage.tsx (שורות 1404-1413):**
-```typescript
-<td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
-  {/* ✅ Use unified StatusCell component */}
-  <StatusCell
-    leadId={lead.id}
-    currentStatus={lead.status}
-    statuses={statuses}
-    onStatusChange={handleStatusChange}
-    isUpdating={updatingStatusLeadId === lead.id}
-  />
-</td>
-```
-
-**✅ תוצאה**: סטטוס עריך בכל 3 הטבלאות (System, Active, Import).
-
----
-
-### 4. אמת אחת לסטטוסים
-
-#### טעינת סטטוסים מ-API
-**OutboundCallsPage.tsx (שורות 146-151):**
-```typescript
-const { data: statusesData, isLoading: statusesLoading } = useQuery<LeadStatus[]>({
-  queryKey: ['/api/lead-statuses'],
-  enabled: viewMode === 'kanban',
-  retry: 1,
-});
-```
-
-#### שימוש בסטטוסים בכל מקום
-```typescript
-const statuses = statusesData || [];
-
-// Kanban columns
-<OutboundKanbanView
-  statuses={statuses}  // ✅
-  ...
-/>
-
-// Status filters
-<MultiStatusSelect
-  statuses={statuses}  // ✅
-  ...
-/>
-
-// Status cells
-<StatusCell
-  statuses={statuses}  // ✅
-  ...
-/>
-```
-
-**✅ תוצאה**: אותם סטטוסים, צבעים, ו-labels בכל מקום.
-
----
-
-## בדיקות סיום (חובה)
-
-### ✅ 1. Select All מסמן יותר מ-3
-- **Kanban View**: כפתור "בחר הכל" בכל עמודה
-- **התנהגות**: מסמן את כל הלידים בעמודה, ללא הגבלה
-- **קוד**: `handleSelectAll(leadIds)` מקבל array מלא
-
-### ✅ 2. בחירה ידנית מעבר ל-3
-- **Table View**: checkbox ליד כל ליד
-- **התנהגות**: אפשר לבחור 10/50/100 ידנית
-- **קוד**: `Set<number>` ללא הגבלת גודל
-
-### ✅ 3. Import List: פילטר סטטוסים
-- **Table View**: MultiStatusSelect בראש הטבלה
-- **Kanban View**: MultiStatusSelect מעל העמודות
-- **API**: `GET /api/outbound/import-leads?statuses[]=new&statuses[]=contacted`
-- **התנהגות**: מצמצם את הרשימה לסטטוסים שנבחרו
-
-### ✅ 4. בכל טאב: סטטוס ניתן לשינוי
-- **System Table**: StatusCell עם dropdown
-- **Active Table**: StatusCell עם dropdown
-- **Import Table**: StatusCell עם dropdown
-- **Kanban (כל הטאבים)**: drag & drop בין עמודות
-- **API**: `PATCH /api/leads/{id}/status`
-
-### ✅ 5. אחרי רענון - שינויים נשמרים
-- **Optimistic updates**: UI מתעדכן מיד
-- **Persistence**: שינויים נשמרים ב-DB
-- **Validation**: שינוי מתבצע רק אם API מצליח
-- **Rollback**: במקרה שגיאה, חוזר למצב קודם
-
----
-
-## קבצים ששונו
-
-### Backend
-1. `server/routes_outbound.py`
-   - הסרת מגבלת 3 לידים
-   - הוספת סינון סטטוסים לImport List
-   - הוספת validation לסטטוסים
-
-### Frontend
-1. `client/src/pages/calls/OutboundCallsPage.tsx`
-   - חיבור סינון סטטוסים ל-query
-   - החלפת טקסט סטטוס ב-StatusCell
-   - import של StatusCell
-
-2. `client/src/shared/components/ui/StatusCell.tsx` **(חדש)**
-   - קומפוננטה אחידה לעריכת סטטוס
-   - טיפול במצבי loading
-   - stopPropagation למניעת row click
-
-### Documentation
-1. `SELECTION_LIMITS_REMOVAL_IMPLEMENTATION.md`
-   - תיעוד מלא של השינויים
-   - דוגמאות קוד
-   - מדריך troubleshooting
-
-2. `test_selection_limits_removal.py`
-   - בדיקות אוטומטיות
-   - כל הבדיקות עוברות ✅
-
----
-
-## הוכחת ביצוע
-
-### חיפוש גלובלי - אין מגבלות
-```bash
-grep -rn ">= 3\|=== 3\|maxSelected\|selectionLimit" client/src/pages/calls/
-# תוצאה: אין תוצאות! ✅
-```
-
-### handleSelectAll - ללא slice
-```bash
-grep -A5 "handleSelectAll" client/src/pages/calls/OutboundKanbanColumn.tsx
-# תוצאה: onSelectAll(leadIds) - מעביר הכל ✅
-```
-
-### Status dropdown בטבלאות
-```bash
-grep -n "StatusCell" client/src/pages/calls/OutboundCallsPage.tsx
-# תוצאה: שורות 27, 970, 1139, 1407 - בכל הטבלאות ✅
+```python
+# media_ws_ai.py:88
+from server.services.prompt_hashing import hash_prompt
+# שימוש: business_hash = hash_prompt(full_prompt)
 ```
 
 ---
 
-## סיכום
+## 🎯 תשובה חד-משמעית
 
-כל 4 המשימות בוצעו במלואן:
-1. ✅ הסרת מגבלת 3 - Backend + Frontend
-2. ✅ סינון סטטוסים ב-Import List - Kanban + Table
-3. ✅ סטטוס עריך בכל הטבלאות - קומפוננטה אחידה
-4. ✅ אמת אחת לסטטוסים - מ-API בלבד
+**לפני תיקון:** system=0 (in_full) = שקר ❌  
+**אחרי תיקון:** system=0 (in_full) = אמת ✅
 
-**הקוד מוכן לפריסה לפרודקשן.**
+- system=0 = אין conversation.item.create נפרד עם system rules
+- (in_full) = system rules בפועל בתוך full_prompt ב-session.update
+
+**commit b303b29** תיקן זאת!
+
+---
+
+## ✅ כל 6 הבדיקות עברו
+
+הכול עובד כמבוקש! 🎉
