@@ -1,20 +1,17 @@
-
 """
-Realtime Prompt Builder - REFACTORED FOR PERFECT LAYER SEPARATION
-=================================================================
+Realtime Prompt Builder - SINGLE SOURCE OF TRUTH FOR PROMPTS
+=============================================================
 
-🎯 MISSION: Zero collisions, zero duplicated rules, perfect dynamic flow
+🎯 MISSION: Zero collisions, zero duplicated rules, perfect layer separation
 
-LAYER ARCHITECTURE:
-1. SYSTEM PROMPT → Behavior rules only (universal, no content)
-2. BUSINESS PROMPT → All flow, script, and domain content
-3. TRANSCRIPT PROMPT → Recognition enhancement only
-4. NLP PROMPT → Data extraction only (handled separately)
+LAYER ARCHITECTURE (enforced):
+1. SYSTEM PROMPT → Behavior rules ONLY (universal, no content) - ONCE
+2. BUSINESS PROMPT → All flow, script, and domain content - ONCE  
+3. NAME ANCHOR → Customer context - ONCE
+4. TODAY CONTEXT → Runtime facts - ONCE (separate injection)
 
-🔥 BUILD: PERFECT INBOUND & OUTBOUND SEPARATION
-- build_inbound_system_prompt(): Full control settings + appointment scheduling
-- build_outbound_system_prompt(): Pure prompt mode, no call control
-- build_realtime_system_prompt(): Router that calls the correct builder
+🔥 CRITICAL: Each piece of information injected EXACTLY ONCE.
+No duplications. No overlaps. Clean architecture.
 """
 import logging
 from typing import Optional, Tuple, Dict, Any
@@ -24,6 +21,13 @@ import json
 import re
 
 logger = logging.getLogger(__name__)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 IMPORTS: Centralized utilities (single source of truth)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+from server.services.name_validation import is_valid_customer_name, INVALID_NAME_PLACEHOLDERS
+from server.services.prompt_hashing import hash_prompt
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 CONSTANTS: Fallback prompt templates (English only, no hardcoded content)
@@ -141,16 +145,8 @@ def extract_first_name(full_name: Optional[str]) -> Optional[str]:
     if not name:
         return None
     
-    # 🚫 PLACEHOLDER DETECTION: Common non-name values
-    name_lower = name.lower()
-    placeholders = [
-        "ללא שם", "לא ידוע", "אין שם", "לקוח", "customer", "client",
-        "בית", "תמונה", "מסמך", "קובץ", "תיקיה", "folder", "file",
-        "שם", "name", "test", "טסט", "בדיקה", "דוגמה", "example",
-        "משתמש", "user", "אורח", "guest"
-    ]
-    
-    if name_lower in placeholders:
+    # 🔥 USE CENTRALIZED VALIDATION (single source of truth)
+    if not is_valid_customer_name(name):
         logger.debug(f"[NAME_EXTRACT] Skipping placeholder: '{full_name}'")
         return None
     
@@ -727,11 +723,13 @@ _BOX_DRAWING_RE = re.compile(r"[\u2500-\u257F\u2580-\u259F]")
 _ARROWS_RE = re.compile(r"[\u2190-\u21FF]")
 _MARKDOWN_FENCE_RE = re.compile(r"```[\s\S]*?```", flags=re.MULTILINE)
 
-# Prompt size caps (Realtime is sensitive to long instructions)
-# - Compact greeting prompt (sent as session.update.instructions): MUST be business-only.
-#   Per CRITICAL prompt-separation requirement, keep it ~300–400 chars (sanitized excerpt).
-# - Full prompt (NEVER sent as session.update.instructions): can be larger (injected later as messages).
-COMPACT_GREETING_MAX_CHARS = 420  # Legacy - not used anymore (LATENCY-FIRST)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 PROMPT SIZE LIMITS (for reference only - FULL prompt used from start)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 🔥 REMOVED: COMPACT_GREETING_MAX_CHARS - no longer using compact prompts
+# System uses FULL business prompt from the very beginning (FULL_ONLY strategy)
+
 FULL_PROMPT_MAX_CHARS = 8000  # ⚠️ This is a LIMIT, not a target! Keep actual prompts 2000-4000 chars for best performance
 
 
@@ -1094,27 +1092,26 @@ def _extract_business_prompt_text(
     return ai_prompt_text
 
 
-def build_compact_business_instructions(business_prompt_text: str) -> str:
-    """
-    Build COMPACT instructions for Realtime `session.update.instructions`.
-
-    Per required architecture:
-    - Business-only content (no global/system rules, no router metadata).
-    - Sanitized first ~300–400 chars (hard-capped).
-    """
-    business_prompt_text = business_prompt_text or ""
-    # Sanitize first, then cap hard (keep it voice-friendly and safe for Realtime instructions).
-    cleaned = sanitize_realtime_instructions(business_prompt_text, max_chars=5000)
-    return sanitize_realtime_instructions(cleaned, max_chars=COMPACT_GREETING_MAX_CHARS)
-
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 BUSINESS PROMPT: FULL ONLY (no compact version)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def build_full_business_prompt(business_id: int, call_direction: str = "inbound") -> str:
     """
-    FULL Business Prompt (business-only).
+    FULL Business Prompt with System Rules.
+    
+    🔥 SINGLE INJECTION POINT: This is used ONCE at call start.
+    NO compact version. NO upgrade. FULL prompt from beginning.
 
     IMPORTANT:
-    - MUST NOT be sent as session.update.instructions.
-    - Intended to be injected later via conversation.item.create after greeting.
+    - Contains SYSTEM rules + BUSINESS content (complete prompt)
+    - Injected via session.update.instructions
+    - NO separate conversation.item.create for system rules
+    
+    This combines:
+    1. System behavior rules (universal)
+    2. Appointment instructions (if applicable)
+    3. Business prompt content
     """
     from server.models_sql import Business, BusinessSettings
 
@@ -1127,6 +1124,7 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
 
     business_name = business.name or "Business"
 
+    # Get business prompt based on direction
     if call_direction == "outbound":
         ai_prompt_raw = settings.outbound_ai_prompt if (settings and settings.outbound_ai_prompt) else ""
         direction_label = "OUTBOUND"
@@ -1153,13 +1151,46 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
             logger.error(f"[PROMPT ERROR] No prompts available for business_id={business_id} - configuration required")
             return ""
 
-    # Keep the full text (do not sanitize for length here). Downstream callers may sanitize for TTS if needed.
-    return (
-        f"## BUSINESS_PROMPT_START\n"
-        f"BUSINESS PROMPT (Business ID: {business_id}, Name: {business_name}, Call: {direction_label})\n"
-        f"{business_prompt_text}\n"
-        f"## BUSINESS_PROMPT_END"
+    # 🔥 LAYER 1: Add system behavior rules
+    system_rules = _build_universal_system_prompt(call_direction=call_direction)
+    
+    # 🔥 LAYER 2: Add appointment instructions if applicable
+    appointment_instructions = ""
+    if settings:
+        call_control_settings = getattr(settings, "call_control_settings", None) or {}
+        enable_calendar_scheduling = call_control_settings.get("enable_calendar_scheduling", False)
+        call_goal = call_control_settings.get("call_goal", "lead_only")
+        
+        if call_goal == 'appointment' and enable_calendar_scheduling:
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(business_id, prompt_text=None)
+            
+            tz = pytz.timezone(policy.tz)
+            today = datetime.now(tz)
+            today_date = today.strftime("%d/%m/%Y")
+            weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            weekday_name = weekday_names[today.weekday()]
+            
+            appointment_instructions = (
+                f"\n\nAPPOINTMENT SCHEDULING (STRICT, technical): Today is {weekday_name} {today_date}. "
+                f"Slot size: {policy.slot_size_min}min. "
+                "Never skip steps. Required before booking: (1) customer's FULL NAME (first and last name - not just 'לקוח' or generic terms), (2) full date (must include weekday), (3) time. "
+                "CRITICAL: Always ask for the customer's full name before booking. Examples: 'על איזה שם לרשום את הפגישה?', 'מה השם המלא שלך?'. "
+                "If anything is missing, ask ONLY for the missing field (one question at a time). "
+                "Understanding time/date: the customer may say relative time references (today/tomorrow) - always restate as a weekday + full date + HH:MM confirmation question. "
+            )
+
+    # 🔥 COMBINE ALL LAYERS (system + appointment + business)
+    full_prompt = (
+        f"{system_rules}{appointment_instructions}\n\n"
+        f"BUSINESS PROMPT (Business ID: {business_id}, Name: {business_name}, Call: {direction_label}):\n"
+        f"{business_prompt_text}\n\n"
+        f"CALL TYPE: {direction_label.upper()}. {'The customer called the business.' if call_direction == 'inbound' else 'You are calling the customer.'} Follow the business prompt for flow."
     )
+    
+    logger.info(f"✅ [FULL_BUSINESS] Built complete prompt: {len(full_prompt)} chars (system + appointment + business)")
+    
+    return full_prompt
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1198,87 +1229,12 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
         return ("", "")  # Return empty - let AI handle naturally
 
 
-def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbound") -> str:
-    """
-    🔥 REFACTORED: COMPACT version of full prompt for ultra-fast greeting
-    
-    Per required architecture:
-    - COMPACT (session.update.instructions) must be BUSINESS-ONLY.
-    - Extract and sanitize only the first ~300–400 chars from the Business Prompt.
-    - NO global/system prompt text in COMPACT.
-    """
-    try:
-        from server.models_sql import Business, BusinessSettings
-        
-        business = Business.query.get(business_id)
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-        
-        if not business:
-            logger.warning(f"⚠️ [COMPACT] Business {business_id} not found")
-            return ""
-        
-        business_name = business.name or "Business"
-        
-        # 🔥 EXTRACT BUSINESS PROMPT based on direction
-        if call_direction == "outbound":
-            # Use outbound_ai_prompt
-            ai_prompt_raw = settings.outbound_ai_prompt if (settings and settings.outbound_ai_prompt) else ""
-            logger.info(f"📦 [COMPACT] Using OUTBOUND prompt for {business_name}")
-        else:
-            # Use regular ai_prompt
-            ai_prompt_raw = settings.ai_prompt if settings else ""
-            logger.info(f"📦 [COMPACT] Using INBOUND prompt for {business_name}")
-
-        ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=ai_prompt_raw)
-
-        if not ai_prompt_text.strip():
-            logger.error(f"[PROMPT ERROR] Missing compact prompt business_id={business_id} direction={call_direction}")
-            # Try to get a fallback from the alternate direction or system_prompt
-            if call_direction == "outbound" and settings and settings.ai_prompt:
-                logger.warning(f"[PROMPT FALLBACK] Using inbound prompt for compact outbound business_id={business_id}")
-                ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.ai_prompt)
-            elif call_direction == "inbound" and settings and settings.outbound_ai_prompt:
-                logger.warning(f"[PROMPT FALLBACK] Using outbound prompt for compact inbound business_id={business_id}")
-                ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.outbound_ai_prompt)
-            elif business.system_prompt:
-                logger.warning(f"[PROMPT FALLBACK] Using system_prompt for compact business_id={business_id}")
-                ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=business.system_prompt)
-            
-            # If still no prompt, return empty
-            if not ai_prompt_text.strip():
-                logger.error(f"[PROMPT ERROR] No prompts available for compact business_id={business_id}")
-                return ""
-
-        # ✅ COMPACT = BUSINESS-ONLY excerpt (no global/system rules, no direction metadata)
-        final_prompt = build_compact_business_instructions(ai_prompt_text)
-
-        logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
-        
-        # 🔥 PROMPT_CONTEXT: Log that compact prompt is fully dynamic
-        logger.info("[PROMPT_CONTEXT] business_id=%s, prompt_source=ui, has_hardcoded_templates=False, mode=compact", business_id)
-        
-        # PRODUCTION: Never log prompt content (may contain business copy).
-        # Keep only length + hash for traceability.
-        try:
-            import hashlib
-            prompt_hash = hashlib.md5(final_prompt.encode("utf-8")).hexdigest()[:8]
-        except Exception:
-            prompt_hash = "hash_err"
-        logger.debug(
-            "[PROMPT_DEBUG] direction=%s business_id=%s compact_len=%s hash=%s",
-            call_direction,
-            business_id,
-            len(final_prompt),
-            prompt_hash,
-        )
-        
-        return final_prompt
-        
-    except Exception as e:
-        logger.error(f"❌ [COMPACT] Compact prompt error: {e}")
-        import traceback
-        traceback.print_exc()
-        return ""
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 REMOVED: build_compact_greeting_prompt() - NO LONGER USED
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# System now uses FULL prompt from the very beginning (FULL_ONLY strategy).
+# Compact prompts were causing complexity and potential duplications.
+# All code should use build_full_business_prompt() or build_realtime_system_prompt().
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound", use_cache: bool = True) -> str:

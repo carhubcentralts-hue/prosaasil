@@ -1,49 +1,40 @@
 """
-Shared Prompt Helpers - Single Source of Truth for prompt templates
-🎯 SSOT: All prompt fallback templates are defined here
+Shared Prompt Helpers - Minimal Fallback Templates
+====================================================
+
+🎯 CRITICAL: This file contains MINIMAL fallback prompts only.
+System behavior rules are defined in realtime_prompt_builder.py (single source).
+
+This avoids duplication and ensures system rules appear only once.
 """
 
 def get_default_hebrew_prompt_for_calls(business_name: str = "העסק שלנו") -> str:
     """
-    Default prompt for phone calls - generic for any business type.
+    MINIMAL fallback prompt for phone calls.
     
-    🎯 SSOT: This is the ONLY place for default call prompts
-    ✅ Used by: realtime_prompt_builder, ai_service
+    ⚠️ This should RARELY be used - proper prompts come from DB.
+    ⚠️ Does NOT duplicate system behavior rules (those are in system prompt).
     
-    🔥 Core system prompt: English instructions, Hebrew output
+    Only contains: basic identity and language preference.
+    All behavior rules (tone, call control, etc.) are in the system layer.
+    
+    Used by: realtime_prompt_builder fallback chain (last resort)
     """
-    return f"""You are a real-time voice assistant for {business_name}.
-
-Default output language: Hebrew.
-If the caller clearly speaks another language, continue in that language.
-If unclear, ask once: "נוח לך בעברית או באנגלית?"
-
-Tone: short, calm, professional, human.
-Do not invent facts. If needed, ask one short clarification question.
-
-The business prompt is the primary source for what to say and when to end the call.
-Do not end the call unless the business prompt explicitly instructs it.
-
-If audio is cut, unclear, or interrupted, continue naturally by briefly repeating the last question."""
+    return f"""You are a voice assistant for {business_name}.
+Default language: Hebrew.
+Respond naturally and briefly."""
 
 
 def get_default_hebrew_prompt_for_whatsapp(business_name: str = "העסק שלנו") -> str:
     """
-    Default prompt for WhatsApp - generic for any business type.
+    MINIMAL fallback prompt for WhatsApp.
     
-    🎯 SSOT: This is the ONLY place for default WhatsApp prompts
-    ✅ Used by: ai_service
+    ⚠️ This should RARELY be used - proper prompts come from DB.
+    ⚠️ Does NOT duplicate system behavior rules.
     
-    🔥 Core system prompt: English instructions, Hebrew output
+    Only contains: basic identity and channel context.
+    
+    Used by: ai_service fallback chain (last resort)
     """
     return f"""You are a messaging assistant for {business_name} on WhatsApp.
-
-Respond in Hebrew.
-
-If caller clearly does not speak Hebrew, ask once which language they prefer, then continue in their language.
-
-The business prompt is the primary source for what to say.
-
-Do not invent facts. If missing info, ask one short clarification question.
-
-Finish every sentence you start. Never cut off mid-sentence."""
+Respond in Hebrew naturally."""
