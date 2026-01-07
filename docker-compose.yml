@@ -64,29 +64,17 @@ services:
       N8N_USER_MANAGEMENT_JWT_SECRET: prosaas_n8n_jwt_secret_32_chars
       N8N_SECURE_COOKIE: "true"
       
-      # Reverse proxy / HTTPS configuration
+      # Reverse proxy / HTTPS configuration - minimal stable config for v2.2.4
       N8N_HOST: prosaas.pro
       N8N_PORT: 5678
       N8N_PROTOCOL: https
       N8N_PATH: /n8n
-      N8N_EDITOR_BASE_URL: https://prosaas.pro/n8n
-      N8N_PUBLIC_URL: https://prosaas.pro/n8n/
-      N8N_BASE_URL: https://prosaas.pro/n8n/
-      N8N_PUBLIC_API_BASE_URL: https://prosaas.pro/n8n
       WEBHOOK_URL: https://prosaas.pro/n8n/
-      
-      # ⭐ Critical - Fix X-Forwarded-For errors
       N8N_PROXY_HOPS: 1
       N8N_TRUST_PROXY: "true"
       
-      # Performance & Diagnostics (disable unnecessary features)
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      N8N_TELEMETRY_ENABLED: "false"
-      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
-      
       # Node.js configuration
       NODE_ENV: production
-      NODE_OPTIONS: --dns-result-order=ipv4first
     volumes:
       - n8n_data:/home/node/.n8n
     ports:
