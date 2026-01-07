@@ -54,7 +54,7 @@ services:
       DB_POSTGRESDB_HOST: aws-1-ap-northeast-1.pooler.supabase.com
       DB_POSTGRESDB_PORT: 6543
       DB_POSTGRESDB_DATABASE: postgres
-      DB_POSTGRESDB_USER: postgres.jnawaedtdpiaymavzjra
+      DB_POSTGRESDB_USER: postgres
       DB_POSTGRESDB_PASSWORD: SV1Stw7wYg7mkfe0
       DB_POSTGRESDB_SSL: "true"
       N8N_ENCRYPTION_KEY: prosaas_n8n_super_secret_32_chars
