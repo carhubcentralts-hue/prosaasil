@@ -46,7 +46,7 @@ services:
       FLASK_BASE_URL: ${FLASK_BASE_URL}
 
   n8n:
-    image: n8nio/n8n:2.2.4
+    image: n8nio/n8n:2.3.1
     container_name: prosaas-n8n
     restart: unless-stopped
     environment:
@@ -59,13 +59,13 @@ services:
       DB_POSTGRESDB_SSL: "true"
       N8N_ENCRYPTION_KEY: prosaas_n8n_super_secret_32_chars
       N8N_USER_MANAGEMENT_JWT_SECRET: prosaas_n8n_jwt_secret_32_chars
-      N8N_HOST: prosaas.pro
+      N8N_HOST: n8n.prosaas.pro
       N8N_PORT: 5678
       N8N_PROTOCOL: https
-      N8N_PATH: /n8n/
-      N8N_PUBLIC_URL: https://prosaas.pro/n8n/
-      N8N_BASE_URL: https://prosaas.pro/n8n/
-      WEBHOOK_URL: https://prosaas.pro/n8n/
+      WEBHOOK_URL: https://n8n.prosaas.pro/
+      N8N_TRUST_PROXY: "true"
+      N8N_PROXY_HOPS: 1
+      NODE_ENV: production
       N8N_SECURE_COOKIE: "true"
       NODE_OPTIONS: --dns-result-order=ipv4first
     volumes:
