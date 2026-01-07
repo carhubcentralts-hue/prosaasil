@@ -16,7 +16,7 @@ Replaced the connection string with individual connection parameters that n8n 2.
 ```yaml
 environment:
   DB_TYPE: postgresdb
-  DB_POSTGRESDB_CONNECTION_STRING: postgresql://postgres.jnawaedtdpiaymavzjra:SV1Stw7wYg7mkfe0@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true
+  DB_POSTGRESDB_CONNECTION_STRING: postgresql://[USER]:[PASSWORD]@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true
 ```
 
 **After:**
@@ -26,10 +26,12 @@ environment:
   DB_POSTGRESDB_HOST: aws-1-ap-northeast-1.pooler.supabase.com
   DB_POSTGRESDB_PORT: 6543
   DB_POSTGRESDB_DATABASE: postgres
-  DB_POSTGRESDB_USER: postgres.jnawaedtdpiaymavzjra
-  DB_POSTGRESDB_PASSWORD: SV1Stw7wYg7mkfe0
+  DB_POSTGRESDB_USER: [USER]
+  DB_POSTGRESDB_PASSWORD: [PASSWORD]
   DB_POSTGRESDB_SSL: "true"
 ```
+
+**Note:** The actual credentials remain unchanged from the original configuration. Only the format has been changed from a connection string to individual parameters.
 
 ## Deployment Steps
 
