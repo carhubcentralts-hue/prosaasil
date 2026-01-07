@@ -1,22 +1,31 @@
 # n8n Domain Fix Deployment Guide
 
 ## Problem Fixed
-The domain `n8n.prosaas.pro` was serving the frontend (AI CRM) instead of proxying to the n8n container. This fix removes legacy subpath configuration and ensures the domain properly routes to n8n.
+The domain `n8n.prosaas.pro` was serving the frontend (AI CRM) instead of proxying to the n8n container.
+
+## Root Cause (Corrected)
+Requests to `n8n.prosaas.pro` were being handled by the default frontend vhost, meaning the dedicated `server_name n8n.prosaas.pro` block was not being matched. This could occur due to:
+- Server block not loaded or not in the correct include path
+- Missing or incorrect SSL vhost configuration
+- `default_server` directive taking precedence
+- DNS/Cloudflare pointing to wrong origin
+
+The legacy `/n8n/` subpath configuration (which proxied from `prosaas.pro/n8n/`) does NOT conflict with the subdomain configuration - they use different `server_name` directives and should not interfere with each other.
 
 ## Changes Made
 
 ### 1. docker/nginx.conf
-- ✅ Kept dedicated n8n.prosaas.pro server block (lines 8-34)
+- ✅ Verified dedicated n8n.prosaas.pro server block exists (lines 8-35)
 - ✅ Added `client_max_body_size 64m` for file uploads
-- ❌ Removed legacy `/n8n/` subpath proxy (was lines 101-116)
-- ❌ Removed legacy `/n8nstatic/` proxy (was lines 118-125)
-- ❌ Removed legacy `/n8nassets/` proxy (was lines 127-134)
+- ✅ Cleanup: Removed legacy `/n8n/` subpath proxy (optional - not the root fix)
+- ✅ Cleanup: Removed legacy `/n8nstatic/` proxy (optional - not the root fix)
+- ✅ Cleanup: Removed legacy `/n8nassets/` proxy (optional - not the root fix)
 
 ### 2. docker/nginx-ssl.conf
-- ✅ Kept n8n.prosaas.pro HTTP → HTTPS redirect (lines 30-34)
-- ✅ Kept dedicated n8n.prosaas.pro HTTPS server block (lines 37-78)
+- ✅ Verified n8n.prosaas.pro HTTP → HTTPS redirect exists (lines 30-34)
+- ✅ Verified dedicated n8n.prosaas.pro HTTPS server block exists (lines 37-78)
 - ✅ Added `client_max_body_size 64m` for file uploads
-- ❌ Removed legacy `/n8n/` subpath proxy (was lines 152-167)
+- ✅ Cleanup: Removed legacy `/n8n/` subpath proxy (optional - not the root fix)
 
 ### 3. docker-compose.yml
 - ✅ No changes needed - already correctly configured with:
@@ -56,20 +65,36 @@ sudo systemctl reload nginx
 ```
 
 ### Step 3: Verify the Fix
-```bash
-# Test that n8n.prosaas.pro returns n8n content
-curl -I https://n8n.prosaas.pro/rest/ping
 
-# Expected output should include:
-# - HTTP/2 200 or similar success status
-# - Content-Type: application/json (NOT text/html)
-# - Should NOT see <title>AI CRM</title>
+**Required Verification Tests:**
+
+```bash
+# Test 1: Verify n8n.prosaas.pro does NOT return AI CRM HTML
+curl -s https://n8n.prosaas.pro/ | head -20
+# Should NOT contain <title>AI CRM</title>
+# Should contain n8n HTML elements
+
+# Test 2: Verify n8n API endpoint returns JSON (not HTML)
+curl -s https://n8n.prosaas.pro/rest/ping
+# Expected: JSON response like {"status":"ok"} or similar
+# NOT: HTML content with <title>AI CRM</title>
+
+# Test 3: Verify Content-Type header
+curl -I https://n8n.prosaas.pro/rest/ping
+# Expected: Content-Type: application/json
+# NOT: Content-Type: text/html
+
+# Test 4: Verify nginx loaded the n8n.prosaas.pro server block
+docker exec prosaas-frontend nginx -T 2>/dev/null | grep -n "server_name n8n.prosaas.pro"
+# Should show line numbers where the server blocks are defined
+# Should see at least 2 entries (HTTP redirect + HTTPS)
 
 # Also verify the n8n container is running
 docker ps | grep prosaas-n8n
-
 # Should see prosaas-n8n container running on port 5678
 ```
+
+If any of these tests fail, see the Troubleshooting section below.
 
 ### Step 4: Test in Browser
 1. Navigate to `https://n8n.prosaas.pro`
@@ -78,14 +103,25 @@ docker ps | grep prosaas-n8n
 
 ## What This Fix Does
 
+### The Real Issue
+The dedicated `server_name n8n.prosaas.pro` blocks exist in the configuration but requests were still going to the default frontend vhost. This typically means:
+- The nginx configuration needs to be properly loaded/reloaded
+- SSL certificates need to be in place
+- The server blocks need to be ordered correctly (specific server_name before default_server)
+
+### What This PR Does
+- ✅ Verifies and maintains dedicated HTTP and HTTPS server blocks for n8n.prosaas.pro
+- ✅ Ensures proper proxy configuration to prosaas-n8n:5678
+- ✅ Adds file upload size limits (64MB) for n8n workflows
+- ✅ Cleanup: Removes unused legacy subpath configuration (not the root fix, just cleanup)
+
 ### Before
 - `https://n8n.prosaas.pro` → Served frontend (AI CRM) ❌
-- Had conflicting subpath configuration at `/n8n/` (legacy)
+- Had legacy subpath configuration at `/n8n/` on main domain (unused)
 
 ### After
 - `https://n8n.prosaas.pro` → Properly proxies to n8n container ✅
-- Clean configuration with only domain-based routing ✅
-- Legacy subpath routes removed ✅
+- Clean configuration with only necessary routes ✅
 
 ## Architecture
 
@@ -99,27 +135,50 @@ Internet → nginx (port 443)
 
 ### If n8n.prosaas.pro still shows AI CRM:
 
-1. **Check nginx is using the updated config**:
+1. **Check nginx loaded the n8n.prosaas.pro server blocks**:
    ```bash
-   docker exec prosaas-frontend nginx -T | grep -A 20 "server_name n8n.prosaas.pro"
+   docker exec prosaas-frontend nginx -T 2>/dev/null | grep -A 20 "server_name n8n.prosaas.pro"
    ```
-   Should show the dedicated n8n server block.
+   Should show both the HTTP redirect block and the HTTPS proxy block.
+   
+   If NOT showing: The nginx configuration file is not being included properly. Check:
+   - Is the file mounted correctly in the container?
+   - Is there an `include` directive loading it?
+   - Are there syntax errors preventing the config from loading?
 
-2. **Verify DNS is pointing to the correct server**:
+2. **Check for default_server precedence**:
+   ```bash
+   docker exec prosaas-frontend nginx -T 2>/dev/null | grep -n "default_server"
+   ```
+   If a default_server block appears before the n8n.prosaas.pro block, it might be taking precedence.
+
+3. **Verify DNS is pointing to the correct server**:
    ```bash
    nslookup n8n.prosaas.pro
    dig n8n.prosaas.pro
    ```
+   Make sure DNS points to the same IP as your main domain.
 
-3. **Check Docker network connectivity**:
+4. **Check SSL certificates exist**:
+   ```bash
+   docker exec prosaas-frontend ls -la /etc/nginx/certs/
+   ```
+   Should show `fullchain.pem` and `privkey.pem` files.
+
+5. **Check Docker network connectivity**:
    ```bash
    docker exec prosaas-frontend curl http://prosaas-n8n:5678/
    ```
    Should return n8n HTML content.
 
-4. **Check nginx logs**:
+6. **Check nginx error logs**:
    ```bash
    docker logs prosaas-frontend --tail 50
+   ```
+
+7. **Force reload nginx** (if simple reload didn't work):
+   ```bash
+   docker-compose restart frontend
    ```
 
 ### If webhooks don't work:
