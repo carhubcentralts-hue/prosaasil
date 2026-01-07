@@ -59,12 +59,14 @@ services:
       DB_POSTGRESDB_SSL: "true"
       N8N_ENCRYPTION_KEY: prosaas_n8n_super_secret_32_chars
       N8N_USER_MANAGEMENT_JWT_SECRET: prosaas_n8n_jwt_secret_32_chars
-      N8N_HOST: 0.0.0.0
+      N8N_HOST: prosaas.pro
       N8N_PORT: 5678
-      N8N_PROTOCOL: http
+      N8N_PROTOCOL: https
       N8N_PATH: /n8n/
       N8N_PUBLIC_URL: https://prosaas.pro/n8n/
       N8N_BASE_URL: https://prosaas.pro/n8n/
+      WEBHOOK_URL: https://prosaas.pro/n8n/
+      N8N_SECURE_COOKIE: "true"
       NODE_OPTIONS: --dns-result-order=ipv4first
     volumes:
       - n8n_data:/home/node/.n8n
