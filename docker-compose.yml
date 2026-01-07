@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       DB_TYPE: postgresdb
-      DB_POSTGRESDB_CONNECTION_STRING: "postgresql://postgres.jnawaedtdpiaymavzjra:SV1Stw7wYg7mkfe0@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require"
+      DB_POSTGRESDB_CONNECTION_STRING: "postgresql://postgres.jnawaedtdpiaymavzjra:SV1Stw7wYg7mkfe0@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require"
       N8N_ENCRYPTION_KEY: "prosaas_n8n_super_secret_32_chars"
       N8N_USER_MANAGEMENT_JWT_SECRET: "prosaas_n8n_jwt_secret_32_chars"
       N8N_HOST: 0.0.0.0
