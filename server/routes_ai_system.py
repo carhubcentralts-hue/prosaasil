@@ -212,6 +212,17 @@ def update_business_ai_settings():
         _ai_settings_cache.delete(f"ai_settings_{business_id}")
         _ai_settings_cache.delete(f"voice_{business_id}")
         logger.debug(f"[AI_SETTINGS] Cache INVALIDATED for business {business_id}")
+        
+        # 🔥 CRITICAL: Invalidate prompt cache when voice changes
+        # Voice change affects how prompts are cached and can cause content filter
+        # This ensures prompt cache rebuilds with correct voice context
+        try:
+            from server.services.ai_service import invalidate_business_cache
+            invalidate_business_cache(business_id)
+            logger.info(f"[VOICE_LIBRARY] ✅ Prompt+Agent cache invalidated for business {business_id} after voice update")
+        except Exception as cache_err:
+            # Non-critical - log warning but don't fail the request
+            logger.warning(f"[VOICE_LIBRARY] ⚠️ Failed to invalidate business cache: {cache_err}")
     except Exception as e:
         db.session.rollback()
         logger.error(f"[VOICE_LIBRARY] Failed to update voice: {e}")

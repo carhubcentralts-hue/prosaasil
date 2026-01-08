@@ -266,7 +266,18 @@ def invalidate_business_cache(business_id: int):
             del service._cache[key]
             logger.info(f"✅ Prompt cache invalidated: {key}")
     
-    # 2. 🔥 NEW: Clear agent cache (agent_factory)
+    # 2. 🔥 CRITICAL: Clear PromptCache (realtime_prompt_builder)
+    # This cache stores pre-built prompts for inbound/outbound calls
+    # Must be cleared when voice or prompt changes to prevent stale cache
+    try:
+        from server.services.prompt_cache import get_prompt_cache
+        prompt_cache = get_prompt_cache()
+        prompt_cache.invalidate(business_id)  # Invalidates both inbound and outbound
+        logger.info(f"✅ PromptCache (realtime) invalidated for business {business_id}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to invalidate PromptCache: {e}")
+    
+    # 3. 🔥 NEW: Clear agent cache (agent_factory)
     try:
         from server.agent_tools.agent_factory import invalidate_agent_cache
         invalidate_agent_cache(business_id)
