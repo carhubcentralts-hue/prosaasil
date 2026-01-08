@@ -46,7 +46,9 @@ services:
       FLASK_BASE_URL: ${FLASK_BASE_URL}
 
   n8n:
-    image: n8nio/n8n:2.3.1
+    # Updated to latest stable version to fix 404 errors on /rest/external-secrets/secrets
+    # and ensure compatibility with modern n8n features
+    image: n8nio/n8n:latest
     container_name: prosaas-n8n
     restart: unless-stopped
     environment:
