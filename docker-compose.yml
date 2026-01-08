@@ -20,6 +20,11 @@ services:
         condition: service_healthy
       n8n:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - prosaas-network
 
