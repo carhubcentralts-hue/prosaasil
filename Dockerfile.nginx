@@ -23,9 +23,5 @@ RUN mkdir -p /etc/nginx/certs
 # Expose HTTP and HTTPS ports
 EXPOSE 80 443
 
-# Health check
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=10 \
-    CMD curl -fsS http://localhost/health | grep -q OK || exit 1
-
 # Start nginx in foreground
 CMD ["nginx", "-g", "daemon off;"]
