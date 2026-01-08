@@ -55,10 +55,10 @@ docker compose logs -f nginx
 ### Production (HTTPS)
 
 ```bash
-# 1. Place SSL certificates
-mkdir -p certs
-cp /path/to/fullchain.pem certs/
-cp /path/to/privkey.pem certs/
+# 1. Place SSL certificates on server
+# Certificates should be located at:
+# /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt
+# /opt/prosaasil/docker/nginx/ssl/prosaas-origin.key
 
 # 2. Validate configuration
 ./validate_nginx_config.sh
@@ -180,14 +180,14 @@ docker compose restart nginx
 
 ### SSL Certificate Issues
 ```bash
-# Verify certificates exist
-ls -la certs/
+# Verify certificates exist on server
+ls -la /opt/prosaasil/docker/nginx/ssl/
 
 # Check certificate validity
-openssl x509 -in certs/fullchain.pem -text -noout
+openssl x509 -in /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt -text -noout
 
 # Check permissions
-chmod 644 certs/*.pem
+chmod 644 /opt/prosaasil/docker/nginx/ssl/*.{crt,key}
 ```
 
 ---
@@ -219,7 +219,7 @@ chmod 644 certs/*.pem
 ### Option 1: Full (Strict) - Recommended
 1. Set SSL mode: **Full (strict)**
 2. Generate Origin Certificate in Cloudflare
-3. Place certificates in `./certs/`
+3. Place certificates on server at `/opt/prosaasil/docker/nginx/ssl/`
 4. Use production compose: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
 
 ### Option 2: Full - Simpler

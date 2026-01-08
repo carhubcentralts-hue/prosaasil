@@ -73,10 +73,10 @@ This starts:
 #### Option 1: Cloudflare Full (strict) with Origin Certificates
 
 1. Generate origin certificates in Cloudflare Dashboard
-2. Place certificates in `./certs/` directory:
+2. Place certificates on the server:
    ```bash
-   ./certs/fullchain.pem
-   ./certs/privkey.pem
+   /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt
+   /opt/prosaasil/docker/nginx/ssl/prosaas-origin.key
    ```
 3. Start with production configuration:
    ```bash
@@ -181,11 +181,11 @@ docker compose logs backend
 
 ### SSL certificate errors
 ```bash
-# Verify certificates exist
-ls -la ./certs/
+# Verify certificates exist on the server
+ls -la /opt/prosaasil/docker/nginx/ssl/
 
 # Check certificate validity
-openssl x509 -in ./certs/fullchain.pem -text -noout
+openssl x509 -in /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt -text -noout
 
 # Check nginx configuration
 docker compose exec nginx nginx -t
@@ -251,7 +251,7 @@ If you're upgrading from the old architecture:
 |--------|-------------|------------|
 | SSL | HTTP only | HTTPS (port 443) |
 | Config File | prosaas.conf | prosaas-ssl.conf |
-| Certificates | Not needed | Required in ./certs/ |
+| Certificates | Not needed | Required in /opt/prosaasil/docker/nginx/ssl/ |
 | Compose File | docker-compose.yml | docker-compose.yml + docker-compose.prod.yml |
 | Cloudflare SSL | Flexible | Full or Full (strict) |
 

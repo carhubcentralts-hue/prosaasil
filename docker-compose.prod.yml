@@ -10,10 +10,10 @@
 # - Resource limits
 #
 # SSL Setup:
-# 1. Obtain SSL certificates (from Cloudflare, Let's Encrypt, etc.)
-# 2. Place certificates in ./certs/ directory:
-#    - ./certs/fullchain.pem
-#    - ./certs/privkey.pem
+# 1. Obtain SSL certificates (from Cloudflare Origin Certificate)
+# 2. Place certificates on the server at:
+#    - /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt
+#    - /opt/prosaasil/docker/nginx/ssl/prosaas-origin.key
 # 3. The nginx container will mount these certificates
 #
 # ===========================================
@@ -28,8 +28,8 @@ services:
     volumes:
       # Override with SSL configuration
       - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
-      # Mount SSL certificates
-      - ./certs:/etc/nginx/certs:ro
+      # Mount SSL certificates from server
+      - /opt/prosaasil/docker/nginx/ssl:/etc/nginx/ssl:ro
     deploy:
       resources:
         limits:
