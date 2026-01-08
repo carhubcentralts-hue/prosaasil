@@ -186,6 +186,10 @@ def update_business_ai_settings():
     if not voice_id:
         return {"ok": False, "error": "voice_id_required"}, 400
     
+    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase
+    # This prevents issues with " cedar" or "Cedar" being rejected
+    voice_id = str(voice_id).strip().lower()
+    
     # Validate voice_id
     if voice_id not in OPENAI_VOICES:
         logger.warning(f"[AI_SETTINGS] Invalid voice_id '{voice_id}' for business {business_id}")
