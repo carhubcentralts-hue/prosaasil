@@ -408,6 +408,10 @@ def preview_tts():
         else:
             voice_id = DEFAULT_VOICE
     
+    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase
+    # This prevents issues with " cedar" or "Cedar" being rejected
+    voice_id = str(voice_id).strip().lower()
+    
     # Validate voice_id is in REALTIME_VOICES
     if voice_id not in OPENAI_VOICES:
         logger.warning(f"[TTS_PREVIEW] Invalid voice_id '{voice_id}' for business {business_id}")
