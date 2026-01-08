@@ -23,6 +23,14 @@ import re
 logger = logging.getLogger(__name__)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 CUSTOM EXCEPTIONS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class MissingPromptError(Exception):
+    """Raised when a required prompt is missing for a call direction."""
+    pass
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 IMPORTS: Centralized utilities (single source of truth)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1071,24 +1079,38 @@ def _extract_business_prompt_text(
     business_name: str,
     ai_prompt_raw: str,
 ) -> str:
-    """Extract business prompt text from DB value (supports JSON format)."""
-    ai_prompt_text = ""
-    if ai_prompt_raw and ai_prompt_raw.strip():
-        raw_prompt = ai_prompt_raw.strip()
-
-        if raw_prompt.startswith("{"):
-            try:
-                prompt_obj = json.loads(raw_prompt)
-                ai_prompt_text = prompt_obj.get("calls") or prompt_obj.get("whatsapp") or raw_prompt
-            except json.JSONDecodeError:
-                ai_prompt_text = raw_prompt
-        else:
-            ai_prompt_text = raw_prompt
-
-    if ai_prompt_text:
+    """
+    Extract business prompt text from DB value.
+    
+    🔥 CRITICAL: Minimal processing - pass prompts AS-IS from DB
+    
+    Only allowed transformations:
+    1. JSON parsing (if format is {"calls": "...", "whatsapp": "..."})
+    2. business_name placeholder replacement
+    
+    NO strip(), normalize, or text manipulation beyond these.
+    """
+    # Handle None/empty
+    if not ai_prompt_raw:
+        return ""
+    
+    ai_prompt_text = ai_prompt_raw
+    
+    # Support JSON format for multi-channel prompts
+    if ai_prompt_text.startswith("{"):
+        try:
+            prompt_obj = json.loads(ai_prompt_text)
+            # Try to get calls channel, fallback to whatsapp, fallback to raw
+            ai_prompt_text = prompt_obj.get("calls") or prompt_obj.get("whatsapp") or ai_prompt_raw
+        except json.JSONDecodeError:
+            # If JSON parsing fails, use raw string as-is
+            ai_prompt_text = ai_prompt_raw
+    
+    # Only allowed transformation: business_name placeholders
+    if ai_prompt_text and business_name:
         ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
         ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
-
+    
     return ai_prompt_text
 
 
@@ -1133,23 +1155,18 @@ def build_full_business_prompt(business_id: int, call_direction: str = "inbound"
         direction_label = "INBOUND"
 
     business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=ai_prompt_raw)
-    if not business_prompt_text.strip():
-        logger.error(f"[PROMPT ERROR] Missing business prompt for business_id={business_id} direction={call_direction}")
-        # Try to get a fallback from the alternate direction or system_prompt
-        if call_direction == "outbound" and settings and settings.ai_prompt:
-            logger.warning(f"[PROMPT FALLBACK] Using inbound prompt as fallback for outbound business_id={business_id}")
-            business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.ai_prompt)
-        elif call_direction == "inbound" and settings and settings.outbound_ai_prompt:
-            logger.warning(f"[PROMPT FALLBACK] Using outbound prompt as fallback for inbound business_id={business_id}")
-            business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=settings.outbound_ai_prompt)
-        elif business.system_prompt:
-            logger.warning(f"[PROMPT FALLBACK] Using system_prompt as fallback for business_id={business_id}")
-            business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=business.system_prompt)
+    
+    # 🔥 CRITICAL: NO FALLBACK BETWEEN DIRECTIONS
+    # If prompt is missing for this direction → FAIL FAST with clear error
+    if not business_prompt_text or not business_prompt_text.strip():
+        error_msg = f"Missing {direction_label} prompt for business_id={business_id}. "
+        if call_direction == "inbound":
+            error_msg += "Please configure 'ai_prompt' in BusinessSettings."
+        else:
+            error_msg += "Please configure 'outbound_ai_prompt' in BusinessSettings."
         
-        # If still no prompt, return empty (caller should handle this)
-        if not business_prompt_text.strip():
-            logger.error(f"[PROMPT ERROR] No prompts available for business_id={business_id} - configuration required")
-            return ""
+        logger.error(f"[PROMPT ERROR] {error_msg}")
+        raise MissingPromptError(error_msg)
 
     # 🔥 LAYER 1: Add system behavior rules
     system_rules = _build_universal_system_prompt(call_direction=call_direction)
