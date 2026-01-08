@@ -3555,33 +3555,30 @@ class MediaStreamHandler:
             
             # Step 1: Load FULL BUSINESS prompt from registry (built in webhook - ZERO latency!)
             full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
+            prebuilt_direction = stream_registry.get_metadata(self.call_sid, '_prebuilt_direction') if self.call_sid else None
             
-            # Step 2: Fallback - use last cached or minimal (NO DB QUERY during WS!)
+            # Step 2: Validate or rebuild
             if not full_prompt:
-                print(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - using fallback (NO DB QUERY)")
+                print(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - building fresh from DB")
                 print(f"🔍 [PROMPT_DEBUG] Missing prebuilt for call_direction={call_direction}")
-                # 🔥 LATENCY-FIRST: DO NOT build from DB during WS connection!
-                # Use greeting text or minimal fallback instead
-                if greeting_text and str(greeting_text).strip():
-                    full_prompt = str(greeting_text).strip()
-                    print(f"✅ [PROMPT] Using greeting text as fallback: {len(full_prompt)} chars")
-                else:
-                    full_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור? תגיד לי במה אוכל לעזור לך."
-                    print(f"✅ [PROMPT] Using minimal fallback: {len(full_prompt)} chars")
-                # Log warning - this shouldn't happen in production
-                logger.warning(f"[PROMPT] Missing prebuilt prompt for call_sid={self.call_sid[:8] if self.call_sid else 'N/A'} - using fallback")
+                # Build fresh from DB
+                from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=True)
             else:
                 print(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
                 print(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
                 
-                # 🔥 HARD LOCK: Verify call_direction matches pre-built prompt
-                # If mismatch detected - LOG WARNING but DO NOT REBUILD
-                prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
-                if prompt_direction_check != call_direction:
-                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt direction mismatch detected!")
-                    print(f"   Expected: {call_direction}, Pre-built for: {prompt_direction_check}")
-                    print(f"   ❌ NOT rebuilding - continuing with pre-built prompt (HARD LOCK)")
-                    _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prompt_direction_check} action=CONTINUE_NO_REBUILD", flush=True)
+                # 🔥 CRITICAL: Validate direction matches - REBUILD if mismatch
+                if prebuilt_direction and prebuilt_direction != call_direction:
+                    print(f"❌ [PROMPT_MISMATCH] Direction mismatch detected!")
+                    print(f"   Expected: {call_direction}, Pre-built for: {prebuilt_direction}")
+                    print(f"   🔄 REBUILDING with correct direction from DB")
+                    _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prebuilt_direction} action=REBUILD", flush=True)
+                    
+                    # Rebuild with correct direction
+                    from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=False)
+                    print(f"   ✅ Rebuilt prompt: {len(full_prompt)} chars")
                 else:
                     print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
                     _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
