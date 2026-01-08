@@ -5,15 +5,37 @@
 # Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
 # This file contains production-specific settings:
+# - SSL/TLS configuration for Nginx reverse proxy
 # - External managed database (no local postgres)
-# - SSL termination
 # - Resource limits
+#
+# SSL Setup:
+# 1. Obtain SSL certificates (from Cloudflare Origin Certificate)
+# 2. Place certificates on the server at:
+#    - /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt
+#    - /opt/prosaasil/docker/nginx/ssl/prosaas-origin.key
+# 3. The nginx container will mount these certificates
 #
 # ===========================================
 
 version: '3.8'
 
 services:
+  # ===========================================
+  # Nginx Reverse Proxy - Production SSL
+  # ===========================================
+  nginx:
+    volumes:
+      # Override with SSL configuration
+      - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
+      # Mount SSL certificates from server
+      - /opt/prosaasil/docker/nginx/ssl:/etc/nginx/ssl:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
   # ===========================================
   # Disable local database in production
   # (Use managed DB like Railway, Supabase, Neon, etc.)
@@ -53,15 +75,9 @@ services:
           memory: 256M
 
   # ===========================================
-  # Frontend - Production settings with SSL
+  # Frontend - Production settings
   # ===========================================
   frontend:
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx-ssl.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./certs:/etc/nginx/certs:ro
     deploy:
       resources:
         limits:

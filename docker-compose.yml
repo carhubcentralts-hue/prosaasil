@@ -1,5 +1,32 @@
 services:
 
+  # ===========================================
+  # Nginx Reverse Proxy
+  # Single entry point for all external traffic
+  # ===========================================
+  nginx:
+    container_name: prosaas-nginx
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      n8n:
+        condition: service_started
+    networks:
+      - prosaas-network
+
+  # ===========================================
+  # Backend API Service
+  # No external port exposure
+  # ===========================================
   backend:
     container_name: prosaas-backend
     build:
@@ -14,11 +41,23 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-    ports:
-      - "5000:5000"
+    expose:
+      - "5000"
     volumes:
       - recordings_data:/app/server/recordings
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - prosaas-network
 
+  # ===========================================
+  # Frontend Service
+  # Serves static files, no external port exposure
+  # ===========================================
   frontend:
     container_name: prosaas-frontend
     build:
@@ -27,9 +66,21 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    ports:
-      - "80:80"
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - prosaas-network
 
+  # ===========================================
+  # Baileys WhatsApp Service
+  # Keep external port for debugging (can be removed later)
+  # ===========================================
   baileys:
     container_name: prosaas-baileys
     build:
@@ -44,7 +95,13 @@ services:
       - .env
     environment:
       FLASK_BASE_URL: ${FLASK_BASE_URL}
+    networks:
+      - prosaas-network
 
+  # ===========================================
+  # n8n Automation Platform
+  # No external port exposure
+  # ===========================================
   n8n:
     image: n8nio/n8n:2.3.1
     container_name: prosaas-n8n
@@ -70,8 +127,17 @@ services:
       NODE_OPTIONS: --dns-result-order=ipv4first
     volumes:
       - n8n_data:/home/node/.n8n
-    ports:
-      - "5678:5678"
+    expose:
+      - "5678"
+    networks:
+      - prosaas-network
+
+# ===========================================
+# Docker Networks
+# ===========================================
+networks:
+  prosaas-network:
+    driver: bridge
 
 volumes:
   n8n_data:
