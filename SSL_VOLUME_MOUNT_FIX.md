@@ -31,6 +31,7 @@ volumes:
 - Mounts the main nginx.conf file
 - **Critically:** Mounts the SSL directory where certificates should be placed
 - Uses relative paths that work in any environment
+- The `:ro` flag makes these mounts read-only for security (prevents container from modifying host files)
 
 ### 2. Fixed docker-compose.prod.yml
 Removed the absolute path SSL mount:

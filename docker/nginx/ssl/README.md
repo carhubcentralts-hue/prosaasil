@@ -25,14 +25,24 @@ For production, obtain SSL certificates from:
 ## Testing Locally
 
 For local development without SSL:
-- Use `docker-compose.yml` only (default configuration, HTTP only)
+- Use `docker-compose.yml` with default configuration (HTTP only)
 - SSL is only required when using `docker-compose.prod.yml`
 
 ## Production Deployment
 
 1. Obtain your SSL certificates
-2. Copy them to this directory on your production server
-3. Ensure file permissions are secure (readable by nginx process only)
-4. Deploy using: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+2. Verify certificate/key pair compatibility:
+   ```bash
+   # Check certificate
+   openssl x509 -in prosaas-origin.crt -noout -text
+   
+   # Verify key matches certificate
+   openssl x509 -noout -modulus -in prosaas-origin.crt | openssl md5
+   openssl rsa -noout -modulus -in prosaas-origin.key | openssl md5
+   # The MD5 hashes should match
+   ```
+3. Copy them to this directory on your production server
+4. Ensure file permissions are secure (readable by nginx process only)
+5. Deploy using: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
 
 The nginx container will mount this directory to `/etc/nginx/ssl/` inside the container.
