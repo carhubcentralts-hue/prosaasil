@@ -30,6 +30,11 @@ services:
       - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
       # Mount SSL certificates from server
       - /opt/prosaasil/docker/nginx/ssl:/etc/nginx/ssl:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits:
