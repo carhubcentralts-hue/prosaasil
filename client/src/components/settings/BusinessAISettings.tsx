@@ -241,12 +241,22 @@ export function BusinessAISettings() {
         ]);
         
         if (voicesData.ok && aiSettingsData.ok) {
+          // 🔥 FIX: Filter out "cedar" from available voices list (UI only)
+          const filteredVoices = voicesData.voices.filter(v => v.id !== 'cedar');
+          
+          // 🔥 FIX: If current voice is cedar, silently replace with ash
+          let currentVoice = aiSettingsData.voice_id || voicesData.default_voice;
+          if (currentVoice === 'cedar') {
+            currentVoice = 'ash';  // Silent fallback to safe voice
+            console.warn('[VOICE_LIBRARY] Business had cedar voice, silently using ash as fallback');
+          }
+          
           setVoiceLibrary(prev => ({
             ...prev,
-            availableVoices: voicesData.voices,
-            voiceId: aiSettingsData.voice_id || voicesData.default_voice
+            availableVoices: filteredVoices,
+            voiceId: currentVoice
           }));
-          console.log('✅ Loaded voice library:', { voices: voicesData.voices.length, current: aiSettingsData.voice_id });
+          console.log('✅ Loaded voice library:', { voices: filteredVoices.length, current: currentVoice });
         }
       } catch (err: any) {
         console.error('❌ Failed to load voice library:', {
@@ -273,9 +283,17 @@ export function BusinessAISettings() {
     setVoiceLibrary(prev => ({ ...prev, isSavingVoice: true }));
     
     try {
+      // 🔥 FIX: Prevent saving cedar from UI (auto-replace with ash)
+      let voiceToSave = voiceLibrary.voiceId;
+      if (voiceToSave === 'cedar') {
+        console.warn('[VOICE_LIBRARY] Attempted to save cedar, auto-replacing with ash');
+        voiceToSave = 'ash';
+        setVoiceLibrary(prev => ({ ...prev, voiceId: 'ash' }));
+      }
+      
       const result = await http.put<{ ok: boolean; voice_id: string }>(
         `/api/business/settings/ai`,
-        { voice_id: voiceLibrary.voiceId }
+        { voice_id: voiceToSave }
       );
       
       if (result.ok) {
