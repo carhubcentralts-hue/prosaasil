@@ -54,7 +54,6 @@ interface VoiceLibrarySettings {
   isLoadingVoices: boolean;
   isSavingVoice: boolean;
   isPlayingPreview: boolean;
-  originalVoiceWasCedar: boolean;  // Track if business had cedar voice
 }
 
 export function BusinessAISettings() {
@@ -93,8 +92,7 @@ export function BusinessAISettings() {
     previewText: 'שלום, אני העוזר הדיגיטלי שלכם. אני כאן כדי לעזור לכם בכל שאלה.',
     isLoadingVoices: false,
     isSavingVoice: false,
-    isPlayingPreview: false,
-    originalVoiceWasCedar: false
+    isPlayingPreview: false
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -246,23 +244,19 @@ export function BusinessAISettings() {
           // 🔥 FIX: Filter out "cedar" from available voices list (UI only)
           const filteredVoices = voicesData.voices.filter(v => v.id !== 'cedar');
           
-          // 🔥 FIX: Handle businesses that have cedar set
+          // 🔥 FIX: If current voice is cedar, silently replace with ash
           let currentVoice = aiSettingsData.voice_id || voicesData.default_voice;
-          let wasCedar = false;
-          
           if (currentVoice === 'cedar') {
-            wasCedar = true;
-            currentVoice = 'ash';  // Fallback to safe voice for display
-            console.warn('[VOICE_LIBRARY] Business had cedar voice, displaying ash as fallback');
+            currentVoice = 'ash';  // Silent fallback to safe voice
+            console.warn('[VOICE_LIBRARY] Business had cedar voice, silently using ash as fallback');
           }
           
           setVoiceLibrary(prev => ({
             ...prev,
             availableVoices: filteredVoices,
-            voiceId: currentVoice,
-            originalVoiceWasCedar: wasCedar
+            voiceId: currentVoice
           }));
-          console.log('✅ Loaded voice library:', { voices: filteredVoices.length, current: currentVoice, wasCedar });
+          console.log('✅ Loaded voice library:', { voices: filteredVoices.length, current: currentVoice });
         }
       } catch (err: any) {
         console.error('❌ Failed to load voice library:', {
@@ -303,8 +297,6 @@ export function BusinessAISettings() {
       );
       
       if (result.ok) {
-        // Clear the cedar flag after successful save
-        setVoiceLibrary(prev => ({ ...prev, originalVoiceWasCedar: false }));
         alert('✅ הקול נשמר בהצלחה! השינוי יחול על שיחות חדשות.');
       }
     } catch (err: any) {
@@ -826,25 +818,6 @@ export function BusinessAISettings() {
         </div>
 
         <div className="space-y-6">
-          {/* Cedar Removal Notice - Show only if business had cedar voice */}
-          {voiceLibrary.originalVoiceWasCedar && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <div className="text-amber-800">
-                  <p className="font-medium">⚠️ שינוי בהגדרות קול</p>
-                  <p className="text-sm mt-1">
-                    הקול "סידר" (Cedar) הוסר מהמערכת בגלל בעיות יציבות עם מסנן התוכן.
-                    הקול הנוכחי הוחלף אוטומטית ל"אש" (Ash) - קול מומלץ ויציב.
-                  </p>
-                  <p className="text-xs mt-2 text-amber-700">
-                    💡 תוכל לבחור קול אחר מהרשימה למטה ולשמור את הבחירה החדשה.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-          
           {/* Voice Selection Dropdown */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
