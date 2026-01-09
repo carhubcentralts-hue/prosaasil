@@ -50,18 +50,10 @@ def get_cached_voice_for_business(business_id: int) -> str:
     # Check cache first
     cache_key = f"voice_{business_id}"
     cached_voice = _ai_settings_cache.get(cache_key)
-    if cached_voice is not None:
-        # 🔥 FIX: Validate cached voice is still valid (in case of old cached data)
-        if cached_voice not in REALTIME_VOICES:
-            logger.warning(f"[VOICE_CACHE] Invalid cached voice '{cached_voice}' for business {business_id} -> fallback to {DEFAULT_VOICE}")
-            # Update cache with valid voice
-            _ai_settings_cache.set(cache_key, DEFAULT_VOICE)
-            return DEFAULT_VOICE
-        
-        logger.debug(f"[VOICE_CACHE] HIT for business {business_id}: {cached_voice}")
-        return cached_voice
     
-    # Cache miss - load from database
+    # 🔥 CRITICAL FIX: Always verify cache against DB to detect migrations/updates
+    # This prevents stale voice cache from causing content filter issues
+    # (e.g., when Migration 61 changed invalid voices to 'cedar')
     try:
         business = Business.query.get(business_id)
         if not business:
@@ -69,19 +61,36 @@ def get_cached_voice_for_business(business_id: int) -> str:
             return DEFAULT_VOICE
         
         # Get voice_id with explicit fallback for None or empty string
-        # getattr handles missing attribute, `or` handles None/empty string
-        voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+        db_voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
         
         # 🔥 FIX: Validate voice from DB is in allowed list
-        if voice_id not in REALTIME_VOICES:
-            logger.warning(f"[VOICE_CACHE] Invalid DB voice '{voice_id}' for business {business_id} -> fallback to {DEFAULT_VOICE}")
-            voice_id = DEFAULT_VOICE
+        if db_voice_id not in REALTIME_VOICES:
+            logger.warning(f"[VOICE_CACHE] Invalid DB voice '{db_voice_id}' for business {business_id} -> fallback to {DEFAULT_VOICE}")
+            db_voice_id = DEFAULT_VOICE
         
-        # Store in cache
-        _ai_settings_cache.set(cache_key, voice_id)
-        logger.debug(f"[VOICE_CACHE] SET for business {business_id}: {voice_id}")
+        # 🔥 CRITICAL: Detect voice mismatch between cache and DB
+        if cached_voice is not None and cached_voice != db_voice_id:
+            logger.warning(
+                f"[VOICE_CACHE] MISMATCH DETECTED for business {business_id}: "
+                f"cached='{cached_voice}' vs db='{db_voice_id}' -> invalidating prompt cache!"
+            )
+            # Voice changed (e.g., by migration or external update) -> invalidate prompt cache
+            try:
+                from server.services.ai_service import invalidate_business_cache
+                invalidate_business_cache(business_id)
+                logger.info(f"[VOICE_CACHE] ✅ Prompt cache invalidated due to voice mismatch")
+            except Exception as cache_err:
+                logger.warning(f"[VOICE_CACHE] ⚠️ Failed to invalidate prompt cache: {cache_err}")
         
-        return voice_id
+        # Update cache with DB value (source of truth)
+        _ai_settings_cache.set(cache_key, db_voice_id)
+        
+        if cached_voice is None:
+            logger.debug(f"[VOICE_CACHE] MISS - loaded from DB: {db_voice_id}")
+        elif cached_voice == db_voice_id:
+            logger.debug(f"[VOICE_CACHE] HIT (verified): {db_voice_id}")
+        
+        return db_voice_id
     except Exception as e:
         logger.error(f"[VOICE_CACHE] Failed to load voice for business {business_id}: {e}")
         return DEFAULT_VOICE
@@ -185,6 +194,10 @@ def update_business_ai_settings():
     
     if not voice_id:
         return {"ok": False, "error": "voice_id_required"}, 400
+    
+    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase
+    # This prevents issues with " cedar" or "Cedar" being rejected
+    voice_id = str(voice_id).strip().lower()
     
     # Validate voice_id
     if voice_id not in OPENAI_VOICES:
@@ -403,6 +416,10 @@ def preview_tts():
             voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
         else:
             voice_id = DEFAULT_VOICE
+    
+    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase
+    # This prevents issues with " cedar" or "Cedar" being rejected
+    voice_id = str(voice_id).strip().lower()
     
     # Validate voice_id is in REALTIME_VOICES
     if voice_id not in OPENAI_VOICES:
