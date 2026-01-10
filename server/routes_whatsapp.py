@@ -73,6 +73,7 @@ def _send_whatsapp_message_background(
         tenant_id: Tenant ID (e.g., "business_1") for Baileys routing
         remote_jid: FULL WhatsApp JID (e.g., 972501234567@s.whatsapp.net or 823...@lid)
                     🔥 CRITICAL: Must be the EXACT remoteJid from incoming message!
+                    🔥 NEVER send to @g.us (groups) - already filtered before calling this
         response_text: The AI-generated response text to send
         wa_msg_id: Optional incoming message ID for tracking
     """
@@ -81,6 +82,16 @@ def _send_whatsapp_message_background(
     import time
     
     send_start = time.time()
+    
+    # 🔥 SAFETY CHECK: Never send to groups, broadcasts, newsletters, or status updates
+    # Bot ONLY sends to private 1-on-1 chats!
+    if (remote_jid.endswith('@g.us') or 
+        remote_jid.endswith('@broadcast') or 
+        remote_jid.endswith('@newsletter') or
+        'status@broadcast' in remote_jid):
+        log.error(f"[WA-BG-SEND] ❌ BLOCKED: Attempted to send to non-private chat {remote_jid[:30]}...")
+        return
+    
     log.info(f"[WA-BG-SEND] Starting background send to {remote_jid[:20]}...")
     
     try:
@@ -88,7 +99,8 @@ def _send_whatsapp_message_background(
         wa_service = get_whatsapp_service(tenant_id=tenant_id)
         
         # 🔥 CRITICAL FIX: Send to EXACT remoteJid - DO NOT modify or add @s.whatsapp.net!
-        # The remoteJid is already in correct format (may be @lid, @g.us, @s.whatsapp.net, etc.)
+        # The remoteJid is already in correct format (may be @lid, @s.whatsapp.net, etc.)
+        # Groups (@g.us) are already filtered before this function is called
         send_result = wa_service.send_with_failover(
             to=remote_jid,  # 🔥 Send to original JID as-is
             message=response_text,
@@ -109,12 +121,17 @@ def _send_whatsapp_message_background(
             
             # 🔥 STEP 3 FIX: Use app instance directly for context
             with app.app_context():
-                # Extract E.164 phone number for database storage
-                from_number_e164 = remote_jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace('+', '')
+                # Extract E.164 phone number for database storage (only for standard WhatsApp users)
+                from_number_e164 = None
+                if remote_jid.endswith('@s.whatsapp.net'):
+                    from_number_e164 = remote_jid.replace('@s.whatsapp.net', '').replace('+', '')
+                else:
+                    # Non-standard JID - use safe identifier
+                    from_number_e164 = remote_jid.replace('@', '_').replace('.', '_')
                 
                 out_msg = WhatsAppMessage()
                 out_msg.business_id = business_id
-                out_msg.to_number = from_number_e164  # Store E.164 for database consistency
+                out_msg.to_number = from_number_e164  # Store E.164 or safe identifier for database consistency
                 out_msg.body = response_text
                 out_msg.message_type = 'text'
                 out_msg.direction = 'out'
@@ -811,9 +828,39 @@ def baileys_webhook():
                 # We must reply to the EXACT remoteJid we received
                 remote_jid = msg.get('key', {}).get('remoteJid', '')
                 
-                # For database storage and E.164 matching, extract clean phone number
-                # But ALWAYS use remote_jid for replies!
-                from_number_e164 = remote_jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('+', '')
+                # 🔥 CRITICAL: Skip NON-PRIVATE messages - bot ONLY responds to private 1-on-1 chats!
+                # Groups: @g.us
+                # Broadcast lists: @broadcast
+                # Newsletters/Channels: @newsletter
+                # Status updates: status@broadcast
+                if (remote_jid.endswith('@g.us') or 
+                    remote_jid.endswith('@broadcast') or 
+                    remote_jid.endswith('@newsletter') or
+                    'status@broadcast' in remote_jid):
+                    log.info(f"[WA-SKIP] Ignoring non-private message from {remote_jid} - bot only responds to private chats")
+                    continue
+                
+                # 🔥 CRITICAL FIX: Extract E.164 phone number ONLY from @s.whatsapp.net
+                # For @lid or other non-standard JIDs, use pushName or mark as unknown
+                from_number_e164 = None
+                if remote_jid.endswith('@s.whatsapp.net'):
+                    # Standard WhatsApp user - extract phone number
+                    phone_part = remote_jid.replace('@s.whatsapp.net', '')
+                    # Clean and normalize to E.164 format
+                    from_number_e164 = phone_part.replace('+', '').strip()
+                    # Add + prefix if it's a valid international number
+                    if from_number_e164 and from_number_e164.isdigit() and len(from_number_e164) >= 10:
+                        if not from_number_e164.startswith('972'):  # Check if already has country code
+                            # Assume Israeli number if no country code
+                            if from_number_e164.startswith('0'):
+                                from_number_e164 = '972' + from_number_e164[1:]
+                else:
+                    # Non-standard JID (@lid, etc.) - cannot extract E.164
+                    # Use pushName for identification or mark as unknown
+                    push_name = msg.get('pushName', 'Unknown')
+                    log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name} - cannot extract E.164")
+                    # For database consistency, use the JID itself as identifier
+                    from_number_e164 = remote_jid.replace('@', '_').replace('.', '_')  # Safe DB identifier
                 
                 log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}")
                 
@@ -1165,6 +1212,15 @@ def send_manual_message():
         formatted_number = to_number
         if '@' not in formatted_number:
             formatted_number = f"{to_number}@s.whatsapp.net"
+        
+        # 🔥 CRITICAL: Block sending to groups, broadcasts, newsletters, or status updates
+        # Bot ONLY sends to private 1-on-1 chats!
+        if (formatted_number.endswith('@g.us') or 
+            formatted_number.endswith('@broadcast') or 
+            formatted_number.endswith('@newsletter') or
+            'status@broadcast' in formatted_number):
+            log.warning(f"[WA-SEND] ❌ BLOCKED: Manual send to non-private chat {formatted_number[:30]}...")
+            return {"ok": False, "error": "cannot_send_to_non_private_chats"}, 400
         
         try:
             send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
