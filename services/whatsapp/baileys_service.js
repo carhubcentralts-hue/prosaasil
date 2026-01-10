@@ -208,6 +208,25 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
   const qrFile = path.join(authPath, 'qr_code.txt');
   const credsFile = path.join(authPath, 'creds.json');
   
+  // 🔥 ANDROID FIX: Check auth file validity
+  let authFileStatus = 'not_found';
+  let authValidationError = null;
+  if (fs.existsSync(credsFile)) {
+    try {
+      const credsContent = fs.readFileSync(credsFile, 'utf8');
+      const creds = JSON.parse(credsContent);
+      if (creds.me && creds.me.id) {
+        authFileStatus = 'valid';
+      } else {
+        authFileStatus = 'incomplete';
+        authValidationError = 'Missing me.id in creds';
+      }
+    } catch (e) {
+      authFileStatus = 'corrupted';
+      authValidationError = e.message;
+    }
+  }
+  
   // 🔧 FIX: Use actual configuration values instead of hardcoded
   const SOCKET_CONNECT_TIMEOUT = 30000;
   const SOCKET_QUERY_TIMEOUT = 20000;
@@ -222,20 +241,24 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
       has_qr_data: !!s?.qrDataUrl,
       starting: !!s?.starting,
       push_name: s?.pushName || null,
-      reconnect_attempts: s?.reconnectAttempts || 0
+      reconnect_attempts: s?.reconnectAttempts || 0,
+      auth_paired: !!s?.authPaired
     },
     filesystem: {
       auth_path: authPath,
       auth_path_exists: fs.existsSync(authPath),
       qr_file_exists: fs.existsSync(qrFile),
-      creds_file_exists: fs.existsSync(credsFile)
+      creds_file_exists: fs.existsSync(credsFile),
+      auth_file_status: authFileStatus,
+      auth_validation_error: authValidationError
     },
     config: {
       max_reconnect_attempts: RECONNECT_CONFIG.maxAttempts,
       base_delay_ms: RECONNECT_CONFIG.baseDelay,
       max_delay_ms: RECONNECT_CONFIG.maxDelay,
       connect_timeout_ms: SOCKET_CONNECT_TIMEOUT,
-      query_timeout_ms: SOCKET_QUERY_TIMEOUT
+      query_timeout_ms: SOCKET_QUERY_TIMEOUT,
+      qr_lock_timeout_ms: 180000  // 🔥 ANDROID FIX: 3 minutes
     },
     server: {
       port: PORT,
@@ -246,8 +269,70 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
   };
   
   // 🔧 FIX: Log only summary instead of full object
-  console.log(`[WA] Diagnostics for ${tenantId}: state=${diagnostics.session.connected ? 'connected' : 'disconnected'}, attempts=${diagnostics.session.reconnect_attempts}`);
+  console.log(`[WA] Diagnostics for ${tenantId}: state=${diagnostics.session.connected ? 'connected' : 'disconnected'}, attempts=${diagnostics.session.reconnect_attempts}, authStatus=${authFileStatus}`);
   return res.json(diagnostics);
+});
+
+// 🔥 ANDROID FIX: New endpoint to validate and cleanup auth state
+app.post('/whatsapp/:tenantId/validate-auth', requireSecret, async (req, res) => {
+  const tenantId = req.params.tenantId;
+  const authPath = authDir(tenantId);
+  const credsFile = path.join(authPath, 'creds.json');
+  
+  const result = {
+    tenant_id: tenantId,
+    timestamp: new Date().toISOString(),
+    auth_valid: false,
+    action_taken: 'none',
+    message: ''
+  };
+  
+  // Check if auth files exist
+  if (!fs.existsSync(credsFile)) {
+    result.message = 'No auth files found';
+    return res.json(result);
+  }
+  
+  // Validate auth files
+  try {
+    const credsContent = fs.readFileSync(credsFile, 'utf8');
+    const creds = JSON.parse(credsContent);
+    
+    if (!creds.me || !creds.me.id) {
+      // Auth incomplete - clean it up
+      console.log(`[${tenantId}] 🧹 Cleaning incomplete auth files...`);
+      fs.rmSync(authPath, { recursive: true, force: true });
+      fs.mkdirSync(authPath, { recursive: true });
+      
+      result.action_taken = 'cleaned';
+      result.message = 'Incomplete auth files cleaned - ready for fresh QR';
+      
+      // Clear session too
+      sessions.delete(tenantId);
+    } else {
+      result.auth_valid = true;
+      result.message = `Auth valid for phone: ${creds.me.id}`;
+    }
+  } catch (e) {
+    // Auth corrupted - clean it up
+    console.log(`[${tenantId}] 🧹 Cleaning corrupted auth files: ${e.message}`);
+    try {
+      fs.rmSync(authPath, { recursive: true, force: true });
+      fs.mkdirSync(authPath, { recursive: true });
+      
+      result.action_taken = 'cleaned';
+      result.message = `Corrupted auth files cleaned: ${e.message}`;
+      
+      // Clear session too
+      sessions.delete(tenantId);
+    } catch (cleanupError) {
+      result.action_taken = 'failed';
+      result.message = `Failed to clean auth: ${cleanupError.message}`;
+      return res.status(500).json(result);
+    }
+  }
+  
+  return res.json(result);
 });
 
 // ⚡ FAST typing indicator endpoint - MULTI-TENANT SUPPORT
@@ -400,7 +485,7 @@ async function startSession(tenantId, forceRelink = false) {
   const lock = qrLocks.get(tenantId);
   if (lock && lock.locked) {
     const age = Date.now() - lock.timestamp;
-    if (age < 120000) { // 🔥 CRITICAL: Lock valid for 120 seconds (not 60) to prevent QR restart during Android scan
+    if (age < 180000) { // 🔥 ANDROID FIX: Lock valid for 180 seconds (3 minutes) to accommodate slow Android scanning
       console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s), returning existing lock`);
       return cur || { starting: true, qrDataUrl: lock.qrData || '' };
     } else {
@@ -415,6 +500,30 @@ async function startSession(tenantId, forceRelink = false) {
   sessions.set(tenantId, { starting: true });
 
   const authPath = authDir(tenantId);  // fs.mkdirSync(..., {recursive:true}) כבר קיים
+  
+  // 🔥 ANDROID FIX: Validate existing auth state before using it
+  // If auth files are corrupted or incomplete, clear them to force fresh QR generation
+  const credsFile = path.join(authPath, 'creds.json');
+  if (fs.existsSync(credsFile)) {
+    try {
+      const credsContent = fs.readFileSync(credsFile, 'utf8');
+      const creds = JSON.parse(credsContent);
+      
+      // Check if creds have essential fields
+      if (!creds.me || !creds.me.id) {
+        console.log(`[${tenantId}] ⚠️ Auth creds incomplete (missing me.id) - clearing for fresh start`);
+        fs.rmSync(authPath, { recursive: true, force: true });
+        fs.mkdirSync(authPath, { recursive: true });
+      } else {
+        console.log(`[${tenantId}] ✅ Auth creds validated - me.id=${creds.me.id}`);
+      }
+    } catch (e) {
+      console.log(`[${tenantId}] ⚠️ Auth creds corrupted - clearing for fresh start: ${e.message}`);
+      fs.rmSync(authPath, { recursive: true, force: true });
+      fs.mkdirSync(authPath, { recursive: true });
+    }
+  }
+  
   const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
   // --- גרסה/דפדפן יציבים (מונע pairing תקוע) ---
@@ -484,13 +593,27 @@ async function startSession(tenantId, forceRelink = false) {
       }
       
       if (connection === 'open') {
-        // 🔥 FIX: Only mark as truly connected if auth is paired
-        // Check if we have valid session data (creds saved)
-        const hasValidAuth = s.authPaired || (state && state.creds && state.creds.me);
+        // 🔥 ANDROID FIX: More robust auth paired detection
+        // Check multiple indicators to ensure we're truly authenticated:
+        // 1. creds.update event fired (s.authPaired)
+        // 2. state has valid me.id
+        // 3. socket has valid user info
+        const hasAuthPaired = s.authPaired;
+        const hasStateCreds = state && state.creds && state.creds.me && state.creds.me.id;
+        const hasSockUser = sock && sock.user && sock.user.id;
         
-        if (!hasValidAuth) {
-          console.log(`[WA] ${tenantId}: ⚠️ Socket open but auth not paired yet - waiting for creds.update`);
-          // Don't mark as connected yet, wait for creds.update
+        console.log(`[WA] ${tenantId}: Connection open - authPaired=${hasAuthPaired}, stateCreds=${!!hasStateCreds}, sockUser=${!!hasSockUser}`);
+        
+        // 🔥 ANDROID FIX: Wait for proper authentication before marking as connected
+        // Android scans can complete socket connection before auth is fully paired
+        if (!hasAuthPaired && !hasStateCreds && !hasSockUser) {
+          console.log(`[WA] ${tenantId}: ⚠️ Socket open but no auth indicators yet - waiting for authentication`);
+          // Wait a bit and check again
+          setTimeout(() => {
+            if (s.sock && !s.connected) {
+              console.log(`[WA] ${tenantId}: ⚠️ Still not authenticated after 2s - might be auth failure`);
+            }
+          }, 2000);
           return;
         }
         
@@ -522,16 +645,34 @@ async function startSession(tenantId, forceRelink = false) {
       }
       
       if (connection === 'close') {
-        // 🔥 FIX: Detect scan failure - close right after QR scan without pairing
+        // 🔥 ANDROID FIX: Detect scan failure - close right after QR scan without pairing
         const wasScanningQR = s.qrDataUrl && !s.authPaired;
-        if (wasScanningQR) {
-          console.log(`[WA] ${tenantId}: ❌ QR SCAN FAILED - Connection closed before auth completed`);
-          console.log(`[WA] ${tenantId}: This usually means: Invalid QR scan, network issue, or WhatsApp server rejected pairing`);
+        const isAndroidScanFailure = wasScanningQR && (
+          reason === 401 || // logged_out before auth complete
+          reason === 428 || // connection lost during scan
+          reason === 440 || // session replaced (another device scanning)
+          !reason // undefined reason during QR scan often means scan rejected
+        );
+        
+        if (isAndroidScanFailure) {
+          console.log(`[WA] ${tenantId}: ❌ QR SCAN FAILED (Android/slow connection) - Connection closed before auth completed`);
+          console.log(`[WA] ${tenantId}: Common causes: Invalid QR, network issue, WhatsApp rejected pairing, or slow scanning`);
+          console.log(`[WA] ${tenantId}: Reason code: ${reason || 'none'}, Message: ${reasonMessage || 'none'}`);
+          
+          // 🔥 ANDROID FIX: Clear auth files to force fresh QR on retry
+          try {
+            console.log(`[WA] ${tenantId}: Clearing potentially corrupted auth files...`);
+            fs.rmSync(authPath, { recursive: true, force: true });
+            fs.mkdirSync(authPath, { recursive: true });
+            console.log(`[WA] ${tenantId}: Auth files cleared - will generate fresh QR on reconnect`);
+          } catch (e) {
+            console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
+          }
         }
         
         s.connected = false;
         s.authPaired = false;  // Reset auth paired state
-        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}, wasScanningQR=${wasScanningQR}`);
+        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}, wasScanningQR=${wasScanningQR}, isAndroidFailure=${isAndroidScanFailure}`);
         console.log(`[WA] ${tenantId}: Disconnect details - reasonCode=${reason}, lastError=${JSON.stringify(lastDisconnect?.error || {})}`);
         
         // 🔥 FIX: Release QR lock on disconnect
@@ -620,35 +761,86 @@ async function startSession(tenantId, forceRelink = false) {
       // ✅ FIX: סנן הודעות שהבוט שלח בעצמו (fromMe: true)
       const messages = payload.messages || [];
       
-      // 🔍 DEBUG: Log all messages to see what's coming in
+      // 🔍 ANDROID DEBUG: Enhanced logging for Android vs iPhone message detection
       console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
       messages.forEach((msg, idx) => {
-        console.log(`[${tenantId}] Message ${idx}: fromMe=${msg.key?.fromMe}, remoteJid=${msg.key?.remoteJid}`);
+        const fromMe = msg.key?.fromMe;
+        const remoteJid = msg.key?.remoteJid;
+        const pushName = msg.pushName || 'Unknown';
+        console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}, pushName=${pushName}`);
         
         // 🔥 ANDROID DEBUG: Log message structure to debug Android vs iPhone differences
         const messageKeys = Object.keys(msg.message || {});
         console.log(`[${tenantId}] Message ${idx} content keys: ${messageKeys.join(', ')}`);
         
-        // Log a snippet of the actual content for debugging
-        if (msg.message?.conversation) {
-          console.log(`[${tenantId}] Message ${idx} [conversation]: ${msg.message.conversation.substring(0, 50)}`);
+        // 🔥 ANDROID FIX: Enhanced content logging for all message types
+        const msgObj = msg.message || {};
+        
+        // Log each message type we support
+        if (msgObj.conversation) {
+          console.log(`[${tenantId}] Message ${idx} [conversation]: "${msgObj.conversation.substring(0, 50)}"`);
         }
-        if (msg.message?.extendedTextMessage?.text) {
-          console.log(`[${tenantId}] Message ${idx} [extendedTextMessage]: ${msg.message.extendedTextMessage.text.substring(0, 50)}`);
+        if (msgObj.extendedTextMessage?.text) {
+          console.log(`[${tenantId}] Message ${idx} [extendedTextMessage]: "${msgObj.extendedTextMessage.text.substring(0, 50)}"`);
         }
-        if (msg.message?.imageMessage) {
-          console.log(`[${tenantId}] Message ${idx} [imageMessage] caption: ${msg.message.imageMessage.caption || '(no caption)'}`);
+        if (msgObj.imageMessage) {
+          const caption = msgObj.imageMessage.caption || '(no caption)';
+          console.log(`[${tenantId}] Message ${idx} [imageMessage] caption: "${caption}"`);
+        }
+        if (msgObj.videoMessage) {
+          const caption = msgObj.videoMessage.caption || '(no caption)';
+          console.log(`[${tenantId}] Message ${idx} [videoMessage] caption: "${caption}"`);
+        }
+        if (msgObj.audioMessage) {
+          console.log(`[${tenantId}] Message ${idx} [audioMessage] detected`);
+        }
+        
+        // 🔥 ANDROID DEBUG: If no known message type, log ALL keys to help debug
+        if (!msgObj.conversation && !msgObj.extendedTextMessage && !msgObj.imageMessage && 
+            !msgObj.videoMessage && !msgObj.audioMessage && !msgObj.documentMessage) {
+          console.log(`[${tenantId}] Message ${idx} UNKNOWN FORMAT - Full keys: ${messageKeys.join(', ')}`);
+          // Try to extract any text content
+          messageKeys.forEach(key => {
+            if (msgObj[key] && typeof msgObj[key] === 'object') {
+              const subKeys = Object.keys(msgObj[key]);
+              console.log(`[${tenantId}] Message ${idx} [${key}] subkeys: ${subKeys.join(', ')}`);
+              if (msgObj[key].text) {
+                console.log(`[${tenantId}] Message ${idx} [${key}.text]: "${String(msgObj[key].text).substring(0, 50)}"`);
+              }
+              if (msgObj[key].caption) {
+                console.log(`[${tenantId}] Message ${idx} [${key}.caption]: "${String(msgObj[key].caption).substring(0, 50)}"`);
+              }
+            }
+          });
         }
       });
       
+      // Filter only incoming messages (fromMe=false)
+      // We trust fromMe flag from Baileys - overriding it is dangerous (can cause loops)
+      // If there's an issue with fromMe, the diagnostic logs below will help identify it
       const incomingMessages = messages.filter(msg => !msg.key.fromMe);
+      
+      // 🔍 DIAGNOSTIC: Log details for troubleshooting (only in debug scenarios)
+      // TODO: Consider adding LOG_LEVEL env var to control this in production
+      if (incomingMessages.length > 0) {
+        incomingMessages.forEach((msg, idx) => {
+          const ourUserId = sock?.user?.id;
+          const remoteJid = msg.key?.remoteJid;
+          const fromMe = msg.key?.fromMe;
+          const participant = msg.key?.participant;
+          const pushName = msg.pushName;
+          
+          // Log summary on one line to reduce log pollution
+          console.log(`[${tenantId}] 📨 Incoming ${idx}: remoteJid=${remoteJid}, fromMe=${fromMe}, participant=${participant || 'N/A'}, pushName=${pushName || 'N/A'}, ourUserId=${ourUserId}`);
+        });
+      }
       
       if (incomingMessages.length === 0) {
         console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);
         return;
       }
       
-      console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected (from customer)`);
+      console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected (from customer) - forwarding to Flask`);
       
       // שלח רק הודעות נכנסות (לא הודעות שהבוט שלח)
       const filteredPayload = {
