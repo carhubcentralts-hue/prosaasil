@@ -996,9 +996,19 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
     tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 🔥 BUILD 138: Load business policy to get slot_size_min
-    slot_interval_text = ""
+    # 🔥 CRITICAL FIX: Check call_goal to determine if appointments are needed
+    call_goal = "lead_only"  # default
     if business_id:
+        try:
+            from server.models_sql import BusinessSettings
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            call_goal = getattr(settings, "call_goal", "lead_only") if settings else "lead_only"
+        except Exception:
+            pass
+    
+    # 🔥 BUILD 138: Load business policy to get slot_size_min (ONLY for appointment businesses)
+    slot_interval_text = ""
+    if business_id and call_goal == "appointment":
         try:
             from server.policy.business_policy import get_business_policy
             policy = get_business_policy(business_id, prompt_text=custom_instructions)
@@ -1028,21 +1038,73 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         except Exception as e:
             logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
     
-    # 🔥 CRITICAL SYSTEM RULES (prepended to all prompts - NEVER remove!)
-    # WhatsApp uses unified appointment tools: check_availability + schedule_appointment.
-    # Other channels may still use calendar_* tools.
-    booking_tool_rule = (
-        "schedule_appointment()"
-        if channel == "whatsapp"
-        else "calendar_create_appointment()"
-    )
-    availability_tool_rule = (
-        "check_availability()"
-        if channel == "whatsapp"
-        else "calendar_find_slots()"
-    )
+    # 🔥 CRITICAL FIX (Problem 3): WhatsApp prompts should be MINIMAL and FOCUSED
+    # Only include appointment instructions if call_goal="appointment"
+    if channel == "whatsapp" and call_goal != "appointment":
+        # 🔥 WHATSAPP + NO APPOINTMENTS = MINIMAL SYSTEM RULES
+        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+TODAY: {today_str} (Israel)
 
-    system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+⚠️ CRITICAL RULES:
+1. NEVER offer or discuss appointment scheduling - this business doesn't do appointments via WhatsApp
+2. Focus on answering customer questions about the business, services, and information
+3. Use business_get_info() tool if customer asks about location, hours, or contact details
+4. Keep responses short and direct (2-3 sentences max)
+5. Always respond in Hebrew
+
+🔒 STAY ON TOPIC:
+- ONLY discuss topics related to THIS business
+- If customer asks unrelated questions (weather, news, general knowledge):
+  → Politely redirect: "אני כאן לעזור עם פרטי העסק. איך אוכל לעזור?"
+
+---
+"""
+        logger.info(f"📱 WhatsApp without appointments: using MINIMAL system rules ({len(system_rules)} chars)")
+    elif channel == "whatsapp" and call_goal == "appointment":
+        # 🔥 WHATSAPP + APPOINTMENTS = FOCUSED APPOINTMENT RULES
+        booking_tool_rule = "schedule_appointment()"
+        availability_tool_rule = "check_availability()"
+        
+        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+TODAY: {today_str} (Israel)
+TOMORROW: {tomorrow_str}{slot_interval_text}
+
+⚠️ CRITICAL APPOINTMENT RULES:
+1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called {booking_tool_rule} and got success=true
+2. NEVER say "תפוס"/"פנוי" UNLESS you called {availability_tool_rule} THIS turn
+3. If appointment succeeds, check returned "user_message" field and send it to customer
+
+🎯 APPOINTMENT WORKFLOW (ONLY when customer requests):
+1. Ask for DATE & TIME preference
+2. Call check_availability() to verify
+3. If time unavailable, suggest 2 alternatives
+4. Ask for NAME: "על איזה שם?"
+5. Call schedule_appointment() with all details
+6. Confirm based on returned user_message
+
+🔥 CRITICAL: Ask for info ONE at a time (date, then time, then name)
+🔥 Keep responses SHORT (2-3 sentences)
+
+---
+"""
+        logger.info(f"📱 WhatsApp with appointments: using FOCUSED appointment rules ({len(system_rules)} chars)")
+    else:
+        # 🔥 PHONE CHANNEL = FULL DETAILED RULES (keep existing for voice calls)
+        # CRITICAL SYSTEM RULES (prepended to all prompts - NEVER remove!)
+        # WhatsApp uses unified appointment tools: check_availability + schedule_appointment.
+        # Other channels may still use calendar_* tools.
+        booking_tool_rule = (
+            "schedule_appointment()"
+            if channel == "whatsapp"
+            else "calendar_create_appointment()"
+        )
+        availability_tool_rule = (
+            "check_availability()"
+            if channel == "whatsapp"
+            else "calendar_find_slots()"
+        )
+
+        system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
 TODAY: {today_str} (Israel)
 TOMORROW: {tomorrow_str}{slot_interval_text}
 
@@ -1128,6 +1190,8 @@ Customer presses digits + # to end input.
     # 🔥 BUILD 99: Use DB prompt ONLY if it exists (it's the business's custom instructions!)
     if custom_instructions and custom_instructions.strip():
         # DB prompt exists - use it as the MAIN prompt!
+        # 🔥 NEW REQUIREMENT: NO length limits - let business prompts be as long as needed
+        # Just ensure system_rules are concise and focused
         instructions = system_rules + custom_instructions
         print(f"\n✅ Using DB prompt for {business_name} ({len(custom_instructions)} chars)")
         print(f"   System rules: {len(system_rules)} chars (prepended)")
