@@ -762,10 +762,60 @@ def baileys_webhook():
             try:
                 # Extract message details
                 from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
-                message_text = msg.get('message', {}).get('conversation', '') or \
-                              msg.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+                
+                # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
+                # Different devices send messages in different formats:
+                # - iPhone: usually uses 'conversation'
+                # - Android: uses 'conversation', 'extendedTextMessage', or 'imageMessage' with caption
+                message_obj = msg.get('message', {})
+                message_text = None
+                
+                # Try all possible text locations (order matters - most common first)
+                if not message_text and message_obj.get('conversation'):
+                    message_text = message_obj.get('conversation')
+                    log.debug(f"[WA-PARSE] Found text in 'conversation'")
+                
+                if not message_text and message_obj.get('extendedTextMessage'):
+                    message_text = message_obj.get('extendedTextMessage', {}).get('text', '')
+                    log.debug(f"[WA-PARSE] Found text in 'extendedTextMessage'")
+                
+                # 🔥 ANDROID FIX: Handle image/video/document messages with captions
+                if not message_text and message_obj.get('imageMessage'):
+                    message_text = message_obj.get('imageMessage', {}).get('caption', '[תמונה]')
+                    log.debug(f"[WA-PARSE] Found caption in 'imageMessage'")
+                
+                if not message_text and message_obj.get('videoMessage'):
+                    message_text = message_obj.get('videoMessage', {}).get('caption', '[וידאו]')
+                    log.debug(f"[WA-PARSE] Found caption in 'videoMessage'")
+                
+                if not message_text and message_obj.get('documentMessage'):
+                    message_text = message_obj.get('documentMessage', {}).get('caption', '[מסמך]')
+                    log.debug(f"[WA-PARSE] Found caption in 'documentMessage'")
+                
+                # 🔥 ANDROID FIX: Handle audio messages
+                if not message_text and message_obj.get('audioMessage'):
+                    message_text = '[הודעה קולית]'
+                    log.debug(f"[WA-PARSE] Found 'audioMessage'")
+                
+                # 🔥 ANDROID FIX: Log unknown message types for debugging
+                if not message_text:
+                    available_keys = list(message_obj.keys())
+                    log.warning(f"[WA-PARSE] Unknown message format from {from_number}, available keys: {available_keys}")
+                    log.warning(f"[WA-PARSE] Full message object: {str(message_obj)[:200]}...")
+                    # Try to extract ANY text from ANY key
+                    for key in available_keys:
+                        if isinstance(message_obj[key], dict):
+                            if 'text' in message_obj[key]:
+                                message_text = message_obj[key]['text']
+                                log.info(f"[WA-PARSE] Found text in '{key}.text'")
+                                break
+                            if 'caption' in message_obj[key]:
+                                message_text = message_obj[key]['caption']
+                                log.info(f"[WA-PARSE] Found text in '{key}.caption'")
+                                break
                 
                 if not from_number or not message_text:
+                    log.warning(f"[WA-SKIP] Missing from_number={bool(from_number)} or message_text={bool(message_text)}")
                     continue
                 
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!

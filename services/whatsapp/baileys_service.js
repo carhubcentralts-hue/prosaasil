@@ -621,6 +621,21 @@ async function startSession(tenantId, forceRelink = false) {
       console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
       messages.forEach((msg, idx) => {
         console.log(`[${tenantId}] Message ${idx}: fromMe=${msg.key?.fromMe}, remoteJid=${msg.key?.remoteJid}`);
+        
+        // 🔥 ANDROID DEBUG: Log message structure to debug Android vs iPhone differences
+        const messageKeys = Object.keys(msg.message || {});
+        console.log(`[${tenantId}] Message ${idx} content keys: ${messageKeys.join(', ')}`);
+        
+        // Log a snippet of the actual content for debugging
+        if (msg.message?.conversation) {
+          console.log(`[${tenantId}] Message ${idx} [conversation]: ${msg.message.conversation.substring(0, 50)}`);
+        }
+        if (msg.message?.extendedTextMessage?.text) {
+          console.log(`[${tenantId}] Message ${idx} [extendedTextMessage]: ${msg.message.extendedTextMessage.text.substring(0, 50)}`);
+        }
+        if (msg.message?.imageMessage) {
+          console.log(`[${tenantId}] Message ${idx} [imageMessage] caption: ${msg.message.imageMessage.caption || '(no caption)'}`);
+        }
       });
       
       const incomingMessages = messages.filter(msg => !msg.key.fromMe);
