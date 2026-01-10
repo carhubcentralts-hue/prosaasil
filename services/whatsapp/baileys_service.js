@@ -815,24 +815,27 @@ async function startSession(tenantId, forceRelink = false) {
         }
       });
       
-      // 🔥 ANDROID FIX: Double-check filtering - use both fromMe AND our phone number
-      // Sometimes Android messages are incorrectly marked as fromMe=true
-      const ourUserId = sock?.user?.id; // Our bot's WhatsApp ID
+      // Filter only incoming messages (fromMe=false)
+      // We trust fromMe flag from Baileys - it's reliable
+      const incomingMessages = messages.filter(msg => !msg.key.fromMe);
       
-      const incomingMessages = messages.filter(msg => {
-        const fromMe = msg.key?.fromMe;
-        const remoteJid = msg.key?.remoteJid;
-        
-        // 🔥 ANDROID FIX: If fromMe=true but remoteJid is NOT our number, it's likely a bug
-        // Include it anyway if it looks like a customer message
-        if (fromMe && remoteJid && ourUserId && remoteJid !== ourUserId) {
-          console.log(`[${tenantId}] ⚠️ ANDROID BUG DETECTED: fromMe=true but remoteJid=${remoteJid} (not our ${ourUserId})`);
-          console.log(`[${tenantId}] Including this message anyway - likely Android bug`);
-          return true; // Include it!
-        }
-        
-        return !fromMe;
-      });
+      // 🔍 DIAGNOSTIC: Log details for troubleshooting
+      if (incomingMessages.length > 0) {
+        incomingMessages.forEach((msg, idx) => {
+          const ourUserId = sock?.user?.id;
+          const remoteJid = msg.key?.remoteJid;
+          const fromMe = msg.key?.fromMe;
+          const participant = msg.key?.participant;
+          const pushName = msg.pushName;
+          
+          console.log(`[${tenantId}] 📨 Incoming message ${idx} details:`);
+          console.log(`[${tenantId}]   - remoteJid: ${remoteJid}`);
+          console.log(`[${tenantId}]   - fromMe: ${fromMe}`);
+          console.log(`[${tenantId}]   - participant: ${participant || 'N/A'}`);
+          console.log(`[${tenantId}]   - pushName: ${pushName || 'N/A'}`);
+          console.log(`[${tenantId}]   - ourUserId: ${ourUserId}`);
+        });
+      }
       
       if (incomingMessages.length === 0) {
         console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);
