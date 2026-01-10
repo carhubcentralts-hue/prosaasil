@@ -816,10 +816,12 @@ async function startSession(tenantId, forceRelink = false) {
       });
       
       // Filter only incoming messages (fromMe=false)
-      // We trust fromMe flag from Baileys - it's reliable
+      // We trust fromMe flag from Baileys - overriding it is dangerous (can cause loops)
+      // If there's an issue with fromMe, the diagnostic logs below will help identify it
       const incomingMessages = messages.filter(msg => !msg.key.fromMe);
       
-      // 🔍 DIAGNOSTIC: Log details for troubleshooting
+      // 🔍 DIAGNOSTIC: Log details for troubleshooting (only in debug scenarios)
+      // TODO: Consider adding LOG_LEVEL env var to control this in production
       if (incomingMessages.length > 0) {
         incomingMessages.forEach((msg, idx) => {
           const ourUserId = sock?.user?.id;
@@ -828,12 +830,8 @@ async function startSession(tenantId, forceRelink = false) {
           const participant = msg.key?.participant;
           const pushName = msg.pushName;
           
-          console.log(`[${tenantId}] 📨 Incoming message ${idx} details:`);
-          console.log(`[${tenantId}]   - remoteJid: ${remoteJid}`);
-          console.log(`[${tenantId}]   - fromMe: ${fromMe}`);
-          console.log(`[${tenantId}]   - participant: ${participant || 'N/A'}`);
-          console.log(`[${tenantId}]   - pushName: ${pushName || 'N/A'}`);
-          console.log(`[${tenantId}]   - ourUserId: ${ourUserId}`);
+          // Log summary on one line to reduce log pollution
+          console.log(`[${tenantId}] 📨 Incoming ${idx}: remoteJid=${remoteJid}, fromMe=${fromMe}, participant=${participant || 'N/A'}, pushName=${pushName || 'N/A'}, ourUserId=${ourUserId}`);
         });
       }
       
