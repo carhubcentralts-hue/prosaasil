@@ -110,16 +110,35 @@ app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
   
   const existing = sessions.get(tenantId);
   
-  // 🔥 FIX: If forceRelink is requested, always proceed to clear and restart
-  if (!forceRelink && existing && (existing.sock || existing.starting)) {
-    console.log(`[${tenantId}] ⚠️ Already running or starting - skipping duplicate start`);
-    return res.json({ok: true}); // כבר רץ
+  // 🔥 ANDROID FIX: Enhanced idempotency - return existing session if connecting/connected/has QR
+  if (!forceRelink && existing) {
+    // If session is connecting or connected, return existing session
+    if (existing.connected || existing.authPaired) {
+      console.log(`[${tenantId}] ⚠️ Already connected (authPaired=${existing.authPaired}) - returning existing session`);
+      return res.json({ok: true, state: 'already_connected'}); 
+    }
+    
+    // If has socket or is starting, don't create new one
+    if (existing.sock || existing.starting) {
+      console.log(`[${tenantId}] ⚠️ Already starting or has socket - skipping duplicate start`);
+      return res.json({ok: true, state: 'already_starting'}); 
+    }
+    
+    // If has QR and it's recent (< 3 minutes), return same QR instead of generating new one
+    const qrLock = qrLocks.get(tenantId);
+    if (existing.qrDataUrl && qrLock && qrLock.locked) {
+      const qrAge = Date.now() - qrLock.timestamp;
+      if (qrAge < 180000) { // 3 minutes
+        console.log(`[${tenantId}] ⚠️ QR still valid (age=${Math.floor(qrAge/1000)}s) - returning existing QR instead of creating new one`);
+        return res.json({ok: true, state: 'has_qr', qrAge: Math.floor(qrAge/1000)}); 
+      }
+    }
   }
   
   try { 
     console.log(`[${tenantId}] Starting session with forceRelink=${forceRelink}`);
     await startSession(tenantId, forceRelink); 
-    res.json({ ok: true, forceRelink }); 
+    res.json({ ok: true, forceRelink, state: 'started' }); 
   }
   catch (e) { 
     console.error('start error', e); 
@@ -530,6 +549,10 @@ async function startSession(tenantId, forceRelink = false) {
   const { version } = await fetchLatestBaileysVersion();
   console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
   
+  // 🔥 ANDROID FIX: Log socket creation to track duplicate starts
+  const creationTimestamp = new Date().toISOString();
+  console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${creationTimestamp}, reason=start, forceRelink=${forceRelink}`);
+  
   // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
   // 🔥 ANDROID FIX: Use proper browser identification that Android WhatsApp accepts
   // Format: ['App Name', 'OS/Browser', 'Version']
@@ -741,6 +764,7 @@ async function startSession(tenantId, forceRelink = false) {
         
         setTimeout(async () => {
           console.log(`[WA] ${tenantId}: ⏰ Starting reconnection attempt ${reconnectAttempts}...`);
+          console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${new Date().toISOString()}, reason=auto_reconnect, attempt=${reconnectAttempts}`);
           try {
             const newSession = await startSession(tenantId);
             if (newSession) {

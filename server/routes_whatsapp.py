@@ -828,6 +828,10 @@ def baileys_webhook():
                 # We must reply to the EXACT remoteJid we received
                 remote_jid = msg.get('key', {}).get('remoteJid', '')
                 
+                # 🔥 BUG FIX: Create safe identifier for logging/DB from remoteJid
+                # This prevents NameError when logging unknown message formats
+                from_identifier = remote_jid.replace('@', '_').replace('.', '_') if remote_jid else 'unknown'
+                
                 # 🔥 CRITICAL: Skip NON-PRIVATE messages - bot ONLY responds to private 1-on-1 chats!
                 # Groups: @g.us
                 # Broadcast lists: @broadcast
@@ -901,7 +905,7 @@ def baileys_webhook():
                 # 🔥 ANDROID FIX: Log unknown message types for debugging
                 if not message_text:
                     available_keys = list(message_obj.keys())
-                    log.warning(f"[WA-PARSE] Unknown message format from {from_number}, available keys: {available_keys}")
+                    log.warning(f"[WA-PARSE] Unknown message format from {from_identifier} (remoteJid={remote_jid}), available keys: {available_keys}")
                     log.warning(f"[WA-PARSE] Full message object: {str(message_obj)[:200]}...")
                     # Try to extract ANY text from ANY key
                     for key in available_keys:
