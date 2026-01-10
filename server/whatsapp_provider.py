@@ -42,7 +42,8 @@ class BaileysProvider(Provider):
         self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
         self.internal_secret = os.getenv("INTERNAL_SECRET", "")  # 🔒 For internal API calls
-        self.timeout = 15.0  # ⚡ FIXED: 15s timeout for WhatsApp message sending
+        self.read_timeout = 15.0  # ⚡ FIXED: 15s timeout for WhatsApp message sending (increased from 5s)
+        self.timeout = 15.0  # Keep for backward compatibility
         self._last_health_check = 0
         self._health_status = False
         self._health_cache_duration = 30  # 30 seconds cache
@@ -183,7 +184,7 @@ class BaileysProvider(Provider):
             return {"status": "error", "error": str(e)}
     
     def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
-        """⚡ Send text message via Baileys HTTP API with AUTO-RESTART (MULTI-TENANT)"""
+        """⚡ Send text message via Baileys HTTP API with RETRY and FALLBACK (MULTI-TENANT)"""
         # 🔥 HARDENING: Require explicit tenant_id - no fallback to "business_1"!
         if not tenant_id:
             logger.error(f"[BAILEYS-ERR] send_text: tenant_id required but not provided")
@@ -193,14 +194,14 @@ class BaileysProvider(Provider):
                 "error": "tenant_id required for multi-tenant isolation"
             }
         
-        max_attempts = 1  # 🔥 Single attempt to prevent loops
+        max_attempts = 2  # 🔥 FIX: Allow 1 retry on timeout (2 total attempts)
         last_error = None
         effective_tenant = tenant_id  # MULTI-TENANT: explicit tenant only
         
         for attempt in range(max_attempts):
             try:
-                # 🔥 AUTO-RESTART: If Baileys is down, try to start it!
-                if not self._check_health():
+                # 🔥 AUTO-RESTART: If Baileys is down, try to start it (only on first attempt)
+                if attempt == 0 and not self._check_health():
                     logger.warning("⚠️ Baileys service unavailable - attempting auto-restart...")
                     
                     # Try to start Baileys for this tenant
@@ -233,17 +234,17 @@ class BaileysProvider(Provider):
                     "tenantId": effective_tenant  # MULTI-TENANT: Route to correct session
                 }
                 
-                logger.info(f"⚡ Sending WhatsApp to {to[:15]}...")
+                logger.info(f"⚡ Sending WhatsApp to {to[:15]}... (attempt {attempt + 1}/{max_attempts})")
                 
                 response = self._session.post(
                     f"{self.outbound_url}/send",
                     json=payload,
-                    timeout=5  # 🔥 5s timeout (reduced from 15s)
+                    timeout=self.read_timeout  # 🔥 FIX: Use 15s timeout (increased from 5s)
                 )
                 
                 if response.status_code == 200:
                     result = response.json()
-                    logger.info(f"✅ WhatsApp sent successfully to {to[:15]}...")
+                    logger.info(f"✅ WhatsApp sent successfully to {to[:15]}... (attempt {attempt + 1})")
                     return {
                         "provider": "baileys",
                         "status": "sent",
@@ -252,23 +253,27 @@ class BaileysProvider(Provider):
                     }
                 else:
                     last_error = f"Service unavailable (HTTP {response.status_code})"
-                    logger.warning(f"⚠️ Baileys returned {response.status_code}")
-                    # NO RETRY - fail fast!
+                    logger.warning(f"⚠️ Baileys returned {response.status_code} (attempt {attempt + 1})")
+                    # Don't retry on non-timeout errors
                     break
                     
             except requests.exceptions.Timeout as e:
                 last_error = "WhatsApp service timeout"
-                logger.warning(f"⚠️ Timeout: {e}")
-                # NO RETRY - fail fast!
+                logger.warning(f"⚠️ Timeout on attempt {attempt + 1}/{max_attempts}: {e}")
+                # 🔥 FIX: Retry on timeout (if not last attempt)
+                if attempt < max_attempts - 1:
+                    logger.info(f"🔄 Retrying send after timeout...")
+                    continue
+                # Last attempt failed - break to fallback
                 break
             except Exception as e:
-                last_error = "WhatsApp service error"
-                logger.error(f"❌ Baileys send error: {e}")
-                # NO RETRY - fail fast!
+                last_error = f"WhatsApp service error: {str(e)}"
+                logger.error(f"❌ Baileys send error (attempt {attempt + 1}): {e}")
+                # Don't retry on non-timeout errors
                 break
         
         # Failed - return graceful error
-        logger.error(f"❌ WhatsApp send failed: {last_error}")
+        logger.error(f"❌ WhatsApp send via Baileys failed after {max_attempts} attempts: {last_error}")
         return {
             "provider": "baileys",
             "status": "error",
