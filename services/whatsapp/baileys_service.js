@@ -78,6 +78,11 @@ const RECONNECT_CONFIG = {
   maxAttempts: 20     // 🔧 Increased from 10 to 20 attempts - don't give up easily!
 };
 
+// 🔥 ANDROID FIX: QR code validity timeout
+// Android devices are often slower to scan QR codes than iPhones
+// This timeout prevents creating new QR codes while user is still scanning
+const QR_VALIDITY_MS = 180000;  // 3 minutes (180 seconds)
+
 function getReconnectDelay(attempts) {
   const delay = Math.min(
     RECONNECT_CONFIG.baseDelay * Math.pow(RECONNECT_CONFIG.multiplier, attempts),
@@ -128,9 +133,9 @@ app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
     const qrLock = qrLocks.get(tenantId);
     if (existing.qrDataUrl && qrLock && qrLock.locked) {
       const qrAge = Date.now() - qrLock.timestamp;
-      if (qrAge < 180000) { // 3 minutes
+      if (qrAge < QR_VALIDITY_MS) { // Use configured QR validity timeout
         console.log(`[${tenantId}] ⚠️ QR still valid (age=${Math.floor(qrAge/1000)}s) - returning existing QR instead of creating new one`);
-        return res.json({ok: true, state: 'has_qr', qrAge: Math.floor(qrAge/1000)}); 
+        return res.json({ok: true, state: 'has_qr', qrAgeSeconds: Math.floor(qrAge/1000)}); 
       }
     }
   }
@@ -504,7 +509,7 @@ async function startSession(tenantId, forceRelink = false) {
   const lock = qrLocks.get(tenantId);
   if (lock && lock.locked) {
     const age = Date.now() - lock.timestamp;
-    if (age < 180000) { // 🔥 ANDROID FIX: Lock valid for 180 seconds (3 minutes) to accommodate slow Android scanning
+    if (age < QR_VALIDITY_MS) { // 🔥 ANDROID FIX: Lock valid to accommodate slow Android scanning
       console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s), returning existing lock`);
       return cur || { starting: true, qrDataUrl: lock.qrData || '' };
     } else {
