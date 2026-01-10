@@ -28,6 +28,17 @@ if (!INTERNAL_SECRET) {
   process.exit(1);
 }
 
+// 🔥 CRITICAL FIX: Validate timezone is UTC to prevent clock drift issues
+// WhatsApp requires accurate time synchronization - clock drift causes logged_out errors
+const currentTZ = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+if (currentTZ !== 'UTC' && currentTZ !== 'Etc/UTC') {
+  console.warn(`[WARNING] ⚠️ Timezone is ${currentTZ}, not UTC. This may cause WhatsApp disconnections!`);
+  console.warn(`[WARNING] ⚠️ Set TZ=UTC environment variable to fix clock drift issues.`);
+  console.warn(`[WARNING] ⚠️ Current time: ${new Date().toISOString()}`);
+} else {
+  console.log(`[BOOT] ✅ Timezone correctly set to UTC: ${new Date().toISOString()}`);
+}
+
 /**
  * 🔔 BUILD 151: Notify backend about WhatsApp connection status changes
  * This creates/clears notifications for business owners when WhatsApp disconnects/reconnects
@@ -561,12 +572,12 @@ async function startSession(tenantId, forceRelink = false) {
   // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
   // 🔥 ANDROID FIX: Use proper browser identification that Android WhatsApp accepts
   // Format: ['App Name', 'OS/Browser', 'Version']
-  // Must use real OS and version to avoid Android WhatsApp rejection
+  // WhatsApp Web uses realistic browser identification: Chrome on Windows/Mac/Linux
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
-    browser: ['Ubuntu', 'Chrome', '20.0.04'],  // 🔥 ANDROID FIX: Use realistic browser info (Ubuntu + Chrome + real version)
+    browser: ['Chrome (Linux)', 'Chrome', '110.0.5481.100'],  // 🔥 CRITICAL FIX: Realistic Chrome version that Android accepts
     markOnlineOnConnect: false,  // ⚡ Don't mark online - saves bandwidth
     syncFullHistory: false,  // ⚡ Don't sync history - CRITICAL for speed
     shouldSyncHistoryMessage: false,  // ⚡ No message history sync
@@ -673,35 +684,9 @@ async function startSession(tenantId, forceRelink = false) {
       }
       
       if (connection === 'close') {
-        // 🔥 ANDROID FIX: Detect scan failure - close right after QR scan without pairing
-        const wasScanningQR = s.qrDataUrl && !s.authPaired;
-        const isAndroidScanFailure = wasScanningQR && (
-          reason === 401 || // logged_out before auth complete
-          reason === 428 || // connection lost during scan
-          reason === 440 || // session replaced (another device scanning)
-          !reason // undefined reason during QR scan often means scan rejected
-        );
-        
-        if (isAndroidScanFailure) {
-          console.log(`[WA] ${tenantId}: ❌ QR SCAN FAILED (Android/slow connection) - Connection closed before auth completed`);
-          console.log(`[WA] ${tenantId}: Common causes: Invalid QR, network issue, WhatsApp rejected pairing, or slow scanning`);
-          console.log(`[WA] ${tenantId}: Reason code: ${reason || 'none'}, Message: ${reasonMessage || 'none'}`);
-          
-          // 🔥 ANDROID FIX: Clear auth files to force fresh QR on retry
-          try {
-            console.log(`[WA] ${tenantId}: Clearing potentially corrupted auth files...`);
-            fs.rmSync(authPath, { recursive: true, force: true });
-            fs.mkdirSync(authPath, { recursive: true });
-            console.log(`[WA] ${tenantId}: Auth files cleared - will generate fresh QR on reconnect`);
-          } catch (e) {
-            console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
-          }
-        }
-        
         s.connected = false;
         s.authPaired = false;  // Reset auth paired state
-        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}, wasScanningQR=${wasScanningQR}, isAndroidFailure=${isAndroidScanFailure}`);
-        console.log(`[WA] ${tenantId}: Disconnect details - reasonCode=${reason}, lastError=${JSON.stringify(lastDisconnect?.error || {})}`);
+        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}`);
         
         // 🔥 FIX: Release QR lock on disconnect
         qrLocks.delete(tenantId);
@@ -731,9 +716,11 @@ async function startSession(tenantId, forceRelink = false) {
           } catch (e) {
             console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
           }
+          
+          // 🔥 CRITICAL FIX: Don't auto-restart after logged_out
+          // User needs to manually scan QR again - auto-restart causes race conditions
           sessions.delete(tenantId);
-          console.log(`[WA] ${tenantId}: Will restart session in 5 seconds...`);
-          setTimeout(() => startSession(tenantId, true), 5000);  // Force relink
+          console.log(`[WA] ${tenantId}: Session cleared. User must scan QR again via /start endpoint.`);
           return;
         }
         
