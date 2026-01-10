@@ -278,7 +278,7 @@ class BaileysProvider(Provider):
                 idempotency_key = str(uuid.uuid4())
                 
                 payload = {
-                    "to": to.replace("whatsapp:", "").replace("+", ""),
+                    "to": to,  # 🔥 CRITICAL: Send JID as-is, DO NOT strip or modify!
                     "type": "text",
                     "text": text,
                     "idempotencyKey": idempotency_key,

@@ -400,7 +400,7 @@ async function startSession(tenantId, forceRelink = false) {
   const lock = qrLocks.get(tenantId);
   if (lock && lock.locked) {
     const age = Date.now() - lock.timestamp;
-    if (age < 60000) { // Lock valid for 60 seconds
+    if (age < 120000) { // 🔥 CRITICAL: Lock valid for 120 seconds (not 60) to prevent QR restart during Android scan
       console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s), returning existing lock`);
       return cur || { starting: true, qrDataUrl: lock.qrData || '' };
     } else {

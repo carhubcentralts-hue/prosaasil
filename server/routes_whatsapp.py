@@ -53,7 +53,7 @@ def _send_whatsapp_message_background(
     app,  # 🔥 STEP 3 FIX: Pass app instance explicitly to avoid context issues
     business_id: int,
     tenant_id: str,
-    from_number: str,
+    remote_jid: str,
     response_text: str,
     wa_msg_id: int = None
 ):
@@ -71,7 +71,8 @@ def _send_whatsapp_message_background(
         app: Flask app instance for application context
         business_id: Business ID for multi-tenant routing
         tenant_id: Tenant ID (e.g., "business_1") for Baileys routing
-        from_number: Customer's WhatsApp number (without @s.whatsapp.net)
+        remote_jid: FULL WhatsApp JID (e.g., 972501234567@s.whatsapp.net or 823...@lid)
+                    🔥 CRITICAL: Must be the EXACT remoteJid from incoming message!
         response_text: The AI-generated response text to send
         wa_msg_id: Optional incoming message ID for tracking
     """
@@ -80,15 +81,16 @@ def _send_whatsapp_message_background(
     import time
     
     send_start = time.time()
-    log.info(f"[WA-BG-SEND] Starting background send to {from_number[:10]}...")
+    log.info(f"[WA-BG-SEND] Starting background send to {remote_jid[:20]}...")
     
     try:
         # Get WhatsApp service (Baileys first, will auto-failover to Twilio)
         wa_service = get_whatsapp_service(tenant_id=tenant_id)
         
-        # Send with automatic retry and failover built into provider
+        # 🔥 CRITICAL FIX: Send to EXACT remoteJid - DO NOT modify or add @s.whatsapp.net!
+        # The remoteJid is already in correct format (may be @lid, @g.us, @s.whatsapp.net, etc.)
         send_result = wa_service.send_with_failover(
-            to=f"{from_number}@s.whatsapp.net",
+            to=remote_jid,  # 🔥 Send to original JID as-is
             message=response_text,
             tenant_id=tenant_id
         )
@@ -107,9 +109,12 @@ def _send_whatsapp_message_background(
             
             # 🔥 STEP 3 FIX: Use app instance directly for context
             with app.app_context():
+                # Extract E.164 phone number for database storage
+                from_number_e164 = remote_jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace('+', '')
+                
                 out_msg = WhatsAppMessage()
                 out_msg.business_id = business_id
-                out_msg.to_number = from_number
+                out_msg.to_number = from_number_e164  # Store E.164 for database consistency
                 out_msg.body = response_text
                 out_msg.message_type = 'text'
                 out_msg.direction = 'out'
@@ -132,7 +137,7 @@ def _send_whatsapp_message_background(
                     try:
                         update_session_activity(
                             business_id=business_id,
-                            customer_wa_id=from_number,
+                            customer_wa_id=from_number_e164,
                             direction="out",
                             provider=provider_used
                         )
@@ -144,9 +149,9 @@ def _send_whatsapp_message_background(
             # Don't fail the whole operation if DB save fails
         
         if status == 'sent':
-            log.info(f"[WA-BG-SEND] ✅ Successfully sent to {from_number[:10]} via {provider_used}")
+            log.info(f"[WA-BG-SEND] ✅ Successfully sent to {remote_jid[:20]} via {provider_used}")
         else:
-            log.error(f"[WA-BG-SEND] ❌ Failed to send to {from_number[:10]}: {send_result.get('error')}")
+            log.error(f"[WA-BG-SEND] ❌ Failed to send to {remote_jid[:20]}: {send_result.get('error')}")
             
     except Exception as e:
         log.error(f"[WA-BG-SEND] ❌ Unexpected error: {e}")
@@ -801,8 +806,16 @@ def baileys_webhook():
         for msg in messages:
             msg_start = time.time()
             try:
-                # Extract message details
-                from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
+                # 🔥 CRITICAL FIX: Extract FULL remoteJid - DO NOT strip domain!
+                # Android messages may come from @lid, @g.us (groups), or other formats
+                # We must reply to the EXACT remoteJid we received
+                remote_jid = msg.get('key', {}).get('remoteJid', '')
+                
+                # For database storage and E.164 matching, extract clean phone number
+                # But ALWAYS use remote_jid for replies!
+                from_number_e164 = remote_jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('+', '')
+                
+                log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}")
                 
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
                 # Different devices send messages in different formats:
@@ -855,8 +868,8 @@ def baileys_webhook():
                                 log.info(f"[WA-PARSE] Found text in '{key}.caption'")
                                 break
                 
-                if not from_number or not message_text:
-                    log.warning(f"[WA-SKIP] Missing from_number={bool(from_number)} or message_text={bool(message_text)}")
+                if not remote_jid or not message_text:
+                    log.warning(f"[WA-SKIP] Missing remote_jid={bool(remote_jid)} or message_text={bool(message_text)}")
                     continue
                 
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
@@ -864,7 +877,7 @@ def baileys_webhook():
                 # 🔥 BUILD 180: Check both 'out' and 'outbound' for backwards compatibility
                 recent_outbound = WhatsAppMessage.query.filter(
                     WhatsAppMessage.business_id == business_id,
-                    WhatsAppMessage.to_number == from_number,
+                    WhatsAppMessage.to_number == from_number_e164,
                     WhatsAppMessage.direction.in_(['out', 'outbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
@@ -875,7 +888,7 @@ def baileys_webhook():
                     if time_diff < timedelta(seconds=30):
                         # Check if message content is similar (our response echoing)
                         if recent_outbound.body and message_text in recent_outbound.body:
-                            print(f"🚫 LOOP PREVENTED: Ignoring echo of our own message to {from_number}", flush=True)
+                            print(f"🚫 LOOP PREVENTED: Ignoring echo of our own message to {from_number_e164}", flush=True)
                             log.warning(f"🚫 Ignoring bot echo: {message_text[:50]}...")
                             continue
                         # Also skip if message looks like AI response (Hebrew AI phrases)
@@ -885,23 +898,23 @@ def baileys_webhook():
                             log.warning(f"🚫 Skipping AI-like message (possible echo)")
                             continue
                 
-                log.info(f"[WA-INCOMING] biz={business_id}, from={from_number}, text={message_text[:50]}...")
+                log.info(f"[WA-INCOMING] biz={business_id}, from={from_number_e164}, remoteJid={remote_jid}, text={message_text[:50]}...")
                 
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
-                    phone_number=from_number,
+                    phone_number=from_number_e164,
                     message_text=message_text
                 )
                 
                 action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {from_number}")
+                log.info(f"✅ {action} customer/lead for {from_number_e164}")
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
                 # 🔥 BUILD 180: Check both 'in' and 'inbound' for backwards compatibility
                 existing_msg = WhatsAppMessage.query.filter(
                     WhatsAppMessage.business_id == business_id,
-                    WhatsAppMessage.to_number == from_number,
+                    WhatsAppMessage.to_number == from_number_e164,
                     WhatsAppMessage.body == message_text,
                     WhatsAppMessage.direction.in_(['in', 'inbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
@@ -916,7 +929,7 @@ def baileys_webhook():
                 # Save incoming message to DB
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = from_number
+                wa_msg.to_number = from_number_e164  # E.164 format for database consistency
                 wa_msg.body = message_text
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
@@ -929,7 +942,7 @@ def baileys_webhook():
                 try:
                     update_session_activity(
                         business_id=business_id,
-                        customer_wa_id=from_number,
+                        customer_wa_id=from_number_e164,
                         direction="in",
                         provider="baileys"
                     )
@@ -942,14 +955,14 @@ def baileys_webhook():
                     from server.whatsapp_appointment_handler import process_incoming_whatsapp_message
                     # ✅ BUILD 100.13: Pass business_id to appointment handler
                     appointment_result = process_incoming_whatsapp_message(
-                        phone_number=from_number,
+                        phone_number=from_number_e164,
                         message_text=message_text,
                         message_id=wa_msg.id,
                         business_id=business_id  # ✅ FIX: Pass correct business_id
                     )
                     if appointment_result.get('appointment_created'):
                         appointment_created = True
-                        log.info(f"📅 Appointment created for {from_number}: {appointment_result.get('appointment_id')}")
+                        log.info(f"📅 Appointment created for {from_number_e164}: {appointment_result.get('appointment_id')}")
                 except Exception as e:
                     log.warning(f"⚠️ Appointment check failed: {e}")
                 
@@ -959,17 +972,17 @@ def baileys_webhook():
                     from server.models_sql import WhatsAppConversationState
                     conv_state = WhatsAppConversationState.query.filter_by(
                         business_id=business_id,
-                        phone=from_number
+                        phone=from_number_e164
                     ).first()
                     if conv_state:
                         ai_enabled = conv_state.ai_active
-                        log.info(f"[WA-INCOMING] AI state for {from_number}: {'enabled' if ai_enabled else 'DISABLED'}")
+                        log.info(f"[WA-INCOMING] AI state for {from_number_e164}: {'enabled' if ai_enabled else 'DISABLED'}")
                 except Exception as e:
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
                 # If AI is disabled, skip AI response generation
                 if not ai_enabled:
-                    log.info(f"[WA-INCOMING] AI disabled for {from_number} - skipping AI response")
+                    log.info(f"[WA-INCOMING] AI disabled for {from_number_e164} - skipping AI response")
                     msg_duration = time.time() - msg_start
                     log.info(f"[WA-INCOMING] Message saved (no AI response) in {msg_duration:.2f}s")
                     continue
@@ -979,7 +992,7 @@ def baileys_webhook():
                 try:
                     recent_msgs = WhatsAppMessage.query.filter_by(
                         business_id=business_id,
-                        to_number=from_number
+                        to_number=from_number_e164
                     ).order_by(WhatsAppMessage.created_at.desc()).limit(10).all()
                     
                     # Format as conversation (reversed to chronological order)
@@ -1013,14 +1026,15 @@ def baileys_webhook():
                         message=message_text,
                         business_id=business_id,
                         context={
-                            'phone': from_number,
+                            'phone': from_number_e164,  # E.164 for CRM
+                            'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
                             'customer_name': customer.name if customer else None,
                             'lead_status': lead.status if lead else None,
                             'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 10 הודעות!
                             'appointment_created': appointment_created  # ✅ BUILD 93: הפגישה נקבעה!
                         },
                         channel='whatsapp',
-                        customer_phone=from_number,
+                        customer_phone=from_number_e164,
                         customer_name=customer.name if customer else None
                     )
                     print(f"🔍 DEBUG: ai_response type={type(ai_response)}, value={str(ai_response)[:100]}...", flush=True)
@@ -1047,7 +1061,8 @@ def baileys_webhook():
                             message=message_text,
                             business_id=business_id,
                             context={
-                                'phone': from_number,
+                                'phone': from_number_e164,  # E.164 for CRM
+                                'remote_jid': remote_jid,  # 🔥 CRITICAL: Original JID for replies
                                 'customer_name': customer.name if customer else None,
                                 'previous_messages': previous_messages
                             },
@@ -1073,9 +1088,9 @@ def baileys_webhook():
                             log.warning(f"⚠️ No fallback response available - skipping send")
                             continue
                 
-                # 🔥 FIX: Send response in BACKGROUND thread - don't block webhook!
-                # This ensures webhook returns <300ms while message sending happens async
-                log.info(f"[WA-OUTGOING] Scheduling background send to {from_number}, text={str(response_text)[:50]}...")
+                # 🔥 CRITICAL FIX: Send response to ORIGINAL remoteJid, not reconstructed @s.whatsapp.net
+                # This ensures Android messages with @lid, @g.us, etc. get proper replies
+                log.info(f"[WA-OUTGOING] Scheduling background send to remoteJid={remote_jid}, text={str(response_text)[:50]}...")
                 
                 # 🔥 STEP 3 FIX: Get current app instance to pass to background thread
                 from flask import current_app
@@ -1084,7 +1099,7 @@ def baileys_webhook():
                 # Start background thread for sending
                 send_thread = threading.Thread(
                     target=_send_whatsapp_message_background,
-                    args=(app_instance, business_id, tenant_id, from_number, response_text, wa_msg.id),
+                    args=(app_instance, business_id, tenant_id, remote_jid, response_text, wa_msg.id),
                     daemon=True
                 )
                 send_thread.start()
