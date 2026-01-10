@@ -97,13 +97,22 @@ services:
       dockerfile: Dockerfile.baileys
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "3300:3300"
     env_file:
       - .env
     environment:
-      FLASK_BASE_URL: ${FLASK_BASE_URL}
+      FLASK_BASE_URL: ${FLASK_BASE_URL:-http://backend:5000}
+      BAILEYS_PORT: 3300
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3300/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - prosaas-network
 

@@ -42,11 +42,13 @@ class BaileysProvider(Provider):
         self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
         self.internal_secret = os.getenv("INTERNAL_SECRET", "")  # 🔒 For internal API calls
-        self.read_timeout = 15.0  # ⚡ FIXED: 15s timeout for WhatsApp message sending (increased from 5s)
-        self.timeout = 15.0  # Keep for backward compatibility
+        # ⚡ OPTIMIZED: Separate connect and read timeouts for better control
+        self.connect_timeout = 3.0  # Quick connect timeout (2-3s)
+        self.read_timeout = 25.0  # Longer read timeout for WhatsApp operations (20-30s)
+        self.timeout = (self.connect_timeout, self.read_timeout)  # Tuple for requests
         self._last_health_check = 0
         self._health_status = False
-        self._health_cache_duration = 30  # 30 seconds cache
+        self._health_cache_duration = 10  # 🔥 REDUCED: 10 seconds cache for faster status updates
         
         # ⚡ Connection pooling for speed
         self._session = requests.Session()
@@ -76,19 +78,14 @@ class BaileysProvider(Provider):
             response = self._session.get(
                 f"{self.outbound_url}/health",  # General service health
                 headers=headers,
-                timeout=1.0  # ⚡ Fast health check
+                timeout=2.0  # ⚡ Fast health check (2s max)
             )
             
             if response.status_code == 200:
-                # 🔥 FIX: Handle empty or non-JSON responses gracefully
-                try:
-                    data = response.json()
-                    # Check if actually connected to WhatsApp, not just service running
-                    self._health_status = data.get("connected", False)
-                except (json.JSONDecodeError, ValueError) as json_err:
-                    # Empty response or non-JSON content - treat as not connected
-                    logger.debug(f"Baileys health check returned non-JSON response (status={response.status_code})")
-                    self._health_status = False
+                # 🔥 FIX: Health endpoint returns simple "ok" - service is running
+                # Just check if service is up, not actual WhatsApp connection
+                # Real connection check happens per-tenant with _can_send()
+                self._health_status = True
             else:
                 self._health_status = False
                 
@@ -114,20 +111,35 @@ class BaileysProvider(Provider):
             return False
     
     def _can_send(self, tenant_id: str) -> bool:
-        """🔥 STEP 5 FIX: Check if specific tenant can actually send messages"""
+        """🔥 CRITICAL FIX: Check if specific tenant can actually send messages
+        
+        This is the REAL check - not just service health, but actual WhatsApp connection status
+        Only report "can send" if connection=open AND authPaired=true AND canSend=true
+        """
         try:
             headers = {"X-Internal-Secret": self.internal_secret}
             response = self._session.get(
                 f"{self.outbound_url}/whatsapp/{tenant_id}/status",
                 headers=headers,
-                timeout=1.0
+                timeout=2.0  # Fast check
             )
             
             if response.status_code == 200:
                 data = response.json()
-                # Check canSend capability (connected + authenticated + ready)
-                return data.get("canSend", False)
+                # 🔥 CRITICAL: Check all three conditions:
+                # 1. connected=true (socket open)
+                # 2. authPaired=true (authenticated)
+                # 3. canSend=true (ready to send)
+                is_connected = data.get("connected", False)
+                is_auth_paired = data.get("authPaired", False)
+                can_send = data.get("canSend", False)
+                
+                logger.debug(f"Tenant {tenant_id} status: connected={is_connected}, authPaired={is_auth_paired}, canSend={can_send}")
+                
+                # Return true ONLY if ALL conditions met
+                return can_send and is_connected and is_auth_paired
             else:
+                logger.debug(f"Status check failed for {tenant_id}: HTTP {response.status_code}")
                 return False
                 
         except Exception as e:
@@ -215,56 +227,50 @@ class BaileysProvider(Provider):
                 "error": "tenant_id required for multi-tenant isolation"
             }
         
-        max_attempts = 2  # 🔥 FIX: Allow 1 retry on timeout (2 total attempts)
-        last_error = None
-        effective_tenant = tenant_id  # MULTI-TENANT: explicit tenant only
-        
-        for attempt in range(max_attempts):
-            try:
-                # 🔥 AUTO-RESTART: If Baileys is down, try to start it (only on first attempt)
-                if attempt == 0 and not self._check_health():
-                    # 🔥 STEP 4 FIX: Check if Baileys is currently sending before restart
-                    try:
-                        headers = {"X-Internal-Secret": self.internal_secret}
-                        status_response = self._session.get(
-                            f"{self.outbound_url}/whatsapp/{effective_tenant}/sending-status",
-                            headers=headers,
-                            timeout=1.0
-                        )
-                        if status_response.status_code == 200:
-                            status_data = status_response.json()
-                            if status_data.get("isSending", False):
-                                logger.warning(f"⚠️ Baileys is currently sending - skipping restart to avoid interruption")
-                                return {
-                                    "provider": "baileys",
-                                    "status": "error",
-                                    "error": "WhatsApp service busy, try again later"
-                                }
-                    except Exception as check_err:
-                        # If check fails, proceed with restart (fail-safe)
-                        logger.debug(f"Sending status check failed (proceeding with restart): {check_err}")
-                    
-                    logger.warning("⚠️ Baileys service unavailable - attempting auto-restart...")
-                    
-                    # Try to start Baileys for this tenant
-                    if self._start_baileys(effective_tenant):
-                        # Wait for it to become ready (10s max)
-                        if not self._wait_for_ready(effective_tenant, timeout=10.0):
-                            logger.error("❌ Baileys auto-restart timed out")
+        # 🔥 CRITICAL: Check if tenant can send BEFORE attempting
+        if not self._can_send(tenant_id):
+            logger.warning(f"⚠️ Tenant {tenant_id} cannot send - not connected or not authenticated")
+            
+            # Try auto-start if not connected
+            if not self._check_health():
+                logger.warning("⚠️ Baileys service unavailable - attempting auto-restart...")
+                if self._start_baileys(tenant_id):
+                    if self._wait_for_ready(tenant_id, timeout=15.0):
+                        logger.info("✅ Baileys auto-restart successful!")
+                        # Retry send after successful restart
+                        if not self._can_send(tenant_id):
                             return {
                                 "provider": "baileys",
                                 "status": "error",
-                                "error": "WhatsApp service not connected (auto-restart failed)"
+                                "error": "WhatsApp service restarted but not ready to send"
                             }
-                        logger.info("✅ Baileys auto-restart successful!")
                     else:
-                        logger.error("❌ Failed to trigger Baileys restart")
+                        logger.error("❌ Baileys auto-restart timed out")
                         return {
                             "provider": "baileys",
                             "status": "error",
-                            "error": "WhatsApp service not connected (restart failed)"
+                            "error": "WhatsApp service not connected (auto-restart failed)"
                         }
-                
+                else:
+                    logger.error("❌ Failed to trigger Baileys restart")
+                    return {
+                        "provider": "baileys",
+                        "status": "error",
+                        "error": "WhatsApp service not connected (restart failed)"
+                    }
+            else:
+                # Service is up but tenant not connected - QR scan needed
+                return {
+                    "provider": "baileys",
+                    "status": "error",
+                    "error": "WhatsApp not connected - QR code scan required"
+                }
+        
+        max_attempts = 2  # 🔥 FIX: Allow 1 retry on timeout (2 total attempts)
+        last_error = None
+        
+        for attempt in range(max_attempts):
+            try:
                 # Generate idempotency key
                 idempotency_key = str(uuid.uuid4())
                 
@@ -273,7 +279,7 @@ class BaileysProvider(Provider):
                     "type": "text",
                     "text": text,
                     "idempotencyKey": idempotency_key,
-                    "tenantId": effective_tenant  # MULTI-TENANT: Route to correct session
+                    "tenantId": tenant_id  # MULTI-TENANT: Route to correct session
                 }
                 
                 logger.info(f"⚡ Sending WhatsApp to {to[:15]}... (attempt {attempt + 1}/{max_attempts})")
@@ -281,7 +287,7 @@ class BaileysProvider(Provider):
                 response = self._session.post(
                     f"{self.outbound_url}/send",
                     json=payload,
-                    timeout=self.read_timeout  # 🔥 FIX: Use 15s timeout (increased from 5s)
+                    timeout=self.timeout  # 🔥 FIX: Use tuple timeout (connect, read)
                 )
                 
                 if response.status_code == 200:
@@ -305,6 +311,7 @@ class BaileysProvider(Provider):
                 # 🔥 FIX: Retry on timeout (if not last attempt)
                 if attempt < max_attempts - 1:
                     logger.info(f"🔄 Retrying send after timeout...")
+                    time.sleep(1)  # Brief delay before retry
                     continue
                 # Last attempt failed - break to fallback
                 break
@@ -334,16 +341,16 @@ class BaileysProvider(Provider):
             }
         
         try:
-            if not self._check_health():
+            # 🔥 CRITICAL: Check if tenant can send
+            if not self._can_send(tenant_id):
                 return {
                     "provider": "baileys",
                     "status": "error",
-                    "error": "Baileys service unavailable"
+                    "error": "WhatsApp not connected - QR code scan required"
                 }
             
             # Generate idempotency key
             idempotency_key = str(uuid.uuid4())
-            effective_tenant = tenant_id  # MULTI-TENANT: explicit tenant only
             
             payload = {
                 "to": to.replace("whatsapp:", "").replace("+", ""),
@@ -351,10 +358,10 @@ class BaileysProvider(Provider):
                 "mediaUrl": media_url,
                 "caption": caption,
                 "idempotencyKey": idempotency_key,
-                "tenantId": effective_tenant  # MULTI-TENANT: Route to correct session
+                "tenantId": tenant_id  # MULTI-TENANT: Route to correct session
             }
             
-            response = requests.post(
+            response = self._session.post(
                 f"{self.outbound_url}/send",
                 json=payload,
                 timeout=self.timeout
@@ -395,11 +402,12 @@ class BaileysProvider(Provider):
             }
         
         try:
-            if not self._check_health():
+            # 🔥 CRITICAL: Check if tenant can send
+            if not self._can_send(tenant_id):
                 return {
                     "provider": "baileys",
                     "status": "error",
-                    "error": "Baileys service unavailable"
+                    "error": "WhatsApp not connected - QR code scan required"
                 }
             
             # Generate idempotency key
@@ -420,7 +428,7 @@ class BaileysProvider(Provider):
             response = self._session.post(
                 f"{self.outbound_url}/send",
                 json=payload,
-                timeout=15  # Longer timeout for media
+                timeout=(3.0, 30.0)  # Longer read timeout for media (30s)
             )
             
             if response.status_code == 200:
