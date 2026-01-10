@@ -109,6 +109,10 @@ services:
       FLASK_BASE_URL: ${FLASK_BASE_URL:-http://backend:5000}
       BAILEYS_PORT: 3300
       INTERNAL_SECRET: ${INTERNAL_SECRET}
+    # 🔥 ANDROID FIX: Volume for WhatsApp auth persistence
+    # Without this, auth files are lost on container restart -> Android connection fails
+    volumes:
+      - whatsapp_auth:/app/storage/whatsapp
     # ✅ healthcheck uses curl which is installed in Dockerfile.baileys (line 11-12)
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3300/health || exit 1"]
@@ -163,3 +167,4 @@ networks:
 volumes:
   n8n_data:
   recordings_data:
+  whatsapp_auth:  # 🔥 ANDROID FIX: Persistent volume for WhatsApp auth files
