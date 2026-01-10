@@ -96,14 +96,26 @@ services:
       context: .
       dockerfile: Dockerfile.baileys
     restart: unless-stopped
+    # ⚠️ NOTE: depends_on with condition:service_healthy requires Docker Compose v2.1+
+    # If not supported, the service will still start - backend has self-healing logic
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "3300:3300"
     env_file:
       - .env
     environment:
-      FLASK_BASE_URL: ${FLASK_BASE_URL}
+      FLASK_BASE_URL: ${FLASK_BASE_URL:-http://backend:5000}
+      BAILEYS_PORT: 3300
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    # ✅ healthcheck uses curl which is installed in Dockerfile.baileys (line 11-12)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3300/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - prosaas-network
 

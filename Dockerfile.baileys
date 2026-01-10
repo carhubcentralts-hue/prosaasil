@@ -8,6 +8,7 @@ FROM node:20-slim
 WORKDIR /app
 
 # Install system dependencies for Baileys
+# ✅ curl is required for Docker healthcheck (used in docker-compose.yml)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
