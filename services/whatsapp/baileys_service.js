@@ -139,8 +139,13 @@ app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
   // 🔥 FIX: Only report truly connected if BOTH socket open AND auth paired
   const truelyConnected = isConnected && authPaired;
   
+  // 🔥 STEP 5 FIX: Separate "connected" from "canSend" capability
+  // canSend requires: connected, has socket, authenticated, and not in error state
+  const canSend = truelyConnected && hasSocket && !s?.starting;
+  
   const diagnostics = {
     connected: truelyConnected,  // 🔥 FIX: Require both socket AND auth
+    canSend: canSend,  // 🔥 STEP 5 FIX: Separate capability to send messages
     pushName: s?.pushName || '',
     hasQR: hasQR,
     hasSession,
@@ -151,7 +156,7 @@ app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
     timestamp: new Date().toISOString()
   };
   
-  console.log(`[WA] Status check for ${req.params.tenantId}:`, diagnostics);
+  console.log(`[WA] Status check for ${req.params.tenantId}: connected=${truelyConnected}, canSend=${canSend}`);
   return res.json(diagnostics);
 });
 

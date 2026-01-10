@@ -113,6 +113,27 @@ class BaileysProvider(Provider):
             self._last_health_check = now
             return False
     
+    def _can_send(self, tenant_id: str) -> bool:
+        """🔥 STEP 5 FIX: Check if specific tenant can actually send messages"""
+        try:
+            headers = {"X-Internal-Secret": self.internal_secret}
+            response = self._session.get(
+                f"{self.outbound_url}/whatsapp/{tenant_id}/status",
+                headers=headers,
+                timeout=1.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Check canSend capability (connected + authenticated + ready)
+                return data.get("canSend", False)
+            else:
+                return False
+                
+        except Exception as e:
+            logger.debug(f"Can-send check failed for {tenant_id}: {e}")
+            return False
+    
     def _start_baileys(self, tenant_id: str) -> bool:
         """🔥 Start Baileys session if not running - REQUIRES explicit tenant_id"""
         try:
