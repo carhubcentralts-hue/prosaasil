@@ -63,6 +63,24 @@ async function notifyBackendWhatsappStatus(tenantId, status, reason = null) {
   }
 }
 
+// 🔥 CLOCK DIAGNOSTICS: Helper to check if clock is synchronized
+function checkClockSync() {
+  const now = Date.now();
+  const isoTime = new Date(now).toISOString();
+  const tz = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const isUTC = (tz === 'UTC' || tz === 'Etc/UTC');
+  
+  return {
+    unix_ms: now,
+    iso: isoTime,
+    timezone: tz,
+    is_utc: isUTC,
+    ok: isUTC,
+    warning: isUTC ? null : `Clock is in ${tz} timezone, should be UTC for WhatsApp stability`
+  };
+}
+
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -71,6 +89,13 @@ app.use(express.json());
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/health', (req, res) => res.status(200).send('ok'));  // Add /health alias for Python compatibility
 app.get('/', (req, res) => res.status(200).send('ok'));
+
+// 🔥 CLOCK CHECK: Public endpoint to verify server time (no auth required for ops)
+app.get('/clock', (req, res) => {
+  const clockInfo = checkClockSync();
+  const status = clockInfo.ok ? 200 : 500;
+  return res.status(status).json(clockInfo);
+});
 
 const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts, authPaired, qrLock }
 
@@ -287,13 +312,25 @@ app.get('/whatsapp/:tenantId/diagnostics', requireSecret, (req, res) => {
       auth_file_status: authFileStatus,
       auth_validation_error: authValidationError
     },
+    clock: {
+      // 🔥 CRITICAL: Clock diagnostics to detect drift
+      current_time_iso: new Date().toISOString(),
+      current_time_unix_ms: Date.now(),
+      timezone: process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      is_utc: (process.env.TZ === 'UTC' || process.env.TZ === 'Etc/UTC'),
+      locale: Intl.DateTimeFormat().resolvedOptions().locale || 'unknown',
+      // To check drift: compare current_time_unix_ms with real time
+      // If difference > 60 seconds, there's clock drift!
+      warning: (process.env.TZ !== 'UTC' && process.env.TZ !== 'Etc/UTC') ? 'TZ is not UTC - may cause disconnections!' : null
+    },
     config: {
       max_reconnect_attempts: RECONNECT_CONFIG.maxAttempts,
       base_delay_ms: RECONNECT_CONFIG.baseDelay,
       max_delay_ms: RECONNECT_CONFIG.maxDelay,
       connect_timeout_ms: SOCKET_CONNECT_TIMEOUT,
       query_timeout_ms: SOCKET_QUERY_TIMEOUT,
-      qr_lock_timeout_ms: 180000  // 🔥 ANDROID FIX: 3 minutes
+      qr_lock_timeout_ms: 180000,  // 🔥 ANDROID FIX: 3 minutes
+      browser_string: ['Ubuntu', 'Chrome', '22.04.4']  // 🔥 ANDROID FIX: Show configured browser
     },
     server: {
       port: PORT,
@@ -570,14 +607,15 @@ async function startSession(tenantId, forceRelink = false) {
   console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${creationTimestamp}, reason=start, forceRelink=${forceRelink}`);
   
   // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
-  // 🔥 ANDROID FIX: Use proper browser identification that Android WhatsApp accepts
-  // Format: ['App Name', 'OS/Browser', 'Version']
-  // WhatsApp Web uses realistic browser identification: Chrome on Windows/Mac/Linux
+  // 🔥 CRITICAL ANDROID FIX: Use EXACT browser format that WhatsApp expects
+  // Android is STRICT about browser identification - must match real WhatsApp Web
+  // Format: ['OS Name', 'Browser', 'OS Version'] - NOT browser version!
+  // Baileys default: ['Ubuntu', 'Chrome', '22.04.4'] works perfectly
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
-    browser: ['Chrome (Linux)', 'Chrome', '110.0.5481.100'],  // 🔥 CRITICAL FIX: Realistic Chrome version that Android accepts
+    browser: ['Ubuntu', 'Chrome', '22.04.4'],  // 🔥 CRITICAL FIX: Exact Baileys default - Android requires OS version not browser version!
     markOnlineOnConnect: false,  // ⚡ Don't mark online - saves bandwidth
     syncFullHistory: false,  // ⚡ Don't sync history - CRITICAL for speed
     shouldSyncHistoryMessage: false,  // ⚡ No message history sync
@@ -602,10 +640,33 @@ async function startSession(tenantId, forceRelink = false) {
     try {
       const reason = lastDisconnect?.error?.output?.statusCode;
       const reasonMessage = lastDisconnect?.error?.message || String(reason || '');
+      const errorPayload = lastDisconnect?.error?.output?.payload;
       
       // 🔧 ENHANCED: More detailed logging for connection diagnostics
       const timestamp = new Date().toISOString();
       console.log(`[WA] ${timestamp} connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, reasonMsg=${reasonMessage || 'none'}, hasQR=${!!qr}, authPaired=${s.authPaired}`);
+      
+      // 🔥 CRITICAL DIAGNOSTIC: Log statusCode for debugging WhatsApp rejections
+      // Common codes: 401=unauthorized, 403=forbidden, 428=precondition, 515=restart_required
+      if (lastDisconnect && reason) {
+        console.log(`[WA-DIAGNOSTIC] ${tenantId}: 🔍 DISCONNECT REASON DETAILS:`);
+        console.log(`[WA-DIAGNOSTIC] ${tenantId}: - statusCode: ${reason}`);
+        console.log(`[WA-DIAGNOSTIC] ${tenantId}: - payload: ${errorPayload ? JSON.stringify(errorPayload) : 'none'}`);
+        console.log(`[WA-DIAGNOSTIC] ${tenantId}: - message: ${reasonMessage}`);
+        
+        // Interpret common status codes
+        if (reason === 401) {
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 401 = WhatsApp rejected authentication (unauthorized)`);
+        } else if (reason === 403) {
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 403 = WhatsApp denied access (forbidden)`);
+        } else if (reason === 428) {
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 428 = Connection prerequisite failed`);
+        } else if (reason === 515) {
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 515 = WhatsApp server requested restart`);
+        } else if (reason === 440) {
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 440 = Session replaced by another device`);
+        }
+      }
       
       // B2) לוגיקת QR יציבה בNode עם qr_code.txt
       const qrFile = path.join(authPath, 'qr_code.txt');
@@ -614,8 +675,9 @@ async function startSession(tenantId, forceRelink = false) {
         // 🔧 ENHANCED: Add QR generation timing
         const qrStartTime = Date.now();
         s.qrDataUrl = await QRCode.toDataURL(qr);
+        s.qrGeneratedAt = Date.now();  // 🔥 ANDROID FIX: Track when QR was generated
         const qrDuration = Date.now() - qrStartTime;
-        console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms, qr_length=${qr.length}`);
+        console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms, qr_length=${qr.length}, timestamp=${s.qrGeneratedAt}`);
         
         // 🔥 FIX: Update QR lock with actual QR data
         const lock = qrLocks.get(tenantId);
