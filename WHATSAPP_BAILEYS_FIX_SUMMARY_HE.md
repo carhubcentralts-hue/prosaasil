@@ -1,5 +1,40 @@
 # תיקון מערכת WhatsApp Baileys - סיכום מלא
 
+## 🔧 הבהרות חשובות (עדכון אחרון)
+
+### 1. depends_on: condition: service_healthy
+- **התאימות:** דורש Docker Compose v2.1 ומעלה
+- **אם לא נתמך:** השירות עדיין יפעל, אך ייתכן שיתחיל לפני ה-backend
+- **פתרון בילט-אין:** הקוד של backend כבר מטפל במצב זה:
+  * `_can_send()` בודק סטטוס בזמן אמת לפני כל שליחה
+  * retry עם backoff אוטומטי
+  * fallback ל-Twilio אם Baileys לא זמין
+
+### 2. healthcheck עם curl
+- ✅ **curl מותקן ב-Dockerfile.baileys** (שורה 11-12)
+- אין צורך בהתקנה נוספת
+- אם בעתיד יוסר curl מה-image, אפשר:
+  * להשתמש ב-`wget -qO-` במקום
+  * או healthcheck עם `node -e "require('http').get('http://localhost:3300/health')"`
+
+### 3. _can_send() ללא cache
+- **קריטי:** `_can_send()` עושה קריאת API בזמן אמת **בלי cache**
+- כל בדיקה = קריאה חדשה ל-Baileys עם timeout של 2 שניות
+- מונע שליחה עם סטטוס מיושן
+- ה-cache של 10 שניות חל רק על `_check_health()` (בדיקת זמינות כללית של השירות)
+
+### 4. logged_out מטופל אוטומטית
+- **baileys_service.js** (שורות 551-568):
+  * מזהה `logged_out` אוטומטית
+  * מוחק את כל קבצי ה-auth
+  * יוצר QR חדש אוטומטית
+  * שולח התראה ל-backend
+- **status endpoint** (עודכן):
+  * מחזיר `needs_relink: true` כאשר מנותק וצריך QR חדש
+  * ה-UI יכול להציג: "נותק - צריך לסרוק QR מחדש"
+
+---
+
 ## 📋 סיכום הבעיות שתוקנו
 
 ### ✅ בעיה 1: "וואטסאפ לא עונה" - Baileys לא זמין / Timeout

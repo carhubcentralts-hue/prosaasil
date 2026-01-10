@@ -115,13 +115,16 @@ class BaileysProvider(Provider):
         
         This is the REAL check - not just service health, but actual WhatsApp connection status
         Only report "can send" if connection=open AND authPaired=true AND canSend=true
+        
+        ⚠️ IMPORTANT: This function does NOT use any cache - it makes a real-time API call
+        to Baileys on every invocation. This ensures we never attempt to send with stale status.
         """
         try:
             headers = {"X-Internal-Secret": self.internal_secret}
             response = self._session.get(
                 f"{self.outbound_url}/whatsapp/{tenant_id}/status",
                 headers=headers,
-                timeout=2.0  # Fast check
+                timeout=2.0  # Fast check - real-time status, no cache
             )
             
             if response.status_code == 200:

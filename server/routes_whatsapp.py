@@ -228,10 +228,15 @@ def status():
                 # True connection requires all three
                 truly_connected = is_connected and is_auth_paired and can_send
                 
+                # 🔥 FIX: Detect if user needs to relink (disconnected without QR or auth files)
+                # This happens after logged_out when Baileys clears auth and generates new QR
+                needs_relink = (not truly_connected) and (not has_qr) and (not is_auth_paired)
+                
                 health_info = {
                     "connected": truly_connected,
                     "hasQR": has_qr,
                     "qr_required": has_qr and not truly_connected,
+                    "needs_relink": needs_relink,  # 🔥 NEW: UI should show "נותק - צריך לסרוק QR מחדש"
                     "canSend": can_send,
                     "authPaired": is_auth_paired,
                     "sessionState": baileys_data.get("sessionState", "unknown"),
