@@ -422,11 +422,14 @@ async function startSession(tenantId, forceRelink = false) {
   console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
   
   // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
+  // 🔥 ANDROID FIX: Use proper browser identification that Android WhatsApp accepts
+  // Format: ['App Name', 'OS/Browser', 'Version']
+  // Must use real OS and version to avoid Android WhatsApp rejection
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
-    browser: ['AgentLocator', 'Chrome', '10.0'],
+    browser: ['Ubuntu', 'Chrome', '20.0.04'],  // 🔥 ANDROID FIX: Use realistic browser info (Ubuntu + Chrome + real version)
     markOnlineOnConnect: false,  // ⚡ Don't mark online - saves bandwidth
     syncFullHistory: false,  // ⚡ Don't sync history - CRITICAL for speed
     shouldSyncHistoryMessage: false,  // ⚡ No message history sync
