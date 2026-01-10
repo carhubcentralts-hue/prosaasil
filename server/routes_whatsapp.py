@@ -50,6 +50,7 @@ def mask_secret_for_logging(secret: str) -> str:
         return "***"
 
 def _send_whatsapp_message_background(
+    app,  # 🔥 STEP 3 FIX: Pass app instance explicitly to avoid context issues
     business_id: int,
     tenant_id: str,
     from_number: str,
@@ -67,6 +68,7 @@ def _send_whatsapp_message_background(
     - Session tracking
     
     Args:
+        app: Flask app instance for application context
         business_id: Business ID for multi-tenant routing
         tenant_id: Tenant ID (e.g., "business_1") for Baileys routing
         from_number: Customer's WhatsApp number (without @s.whatsapp.net)
@@ -102,10 +104,9 @@ def _send_whatsapp_message_background(
         try:
             # Create new DB session for background thread
             from server.db import db
-            from flask import current_app
             
-            # Use application context for background thread
-            with current_app.app_context():
+            # 🔥 STEP 3 FIX: Use app instance directly for context
+            with app.app_context():
                 out_msg = WhatsAppMessage()
                 out_msg.business_id = business_id
                 out_msg.to_number = from_number
@@ -985,10 +986,14 @@ def baileys_webhook():
                 # This ensures webhook returns <300ms while message sending happens async
                 log.info(f"[WA-OUTGOING] Scheduling background send to {from_number}, text={str(response_text)[:50]}...")
                 
+                # 🔥 STEP 3 FIX: Get current app instance to pass to background thread
+                from flask import current_app
+                app_instance = current_app._get_current_object()
+                
                 # Start background thread for sending
                 send_thread = threading.Thread(
                     target=_send_whatsapp_message_background,
-                    args=(business_id, tenant_id, from_number, response_text, wa_msg.id),
+                    args=(app_instance, business_id, tenant_id, from_number, response_text, wa_msg.id),
                     daemon=True
                 )
                 send_thread.start()

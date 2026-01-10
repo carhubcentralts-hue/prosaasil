@@ -66,6 +66,9 @@ const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connect
 // 🔥 FIX: Track QR generation locks to prevent concurrent QR creation
 const qrLocks = new Map(); // tenantId -> { locked: boolean, qrData: string, timestamp: number }
 
+// 🔥 STEP 4 FIX: Track sending operations to prevent restart during send
+const sendingLocks = new Map(); // tenantId -> { isSending: boolean, activeSends: number, lastSendTime: number }
+
 // 🔧 HARDENING 1.1: Exponential backoff configuration for reconnection
 // 🔥 FIX: Increased resilience for slow/unstable connections
 const RECONNECT_CONFIG = {
@@ -151,6 +154,20 @@ app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
   console.log(`[WA] Status check for ${req.params.tenantId}:`, diagnostics);
   return res.json(diagnostics);
 });
+
+// 🔥 STEP 4 FIX: New endpoint to check if service is currently sending messages
+app.get('/whatsapp/:tenantId/sending-status', requireSecret, (req, res) => {
+  const tenantId = req.params.tenantId;
+  const lock = sendingLocks.get(tenantId);
+  
+  return res.json({
+    isSending: lock?.isSending || false,
+    activeSends: lock?.activeSends || 0,
+    lastSendTime: lock?.lastSendTime || 0,
+    idleTimeSec: lock?.lastSendTime ? Math.floor((Date.now() - lock.lastSendTime) / 1000) : null
+  });
+});
+
 app.get('/whatsapp/:tenantId/qr', requireSecret, (req, res) => {
   const s = sessions.get(req.params.tenantId);
   if (s?.qrDataUrl) return res.json({ dataUrl: s.qrDataUrl });
@@ -280,26 +297,57 @@ app.post('/send', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
     
-    console.log(`[send] ⚡ Sending to ${to.substring(0, 15)}...`);
+    // 🔥 STEP 4 FIX: Acquire sending lock to prevent restart during send
+    let lock = sendingLocks.get(tenantId);
+    if (!lock) {
+      lock = { isSending: false, activeSends: 0, lastSendTime: 0 };
+      sendingLocks.set(tenantId, lock);
+    }
+    lock.isSending = true;
+    lock.activeSends += 1;
     
-    // 🔥 FIX: Remove timeout - let Baileys finish sending!
-    // The 10s timeout was causing phantom sends because the Promise.race
-    // would reject early but sock.sendMessage kept running in background
-    const result = await s.sock.sendMessage(to, { text: text });
-    
-    const duration = Date.now() - startTime;
-    console.log(`[send] ✅ Message sent in ${duration}ms, messageId: ${result.key.id}`);
-    
-    return res.json({ 
-      ok: true, 
-      messageId: result.key.id,
-      status: 'sent',
-      duration_ms: duration
-    });
+    try {
+      // 🔥 STEP 1 FIX: Add detailed logging before send
+      console.log(`[BAILEYS] sending message to ${to.substring(0, 15)}..., tenantId=${tenantId}, textLength=${text.length}, activeSends=${lock.activeSends}`);
+      
+      // 🔥 STEP 1 FIX: Add timeout protection to prevent hanging (30s max)
+      // This ensures we always return a response even if WhatsApp hangs
+      const sendPromise = s.sock.sendMessage(to, { text: text });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Send timeout after 30s')), 30000)
+      );
+      
+      const result = await Promise.race([sendPromise, timeoutPromise]);
+      
+      const duration = Date.now() - startTime;
+      // 🔥 STEP 1 FIX: Add detailed logging after send
+      console.log(`[BAILEYS] send finished successfully, duration=${duration}ms, messageId=${result.key.id}, to=${to.substring(0, 15)}`);
+      
+      // Update lock state
+      lock.activeSends -= 1;
+      lock.lastSendTime = Date.now();
+      if (lock.activeSends === 0) {
+        lock.isSending = false;
+      }
+      
+      return res.json({ 
+        ok: true, 
+        messageId: result.key.id,
+        status: 'sent',
+        duration_ms: duration
+      });
+    } catch (sendError) {
+      // Update lock state on error
+      lock.activeSends -= 1;
+      if (lock.activeSends === 0) {
+        lock.isSending = false;
+      }
+      throw sendError;
+    }
     
   } catch (e) {
     const duration = Date.now() - startTime;
-    console.error(`[send] ❌ Failed after ${duration}ms:`, e.message);
+    console.error(`[BAILEYS] send failed, duration=${duration}ms, error=${e.message}, stack=${e.stack?.substring(0, 200)}`);
     return res.status(500).json({ 
       error: 'send_failed', 
       message: e.message,

@@ -202,6 +202,27 @@ class BaileysProvider(Provider):
             try:
                 # 🔥 AUTO-RESTART: If Baileys is down, try to start it (only on first attempt)
                 if attempt == 0 and not self._check_health():
+                    # 🔥 STEP 4 FIX: Check if Baileys is currently sending before restart
+                    try:
+                        headers = {"X-Internal-Secret": self.internal_secret}
+                        status_response = self._session.get(
+                            f"{self.outbound_url}/whatsapp/{effective_tenant}/sending-status",
+                            headers=headers,
+                            timeout=1.0
+                        )
+                        if status_response.status_code == 200:
+                            status_data = status_response.json()
+                            if status_data.get("isSending", False):
+                                logger.warning(f"⚠️ Baileys is currently sending - skipping restart to avoid interruption")
+                                return {
+                                    "provider": "baileys",
+                                    "status": "error",
+                                    "error": "WhatsApp service busy, try again later"
+                                }
+                    except Exception as check_err:
+                        # If check fails, proceed with restart (fail-safe)
+                        logger.debug(f"Sending status check failed (proceeding with restart): {check_err}")
+                    
                     logger.warning("⚠️ Baileys service unavailable - attempting auto-restart...")
                     
                     # Try to start Baileys for this tenant
