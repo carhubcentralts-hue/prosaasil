@@ -78,6 +78,11 @@ const RECONNECT_CONFIG = {
   maxAttempts: 20     // 🔧 Increased from 10 to 20 attempts - don't give up easily!
 };
 
+// 🔥 ANDROID FIX: QR code validity timeout
+// Android devices are often slower to scan QR codes than iPhones
+// This timeout prevents creating new QR codes while user is still scanning
+const QR_VALIDITY_MS = 180000;  // 3 minutes (180 seconds)
+
 function getReconnectDelay(attempts) {
   const delay = Math.min(
     RECONNECT_CONFIG.baseDelay * Math.pow(RECONNECT_CONFIG.multiplier, attempts),
@@ -110,16 +115,35 @@ app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
   
   const existing = sessions.get(tenantId);
   
-  // 🔥 FIX: If forceRelink is requested, always proceed to clear and restart
-  if (!forceRelink && existing && (existing.sock || existing.starting)) {
-    console.log(`[${tenantId}] ⚠️ Already running or starting - skipping duplicate start`);
-    return res.json({ok: true}); // כבר רץ
+  // 🔥 ANDROID FIX: Enhanced idempotency - return existing session if connecting/connected/has QR
+  if (!forceRelink && existing) {
+    // If session is connecting or connected, return existing session
+    if (existing.connected || existing.authPaired) {
+      console.log(`[${tenantId}] ⚠️ Already connected (authPaired=${existing.authPaired}) - returning existing session`);
+      return res.json({ok: true, state: 'already_connected'}); 
+    }
+    
+    // If has socket or is starting, don't create new one
+    if (existing.sock || existing.starting) {
+      console.log(`[${tenantId}] ⚠️ Already starting or has socket - skipping duplicate start`);
+      return res.json({ok: true, state: 'already_starting'}); 
+    }
+    
+    // If has QR and it's recent (< 3 minutes), return same QR instead of generating new one
+    const qrLock = qrLocks.get(tenantId);
+    if (existing.qrDataUrl && qrLock && qrLock.locked) {
+      const qrAge = Date.now() - qrLock.timestamp;
+      if (qrAge < QR_VALIDITY_MS) { // Use configured QR validity timeout
+        console.log(`[${tenantId}] ⚠️ QR still valid (age=${Math.floor(qrAge/1000)}s) - returning existing QR instead of creating new one`);
+        return res.json({ok: true, state: 'has_qr', qrAgeSeconds: Math.floor(qrAge/1000)}); 
+      }
+    }
   }
   
   try { 
     console.log(`[${tenantId}] Starting session with forceRelink=${forceRelink}`);
     await startSession(tenantId, forceRelink); 
-    res.json({ ok: true, forceRelink }); 
+    res.json({ ok: true, forceRelink, state: 'started' }); 
   }
   catch (e) { 
     console.error('start error', e); 
@@ -485,7 +509,7 @@ async function startSession(tenantId, forceRelink = false) {
   const lock = qrLocks.get(tenantId);
   if (lock && lock.locked) {
     const age = Date.now() - lock.timestamp;
-    if (age < 180000) { // 🔥 ANDROID FIX: Lock valid for 180 seconds (3 minutes) to accommodate slow Android scanning
+    if (age < QR_VALIDITY_MS) { // 🔥 ANDROID FIX: Lock valid to accommodate slow Android scanning
       console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s), returning existing lock`);
       return cur || { starting: true, qrDataUrl: lock.qrData || '' };
     } else {
@@ -529,6 +553,10 @@ async function startSession(tenantId, forceRelink = false) {
   // --- גרסה/דפדפן יציבים (מונע pairing תקוע) ---
   const { version } = await fetchLatestBaileysVersion();
   console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
+  
+  // 🔥 ANDROID FIX: Log socket creation to track duplicate starts
+  const creationTimestamp = new Date().toISOString();
+  console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${creationTimestamp}, reason=start, forceRelink=${forceRelink}`);
   
   // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
   // 🔥 ANDROID FIX: Use proper browser identification that Android WhatsApp accepts
@@ -741,6 +769,7 @@ async function startSession(tenantId, forceRelink = false) {
         
         setTimeout(async () => {
           console.log(`[WA] ${tenantId}: ⏰ Starting reconnection attempt ${reconnectAttempts}...`);
+          console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${new Date().toISOString()}, reason=auto_reconnect, attempt=${reconnectAttempts}`);
           try {
             const newSession = await startSession(tenantId);
             if (newSession) {
