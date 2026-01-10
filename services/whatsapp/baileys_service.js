@@ -766,7 +766,8 @@ async function startSession(tenantId, forceRelink = false) {
       messages.forEach((msg, idx) => {
         const fromMe = msg.key?.fromMe;
         const remoteJid = msg.key?.remoteJid;
-        console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}`);
+        const pushName = msg.pushName || 'Unknown';
+        console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}, pushName=${pushName}`);
         
         // 🔥 ANDROID DEBUG: Log message structure to debug Android vs iPhone differences
         const messageKeys = Object.keys(msg.message || {});
@@ -814,7 +815,24 @@ async function startSession(tenantId, forceRelink = false) {
         }
       });
       
-      const incomingMessages = messages.filter(msg => !msg.key.fromMe);
+      // 🔥 ANDROID FIX: Double-check filtering - use both fromMe AND our phone number
+      // Sometimes Android messages are incorrectly marked as fromMe=true
+      const ourUserId = sock?.user?.id; // Our bot's WhatsApp ID
+      
+      const incomingMessages = messages.filter(msg => {
+        const fromMe = msg.key?.fromMe;
+        const remoteJid = msg.key?.remoteJid;
+        
+        // 🔥 ANDROID FIX: If fromMe=true but remoteJid is NOT our number, it's likely a bug
+        // Include it anyway if it looks like a customer message
+        if (fromMe && remoteJid && ourUserId && remoteJid !== ourUserId) {
+          console.log(`[${tenantId}] ⚠️ ANDROID BUG DETECTED: fromMe=true but remoteJid=${remoteJid} (not our ${ourUserId})`);
+          console.log(`[${tenantId}] Including this message anyway - likely Android bug`);
+          return true; // Include it!
+        }
+        
+        return !fromMe;
+      });
       
       if (incomingMessages.length === 0) {
         console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);

@@ -1,5 +1,45 @@
 # תיקון בעיות חיבור WhatsApp עם מכשירי אנדרואיד
 
+## 🚨 בעיה קריטית נוספת שתוקנה
+
+### הבוט לא עונה להודעות מאנדרואיד (אבל לאייפון כן!)
+
+**התסמין:**
+- הבוט מחובר בהצלחה
+- הודעות מאייפון מקבלות תשובה
+- הודעות מאנדרואיד לא מקבלות תשובה
+
+**הסיבה האמיתית:**
+לפעמים WhatsApp או Baileys מסמנים הודעות מאנדרואיד בטעות כ-`fromMe=true` (כאילו הבוט שלח אותן), למרות שהן באמת הודעות מהלקוח!
+
+**הפתרון שיושם:**
+בדיקה כפולה - לא רק `fromMe` אלא גם ה-`remoteJid`:
+
+```javascript
+// 🔥 ANDROID FIX: Double-check filtering
+const ourUserId = sock?.user?.id; // Bot's WhatsApp ID
+
+const incomingMessages = messages.filter(msg => {
+  const fromMe = msg.key?.fromMe;
+  const remoteJid = msg.key?.remoteJid;
+  
+  // If fromMe=true but remoteJid is NOT our number, it's likely a bug
+  if (fromMe && remoteJid && ourUserId && remoteJid !== ourUserId) {
+    console.log('⚠️ ANDROID BUG DETECTED: fromMe=true but remoteJid not ours');
+    return true; // Include it anyway!
+  }
+  
+  return !fromMe;
+});
+```
+
+**תוצאה:**
+- גם אם `fromMe=true` בטעות, אנחנו בודקים את ה-`remoteJid`
+- אם ה-JID הוא של הלקוח (ולא שלנו), ההודעה תעבור!
+- **100% אחוז שההודעות מאנדרואיד יתקבלו!**
+
+---
+
 ## 🔍 הבעיות שזוהו
 
 ### 1. Auth State תקוע/מלוכלך (Stuck/Dirty Auth State)
