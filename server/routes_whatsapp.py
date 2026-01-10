@@ -199,68 +199,104 @@ def _headers():
 @require_api_auth()  # BUILD 136: AUTHENTICATION REQUIRED - prevents cross-tenant snooping
 def status():
     """
-    ✅ FIX: Enhanced WhatsApp connection status with health details
-    Returns: connected, session_age, last_message_ts, qr_required, active_phone
+    ✅ FIX (Problem 2.1): Single source of truth for WhatsApp connection status
+    
+    Always check real-time status from Baileys service to ensure accurate reporting.
+    Only report "connected" if Baileys confirms: connection=open AND authPaired=true AND canSend=true
     """
     try:
         # BUILD 136: Get tenant from AUTHENTICATED session (secure)
         t = tenant_id_from_ctx()
         _, qr_txt, creds = get_auth_dir(t)
         
-        # Check files for this specific tenant ONLY
+        # 🔥 FIX (Problem 2.1): ALWAYS query Baileys for real-time status first
+        # Don't rely on file existence alone - files may be stale
+        try:
+            r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+            if r.status_code == 200:
+                baileys_data = r.json()
+                
+                # 🔥 CRITICAL: Only report "connected" if ALL conditions are met:
+                # 1. connected=true (socket open)
+                # 2. authPaired=true (authenticated)
+                # 3. canSend=true (ready to send messages)
+                is_connected = baileys_data.get("connected", False)
+                is_auth_paired = baileys_data.get("authPaired", False)
+                can_send = baileys_data.get("canSend", False)
+                has_qr = baileys_data.get("hasQR", False)
+                
+                # True connection requires all three
+                truly_connected = is_connected and is_auth_paired and can_send
+                
+                health_info = {
+                    "connected": truly_connected,
+                    "hasQR": has_qr,
+                    "qr_required": has_qr and not truly_connected,
+                    "canSend": can_send,
+                    "authPaired": is_auth_paired,
+                    "sessionState": baileys_data.get("sessionState", "unknown"),
+                    "pushName": baileys_data.get("pushName", ""),
+                    "reconnectAttempts": baileys_data.get("reconnectAttempts", 0)
+                }
+                
+                log.info(f"[WA_STATUS] tenant={t} truly_connected={truly_connected} (connected={is_connected}, authPaired={is_auth_paired}, canSend={can_send})")
+                
+                # Add session age if connected
+                if truly_connected and os.path.exists(creds):
+                    import time
+                    creds_mtime = os.path.getmtime(creds)
+                    session_age_seconds = int(time.time() - creds_mtime)
+                    health_info["session_age"] = session_age_seconds
+                    health_info["session_age_human"] = f"{session_age_seconds // 3600}h {(session_age_seconds % 3600) // 60}m"
+                
+                # Try to get last message timestamp from DB
+                try:
+                    from server.models_sql import WhatsAppMessage
+                    business_id = int(t.split('_')[1]) if '_' in t else None
+                    if business_id:
+                        last_msg = WhatsAppMessage.query.filter_by(
+                            business_id=business_id
+                        ).order_by(WhatsAppMessage.created_at.desc()).first()
+                        
+                        if last_msg:
+                            health_info["last_message_ts"] = last_msg.created_at.isoformat()
+                            from datetime import datetime
+                            time_since = (datetime.utcnow() - last_msg.created_at).total_seconds()
+                            health_info["last_message_age"] = int(time_since)
+                            health_info["last_message_age_human"] = f"{int(time_since // 60)}m ago"
+                except Exception as db_err:
+                    log.warning(f"[WA_STATUS] Could not fetch last message: {db_err}")
+                
+                return jsonify(health_info), 200
+        except requests.exceptions.Timeout:
+            log.warning(f"[WA_STATUS] Baileys timeout for tenant={t}")
+            # Fall back to file-based check, but mark as potentially stale
+            pass
+        except requests.exceptions.ConnectionError:
+            log.warning(f"[WA_STATUS] Baileys connection error for tenant={t}")
+            # Fall back to file-based check
+            pass
+        except Exception as baileys_err:
+            log.warning(f"[WA_STATUS] Baileys error for tenant={t}: {baileys_err}")
+            # Fall back to file-based check
+            pass
+        
+        # Fallback: File-based check (but mark as potentially stale)
         has_qr = os.path.exists(qr_txt)
         connected = os.path.exists(creds) and not has_qr
         
-        # ✅ FIX: Add more health information
         health_info = {
             "connected": connected,
             "hasQR": has_qr,
             "qr_required": has_qr,
+            "warning": "Baileys service unavailable - status may be stale",
             "session_age": None,
-            "last_message_ts": None,
-            "active_phone": None
+            "last_message_ts": None
         }
         
-        # Get session age from file timestamp
-        if connected and os.path.exists(creds):
-            import time
-            creds_mtime = os.path.getmtime(creds)
-            session_age_seconds = int(time.time() - creds_mtime)
-            health_info["session_age"] = session_age_seconds
-            health_info["session_age_human"] = f"{session_age_seconds // 3600}h {(session_age_seconds % 3600) // 60}m"
+        log.warning(f"[WA_STATUS] tenant={t} using fallback file check: connected={connected} hasQR={has_qr}")
+        return jsonify(health_info), 200
         
-        # Try to get last message timestamp from DB
-        try:
-            from server.models_sql import WhatsAppMessage
-            business_id = int(t.split('_')[1]) if '_' in t else None
-            if business_id:
-                last_msg = WhatsAppMessage.query.filter_by(
-                    business_id=business_id
-                ).order_by(WhatsAppMessage.created_at.desc()).first()
-                
-                if last_msg:
-                    health_info["last_message_ts"] = last_msg.created_at.isoformat()
-                    # Calculate time since last message
-                    from datetime import datetime
-                    time_since = (datetime.utcnow() - last_msg.created_at).total_seconds()
-                    health_info["last_message_age"] = int(time_since)
-                    health_info["last_message_age_human"] = f"{int(time_since // 60)}m ago"
-        except Exception as db_err:
-            log.warning(f"[WA_STATUS] Could not fetch last message: {db_err}")
-        
-        if has_qr or connected:
-            log.info(f"[WA_STATUS] tenant={t} connected={connected} hasQR={has_qr} session_age={health_info.get('session_age')}")
-            return jsonify(health_info), 200
-        
-        # If no files, try Baileys API
-        r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=15)
-        baileys_data = r.json()
-        
-        # Merge Baileys response with our health info
-        health_info.update(baileys_data)
-        
-        log.info(f"[WA_STATUS] tenant={t} baileys_response={baileys_data}")
-        return jsonify(health_info), r.status_code
     except Exception as e:
         log.error(f"[WA_STATUS] Error: {e}")
         return jsonify({
