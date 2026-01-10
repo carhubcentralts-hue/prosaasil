@@ -50,6 +50,7 @@ def mask_secret_for_logging(secret: str) -> str:
         return "***"
 
 def _send_whatsapp_message_background(
+    app,  # 🔥 STEP 3 FIX: Pass app instance explicitly to avoid context issues
     business_id: int,
     tenant_id: str,
     from_number: str,
@@ -67,6 +68,7 @@ def _send_whatsapp_message_background(
     - Session tracking
     
     Args:
+        app: Flask app instance for application context
         business_id: Business ID for multi-tenant routing
         tenant_id: Tenant ID (e.g., "business_1") for Baileys routing
         from_number: Customer's WhatsApp number (without @s.whatsapp.net)
@@ -102,10 +104,9 @@ def _send_whatsapp_message_background(
         try:
             # Create new DB session for background thread
             from server.db import db
-            from flask import current_app
             
-            # Use application context for background thread
-            with current_app.app_context():
+            # 🔥 STEP 3 FIX: Use app instance directly for context
+            with app.app_context():
                 out_msg = WhatsAppMessage()
                 out_msg.business_id = business_id
                 out_msg.to_number = from_number
@@ -761,10 +762,60 @@ def baileys_webhook():
             try:
                 # Extract message details
                 from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
-                message_text = msg.get('message', {}).get('conversation', '') or \
-                              msg.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+                
+                # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
+                # Different devices send messages in different formats:
+                # - iPhone: usually uses 'conversation'
+                # - Android: uses 'conversation', 'extendedTextMessage', or 'imageMessage' with caption
+                message_obj = msg.get('message', {})
+                message_text = None
+                
+                # Try all possible text locations (order matters - most common first)
+                if not message_text and message_obj.get('conversation'):
+                    message_text = message_obj.get('conversation')
+                    log.debug(f"[WA-PARSE] Found text in 'conversation'")
+                
+                if not message_text and message_obj.get('extendedTextMessage'):
+                    message_text = message_obj.get('extendedTextMessage', {}).get('text', '')
+                    log.debug(f"[WA-PARSE] Found text in 'extendedTextMessage'")
+                
+                # 🔥 ANDROID FIX: Handle image/video/document messages with captions
+                if not message_text and message_obj.get('imageMessage'):
+                    message_text = message_obj.get('imageMessage', {}).get('caption', '[תמונה]')
+                    log.debug(f"[WA-PARSE] Found caption in 'imageMessage'")
+                
+                if not message_text and message_obj.get('videoMessage'):
+                    message_text = message_obj.get('videoMessage', {}).get('caption', '[וידאו]')
+                    log.debug(f"[WA-PARSE] Found caption in 'videoMessage'")
+                
+                if not message_text and message_obj.get('documentMessage'):
+                    message_text = message_obj.get('documentMessage', {}).get('caption', '[מסמך]')
+                    log.debug(f"[WA-PARSE] Found caption in 'documentMessage'")
+                
+                # 🔥 ANDROID FIX: Handle audio messages
+                if not message_text and message_obj.get('audioMessage'):
+                    message_text = '[הודעה קולית]'
+                    log.debug(f"[WA-PARSE] Found 'audioMessage'")
+                
+                # 🔥 ANDROID FIX: Log unknown message types for debugging
+                if not message_text:
+                    available_keys = list(message_obj.keys())
+                    log.warning(f"[WA-PARSE] Unknown message format from {from_number}, available keys: {available_keys}")
+                    log.warning(f"[WA-PARSE] Full message object: {str(message_obj)[:200]}...")
+                    # Try to extract ANY text from ANY key
+                    for key in available_keys:
+                        if isinstance(message_obj[key], dict):
+                            if 'text' in message_obj[key]:
+                                message_text = message_obj[key]['text']
+                                log.info(f"[WA-PARSE] Found text in '{key}.text'")
+                                break
+                            if 'caption' in message_obj[key]:
+                                message_text = message_obj[key]['caption']
+                                log.info(f"[WA-PARSE] Found text in '{key}.caption'")
+                                break
                 
                 if not from_number or not message_text:
+                    log.warning(f"[WA-SKIP] Missing from_number={bool(from_number)} or message_text={bool(message_text)}")
                     continue
                 
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
@@ -985,10 +1036,14 @@ def baileys_webhook():
                 # This ensures webhook returns <300ms while message sending happens async
                 log.info(f"[WA-OUTGOING] Scheduling background send to {from_number}, text={str(response_text)[:50]}...")
                 
+                # 🔥 STEP 3 FIX: Get current app instance to pass to background thread
+                from flask import current_app
+                app_instance = current_app._get_current_object()
+                
                 # Start background thread for sending
                 send_thread = threading.Thread(
                     target=_send_whatsapp_message_background,
-                    args=(business_id, tenant_id, from_number, response_text, wa_msg.id),
+                    args=(app_instance, business_id, tenant_id, from_number, response_text, wa_msg.id),
                     daemon=True
                 )
                 send_thread.start()
