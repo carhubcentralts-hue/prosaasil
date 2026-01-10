@@ -61,7 +61,10 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/health', (req, res) => res.status(200).send('ok'));  // Add /health alias for Python compatibility
 app.get('/', (req, res) => res.status(200).send('ok'));
 
-const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts }
+const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts, authPaired, qrLock }
+
+// 🔥 FIX: Track QR generation locks to prevent concurrent QR creation
+const qrLocks = new Map(); // tenantId -> { locked: boolean, qrData: string, timestamp: number }
 
 // 🔧 HARDENING 1.1: Exponential backoff configuration for reconnection
 // 🔥 FIX: Increased resilience for slow/unstable connections
@@ -100,15 +103,20 @@ function requireSecret(req, res, next) {
 app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
   // B3) מניעת מרוצים: אל תריץ start פעמיים
   const tenantId = req.params.tenantId;
+  const forceRelink = req.body?.forceRelink || req.query?.forceRelink || false;  // 🔥 FIX: Support force relink
+  
   const existing = sessions.get(tenantId);
-  if (existing && (existing.sock || existing.starting)) {
+  
+  // 🔥 FIX: If forceRelink is requested, always proceed to clear and restart
+  if (!forceRelink && existing && (existing.sock || existing.starting)) {
     console.log(`[${tenantId}] ⚠️ Already running or starting - skipping duplicate start`);
     return res.json({ok: true}); // כבר רץ
   }
   
   try { 
-    await startSession(tenantId); 
-    res.json({ ok: true }); 
+    console.log(`[${tenantId}] Starting session with forceRelink=${forceRelink}`);
+    await startSession(tenantId, forceRelink); 
+    res.json({ ok: true, forceRelink }); 
   }
   catch (e) { 
     console.error('start error', e); 
@@ -120,18 +128,23 @@ app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
   const hasSession = !!s;
   const hasSocket = !!s?.sock;
   const isConnected = !!s?.connected;
+  const authPaired = !!s?.authPaired;  // 🔥 FIX: Include auth paired status
   const hasQR = !!s?.qrDataUrl;
   const reconnectAttempts = s?.reconnectAttempts || 0;
   
   // 🔧 ENHANCED: Return detailed diagnostic info
+  // 🔥 FIX: Only report truly connected if BOTH socket open AND auth paired
+  const truelyConnected = isConnected && authPaired;
+  
   const diagnostics = {
-    connected: isConnected,
+    connected: truelyConnected,  // 🔥 FIX: Require both socket AND auth
     pushName: s?.pushName || '',
     hasQR: hasQR,
     hasSession,
     hasSocket,
+    authPaired,  // 🔥 FIX: Expose auth paired status
     reconnectAttempts,
-    sessionState: hasSession ? (isConnected ? 'connected' : (hasQR ? 'waiting_qr' : 'connecting')) : 'not_started',
+    sessionState: hasSession ? (truelyConnected ? 'connected' : (hasQR ? 'waiting_qr' : 'connecting')) : 'not_started',
     timestamp: new Date().toISOString()
   };
   
@@ -296,11 +309,56 @@ app.post('/send', async (req, res) => {
 });
 
 /** Baileys session logic */
-async function startSession(tenantId) {
-  console.log(`[${tenantId}] 🚀 startSession called`);
+async function startSession(tenantId, forceRelink = false) {
+  console.log(`[${tenantId}] 🚀 startSession called (forceRelink=${forceRelink})`);
+  
+  // 🔥 FIX: If forceRelink, delete old session completely
+  if (forceRelink) {
+    console.log(`[${tenantId}] 🔥 Force relink requested - clearing old session`);
+    const existing = sessions.get(tenantId);
+    if (existing?.sock) {
+      try {
+        console.log(`[${tenantId}] 🔚 Closing existing socket for force relink`);
+        existing.sock.end();
+        existing.sock.removeAllListeners();
+      } catch (e) {
+        console.error(`[${tenantId}] Socket cleanup error:`, e);
+      }
+    }
+    sessions.delete(tenantId);
+    
+    // Delete auth files for fresh start
+    const authPath = authDir(tenantId);
+    try {
+      console.log(`[${tenantId}] 🗑️ Clearing auth files from: ${authPath}`);
+      fs.rmSync(authPath, { recursive: true, force: true });
+      fs.mkdirSync(authPath, { recursive: true });
+      console.log(`[${tenantId}] ✅ Auth files cleared - fresh session`);
+    } catch (e) {
+      console.error(`[${tenantId}] Auth cleanup error:`, e);
+    }
+  }
+  
   const cur = sessions.get(tenantId);
   if (cur?.sock) return cur;
   if (cur?.starting) return cur;
+  
+  // 🔥 FIX: QR Lock - prevent concurrent QR generation
+  const lock = qrLocks.get(tenantId);
+  if (lock && lock.locked) {
+    const age = Date.now() - lock.timestamp;
+    if (age < 60000) { // Lock valid for 60 seconds
+      console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s), returning existing lock`);
+      return cur || { starting: true, qrDataUrl: lock.qrData || '' };
+    } else {
+      console.log(`[${tenantId}] 🔓 Releasing stale QR lock (age=${Math.floor(age/1000)}s)`);
+      qrLocks.delete(tenantId);
+    }
+  }
+  
+  // Set lock
+  qrLocks.set(tenantId, { locked: true, qrData: null, timestamp: Date.now() });
+  
   sessions.set(tenantId, { starting: true });
 
   const authPath = authDir(tenantId);  // fs.mkdirSync(..., {recursive:true}) כבר קיים
@@ -327,13 +385,14 @@ async function startSession(tenantId) {
     keepAliveIntervalMs: 30000  // 🔧 Added: Keep connection alive
   });
 
-  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '', starting: false };
+  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '', starting: false, authPaired: false };
   sessions.set(tenantId, s);
   console.log(`[${tenantId}] 💾 Session stored in memory with stable browser settings`);
 
   sock.ev.on('creds.update', async () => {
     await saveCreds();
-    console.log(`[${tenantId}] 🔐 Credentials saved to disk`);
+    s.authPaired = true;  // 🔥 FIX: Mark auth as paired when creds are saved
+    console.log(`[${tenantId}] 🔐 Credentials saved to disk - authPaired=true`);
   });
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     try {
@@ -342,7 +401,7 @@ async function startSession(tenantId) {
       
       // 🔧 ENHANCED: More detailed logging for connection diagnostics
       const timestamp = new Date().toISOString();
-      console.log(`[WA] ${timestamp} connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, reasonMsg=${reasonMessage || 'none'}, hasQR=${!!qr}`);
+      console.log(`[WA] ${timestamp} connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, reasonMsg=${reasonMessage || 'none'}, hasQR=${!!qr}, authPaired=${s.authPaired}`);
       
       // B2) לוגיקת QR יציבה בNode עם qr_code.txt
       const qrFile = path.join(authPath, 'qr_code.txt');
@@ -354,6 +413,12 @@ async function startSession(tenantId) {
         const qrDuration = Date.now() - qrStartTime;
         console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms, qr_length=${qr.length}`);
         
+        // 🔥 FIX: Update QR lock with actual QR data
+        const lock = qrLocks.get(tenantId);
+        if (lock) {
+          lock.qrData = s.qrDataUrl;
+        }
+        
         try { 
           fs.writeFileSync(qrFile, qr);
           console.log(`[WA] ${tenantId}: QR saved to file: ${qrFile}`);
@@ -363,13 +428,28 @@ async function startSession(tenantId) {
       }
       
       if (connection === 'open') {
+        // 🔥 FIX: Only mark as truly connected if auth is paired
+        // Check if we have valid session data (creds saved)
+        const hasValidAuth = s.authPaired || (state && state.creds && state.creds.me);
+        
+        if (!hasValidAuth) {
+          console.log(`[WA] ${tenantId}: ⚠️ Socket open but auth not paired yet - waiting for creds.update`);
+          // Don't mark as connected yet, wait for creds.update
+          return;
+        }
+        
         s.connected = true; 
+        s.authPaired = true;  // Ensure this is set
         s.qrDataUrl = '';
         s.pushName = sock?.user?.name || sock?.user?.id || '';
         s.reconnectAttempts = 0;  // 🔧 HARDENING 1.1: Reset reconnect counter on success
         const phoneNumber = sock?.user?.id || 'unknown';
-        console.log(`[WA] ${tenantId}: ✅ Connected! pushName=${s.pushName}, phone=${phoneNumber}`);
+        console.log(`[WA] ${tenantId}: ✅ Connected AND Paired! pushName=${s.pushName}, phone=${phoneNumber}, authPaired=true`);
         console.log(`[WA] ${tenantId}: Session info - id=${sock?.user?.id}, name=${sock?.user?.name}`);
+        
+        // 🔥 FIX: Release QR lock on successful connection
+        qrLocks.delete(tenantId);
+        console.log(`[WA] ${tenantId}: 🔓 QR lock released after successful pairing`);
         
         // מחיקת QR כשמתחברים
         try { 
@@ -386,9 +466,20 @@ async function startSession(tenantId) {
       }
       
       if (connection === 'close') {
+        // 🔥 FIX: Detect scan failure - close right after QR scan without pairing
+        const wasScanningQR = s.qrDataUrl && !s.authPaired;
+        if (wasScanningQR) {
+          console.log(`[WA] ${tenantId}: ❌ QR SCAN FAILED - Connection closed before auth completed`);
+          console.log(`[WA] ${tenantId}: This usually means: Invalid QR scan, network issue, or WhatsApp server rejected pairing`);
+        }
+        
         s.connected = false;
-        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}`);
+        s.authPaired = false;  // Reset auth paired state
+        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}, wasScanningQR=${wasScanningQR}`);
         console.log(`[WA] ${tenantId}: Disconnect details - reasonCode=${reason}, lastError=${JSON.stringify(lastDisconnect?.error || {})}`);
+        
+        // 🔥 FIX: Release QR lock on disconnect
+        qrLocks.delete(tenantId);
         
         // 🔥 CRITICAL: Always clean up socket before reconnect
         try {
@@ -417,7 +508,7 @@ async function startSession(tenantId) {
           }
           sessions.delete(tenantId);
           console.log(`[WA] ${tenantId}: Will restart session in 5 seconds...`);
-          setTimeout(() => startSession(tenantId), 5000);
+          setTimeout(() => startSession(tenantId, true), 5000);  // Force relink
           return;
         }
         
@@ -511,28 +602,9 @@ async function startSession(tenantId) {
 }
 
 async function resetSession(tenantId) {
-  console.log(`[${tenantId}] 🔄 resetSession called - full cleanup and restart`);
-  const s = sessions.get(tenantId);
-  if (s?.sock) {
-    try {
-      console.log(`[${tenantId}] 🔚 Closing existing socket`);
-      s.sock.end();
-      s.sock.removeAllListeners();
-    } catch (e) {
-      console.error(`[${tenantId}] [reset] cleanup error`, e);
-    }
-  }
-  sessions.delete(tenantId);
-  
-  // Clear auth files
-  const authPath = authDir(tenantId);
-  try {
-    console.log(`[${tenantId}] 🗑️ Clearing auth files from: ${authPath}`);
-    await import('fs').then(fs => fs.promises.rm(authPath, { recursive: true, force: true }));
-  } catch (e) { console.error(`[${tenantId}] [resetSession] cleanup error`, e); }
-  
-  console.log(`[${tenantId}] 🆕 Starting fresh session`);
-  return await startSession(tenantId);
+  console.log(`[${tenantId}] 🔄 resetSession called - using forceRelink`);
+  // 🔥 FIX: Use startSession with forceRelink=true instead of manual cleanup
+  return await startSession(tenantId, true);
 }
 
 async function disconnectSession(tenantId) {
