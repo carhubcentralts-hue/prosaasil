@@ -1,4 +1,5 @@
 import os, requests, logging, csv, io, json
+import threading
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
@@ -47,6 +48,110 @@ def mask_secret_for_logging(secret: str) -> str:
     # For very short secrets: just ***
     else:
         return "***"
+
+def _send_whatsapp_message_background(
+    business_id: int,
+    tenant_id: str,
+    from_number: str,
+    response_text: str,
+    wa_msg_id: int = None
+):
+    """
+    🔥 FIX: Background thread for sending WhatsApp messages with Twilio fallback
+    
+    This function runs in a background thread to send WhatsApp messages without
+    blocking the webhook response. It includes:
+    - Retry logic for Baileys timeouts (handled in provider)
+    - Automatic fallback to Twilio if Baileys fails
+    - DB persistence of outgoing messages
+    - Session tracking
+    
+    Args:
+        business_id: Business ID for multi-tenant routing
+        tenant_id: Tenant ID (e.g., "business_1") for Baileys routing
+        from_number: Customer's WhatsApp number (without @s.whatsapp.net)
+        response_text: The AI-generated response text to send
+        wa_msg_id: Optional incoming message ID for tracking
+    """
+    from server.whatsapp_provider import get_whatsapp_service
+    from server.models_sql import WhatsAppMessage
+    import time
+    
+    send_start = time.time()
+    log.info(f"[WA-BG-SEND] Starting background send to {from_number[:10]}...")
+    
+    try:
+        # Get WhatsApp service (Baileys first, will auto-failover to Twilio)
+        wa_service = get_whatsapp_service(tenant_id=tenant_id)
+        
+        # Send with automatic retry and failover built into provider
+        send_result = wa_service.send_with_failover(
+            to=f"{from_number}@s.whatsapp.net",
+            message=response_text,
+            tenant_id=tenant_id
+        )
+        
+        send_duration = time.time() - send_start
+        provider_used = send_result.get('provider', 'unknown')
+        status = send_result.get('status', 'error')
+        
+        log.info(f"[WA-BG-SEND] Result: provider={provider_used}, status={status}, duration={send_duration:.2f}s")
+        
+        # Save outgoing message to DB regardless of success
+        # (for audit trail and debugging)
+        try:
+            # Create new DB session for background thread
+            from server.db import db
+            from flask import current_app
+            
+            # Use application context for background thread
+            with current_app.app_context():
+                out_msg = WhatsAppMessage()
+                out_msg.business_id = business_id
+                out_msg.to_number = from_number
+                out_msg.body = response_text
+                out_msg.message_type = 'text'
+                out_msg.direction = 'out'
+                out_msg.provider = provider_used
+                out_msg.status = status
+                out_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
+                
+                # Add error info if send failed
+                if status == 'error':
+                    error_msg = send_result.get('error', 'Unknown error')
+                    out_msg.body = f"[SEND FAILED: {error_msg}] {response_text}"
+                
+                db.session.add(out_msg)
+                db.session.commit()
+                
+                log.info(f"[WA-BG-SEND] Saved to DB: msg_id={out_msg.id}, status={status}")
+                
+                # Track session if send was successful
+                if status == 'sent':
+                    try:
+                        update_session_activity(
+                            business_id=business_id,
+                            customer_wa_id=from_number,
+                            direction="out",
+                            provider=provider_used
+                        )
+                    except Exception as e:
+                        log.warning(f"[WA-BG-SEND] Session tracking failed: {e}")
+                
+        except Exception as db_err:
+            log.error(f"[WA-BG-SEND] DB save failed: {db_err}")
+            # Don't fail the whole operation if DB save fails
+        
+        if status == 'sent':
+            log.info(f"[WA-BG-SEND] ✅ Successfully sent to {from_number[:10]} via {provider_used}")
+        else:
+            log.error(f"[WA-BG-SEND] ❌ Failed to send to {from_number[:10]}: {send_result.get('error')}")
+            
+    except Exception as e:
+        log.error(f"[WA-BG-SEND] ❌ Unexpected error: {e}")
+        import traceback
+        log.error(f"[WA-BG-SEND] Traceback: {traceback.format_exc()}")
+
 
 def tenant_id_from_ctx():
     """
@@ -874,50 +979,25 @@ def baileys_webhook():
                         # 🔥 Guard: Don't send empty messages
                         if not response_text or not response_text.strip():
                             log.warning(f"⚠️ No fallback response available - skipping send")
-                            return jsonify({"status": "ok", "skipped": True}), 200
+                            continue
                 
-                # Send response via Baileys
-                send_start = time.time()
-                log.info(f"[WA-OUTGOING] biz={business_id}, to={from_number}, text={str(response_text)[:50]}...")
+                # 🔥 FIX: Send response in BACKGROUND thread - don't block webhook!
+                # This ensures webhook returns <300ms while message sending happens async
+                log.info(f"[WA-OUTGOING] Scheduling background send to {from_number}, text={str(response_text)[:50]}...")
                 
-                send_result = wa_service.send_message(
-                    to=f"{from_number}@s.whatsapp.net",
-                    message=response_text,
-                    tenant_id=tenant_id  # MULTI-TENANT: Route to correct WhatsApp session
+                # Start background thread for sending
+                send_thread = threading.Thread(
+                    target=_send_whatsapp_message_background,
+                    args=(business_id, tenant_id, from_number, response_text, wa_msg.id),
+                    daemon=True
                 )
+                send_thread.start()
                 
-                send_duration = time.time() - send_start
-                log.info(f"[WA-OUTGOING] send_result={send_result.get('status')}, duration={send_duration:.2f}s")
-                
-                if send_result.get('status') == 'sent':
-                    # Save outgoing message
-                    out_msg = WhatsAppMessage()
-                    out_msg.business_id = business_id
-                    out_msg.to_number = from_number
-                    out_msg.body = response_text
-                    out_msg.message_type = 'text'
-                    out_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
-                    out_msg.provider = 'baileys'
-                    out_msg.status = 'sent'
-                    db.session.add(out_msg)
-                    db.session.commit()
-                    
-                    # ✅ BUILD 162: Track session for outgoing message
-                    try:
-                        update_session_activity(
-                            business_id=business_id,
-                            customer_wa_id=from_number,
-                            direction="out",
-                            provider="baileys"
-                        )
-                    except Exception as e:
-                        log.warning(f"⚠️ Session tracking (out) failed: {e}")
-                    
-                    log.info(f"[WA-OUTGOING] Sent to {from_number} successfully")
-                    processed_count += 1
+                # Mark as processed immediately (actual sending happens in background)
+                processed_count += 1
                 
                 msg_duration = time.time() - msg_start
-                log.info(f"[WA-INCOMING] Message processed in {msg_duration:.2f}s")
+                log.info(f"[WA-INCOMING] Message queued for background send in {msg_duration:.2f}s")
                 
             except Exception as e:
                 import traceback
