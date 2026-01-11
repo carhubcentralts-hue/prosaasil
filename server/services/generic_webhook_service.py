@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "prosaas-webhook-secret-key")
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 3, 10]
+MAX_REDIRECTS = 5  # Maximum number of redirects to follow (prevent infinite loops)
 
 # Track invalid URLs we've already warned about (to avoid spam)
 # Note: This is per-worker/process. Each worker will log once per unique URL.
@@ -180,43 +181,68 @@ def send_generic_webhook(
         
         def send_with_retry():
             # 🔧 BUILD 177: Handle redirects properly to preserve POST method
-            current_url = webhook_url
+            # 🔥 FIX: Separate redirect handling from retry logic to avoid consuming retry attempts on redirects
             
             for attempt in range(MAX_RETRIES):
                 try:
-                    logger.info(f"[WEBHOOK] Sending {event_type} to webhook (attempt {attempt + 1}/{MAX_RETRIES})")
-                    print(f"📤 [WEBHOOK] Sending {event_type} to {current_url[:60]}... (attempt {attempt + 1}/{MAX_RETRIES})")
+                    current_url = webhook_url
+                    redirect_count = 0
                     
-                    # Disable auto-redirects to handle them manually (preserve POST on redirect)
-                    response = requests.post(
-                        current_url,
-                        data=payload_json.encode('utf-8'),
-                        headers=headers,
-                        timeout=30,
-                        allow_redirects=False  # Handle redirects manually to preserve POST
-                    )
-                    
-                    # Handle redirect (301, 302, 307, 308) - follow with POST
-                    if response.status_code in (301, 302, 307, 308):
-                        redirect_url = response.headers.get('Location')
-                        if redirect_url:
-                            logger.info(f"[WEBHOOK] Following redirect to: {redirect_url}")
-                            current_url = redirect_url
-                            continue  # Retry with new URL
-                    
-                    if response.status_code >= 200 and response.status_code < 300:
-                        logger.info(f"[WEBHOOK] Successfully sent {event_type} (status: {response.status_code})")
-                        print(f"✅ [WEBHOOK] Successfully sent {event_type} to webhook (status: {response.status_code})")
-                        return True
-                    else:
-                        logger.warning(f"[WEBHOOK] Webhook returned error status {response.status_code}, response: {response.text[:200]}")
-                        print(f"⚠️ [WEBHOOK] Webhook returned error status {response.status_code}")
+                    # Inner loop: Follow redirects without consuming retry attempts
+                    while redirect_count <= MAX_REDIRECTS:
+                        logger.info(f"[WEBHOOK] Sending {event_type} to webhook (attempt {attempt + 1}/{MAX_RETRIES}, redirect {redirect_count}/{MAX_REDIRECTS})")
+                        print(f"📤 [WEBHOOK] Sending {event_type} to {current_url[:60]}... (attempt {attempt + 1}/{MAX_RETRIES})")
+                        
+                        # Disable auto-redirects to handle them manually (preserve POST on redirect)
+                        response = requests.post(
+                            current_url,
+                            data=payload_json.encode('utf-8'),
+                            headers=headers,
+                            timeout=30,
+                            allow_redirects=False  # Handle redirects manually to preserve POST
+                        )
+                        
+                        # Handle redirect (301, 302, 307, 308) - follow with POST
+                        if response.status_code in (301, 302, 307, 308):
+                            redirect_url = response.headers.get('Location')
+                            if redirect_url:
+                                redirect_count += 1
+                                logger.warning(f"[WEBHOOK] Received redirect ({response.status_code}) to: {redirect_url}")
+                                print(f"⚠️ [WEBHOOK] Redirect #{redirect_count}: {response.status_code} -> {redirect_url}")
+                                
+                                # 🔥 IMPORTANT: Log recommendation to update URL
+                                if redirect_count == 1:
+                                    logger.warning(f"[WEBHOOK] ⚠️ RECOMMENDATION: Update webhook URL in settings to avoid redirects: {redirect_url}")
+                                    print(f"💡 [WEBHOOK] TIP: Update your webhook URL to {redirect_url} to avoid redirects and potential 405 errors")
+                                
+                                if redirect_count > MAX_REDIRECTS:
+                                    logger.error(f"[WEBHOOK] Too many redirects ({redirect_count}), aborting")
+                                    print(f"❌ [WEBHOOK] Too many redirects, giving up")
+                                    break  # Exit redirect loop, will retry from outer loop
+                                
+                                current_url = redirect_url
+                                continue  # Follow redirect
+                            else:
+                                logger.error(f"[WEBHOOK] Redirect response but no Location header")
+                                break  # Exit redirect loop, will retry from outer loop
+                        
+                        # Success - exit both loops
+                        if response.status_code >= 200 and response.status_code < 300:
+                            logger.info(f"[WEBHOOK] Successfully sent {event_type} (status: {response.status_code})")
+                            print(f"✅ [WEBHOOK] Successfully sent {event_type} to webhook (status: {response.status_code})")
+                            return True
+                        else:
+                            # Non-redirect error - log and break to retry
+                            logger.warning(f"[WEBHOOK] Webhook returned error status {response.status_code}, response: {response.text[:200]}")
+                            print(f"⚠️ [WEBHOOK] Webhook returned error status {response.status_code}")
+                            break  # Exit redirect loop, will retry from outer loop
                         
                 except requests.exceptions.Timeout:
                     logger.warning(f"[WEBHOOK] Timeout on attempt {attempt + 1}/{MAX_RETRIES}")
                 except requests.exceptions.RequestException as e:
                     logger.warning(f"[WEBHOOK] Request error on attempt {attempt + 1}/{MAX_RETRIES}: {e}")
                 
+                # Retry delay (only between actual retry attempts, not redirects)
                 if attempt < MAX_RETRIES - 1:
                     delay = RETRY_DELAYS[attempt]
                     logger.info(f"[WEBHOOK] Retrying in {delay}s...")
