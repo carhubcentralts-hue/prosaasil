@@ -238,17 +238,16 @@ def status():
             if r.status_code == 200:
                 baileys_data = r.json()
                 
-                # 🔥 CRITICAL: Only report "connected" if ALL conditions are met:
-                # 1. connected=true (socket open)
-                # 2. authPaired=true (authenticated)
-                # 3. canSend=true (ready to send messages)
+                # 🔥 FIX: Separate "connected" from "canSend" for better UX
+                # Connection status = socket open + authenticated
+                # Send capability = verified after first successful send
                 is_connected = baileys_data.get("connected", False)
                 is_auth_paired = baileys_data.get("authPaired", False)
                 can_send = baileys_data.get("canSend", False)
                 has_qr = baileys_data.get("hasQR", False)
                 
-                # True connection requires all three
-                truly_connected = is_connected and is_auth_paired and can_send
+                # True connection requires socket + auth (canSend is separate capability)
+                truly_connected = is_connected and is_auth_paired
                 
                 # 🔥 FIX: Detect if user needs to relink (disconnected without QR or auth files)
                 # This happens after logged_out when Baileys clears auth and generates new QR
