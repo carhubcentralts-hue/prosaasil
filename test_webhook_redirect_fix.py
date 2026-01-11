@@ -4,10 +4,12 @@ Test for webhook redirect handling fix
 Tests that POST redirects are properly followed without consuming retry attempts
 """
 import sys
+import os
 import time
 from unittest.mock import Mock, patch, MagicMock, call
 
-sys.path.insert(0, '/home/runner/work/prosaasil/prosaasil')
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class MockResponse:

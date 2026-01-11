@@ -189,7 +189,7 @@ def send_generic_webhook(
                     redirect_count = 0
                     
                     # Inner loop: Follow redirects without consuming retry attempts
-                    while redirect_count <= MAX_REDIRECTS:
+                    while True:
                         logger.info(f"[WEBHOOK] Sending {event_type} to webhook (attempt {attempt + 1}/{MAX_RETRIES}, redirect {redirect_count}/{MAX_REDIRECTS})")
                         print(f"📤 [WEBHOOK] Sending {event_type} to {current_url[:60]}... (attempt {attempt + 1}/{MAX_RETRIES})")
                         
@@ -215,6 +215,7 @@ def send_generic_webhook(
                                     logger.warning(f"[WEBHOOK] ⚠️ RECOMMENDATION: Update webhook URL in settings to avoid redirects: {redirect_url}")
                                     print(f"💡 [WEBHOOK] TIP: Update your webhook URL to {redirect_url} to avoid redirects and potential 405 errors")
                                 
+                                # Check if we've exceeded max redirects (after incrementing)
                                 if redirect_count > MAX_REDIRECTS:
                                     logger.error(f"[WEBHOOK] Too many redirects ({redirect_count}), aborting")
                                     print(f"❌ [WEBHOOK] Too many redirects, giving up")

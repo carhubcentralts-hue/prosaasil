@@ -5,13 +5,18 @@ Tests the redirect handling without running the actual service
 """
 
 import sys
+import os
 
 print("=" * 60)
 print("Webhook Redirect Fix - Code Review")
 print("=" * 60)
 
+# Get the path to the generic_webhook_service.py file
+script_dir = os.path.dirname(os.path.abspath(__file__))
+webhook_service_path = os.path.join(script_dir, 'server', 'services', 'generic_webhook_service.py')
+
 # Read the generic_webhook_service.py file
-with open('/home/runner/work/prosaasil/prosaasil/server/services/generic_webhook_service.py', 'r') as f:
+with open(webhook_service_path, 'r') as f:
     content = f.read()
 
 # Check 1: MAX_REDIRECTS is defined
@@ -24,7 +29,7 @@ else:
 
 # Check 2: Inner redirect loop exists
 print("\n✅ Test 2: Inner redirect loop exists")
-if 'while redirect_count <= MAX_REDIRECTS:' in content:
+if 'while True:' in content and 'redirect_count' in content:
     print("   PASS - Inner redirect loop found")
 else:
     print("   FAIL - Inner redirect loop not found")
