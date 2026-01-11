@@ -104,6 +104,8 @@ const qrLocks = new Map(); // tenantId -> { locked: boolean, qrData: string, tim
 
 // 🔥 FIX #4: Track session start operations to prevent duplicate starts
 // This prevents race conditions when UI does refresh/polling/double-click during QR scan
+// CRITICAL: Must be 180s (3 minutes) to cover full auth/pairing window (Android takes longer)
+const STARTING_LOCK_MS = 180000;  // 3 minutes - same as QR validity
 const startingLocks = new Map(); // tenantId -> { starting: boolean, timestamp: number }
 
 // 🔥 STEP 4 FIX: Track sending operations to prevent restart during send
@@ -531,7 +533,7 @@ async function startSession(tenantId, forceRelink = false) {
   const existingStartLock = startingLocks.get(tenantId);
   if (!forceRelink && existingStartLock && existingStartLock.starting) {
     const lockAge = Date.now() - existingStartLock.timestamp;
-    if (lockAge < 60000) { // Lock valid for 60 seconds
+    if (lockAge < STARTING_LOCK_MS) { // Lock valid for 180 seconds (3 minutes)
       console.log(`[${tenantId}] ⚠️ startSession already in progress (age=${Math.floor(lockAge/1000)}s) - returning 409`);
       throw new Error('SESSION_START_IN_PROGRESS');
     } else {
@@ -760,15 +762,35 @@ async function startSession(tenantId, forceRelink = false) {
           return;
         }
         
-        // All conditions met - truly connected!
-        s.connected = true; 
+        // All conditions met - mark as authenticated
         s.authPaired = true;  // Ensure this is set
         s.qrDataUrl = '';
         s.pushName = sock?.user?.name || sock?.user?.id || '';
         s.reconnectAttempts = 0;  // 🔧 HARDENING 1.1: Reset reconnect counter on success
         const phoneNumber = sock?.user?.id || 'unknown';
-        console.log(`[WA] ${tenantId}: ✅ FULLY AUTHENTICATED! pushName=${s.pushName}, phone=${phoneNumber}`);
-        console.log(`[WA] ${tenantId}: All checks passed: connection=open, sock.user.id=${!!hasSockUser}, state.creds.me.id=${!!hasStateCreds}`);
+        
+        console.log(`[WA] ${tenantId}: ✅ AUTHENTICATED! pushName=${s.pushName}, phone=${phoneNumber}`);
+        console.log(`[WA] ${tenantId}: Auth checks passed: connection=open, sock.user.id=${!!hasSockUser}, state.creds.me.id=${!!hasStateCreds}`);
+        
+        // 🔥 FIX #6: Verify canSend with lightweight test before marking fully connected
+        // This ensures WhatsApp actually accepts our session, not just that socket is open
+        console.log(`[WA] ${tenantId}: Testing send capability before marking connected...`);
+        
+        // Test by querying presence (lightweight operation that validates session)
+        try {
+          // Try to get our own presence - if this works, we can send messages
+          await sock.sendPresenceUpdate('available', sock.user.id);
+          console.log(`[WA] ${tenantId}: ✅ Send test passed - connection fully validated`);
+          
+          // Now safe to mark as connected
+          s.connected = true;
+          console.log(`[WA] ${tenantId}: 🎉 FULLY CONNECTED AND VERIFIED!`);
+        } catch (testErr) {
+          console.error(`[WA] ${tenantId}: ⚠️ Send test failed: ${testErr.message}`);
+          console.error(`[WA] ${tenantId}: Socket open but can't send - waiting for proper pairing`);
+          // Don't mark as connected yet - likely auth issue
+          return;
+        }
         
         // 🔥 FIX: Release QR lock on successful connection
         qrLocks.delete(tenantId);
@@ -806,22 +828,37 @@ async function startSession(tenantId, forceRelink = false) {
           console.log(`[WA] ${tenantId}: Socket cleanup warning: ${e.message}`);
         }
         
-        // 🔥 FIX #2: Only delete auth on REAL logged_out
-        // Per Android fix requirements: don't auto-cleanup on 428/515/440/unknown disconnect
-        // Only clear auth for true loggedOut (401/Unauthorized)
-        const isRealLogout = reason === DisconnectReason.loggedOut;
+        // 🔥 FIX #2: Determine if this is REAL logout using statusCode
+        // Per Android fix requirements: only clear auth on 401/403 (true unauthorized)
+        // Baileys sometimes sends logged_out without proper statusCode, so check both
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const isLoggedOutEnum = reason === DisconnectReason.loggedOut;
+        const isUnauthorized = statusCode === 401 || statusCode === 403;
+        const isRealLogout = isLoggedOutEnum || isUnauthorized;
+        
+        console.log(`[WA-DIAGNOSTIC] ${tenantId}: Disconnect analysis: statusCode=${statusCode}, isLoggedOutEnum=${isLoggedOutEnum}, isUnauthorized=${isUnauthorized}, isRealLogout=${isRealLogout}`);
         
         if (isRealLogout) {
-          console.log(`[WA] ${tenantId}: 🔴 LOGGED_OUT (401/Unauthorized) - User logged out on phone or auth rejected`);
+          console.log(`[WA] ${tenantId}: 🔴 REAL LOGGED_OUT (statusCode=${statusCode}, enum=${isLoggedOutEnum}) - Auth rejected or user logged out`);
           
           // 🔔 BUILD 151: Notify backend about permanent disconnect
           notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
           
-          // 🔥 FIX #2: Clear auth ONLY on true logged_out
+          // 🔥 FIX #2: CRITICAL - Ensure socket is fully closed BEFORE deleting auth
+          // This prevents race condition where socket tries to write while we delete files
+          try {
+            if (s.sock) {
+              await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms for socket cleanup to complete
+            }
+          } catch (e) {
+            console.log(`[WA] ${tenantId}: Socket wait warning: ${e.message}`);
+          }
+          
+          // Now safe to delete auth files
           try {
             const authPath = authDir(tenantId);
             fs.rmSync(authPath, { recursive: true, force: true });
-            console.log(`[WA] ${tenantId}: Auth files cleared for true logged_out`);
+            console.log(`[WA] ${tenantId}: Auth files cleared for true logged_out (after socket closed)`);
             fs.mkdirSync(authPath, { recursive: true });
           } catch (e) {
             console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
@@ -834,9 +871,22 @@ async function startSession(tenantId, forceRelink = false) {
           return;
         }
         
-        // 🔥 FIX #2: For 428/440/515/unknown - DON'T delete auth, just reconnect
-        // These are temporary disconnects, not logout - keep credentials intact
-        console.log(`[WA] ${tenantId}: Temporary disconnect (reason=${reason}) - keeping auth, will reconnect`);
+        // 🔥 FIX #2: Handle different disconnect scenarios
+        // - 428: Precondition failed - temporary, reconnect with auth
+        // - 440: Session replaced - stop and require QR rescan (don't delete auth completely)
+        // - 515: Restart required - keep auth, just restart
+        // - Other: Use exponential backoff
+        
+        // Special case: 440 (session replaced) - another device logged in
+        if (statusCode === 440) {
+          console.log(`[WA] ${tenantId}: 🔴 SESSION REPLACED (440) - Another device logged in, require QR rescan`);
+          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'session_replaced');
+          sessions.delete(tenantId);
+          // Don't auto-restart - user needs to manually start and scan QR
+          // Keep auth files - they might be valid, just need re-pairing
+          console.log(`[WA] ${tenantId}: Session cleared. Manual QR scan required (auth preserved).`);
+          return;
+        }
         
         // CASE 2: restartRequired (515) - keep credentials, just restart
         if (reason === DisconnectReason.restartRequired) {
@@ -847,7 +897,10 @@ async function startSession(tenantId, forceRelink = false) {
           return;
         }
         
-        // CASE 3: Other disconnects (428/440/unknown) - use exponential backoff, KEEP AUTH
+        // CASE 3: Other disconnects (428/unknown) - use exponential backoff, KEEP AUTH
+        // 428 = precondition failed, often temporary network/timing issue
+        console.log(`[WA] ${tenantId}: Temporary disconnect (statusCode=${statusCode}, reason=${reason}) - keeping auth, will reconnect`);
+        
         // 🔧 HARDENING 1.1: Exponential backoff reconnection
         const attempts = (s.reconnectAttempts || 0) + 1;
         
