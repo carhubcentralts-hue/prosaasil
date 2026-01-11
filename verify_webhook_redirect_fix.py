@@ -6,14 +6,23 @@ Tests the redirect handling without running the actual service
 
 import sys
 import os
+from pathlib import Path
 
 print("=" * 60)
 print("Webhook Redirect Fix - Code Review")
 print("=" * 60)
 
 # Get the path to the generic_webhook_service.py file
-script_dir = os.path.dirname(os.path.abspath(__file__))
-webhook_service_path = os.path.join(script_dir, 'server', 'services', 'generic_webhook_service.py')
+# This assumes the script is in the project root and service is in server/services/
+script_path = Path(__file__)
+project_root = script_path.parent
+webhook_service_path = project_root / 'server' / 'services' / 'generic_webhook_service.py'
+
+if not webhook_service_path.exists():
+    print(f"ERROR: Cannot find {webhook_service_path}")
+    print(f"  Script location: {script_path}")
+    print(f"  Project root: {project_root}")
+    sys.exit(1)
 
 # Read the generic_webhook_service.py file
 with open(webhook_service_path, 'r') as f:

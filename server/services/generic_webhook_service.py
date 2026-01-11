@@ -216,6 +216,8 @@ def send_generic_webhook(
                                     print(f"💡 [WEBHOOK] TIP: Update your webhook URL to {redirect_url} to avoid redirects and potential 405 errors")
                                 
                                 # Check if we've exceeded max redirects (after incrementing)
+                                # This allows exactly MAX_REDIRECTS (5) redirects before breaking
+                                # (redirect_count goes 1, 2, 3, 4, 5, then 6 triggers break)
                                 if redirect_count > MAX_REDIRECTS:
                                     logger.error(f"[WEBHOOK] Too many redirects ({redirect_count}), aborting")
                                     print(f"❌ [WEBHOOK] Too many redirects, giving up")

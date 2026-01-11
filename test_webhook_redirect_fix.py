@@ -6,10 +6,12 @@ Tests that POST redirects are properly followed without consuming retry attempts
 import sys
 import os
 import time
+from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, call
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path (parent directory of this script)
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
 
 
 class MockResponse:
@@ -100,7 +102,7 @@ def test_webhook_too_many_redirects():
     """Test that webhook stops after too many redirects"""
     print("\n🧪 Test 3: Webhook Stops After Too Many Redirects")
     
-    from server.services.generic_webhook_service import send_generic_webhook, MAX_REDIRECTS
+    from server.services.generic_webhook_service import send_generic_webhook, MAX_REDIRECTS, MAX_RETRIES
     
     with patch('server.services.generic_webhook_service.requests.post') as mock_post:
         # Return infinite redirects
@@ -121,16 +123,18 @@ def test_webhook_too_many_redirects():
                 webhook_url="http://example.com/webhook"
             )
         
+        # Calculate expected calls:
+        # Each retry attempt makes: 1 initial request + MAX_REDIRECTS follow-up requests
+        # With MAX_RETRIES attempts: (1 + MAX_REDIRECTS) * MAX_RETRIES
+        # Example: MAX_REDIRECTS=5, MAX_RETRIES=3: (1+5)*3 = 18 calls
+        expected_calls = (1 + MAX_REDIRECTS) * MAX_RETRIES
+        
         # Should stop after hitting redirect limit, not make infinite calls
         assert mock_post.call_count > 0, "Should have made at least one call"
+        assert mock_post.call_count <= expected_calls, f"Should make at most {expected_calls} calls (got {mock_post.call_count})"
         assert mock_post.call_count < 50, f"Should not make infinite calls, got {mock_post.call_count}"
         
-        # With MAX_REDIRECTS=5, should stop around (MAX_REDIRECTS+1) * MAX_RETRIES
-        # Each retry attempts up to MAX_REDIRECTS redirects
-        expected_max = (MAX_REDIRECTS + 1) * 3 + 5  # Some margin
-        assert mock_post.call_count <= expected_max, f"Too many calls: {mock_post.call_count}, expected max {expected_max}"
-        
-        print(f"  ✅ PASS - Webhook stopped after {mock_post.call_count} calls (limit prevented infinite loop)")
+        print(f"  ✅ PASS - Webhook stopped after {mock_post.call_count} calls (expected max: {expected_calls})")
         return True
 
 
