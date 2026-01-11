@@ -97,7 +97,10 @@ app.get('/clock', (req, res) => {
   return res.status(status).json(clockInfo);
 });
 
-const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts, authPaired, qrLock }
+// 🔥 CRITICAL FIX: Single source of truth for sessions
+// Each session MUST have only ONE socket at any time (Iron Rule #1)
+// Structure: { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts, authPaired, createdAt, startingPromise, keysLock }
+const sessions = new Map(); // tenantId -> session object
 
 // 🔥 FIX: Track QR generation locks to prevent concurrent QR creation
 const qrLocks = new Map(); // tenantId -> { locked: boolean, qrData: string, timestamp: number }
@@ -106,7 +109,7 @@ const qrLocks = new Map(); // tenantId -> { locked: boolean, qrData: string, tim
 // This prevents race conditions when UI does refresh/polling/double-click during QR scan
 // CRITICAL: Must be 180s (3 minutes) to cover full auth/pairing window (Android takes longer)
 const STARTING_LOCK_MS = 180000;  // 3 minutes - same as QR validity
-const startingLocks = new Map(); // tenantId -> { starting: boolean, timestamp: number }
+const startingLocks = new Map(); // tenantId -> { starting: boolean, timestamp: number, promise: Promise }
 
 // 🔥 STEP 4 FIX: Track sending operations to prevent restart during send
 const sendingLocks = new Map(); // tenantId -> { isSending: boolean, activeSends: number, lastSendTime: number }
@@ -142,6 +145,37 @@ function authDir(tenantId) {
   console.log(`[WA] authDir: tenant=${tenantId} -> path=${p}`);
   return p;
 }
+
+// 🔥 ANDROID FIX: Helper to safely close existing socket
+// This prevents duplicate sockets by ensuring old one is fully closed before creating new one
+async function safeClose(sock, tenantId) {
+  if (!sock) return;
+  
+  console.log(`[${tenantId}] 🔚 safeClose: Closing existing socket...`);
+  try {
+    // Remove all listeners first to prevent events during shutdown
+    sock.removeAllListeners();
+    
+    // End the socket connection
+    sock.end();
+    
+    // Wait a bit for socket to fully close
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    console.log(`[${tenantId}] ✅ safeClose: Socket closed successfully`);
+  } catch (e) {
+    console.error(`[${tenantId}] ⚠️ safeClose: Error during close:`, e.message);
+  }
+}
+
+// 🔥 ANDROID FIX: Wait for socket to be fully closed before proceeding
+// This ensures no race conditions where old socket is still active when new one starts
+async function waitForSockClosed(tenantId, timeoutMs = 2000) {
+  console.log(`[${tenantId}] ⏳ waitForSockClosed: Waiting ${timeoutMs}ms for socket cleanup...`);
+  await new Promise(resolve => setTimeout(resolve, timeoutMs));
+  console.log(`[${tenantId}] ✅ waitForSockClosed: Wait complete`);
+}
+
 function requireSecret(req, res, next) {
   if (req.header('X-Internal-Secret') !== INTERNAL_SECRET) {
     return res.status(401).json({ error: 'unauthorized' });
@@ -151,23 +185,39 @@ function requireSecret(req, res, next) {
 
 /** REST API (always the same app instance) */
 app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
-  // B3) מניעת מרוצים: אל תריץ start פעמיים
   const tenantId = req.params.tenantId;
-  const forceRelink = req.body?.forceRelink || req.query?.forceRelink || false;  // 🔥 FIX: Support force relink
+  const forceRelink = req.body?.forceRelink || req.query?.forceRelink || false;
+  
+  console.log(`[${tenantId}] 📞 /start called: forceRelink=${forceRelink}`);
+  
+  // 🔥 ANDROID FIX A: Check if session start already in progress (single-flight)
+  const existingStartLock = startingLocks.get(tenantId);
+  if (!forceRelink && existingStartLock && existingStartLock.promise) {
+    const lockAge = Date.now() - existingStartLock.timestamp;
+    if (lockAge < STARTING_LOCK_MS) {
+      console.log(`[${tenantId}] ⚠️ Start already in progress (age=${Math.floor(lockAge/1000)}s) - returning existing promise`);
+      try {
+        await existingStartLock.promise;
+        return res.json({ok: true, state: 'start_in_progress_completed'}); 
+      } catch (e) {
+        return res.status(500).json({ error: 'start_in_progress_failed', message: e.message });
+      }
+    }
+  }
   
   const existing = sessions.get(tenantId);
   
-  // 🔥 ANDROID FIX: Enhanced idempotency - return existing session if connecting/connected/has QR
+  // 🔥 ANDROID FIX: Enhanced idempotency - return existing session if connecting/connected
   if (!forceRelink && existing) {
-    // If session is connecting or connected, return existing session
-    if (existing.connected || existing.authPaired) {
-      console.log(`[${tenantId}] ⚠️ Already connected (authPaired=${existing.authPaired}) - returning existing session`);
+    // If session is connected and authenticated, return success
+    if (existing.connected && existing.authPaired) {
+      console.log(`[${tenantId}] ✅ Already connected and authenticated - returning existing session`);
       return res.json({ok: true, state: 'already_connected'}); 
     }
     
-    // If has socket or is starting, don't create new one
-    if (existing.sock || existing.starting) {
-      console.log(`[${tenantId}] ⚠️ Already starting or has socket - skipping duplicate start`);
+    // If has socket and starting, don't create new one
+    if (existing.sock && existing.starting) {
+      console.log(`[${tenantId}] ⚠️ Socket exists and starting - skipping duplicate start`);
       return res.json({ok: true, state: 'already_starting'}); 
     }
     
@@ -175,21 +225,32 @@ app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
     const qrLock = qrLocks.get(tenantId);
     if (existing.qrDataUrl && qrLock && qrLock.locked) {
       const qrAge = Date.now() - qrLock.timestamp;
-      if (qrAge < QR_VALIDITY_MS) { // Use configured QR validity timeout
-        console.log(`[${tenantId}] ⚠️ QR still valid (age=${Math.floor(qrAge/1000)}s) - returning existing QR instead of creating new one`);
+      if (qrAge < QR_VALIDITY_MS) {
+        console.log(`[${tenantId}] ⚠️ QR still valid (age=${Math.floor(qrAge/1000)}s) - returning existing QR`);
         return res.json({ok: true, state: 'has_qr', qrAgeSeconds: Math.floor(qrAge/1000)}); 
       }
     }
   }
   
+  // 🔥 ANDROID FIX B: Check if currently sending messages - don't restart during send
+  const sendLock = sendingLocks.get(tenantId);
+  if (!forceRelink && sendLock && sendLock.isSending) {
+    console.log(`[${tenantId}] ⚠️ Currently sending messages (activeSends=${sendLock.activeSends}) - deferring start`);
+    return res.status(409).json({ error: 'sending_in_progress', message: 'Cannot restart while sending messages' });
+  }
+  
   try { 
-    console.log(`[${tenantId}] Starting session with forceRelink=${forceRelink}`);
+    console.log(`[${tenantId}] 🚀 Starting session with forceRelink=${forceRelink}`);
     await startSession(tenantId, forceRelink); 
     res.json({ ok: true, forceRelink, state: 'started' }); 
   }
   catch (e) { 
-    console.error('start error', e); 
-    res.status(500).json({ error: 'start_failed' }); 
+    console.error(`[${tenantId}] ❌ start error:`, e.message); 
+    if (e.message === 'SESSION_START_IN_PROGRESS') {
+      res.status(409).json({ error: 'start_in_progress' });
+    } else {
+      res.status(500).json({ error: 'start_failed', message: e.message }); 
+    }
   }
 });
 app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
@@ -528,13 +589,16 @@ app.post('/send', async (req, res) => {
 async function startSession(tenantId, forceRelink = false) {
   console.log(`[${tenantId}] 🚀 startSession called (forceRelink=${forceRelink})`);
   
-  // 🔥 FIX #4: Idempotent start with strong locking
+  // 🔥 ANDROID FIX A: Strict single-flight with promise tracking
   // Check if another startSession is already in progress for this tenant
   const existingStartLock = startingLocks.get(tenantId);
   if (!forceRelink && existingStartLock && existingStartLock.starting) {
     const lockAge = Date.now() - existingStartLock.timestamp;
     if (lockAge < STARTING_LOCK_MS) { // Lock valid for 180 seconds (3 minutes)
-      console.log(`[${tenantId}] ⚠️ startSession already in progress (age=${Math.floor(lockAge/1000)}s) - returning 409`);
+      console.log(`[${tenantId}] ⚠️ startSession already in progress (age=${Math.floor(lockAge/1000)}s) - returning existing promise`);
+      if (existingStartLock.promise) {
+        return await existingStartLock.promise;
+      }
       throw new Error('SESSION_START_IN_PROGRESS');
     } else {
       console.log(`[${tenantId}] 🔓 Releasing stale starting lock (age=${Math.floor(lockAge/1000)}s)`);
@@ -542,20 +606,19 @@ async function startSession(tenantId, forceRelink = false) {
     }
   }
   
-  // 🔥 FIX: If forceRelink, delete old session completely
+  // 🔥 ANDROID FIX B: Close existing socket BEFORE creating new one
+  const cur = sessions.get(tenantId);
+  
+  // If forceRelink, always close and clear everything
   if (forceRelink) {
-    console.log(`[${tenantId}] 🔥 Force relink requested - clearing old session`);
+    console.log(`[${tenantId}] 🔥 Force relink requested - clearing old session completely`);
     startingLocks.delete(tenantId); // Clear any locks
-    const existing = sessions.get(tenantId);
-    if (existing?.sock) {
-      try {
-        console.log(`[${tenantId}] 🔚 Closing existing socket for force relink`);
-        existing.sock.end();
-        existing.sock.removeAllListeners();
-      } catch (e) {
-        console.error(`[${tenantId}] Socket cleanup error:`, e);
-      }
+    
+    if (cur?.sock) {
+      await safeClose(cur.sock, tenantId);
+      await waitForSockClosed(tenantId, 2000); // Wait 2 seconds for full cleanup
     }
+    
     sessions.delete(tenantId);
     
     // Delete auth files for fresh start
@@ -570,31 +633,51 @@ async function startSession(tenantId, forceRelink = false) {
     }
   }
   
-  // 🔥 FIX #4: Check existing session state with strict conditions
-  const cur = sessions.get(tenantId);
-  
-  // If session exists with active socket, return it
-  if (cur?.sock && (cur.connected || cur.starting)) {
-    console.log(`[${tenantId}] ✅ Returning existing session (connected=${cur.connected}, starting=${cur.starting})`);
+  // 🔥 ANDROID FIX: If session exists with active authenticated socket, return it (don't create new)
+  if (!forceRelink && cur?.sock && cur.connected && cur.authPaired) {
+    console.log(`[${tenantId}] ✅ Returning existing authenticated session (connected=${cur.connected})`);
     return cur;
   }
   
-  // If session is starting, return the starting session
-  if (cur?.starting) {
-    console.log(`[${tenantId}] ✅ Session already starting, returning existing`);
-    return cur;
+  // If session is starting, wait for it (single-flight)
+  if (!forceRelink && cur?.starting) {
+    console.log(`[${tenantId}] ⚠️ Session already starting, checking for promise...`);
+    const lock = startingLocks.get(tenantId);
+    if (lock?.promise) {
+      console.log(`[${tenantId}] ⏳ Waiting for existing startSession promise...`);
+      return await lock.promise;
+    }
   }
   
-  // 🔥 FIX #4: Set starting lock BEFORE any async operations
-  startingLocks.set(tenantId, { starting: true, timestamp: Date.now() });
+  // 🔥 ANDROID FIX: If existing socket but not connected, close it before starting new
+  if (cur?.sock && !cur.connected) {
+    console.log(`[${tenantId}] 🔄 Existing socket found but not connected - closing before restart`);
+    await safeClose(cur.sock, tenantId);
+    await waitForSockClosed(tenantId, 2000);
+    sessions.delete(tenantId);
+  }
+  
+  // 🔥 ANDROID FIX A: Create promise for this start operation (single-flight)
+  let resolvePromise, rejectPromise;
+  const startPromise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  
+  // Set starting lock BEFORE any async operations with promise
+  startingLocks.set(tenantId, { 
+    starting: true, 
+    timestamp: Date.now(),
+    promise: startPromise 
+  });
   
   // 🔥 FIX: QR Lock - prevent concurrent QR generation
   const lock = qrLocks.get(tenantId);
   if (lock && lock.locked) {
     const age = Date.now() - lock.timestamp;
-    if (age < QR_VALIDITY_MS) { // 🔥 ANDROID FIX: Lock valid to accommodate slow Android scanning
-      console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s), returning existing lock`);
-      return cur || { starting: true, qrDataUrl: lock.qrData || '' };
+    if (age < QR_VALIDITY_MS) {
+      console.log(`[${tenantId}] ⚠️ QR generation already in progress (age=${Math.floor(age/1000)}s)`);
+      // Don't reject, just log - we'll create new QR if needed
     } else {
       console.log(`[${tenantId}] 🔓 Releasing stale QR lock (age=${Math.floor(age/1000)}s)`);
       qrLocks.delete(tenantId);
@@ -604,451 +687,467 @@ async function startSession(tenantId, forceRelink = false) {
   // Set QR lock
   qrLocks.set(tenantId, { locked: true, qrData: null, timestamp: Date.now() });
   
-  sessions.set(tenantId, { starting: true });
+  // Create initial session marker
+  sessions.set(tenantId, { 
+    starting: true, 
+    connected: false, 
+    authPaired: false,
+    createdAt: Date.now()
+  });
 
-  const authPath = authDir(tenantId);  // fs.mkdirSync(..., {recursive:true}) כבר קיים
+  const authPath = authDir(tenantId);
   
-  // 🔥 ANDROID FIX: Validate existing auth state before using it
-  // If auth files are corrupted or incomplete, clear them to force fresh QR generation
-  const credsFile = path.join(authPath, 'creds.json');
-  if (fs.existsSync(credsFile)) {
-    try {
-      const credsContent = fs.readFileSync(credsFile, 'utf8');
-      const creds = JSON.parse(credsContent);
-      
-      // Check if creds have essential fields
-      if (!creds.me || !creds.me.id) {
-        console.log(`[${tenantId}] ⚠️ Auth creds incomplete (missing me.id) - clearing for fresh start`);
+  try {
+    // 🔥 ANDROID FIX: Validate existing auth state before using it
+    const credsFile = path.join(authPath, 'creds.json');
+    if (fs.existsSync(credsFile)) {
+      try {
+        const credsContent = fs.readFileSync(credsFile, 'utf8');
+        const creds = JSON.parse(credsContent);
+        
+        if (!creds.me || !creds.me.id) {
+          console.log(`[${tenantId}] ⚠️ Auth creds incomplete (missing me.id) - clearing for fresh start`);
+          fs.rmSync(authPath, { recursive: true, force: true });
+          fs.mkdirSync(authPath, { recursive: true });
+        } else {
+          console.log(`[${tenantId}] ✅ Auth creds validated - me.id=${creds.me.id}`);
+        }
+      } catch (e) {
+        console.log(`[${tenantId}] ⚠️ Auth creds corrupted - clearing for fresh start: ${e.message}`);
         fs.rmSync(authPath, { recursive: true, force: true });
         fs.mkdirSync(authPath, { recursive: true });
-      } else {
-        console.log(`[${tenantId}] ✅ Auth creds validated - me.id=${creds.me.id}`);
       }
-    } catch (e) {
-      console.log(`[${tenantId}] ⚠️ Auth creds corrupted - clearing for fresh start: ${e.message}`);
-      fs.rmSync(authPath, { recursive: true, force: true });
-      fs.mkdirSync(authPath, { recursive: true });
-    }
-  }
-  
-  const { state, saveCreds } = await useMultiFileAuthState(authPath);
-
-  // --- גרסה/דפדפן יציבים (מונע pairing תקוע) ---
-  const { version } = await fetchLatestBaileysVersion();
-  console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
-  
-  // 🔥 ANDROID FIX: Log socket creation to track duplicate starts
-  const creationTimestamp = new Date().toISOString();
-  console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${creationTimestamp}, reason=start, forceRelink=${forceRelink}`);
-  
-  // ⚡ OPTIMIZED Baileys socket for maximum speed & reliability
-  // 🔥 FIX #1: Remove browser override - use Baileys default
-  // Per Android fix requirements: Don't override browser tuple, let Baileys choose default
-  // Android is stricter than iPhone about browser identification - overriding causes delayed rejection
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
-    // 🔥 FIX #1: NO browser override - let Baileys use its default
-    // browser: ['Ubuntu', 'Chrome', '22.04.4'],  // REMOVED - causes Android logged_out after 1-1.5 minutes
-    markOnlineOnConnect: false,  // ⚡ Don't mark online - saves bandwidth
-    syncFullHistory: false,  // ⚡ Don't sync history - CRITICAL for speed
-    shouldSyncHistoryMessage: false,  // ⚡ No message history sync
-    getMessage: async () => undefined,  // ⚡ Don't fetch old messages - saves time
-    defaultQueryTimeoutMs: 20000,  // 🔧 Increased from 7s to 20s for slow connections
-    connectTimeoutMs: 30000,  // 🔧 Increased from 7s to 30s for reliable connection
-    retryRequestDelayMs: 500,  // 🔧 Added: Delay between retry attempts
-    maxMsgRetryCount: 5,  // 🔧 Added: Max retries for failed messages
-    keepAliveIntervalMs: 30000  // 🔧 Added: Keep connection alive
-  });
-
-  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '', starting: false, authPaired: false };
-  sessions.set(tenantId, s);
-  console.log(`[${tenantId}] 💾 Session stored in memory with Baileys default browser`);
-
-  // 🔥 FIX #5: Add mutex for auth state persistence
-  // Serialize saveCreds operations to prevent concurrent writes that corrupt auth state
-  let credsLock = false;
-  sock.ev.on('creds.update', async () => {
-    // Wait for any ongoing save to complete
-    while (credsLock) {
-      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
-    credsLock = true;
-    try {
-      await saveCreds();
-      s.authPaired = true;  // 🔥 FIX: Mark auth as paired when creds are saved
-      console.log(`[${tenantId}] 🔐 Credentials saved to disk - authPaired=true`);
-    } catch (e) {
-      console.error(`[${tenantId}] ❌ Failed to save credentials:`, e);
-    } finally {
-      credsLock = false;
+    const { state, saveCreds } = await useMultiFileAuthState(authPath);
+
+    const { version } = await fetchLatestBaileysVersion();
+    console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
+    
+    // 🔥 ANDROID FIX: Log socket creation to track duplicate starts
+    const creationTimestamp = new Date().toISOString();
+    console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${creationTimestamp}, reason=start, forceRelink=${forceRelink}`);
+    
+    // Create Baileys socket
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      shouldSyncHistoryMessage: false,
+      getMessage: async () => undefined,
+      defaultQueryTimeoutMs: 20000,
+      connectTimeoutMs: 30000,
+      retryRequestDelayMs: 500,
+      maxMsgRetryCount: 5,
+      keepAliveIntervalMs: 30000
+    });
+
+    const s = { 
+      sock, 
+      saveCreds, 
+      qrDataUrl: '', 
+      connected: false, 
+      pushName: '', 
+      starting: true, 
+      authPaired: false,
+      createdAt: Date.now(),
+      keysLock: false  // 🔥 ANDROID FIX C: Add lock for keys operations
+    };
+    sessions.set(tenantId, s);
+    console.log(`[${tenantId}] 💾 Session stored in memory with Baileys default browser`);
+
+    // 🔥 ANDROID FIX C: Mutex for BOTH creds and keys operations
+    // This prevents concurrent writes that corrupt auth state
+    let credsLock = false;
+    
+    sock.ev.on('creds.update', async () => {
+      // Wait for any ongoing save to complete
+      while (credsLock || s.keysLock) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      credsLock = true;
+      try {
+        await saveCreds();
+        s.authPaired = true;
+        console.log(`[${tenantId}] 🔐 Credentials saved to disk - authPaired=true`);
+      } catch (e) {
+        console.error(`[${tenantId}] ❌ Failed to save credentials:`, e);
+      } finally {
+        credsLock = false;
+      }
+    });
+    
+    // 🔥 ANDROID FIX C: Wrap keys operations with mutex
+    // This ensures keys.set/get are serialized with saveCreds
+    const originalKeysSet = state.keys?.set;
+    const originalKeysGet = state.keys?.get;
+    
+    if (state.keys && originalKeysSet) {
+      state.keys.set = async function(...args) {
+        while (credsLock || s.keysLock) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        s.keysLock = true;
+        try {
+          return await originalKeysSet.apply(this, args);
+        } finally {
+          s.keysLock = false;
+        }
+      };
     }
-  });
-  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    try {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      const reasonMessage = lastDisconnect?.error?.message || String(reason || '');
-      const errorPayload = lastDisconnect?.error?.output?.payload;
-      
-      // 🔧 ENHANCED: More detailed logging for connection diagnostics
-      const timestamp = new Date().toISOString();
-      console.log(`[WA] ${timestamp} connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, reasonMsg=${reasonMessage || 'none'}, hasQR=${!!qr}, authPaired=${s.authPaired}`);
-      
-      // 🔥 CRITICAL DIAGNOSTIC: Log statusCode for debugging WhatsApp rejections
-      // Common codes: 401=unauthorized, 403=forbidden, 428=precondition, 515=restart_required
-      if (lastDisconnect && reason) {
-        console.log(`[WA-DIAGNOSTIC] ${tenantId}: 🔍 DISCONNECT REASON DETAILS:`);
-        console.log(`[WA-DIAGNOSTIC] ${tenantId}: - statusCode: ${reason}`);
-        console.log(`[WA-DIAGNOSTIC] ${tenantId}: - payload: ${errorPayload ? JSON.stringify(errorPayload) : 'none'}`);
-        console.log(`[WA-DIAGNOSTIC] ${tenantId}: - message: ${reasonMessage}`);
-        
-        // Interpret common status codes
-        if (reason === 401) {
-          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 401 = WhatsApp rejected authentication (unauthorized)`);
-        } else if (reason === 403) {
-          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 403 = WhatsApp denied access (forbidden)`);
-        } else if (reason === 428) {
-          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 428 = Connection prerequisite failed`);
-        } else if (reason === 515) {
-          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 515 = WhatsApp server requested restart`);
-        } else if (reason === 440) {
-          console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 440 = Session replaced by another device`);
+    
+    if (state.keys && originalKeysGet) {
+      state.keys.get = async function(...args) {
+        while (credsLock || s.keysLock) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-      }
-      
-      // B2) לוגיקת QR יציבה בNode עם qr_code.txt
-      const qrFile = path.join(authPath, 'qr_code.txt');
-      
-      if (qr) {
-        // 🔧 ENHANCED: Add QR generation timing
-        const qrStartTime = Date.now();
-        s.qrDataUrl = await QRCode.toDataURL(qr);
-        s.qrGeneratedAt = Date.now();  // 🔥 ANDROID FIX: Track when QR was generated
-        const qrDuration = Date.now() - qrStartTime;
-        console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms, qr_length=${qr.length}, timestamp=${s.qrGeneratedAt}`);
-        
-        // 🔥 FIX: Update QR lock with actual QR data
-        const lock = qrLocks.get(tenantId);
-        if (lock) {
-          lock.qrData = s.qrDataUrl;
-        }
-        
-        try { 
-          fs.writeFileSync(qrFile, qr);
-          console.log(`[WA] ${tenantId}: QR saved to file: ${qrFile}`);
-        } catch(e) { 
-          console.error(`[WA-ERROR] ${tenantId}: QR file write error:`, e); 
-        }
-      }
-      
-      if (connection === 'open') {
-        // 🔥 FIX #6: Only report connected after ALL conditions met
-        // Per Android fix requirements: connection=open AND sock.user.id AND state.creds.me.id
-        // This prevents premature "connected" status that confuses WhatsApp handshake
-        const hasAuthPaired = s.authPaired;
-        const hasStateCreds = state && state.creds && state.creds.me && state.creds.me.id;
-        const hasSockUser = sock && sock.user && sock.user.id;
-        
-        console.log(`[WA] ${tenantId}: Connection open - checking auth: authPaired=${hasAuthPaired}, stateCreds=${!!hasStateCreds}, sockUser=${!!hasSockUser}`);
-        
-        // 🔥 FIX #6: ALL THREE must be true before marking connected
-        // Android is stricter - don't mark connected until fully authenticated
-        if (!hasSockUser || !hasStateCreds) {
-          console.log(`[WA] ${tenantId}: ⚠️ Socket open but authentication incomplete - waiting for user and creds`);
-          console.log(`[WA] ${tenantId}: Missing: ${!hasSockUser ? 'sock.user.id' : ''} ${!hasStateCreds ? 'state.creds.me.id' : ''}`);
-          // Don't mark as connected yet - wait for creds.update event
-          return;
-        }
-        
-        // All conditions met - mark as authenticated
-        s.authPaired = true;  // Ensure this is set
-        s.qrDataUrl = '';
-        s.pushName = sock?.user?.name || sock?.user?.id || '';
-        s.reconnectAttempts = 0;  // 🔧 HARDENING 1.1: Reset reconnect counter on success
-        const phoneNumber = sock?.user?.id || 'unknown';
-        
-        console.log(`[WA] ${tenantId}: ✅ AUTHENTICATED! pushName=${s.pushName}, phone=${phoneNumber}`);
-        console.log(`[WA] ${tenantId}: Auth checks passed: connection=open, sock.user.id=${!!hasSockUser}, state.creds.me.id=${!!hasStateCreds}`);
-        
-        // 🔥 FIX #6: Verify canSend with lightweight test before marking fully connected
-        // This ensures WhatsApp actually accepts our session, not just that socket is open
-        console.log(`[WA] ${tenantId}: Testing send capability before marking connected...`);
-        
-        // Test by querying presence (lightweight operation that validates session)
+        s.keysLock = true;
         try {
-          // Try to get our own presence - if this works, we can send messages
-          await sock.sendPresenceUpdate('available', sock.user.id);
-          console.log(`[WA] ${tenantId}: ✅ Send test passed - connection fully validated`);
-          
-          // Now safe to mark as connected
-          s.connected = true;
-          console.log(`[WA] ${tenantId}: 🎉 FULLY CONNECTED AND VERIFIED!`);
-        } catch (testErr) {
-          console.error(`[WA] ${tenantId}: ⚠️ Send test failed: ${testErr.message}`);
-          console.error(`[WA] ${tenantId}: Socket open but can't send - waiting for proper pairing`);
-          // Don't mark as connected yet - likely auth issue
-          return;
+          return await originalKeysGet.apply(this, args);
+        } finally {
+          s.keysLock = false;
         }
+      };
+    }
+    
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+      try {
+        const reason = lastDisconnect?.error?.output?.statusCode;
+        const reasonMessage = lastDisconnect?.error?.message || String(reason || '');
+        const errorPayload = lastDisconnect?.error?.output?.payload;
         
-        // 🔥 FIX: Release QR lock on successful connection
-        qrLocks.delete(tenantId);
-        console.log(`[WA] ${tenantId}: 🔓 QR lock released after successful pairing`);
+        const timestamp = new Date().toISOString();
+        console.log(`[WA] ${timestamp} connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, reasonMsg=${reasonMessage || 'none'}, hasQR=${!!qr}, authPaired=${s.authPaired}`);
         
-        // מחיקת QR כשמתחברים
-        try { 
-          if (fs.existsSync(qrFile)) {
-            fs.unlinkSync(qrFile);
-            console.log(`[WA] ${tenantId}: QR file deleted after connection`);
+        if (lastDisconnect && reason) {
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: 🔍 DISCONNECT REASON DETAILS:`);
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: - statusCode: ${reason}`);
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: - payload: ${errorPayload ? JSON.stringify(errorPayload) : 'none'}`);
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: - message: ${reasonMessage}`);
+          
+          if (reason === 401) {
+            console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 401 = WhatsApp rejected authentication (unauthorized)`);
+          } else if (reason === 403) {
+            console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 403 = WhatsApp denied access (forbidden)`);
+          } else if (reason === 428) {
+            console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 428 = Connection prerequisite failed`);
+          } else if (reason === 515) {
+            console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 515 = WhatsApp server requested restart`);
+          } else if (reason === 440) {
+            console.log(`[WA-DIAGNOSTIC] ${tenantId}: ⚠️ 440 = Session replaced by another device`);
           }
-        } catch(e) { 
-          console.error(`[WA-ERROR] ${tenantId}: QR file delete error:`, e); 
         }
         
-        // 🔔 BUILD 151: Notify backend that WhatsApp is connected
-        notifyBackendWhatsappStatus(tenantId, 'connected', null);
-      }
-      
-      if (connection === 'close') {
-        s.connected = false;
-        s.authPaired = false;  // Reset auth paired state
-        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}`);
+        const qrFile = path.join(authPath, 'qr_code.txt');
         
-        // 🔥 FIX: Release QR lock on disconnect
-        qrLocks.delete(tenantId);
-        
-        // 🔥 CRITICAL: Always clean up socket before reconnect
-        try {
-          if (s.sock) {
-            s.sock.removeAllListeners();
-            s.sock.end();
+        if (qr) {
+          const qrStartTime = Date.now();
+          s.qrDataUrl = await QRCode.toDataURL(qr);
+          s.qrGeneratedAt = Date.now();
+          const qrDuration = Date.now() - qrStartTime;
+          console.log(`[WA] ${tenantId}: ✅ QR generated successfully in ${qrDuration}ms, qr_length=${qr.length}, timestamp=${s.qrGeneratedAt}`);
+          
+          const lock = qrLocks.get(tenantId);
+          if (lock) {
+            lock.qrData = s.qrDataUrl;
           }
-        } catch (e) {
-          console.log(`[WA] ${tenantId}: Socket cleanup warning: ${e.message}`);
+          
+          try { 
+            fs.writeFileSync(qrFile, qr);
+            console.log(`[WA] ${tenantId}: QR saved to file: ${qrFile}`);
+          } catch(e) { 
+            console.error(`[WA-ERROR] ${tenantId}: QR file write error:`, e); 
+          }
         }
         
-        // 🔥 FIX #2: Determine if this is REAL logout using statusCode
-        // Per Android fix requirements: only clear auth on 401/403 (true unauthorized)
-        // Baileys sometimes sends logged_out without proper statusCode, so check both
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const isLoggedOutEnum = reason === DisconnectReason.loggedOut;
-        const isUnauthorized = statusCode === 401 || statusCode === 403;
-        const isRealLogout = isLoggedOutEnum || isUnauthorized;
-        
-        console.log(`[WA-DIAGNOSTIC] ${tenantId}: Disconnect analysis: statusCode=${statusCode}, isLoggedOutEnum=${isLoggedOutEnum}, isUnauthorized=${isUnauthorized}, isRealLogout=${isRealLogout}`);
-        
-        if (isRealLogout) {
-          console.log(`[WA] ${tenantId}: 🔴 REAL LOGGED_OUT (statusCode=${statusCode}, enum=${isLoggedOutEnum}) - Auth rejected or user logged out`);
+        if (connection === 'open') {
+          // 🔥 ANDROID FIX D: Only mark connected after ALL validation checks pass
+          const hasAuthPaired = s.authPaired;
+          const hasStateCreds = state && state.creds && state.creds.me && state.creds.me.id;
+          const hasSockUser = sock && sock.user && sock.user.id;
           
-          // 🔔 BUILD 151: Notify backend about permanent disconnect
-          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
+          console.log(`[WA] ${tenantId}: Connection open - checking auth: authPaired=${hasAuthPaired}, stateCreds=${!!hasStateCreds}, sockUser=${!!hasSockUser}`);
           
-          // 🔥 FIX #2: CRITICAL - Ensure socket is fully closed BEFORE deleting auth
-          // This prevents race condition where socket tries to write while we delete files
+          // All three must be true before marking connected
+          if (!hasSockUser || !hasStateCreds) {
+            console.log(`[WA] ${tenantId}: ⚠️ Socket open but authentication incomplete - waiting`);
+            console.log(`[WA] ${tenantId}: Missing: ${!hasSockUser ? 'sock.user.id' : ''} ${!hasStateCreds ? 'state.creds.me.id' : ''}`);
+            return;
+          }
+          
+          s.authPaired = true;
+          s.qrDataUrl = '';
+          s.pushName = sock?.user?.name || sock?.user?.id || '';
+          s.reconnectAttempts = 0;
+          const phoneNumber = sock?.user?.id || 'unknown';
+          
+          console.log(`[WA] ${tenantId}: ✅ AUTHENTICATED! pushName=${s.pushName}, phone=${phoneNumber}`);
+          
+          // 🔥 ANDROID FIX D: Test send capability before marking fully connected
+          console.log(`[WA] ${tenantId}: Testing send capability before marking connected...`);
+          
+          try {
+            // Try to get our own presence - validates session is working
+            await sock.sendPresenceUpdate('available', sock.user.id);
+            console.log(`[WA] ${tenantId}: ✅ Send test passed - connection fully validated`);
+            
+            // Now safe to mark as connected
+            s.connected = true;
+            s.starting = false;
+            console.log(`[WA] ${tenantId}: 🎉 FULLY CONNECTED AND VERIFIED!`);
+            
+            // Resolve the starting promise
+            if (resolvePromise) {
+              resolvePromise(s);
+            }
+          } catch (testErr) {
+            console.error(`[WA] ${tenantId}: ⚠️ Send test failed: ${testErr.message}`);
+            console.error(`[WA] ${tenantId}: Socket open but can't send - waiting for proper pairing`);
+            return;
+          }
+          
+          qrLocks.delete(tenantId);
+          console.log(`[WA] ${tenantId}: 🔓 QR lock released after successful pairing`);
+          
+          try { 
+            if (fs.existsSync(qrFile)) {
+              fs.unlinkSync(qrFile);
+              console.log(`[WA] ${tenantId}: QR file deleted after connection`);
+            }
+          } catch(e) { 
+            console.error(`[WA-ERROR] ${tenantId}: QR file delete error:`, e); 
+          }
+          
+          notifyBackendWhatsappStatus(tenantId, 'connected', null);
+        }
+        
+        if (connection === 'close') {
+          s.connected = false;
+          s.authPaired = false;
+          s.starting = false;
+          console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}`);
+          
+          qrLocks.delete(tenantId);
+          
+          // 🔥 ANDROID FIX B: Always clean up socket before any reconnect
           try {
             if (s.sock) {
-              await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms for socket cleanup to complete
+              s.sock.removeAllListeners();
+              s.sock.end();
             }
           } catch (e) {
-            console.log(`[WA] ${tenantId}: Socket wait warning: ${e.message}`);
+            console.log(`[WA] ${tenantId}: Socket cleanup warning: ${e.message}`);
           }
           
-          // Now safe to delete auth files
-          try {
-            const authPath = authDir(tenantId);
-            fs.rmSync(authPath, { recursive: true, force: true });
-            console.log(`[WA] ${tenantId}: Auth files cleared for true logged_out (after socket closed)`);
-            fs.mkdirSync(authPath, { recursive: true });
-          } catch (e) {
-            console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
-          }
+          // 🔥 ANDROID FIX B: Determine if this is REAL logout
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          const isLoggedOutEnum = reason === DisconnectReason.loggedOut;
+          const isUnauthorized = statusCode === 401 || statusCode === 403;
+          const isRealLogout = isLoggedOutEnum || isUnauthorized;
           
-          // 🔥 FIX #3: NO auto-restart after logged_out
-          // Per Android fix requirements: stop completely, require manual /start
-          sessions.delete(tenantId);
-          console.log(`[WA] ${tenantId}: Session cleared. User must manually scan QR via /start endpoint.`);
-          return;
-        }
-        
-        // 🔥 FIX #2: Handle different disconnect scenarios
-        // - 428: Precondition failed - temporary, reconnect with auth
-        // - 440: Session replaced - stop and require QR rescan (don't delete auth completely)
-        // - 515: Restart required - keep auth, just restart
-        // - Other: Use exponential backoff
-        
-        // Special case: 440 (session replaced) - another device logged in
-        if (statusCode === 440) {
-          console.log(`[WA] ${tenantId}: 🔴 SESSION REPLACED (440) - Another device logged in, require QR rescan`);
-          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'session_replaced');
-          sessions.delete(tenantId);
-          // Don't auto-restart - user needs to manually start and scan QR
-          // Keep auth files - they might be valid, just need re-pairing
-          console.log(`[WA] ${tenantId}: Session cleared. Manual QR scan required (auth preserved).`);
-          return;
-        }
-        
-        // CASE 2: restartRequired (515) - keep credentials, just restart
-        if (reason === DisconnectReason.restartRequired) {
-          console.log(`[WA] ${tenantId}: 🔄 RESTART_REQUIRED (515) - WhatsApp server requested restart`);
-          sessions.delete(tenantId);
-          console.log(`[WA] ${tenantId}: Will retry connection in 5 seconds (keeping auth)...`);
-          setTimeout(() => startSession(tenantId), 5000);
-          return;
-        }
-        
-        // CASE 3: Other disconnects (428/unknown) - use exponential backoff, KEEP AUTH
-        // 428 = precondition failed, often temporary network/timing issue
-        console.log(`[WA] ${tenantId}: Temporary disconnect (statusCode=${statusCode}, reason=${reason}) - keeping auth, will reconnect`);
-        
-        // 🔧 HARDENING 1.1: Exponential backoff reconnection
-        const attempts = (s.reconnectAttempts || 0) + 1;
-        
-        if (attempts > RECONNECT_CONFIG.maxAttempts) {
-          console.error(`[WA-ERROR] ${tenantId}: 🔴 Max reconnect attempts (${RECONNECT_CONFIG.maxAttempts}) reached`);
-          console.error(`[WA-ERROR] ${tenantId}: Giving up after ${attempts} attempts. Manual intervention required.`);
-          // 🔔 Notify backend about repeated failure
-          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'max_attempts_exceeded');
-          sessions.delete(tenantId);
-          return;
-        }
-        
-        const delay = getReconnectDelay(attempts - 1);
-        console.log(`[WA] ${tenantId}: 🔄 Auto-reconnecting in ${delay/1000}s (attempt ${attempts}/${RECONNECT_CONFIG.maxAttempts}, reason=${reason || 'unknown'}, KEEPING AUTH)`);
-        console.log(`[WA] ${tenantId}: Reconnection strategy - next delay will be ${getReconnectDelay(attempts)/1000}s`);
-        
-        // Store attempts count before deleting session
-        const reconnectAttempts = attempts;
-        sessions.delete(tenantId);
-        
-        setTimeout(async () => {
-          console.log(`[WA] ${tenantId}: ⏰ Starting reconnection attempt ${reconnectAttempts} (auth preserved)...`);
-          console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${new Date().toISOString()}, reason=auto_reconnect, attempt=${reconnectAttempts}`);
-          try {
-            const newSession = await startSession(tenantId);
-            if (newSession) {
-              newSession.reconnectAttempts = reconnectAttempts;
+          console.log(`[WA-DIAGNOSTIC] ${tenantId}: Disconnect analysis: statusCode=${statusCode}, isLoggedOutEnum=${isLoggedOutEnum}, isUnauthorized=${isUnauthorized}, isRealLogout=${isRealLogout}`);
+          
+          if (isRealLogout) {
+            console.log(`[WA] ${tenantId}: 🔴 REAL LOGGED_OUT (statusCode=${statusCode}) - NO AUTO-RESTART`);
+            
+            notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
+            
+            // 🔥 ANDROID FIX B: Wait for socket to fully close before deleting auth
+            try {
+              if (s.sock) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            } catch (e) {
+              console.log(`[WA] ${tenantId}: Socket wait warning: ${e.message}`);
             }
-          } catch (e) {
-            console.error(`[WA-ERROR] ${tenantId}: Reconnect failed:`, e.message);
+            
+            // Delete auth files
+            try {
+              const authPath = authDir(tenantId);
+              fs.rmSync(authPath, { recursive: true, force: true });
+              console.log(`[WA] ${tenantId}: Auth files cleared for true logged_out`);
+              fs.mkdirSync(authPath, { recursive: true });
+            } catch (e) {
+              console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
+            }
+            
+            // 🔥 ANDROID FIX B: NO auto-restart after logged_out - require manual /start
+            sessions.delete(tenantId);
+            startingLocks.delete(tenantId);
+            console.log(`[WA] ${tenantId}: Session cleared. User MUST manually scan QR via /start endpoint.`);
+            
+            // Reject the starting promise if still pending
+            if (rejectPromise) {
+              rejectPromise(new Error('logged_out'));
+            }
+            return;
           }
-        }, delay);
+          
+          // Session replaced (440) - another device logged in
+          if (statusCode === 440) {
+            console.log(`[WA] ${tenantId}: 🔴 SESSION REPLACED (440) - NO AUTO-RESTART`);
+            notifyBackendWhatsappStatus(tenantId, 'disconnected', 'session_replaced');
+            sessions.delete(tenantId);
+            startingLocks.delete(tenantId);
+            console.log(`[WA] ${tenantId}: Session cleared. Manual QR scan required.`);
+            
+            if (rejectPromise) {
+              rejectPromise(new Error('session_replaced'));
+            }
+            return;
+          }
+          
+          // Restart required (515) - keep credentials, just restart
+          if (reason === DisconnectReason.restartRequired) {
+            console.log(`[WA] ${tenantId}: 🔄 RESTART_REQUIRED (515) - will reconnect with existing auth`);
+            sessions.delete(tenantId);
+            startingLocks.delete(tenantId);
+            console.log(`[WA] ${tenantId}: Will retry connection in 5 seconds (keeping auth)...`);
+            
+            setTimeout(() => {
+              console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${new Date().toISOString()}, reason=restart_required`);
+              startSession(tenantId);
+            }, 5000);
+            
+            if (rejectPromise) {
+              rejectPromise(new Error('restart_required'));
+            }
+            return;
+          }
+          
+          // 🔥 ANDROID FIX B: Temporary disconnect - NO AUTO-RESTART
+          // Per requirements: Only manual restart allowed to prevent duplicate sockets
+          console.log(`[WA] ${tenantId}: 🔴 Temporary disconnect (statusCode=${statusCode}) - NO AUTO-RESTART`);
+          console.log(`[WA] ${tenantId}: Auth preserved. User must manually restart via /start endpoint.`);
+          
+          notifyBackendWhatsappStatus(tenantId, 'disconnected', `status_${statusCode || 'unknown'}`);
+          sessions.delete(tenantId);
+          startingLocks.delete(tenantId);
+          
+          if (rejectPromise) {
+            rejectPromise(new Error(`disconnect_${statusCode || 'unknown'}`));
+          }
+        }
+      } catch (e) { 
+        console.error(`[WA-ERROR] ${tenantId}: connection.update error:`, e);
+        if (rejectPromise) {
+          rejectPromise(e);
+        }
       }
-    } catch (e) { 
-      console.error(`[WA-ERROR] ${tenantId}: connection.update error:`, e); 
-    }
-  });
+    });
 
-  sock.ev.on('messages.upsert', async (payload) => {
-    try {
-      // ✅ FIX: סנן הודעות שהבוט שלח בעצמו (fromMe: true)
-      const messages = payload.messages || [];
-      
-      // 🔍 ANDROID DEBUG: Enhanced logging for Android vs iPhone message detection
-      console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
-      messages.forEach((msg, idx) => {
-        const fromMe = msg.key?.fromMe;
-        const remoteJid = msg.key?.remoteJid;
-        const pushName = msg.pushName || 'Unknown';
-        console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}, pushName=${pushName}`);
+    sock.ev.on('messages.upsert', async (payload) => {
+      try {
+        const messages = payload.messages || [];
         
-        // 🔥 ANDROID DEBUG: Log message structure to debug Android vs iPhone differences
-        const messageKeys = Object.keys(msg.message || {});
-        console.log(`[${tenantId}] Message ${idx} content keys: ${messageKeys.join(', ')}`);
-        
-        // 🔥 ANDROID FIX: Enhanced content logging for all message types
-        const msgObj = msg.message || {};
-        
-        // Log each message type we support
-        if (msgObj.conversation) {
-          console.log(`[${tenantId}] Message ${idx} [conversation]: "${msgObj.conversation.substring(0, 50)}"`);
-        }
-        if (msgObj.extendedTextMessage?.text) {
-          console.log(`[${tenantId}] Message ${idx} [extendedTextMessage]: "${msgObj.extendedTextMessage.text.substring(0, 50)}"`);
-        }
-        if (msgObj.imageMessage) {
-          const caption = msgObj.imageMessage.caption || '(no caption)';
-          console.log(`[${tenantId}] Message ${idx} [imageMessage] caption: "${caption}"`);
-        }
-        if (msgObj.videoMessage) {
-          const caption = msgObj.videoMessage.caption || '(no caption)';
-          console.log(`[${tenantId}] Message ${idx} [videoMessage] caption: "${caption}"`);
-        }
-        if (msgObj.audioMessage) {
-          console.log(`[${tenantId}] Message ${idx} [audioMessage] detected`);
-        }
-        
-        // 🔥 ANDROID DEBUG: If no known message type, log ALL keys to help debug
-        if (!msgObj.conversation && !msgObj.extendedTextMessage && !msgObj.imageMessage && 
-            !msgObj.videoMessage && !msgObj.audioMessage && !msgObj.documentMessage) {
-          console.log(`[${tenantId}] Message ${idx} UNKNOWN FORMAT - Full keys: ${messageKeys.join(', ')}`);
-          // Try to extract any text content
-          messageKeys.forEach(key => {
-            if (msgObj[key] && typeof msgObj[key] === 'object') {
-              const subKeys = Object.keys(msgObj[key]);
-              console.log(`[${tenantId}] Message ${idx} [${key}] subkeys: ${subKeys.join(', ')}`);
-              if (msgObj[key].text) {
-                console.log(`[${tenantId}] Message ${idx} [${key}.text]: "${String(msgObj[key].text).substring(0, 50)}"`);
+        console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
+        messages.forEach((msg, idx) => {
+          const fromMe = msg.key?.fromMe;
+          const remoteJid = msg.key?.remoteJid;
+          const pushName = msg.pushName || 'Unknown';
+          console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}, pushName=${pushName}`);
+          
+          const messageKeys = Object.keys(msg.message || {});
+          console.log(`[${tenantId}] Message ${idx} content keys: ${messageKeys.join(', ')}`);
+          
+          const msgObj = msg.message || {};
+          
+          if (msgObj.conversation) {
+            console.log(`[${tenantId}] Message ${idx} [conversation]: "${msgObj.conversation.substring(0, 50)}"`);
+          }
+          if (msgObj.extendedTextMessage?.text) {
+            console.log(`[${tenantId}] Message ${idx} [extendedTextMessage]: "${msgObj.extendedTextMessage.text.substring(0, 50)}"`);
+          }
+          if (msgObj.imageMessage) {
+            const caption = msgObj.imageMessage.caption || '(no caption)';
+            console.log(`[${tenantId}] Message ${idx} [imageMessage] caption: "${caption}"`);
+          }
+          if (msgObj.videoMessage) {
+            const caption = msgObj.videoMessage.caption || '(no caption)';
+            console.log(`[${tenantId}] Message ${idx} [videoMessage] caption: "${caption}"`);
+          }
+          if (msgObj.audioMessage) {
+            console.log(`[${tenantId}] Message ${idx} [audioMessage] detected`);
+          }
+          
+          if (!msgObj.conversation && !msgObj.extendedTextMessage && !msgObj.imageMessage && 
+              !msgObj.videoMessage && !msgObj.audioMessage && !msgObj.documentMessage) {
+            console.log(`[${tenantId}] Message ${idx} UNKNOWN FORMAT - Full keys: ${messageKeys.join(', ')}`);
+            messageKeys.forEach(key => {
+              if (msgObj[key] && typeof msgObj[key] === 'object') {
+                const subKeys = Object.keys(msgObj[key]);
+                console.log(`[${tenantId}] Message ${idx} [${key}] subkeys: ${subKeys.join(', ')}`);
+                if (msgObj[key].text) {
+                  console.log(`[${tenantId}] Message ${idx} [${key}.text]: "${String(msgObj[key].text).substring(0, 50)}"`);
+                }
+                if (msgObj[key].caption) {
+                  console.log(`[${tenantId}] Message ${idx} [${key}.caption]: "${String(msgObj[key].caption).substring(0, 50)}"`);
+                }
               }
-              if (msgObj[key].caption) {
-                console.log(`[${tenantId}] Message ${idx} [${key}.caption]: "${String(msgObj[key].caption).substring(0, 50)}"`);
-              }
-            }
+            });
+          }
+        });
+        
+        const incomingMessages = messages.filter(msg => !msg.key.fromMe);
+        
+        if (incomingMessages.length > 0) {
+          incomingMessages.forEach((msg, idx) => {
+            const ourUserId = sock?.user?.id;
+            const remoteJid = msg.key?.remoteJid;
+            const fromMe = msg.key?.fromMe;
+            const participant = msg.key?.participant;
+            const pushName = msg.pushName;
+            
+            console.log(`[${tenantId}] 📨 Incoming ${idx}: remoteJid=${remoteJid}, fromMe=${fromMe}, participant=${participant || 'N/A'}, pushName=${pushName || 'N/A'}, ourUserId=${ourUserId}`);
           });
         }
-      });
-      
-      // Filter only incoming messages (fromMe=false)
-      // We trust fromMe flag from Baileys - overriding it is dangerous (can cause loops)
-      // If there's an issue with fromMe, the diagnostic logs below will help identify it
-      const incomingMessages = messages.filter(msg => !msg.key.fromMe);
-      
-      // 🔍 DIAGNOSTIC: Log details for troubleshooting (only in debug scenarios)
-      // TODO: Consider adding LOG_LEVEL env var to control this in production
-      if (incomingMessages.length > 0) {
-        incomingMessages.forEach((msg, idx) => {
-          const ourUserId = sock?.user?.id;
-          const remoteJid = msg.key?.remoteJid;
-          const fromMe = msg.key?.fromMe;
-          const participant = msg.key?.participant;
-          const pushName = msg.pushName;
-          
-          // Log summary on one line to reduce log pollution
-          console.log(`[${tenantId}] 📨 Incoming ${idx}: remoteJid=${remoteJid}, fromMe=${fromMe}, participant=${participant || 'N/A'}, pushName=${pushName || 'N/A'}, ourUserId=${ourUserId}`);
-        });
+        
+        if (incomingMessages.length === 0) {
+          console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);
+          return;
+        }
+        
+        console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected - forwarding to Flask`);
+        
+        const filteredPayload = {
+          ...payload,
+          messages: incomingMessages
+        };
+        
+        const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
+          { tenantId, payload: filteredPayload },
+          { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
+        );
+        console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
+      } catch (e) { 
+        console.error(`[${tenantId}] ❌ [Webhook→Flask] failed:`, e?.message || e);
+        if (e.response) {
+          console.error(`[${tenantId}] Flask response:`, e.response.status, e.response.data);
+        }
       }
-      
-      if (incomingMessages.length === 0) {
-        console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);
-        return;
-      }
-      
-      console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected (from customer) - forwarding to Flask`);
-      
-      // שלח רק הודעות נכנסות (לא הודעות שהבוט שלח)
-      const filteredPayload = {
-        ...payload,
-        messages: incomingMessages
-      };
-      
-      const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
-        { tenantId, payload: filteredPayload },
-        { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
-      );
-      console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
-    } catch (e) { 
-      console.error(`[${tenantId}] ❌ [Webhook→Flask] failed:`, e?.message || e);
-      if (e.response) {
-        console.error(`[${tenantId}] Flask response:`, e.response.status, e.response.data);
-      }
+    });
+
+    // 🔥 ANDROID FIX: Release starting lock when session fully initialized
+    // Do this AFTER all event handlers are registered
+    startingLocks.delete(tenantId);
+    console.log(`[${tenantId}] 🔓 Released starting lock - session initialized`);
+
+    return s;
+  } catch (error) {
+    // Clean up on error
+    console.error(`[${tenantId}] ❌ startSession failed:`, error);
+    sessions.delete(tenantId);
+    startingLocks.delete(tenantId);
+    qrLocks.delete(tenantId);
+    
+    if (rejectPromise) {
+      rejectPromise(error);
     }
-  });
-
-  // 🔥 FIX #4: Release starting lock when session fully initialized
-  startingLocks.delete(tenantId);
-  console.log(`[${tenantId}] 🔓 Released starting lock - session initialized`);
-
-  return s;
+    throw error;
+  }
 }
 
 async function resetSession(tenantId) {
