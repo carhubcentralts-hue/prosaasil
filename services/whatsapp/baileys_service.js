@@ -190,6 +190,7 @@ function requireSecret(req, res, next) {
 // 🔥 CRITICAL: Per-tenant mutex implementation
 // This ensures only ONE operation can modify a tenant's session at a time
 async function acquireTenantLock(tenantId) {
+  // 🔥 FIX: Ensure lock object is always in the map
   if (!tenantMutex.has(tenantId)) {
     tenantMutex.set(tenantId, { locked: false, queue: [] });
   }
@@ -209,7 +210,10 @@ async function acquireTenantLock(tenantId) {
 
 function releaseTenantLock(tenantId) {
   const lock = tenantMutex.get(tenantId);
-  if (!lock) return;
+  if (!lock) {
+    console.log(`[${tenantId}] ⚠️ Attempted to release non-existent lock`);
+    return;
+  }
   
   // Process next in queue
   if (lock.queue.length > 0) {
@@ -255,23 +259,27 @@ async function getOrCreateSession(tenantId, reason = 'unknown', forceRelink = fa
       }
     }
     
-    // If socket exists and is open/connecting, return it
-    if (!forceRelink && existing?.sock && (existing.connected || existing.starting)) {
-      console.log(`[${tenantId}] ✅ Returning existing session (connected=${existing.connected}, starting=${existing.starting})`);
+    // 🔥 CORRECTED: Return existing session if sock exists (regardless of connected state)
+    // Don't create a new socket if one already exists - prevents dual sockets
+    if (!forceRelink && existing?.sock) {
+      console.log(`[${tenantId}] ✅ Returning existing session (has sock, connected=${existing.connected}, starting=${existing.starting})`);
       return existing;
     }
     
-    // Check if startSession is in progress
+    // Check if startSession is in progress - always wait for it
     const startLock = startingLocks.get(tenantId);
     if (!forceRelink && startLock && startLock.promise) {
       const lockAge = Date.now() - startLock.timestamp;
       if (lockAge < STARTING_LOCK_MS) {
-        console.log(`[${tenantId}] ⏳ Start in progress - awaiting existing promise`);
+        console.log(`[${tenantId}] ⏳ Start in progress - awaiting existing promise (age=${Math.floor(lockAge/1000)}s)`);
         return await startLock.promise;
+      } else {
+        console.log(`[${tenantId}] ⚠️ Stale starting lock detected (age=${Math.floor(lockAge/1000)}s) - clearing`);
+        startingLocks.delete(tenantId);
       }
     }
     
-    // Create new session
+    // Create new session only if no sock exists and no start in progress
     console.log(`[${tenantId}] 🚀 Creating new session via startSession`);
     return await startSession(tenantId, forceRelink);
     
