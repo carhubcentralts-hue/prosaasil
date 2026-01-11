@@ -760,13 +760,27 @@ async function startSession(tenantId, forceRelink = false) {
 
     // 🔥 ANDROID FIX C: Mutex for BOTH creds and keys operations
     // This prevents concurrent writes that corrupt auth state
+    // Note: Using busy-wait is acceptable here because:
+    // - Lock durations are very short (auth writes are fast)
+    // - Concurrent auth operations are rare
+    // - 100ms interval prevents CPU spinning
+    // - Max timeout prevents infinite loops
     let credsLock = false;
+    const MAX_LOCK_WAIT_MS = 30000; // 30 seconds max wait
+    
+    async function waitForLock() {
+      const startTime = Date.now();
+      while (credsLock || s.keysLock) {
+        if (Date.now() - startTime > MAX_LOCK_WAIT_MS) {
+          throw new Error('Lock wait timeout - possible deadlock');
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     
     sock.ev.on('creds.update', async () => {
       // Wait for any ongoing save to complete
-      while (credsLock || s.keysLock) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+      await waitForLock();
       
       credsLock = true;
       try {
@@ -787,9 +801,7 @@ async function startSession(tenantId, forceRelink = false) {
     
     if (state.keys && originalKeysSet) {
       state.keys.set = async function(...args) {
-        while (credsLock || s.keysLock) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        await waitForLock();
         s.keysLock = true;
         try {
           return await originalKeysSet.apply(this, args);
@@ -801,9 +813,7 @@ async function startSession(tenantId, forceRelink = false) {
     
     if (state.keys && originalKeysGet) {
       state.keys.get = async function(...args) {
-        while (credsLock || s.keysLock) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        await waitForLock();
         s.keysLock = true;
         try {
           return await originalKeysGet.apply(this, args);
@@ -1009,7 +1019,9 @@ async function startSession(tenantId, forceRelink = false) {
             
             setTimeout(() => {
               console.log(`[SOCK_CREATE] tenant=${tenantId}, ts=${new Date().toISOString()}, reason=restart_required`);
-              startSession(tenantId);
+              startSession(tenantId).catch(err => {
+                console.error(`[WA-ERROR] ${tenantId}: restart_required reconnect failed:`, err.message);
+              });
             }, 5000);
             
             if (rejectPromise) {
