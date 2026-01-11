@@ -67,6 +67,7 @@ interface WhatsAppStatus {
   configured: boolean;
   hasQR?: boolean;
   qr_required?: boolean;
+  canSend?: boolean;  // 🔥 NEW: Separate send capability from connection status
   session_age?: number;
   session_age_human?: string;
   last_message_ts?: string;
@@ -794,8 +795,14 @@ export function WhatsAppPage() {
                   className="mr-2"
                   data-testid="status-connection"
                 >
-                  {whatsappStatus.connected ? "מחובר" : "לא מחובר"}
+                  {whatsappStatus.connected ? "מחובר ✅" : "לא מחובר"}
                 </Badge>
+                {/* 🔥 NEW: Show intermediate state when connected but not yet verified sending */}
+                {whatsappStatus.connected && !whatsappStatus.canSend && (
+                  <span className="text-xs text-amber-600">
+                    (ממתין לשליחה ראשונה לאימות)
+                  </span>
+                )}
               </p>
               <p className="text-sm text-slate-600 mt-1">
                 <strong>ספק נוכחי:</strong> {providerInfo?.provider || whatsappStatus.provider}
@@ -930,7 +937,13 @@ export function WhatsAppPage() {
           <div className="space-y-4">
             <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
               <p className="text-sm text-slate-700">
-                <strong>מצב:</strong> {whatsappStatus.connected ? 'מחובר ופעיל' : 'לא מחובר'}
+                <strong>מצב:</strong> {whatsappStatus.connected ? 'מחובר ופעיל ✅' : 'לא מחובר'}
+                {/* 🔥 NEW: Show intermediate state for bot status */}
+                {whatsappStatus.connected && !whatsappStatus.canSend && (
+                  <span className="text-xs text-amber-600 block mt-1">
+                    (ממתין לשליחה ראשונה לאימות שליחה)
+                  </span>
+                )}
               </p>
               <p className="text-sm text-slate-600 mt-1">
                 <strong>ספק:</strong> {whatsappStatus.provider}
@@ -1441,7 +1454,13 @@ export function WhatsAppPage() {
               
               <div className="p-3 bg-blue-50 rounded-lg">
                 <p className="text-sm text-blue-800">
-                  <strong>סטטוס:</strong> {whatsappStatus.connected ? "מחובר" : "לא מחובר"}
+                  <strong>סטטוס:</strong> {whatsappStatus.connected ? "מחובר ✅" : "לא מחובר"}
+                  {/* 🔥 NEW: Show intermediate state in settings panel */}
+                  {whatsappStatus.connected && !whatsappStatus.canSend && (
+                    <span className="text-xs text-amber-700 block mt-1">
+                      (ממתין לשליחה ראשונה לאימות)
+                    </span>
+                  )}
                 </p>
                 <p className="text-sm text-blue-800 mt-1">
                   <strong>ספק נוכחי:</strong> {whatsappStatus.provider}
