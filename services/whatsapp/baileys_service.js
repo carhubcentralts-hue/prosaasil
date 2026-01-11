@@ -289,6 +289,32 @@ async function getOrCreateSession(tenantId, reason = 'unknown', forceRelink = fa
 }
 
 /** REST API (always the same app instance) */
+/**
+ * POST /whatsapp/:tenantId/start
+ * 
+ * Start or restart WhatsApp session for a tenant.
+ * 
+ * Parameters:
+ *   - forceRelink (optional, boolean): If true, clears all existing session data and auth files
+ *                                      for a completely fresh start. Use this when:
+ *                                      - Android device won't connect after scanning QR
+ *                                      - Getting 401/403/440 errors
+ *                                      - Switching between Android and iPhone
+ *                                      - WhatsApp says "Phone not connected"
+ * 
+ * Usage:
+ *   POST /whatsapp/business_4/start
+ *   Body: {"forceRelink": true}
+ *   
+ *   OR
+ *   
+ *   POST /whatsapp/business_4/start?forceRelink=true
+ * 
+ * Returns:
+ *   200 OK: {"ok": true, "forceRelink": false, "state": "started"}
+ *   409 Conflict: {"error": "start_in_progress"} - Another start is already in progress
+ *   500 Error: {"error": "start_failed", "message": "..."} - Failed to start
+ */
 app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
   const tenantId = req.params.tenantId;
   const forceRelink = req.body?.forceRelink || req.query?.forceRelink || false;
