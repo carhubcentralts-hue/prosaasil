@@ -11,7 +11,7 @@ import os
 import re
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from threading import Thread
 from sqlalchemy import func
@@ -1631,15 +1631,12 @@ def get_active_bulk_run():
         # 2. created within last 30 minutes (prevents ancient stuck runs)
         # 3. Has actual activity (queued > 0 OR in_progress > 0)
         
-        from datetime import datetime, timedelta
         cutoff_time = datetime.utcnow() - timedelta(minutes=30)
         
-        active_run = OutboundCallRun.query.filter_by(
-            business_id=tenant_id,
-            status='running'
-        ).filter(
-            OutboundCallRun.created_at >= cutoff_time
-        ).filter(
+        active_run = OutboundCallRun.query.filter(
+            OutboundCallRun.business_id == tenant_id,
+            OutboundCallRun.status == 'running',
+            OutboundCallRun.created_at >= cutoff_time,
             db.or_(
                 OutboundCallRun.queued_count > 0,
                 OutboundCallRun.in_progress_count > 0
@@ -2348,8 +2345,6 @@ def cleanup_stuck_dialing_jobs():
     (either during app startup or from a request handler)
     """
     from server.models_sql import OutboundCallJob
-    from datetime import datetime, timedelta
-    from sqlalchemy import text
     
     # 🔥 FIX: Don't call get_process_app() - assume we're already in app context
     # This prevents circular dependency when called from create_app()
@@ -2409,8 +2404,6 @@ def cleanup_stuck_runs():
     (typically during app startup or from a periodic cleanup task)
     """
     from server.models_sql import OutboundCallRun
-    from datetime import datetime, timedelta
-    from sqlalchemy import text
     
     try:
         # Mark runs as completed if they're stuck (old and inactive)
