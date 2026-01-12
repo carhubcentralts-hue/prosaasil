@@ -43,7 +43,7 @@ REALTIME_TEMPERATURE_DEFAULT = 0.6
 _temperature_clamp_warned = False
 
 
-def _clamp_temperature(requested_temp: float) -> float:
+def _clamp_temperature(requested_temp: Optional[float]) -> float:
     """
     Clamp temperature to OpenAI Realtime API minimum (0.6).
     
@@ -51,7 +51,7 @@ def _clamp_temperature(requested_temp: float) -> float:
     which accepts 0.0. This function ensures we never send an invalid temperature.
     
     Args:
-        requested_temp: The desired temperature value
+        requested_temp: The desired temperature value (None for default)
     
     Returns:
         Clamped temperature value (>= 0.6)
@@ -550,7 +550,7 @@ class OpenAIRealtimeClient:
         vad_threshold: float = None,  # 🔥 BUILD 341: Default from config
         silence_duration_ms: int = None,  # 🔥 BUILD 341: Default from config
         prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
-        temperature: float = None,  # 🔥 CRITICAL FIX: Defaults to 0.6 (OpenAI Realtime API minimum)
+        temperature: Optional[float] = None,  # 🔥 CRITICAL FIX: Defaults to 0.6 (OpenAI Realtime API minimum)
         max_tokens: int = 300,
         transcription_prompt: str = "",  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
         tools: list = None,  # 🔥 NEW: Realtime API tools (for appointments)

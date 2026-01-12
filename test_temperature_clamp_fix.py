@@ -75,9 +75,14 @@ def test_no_temperature_zero_in_realtime_code():
     print("\n🔍 Test 4: Verify no temperature=0.0 in Realtime code")
     
     import re
+    from pathlib import Path
+    
+    # Get the project root directory (where this test file is located)
+    project_root = Path(__file__).parent
     
     # Check openai_realtime_client.py
-    with open('server/services/openai_realtime_client.py', 'r') as f:
+    realtime_client_path = project_root / 'server' / 'services' / 'openai_realtime_client.py'
+    with open(realtime_client_path, 'r') as f:
         content = f.read()
     
     # Look for problematic patterns (excluding comments and the clamping logic itself)
@@ -108,7 +113,8 @@ def test_no_temperature_zero_in_realtime_code():
         print("  ✅ No problematic temperature=0.0 found in openai_realtime_client.py")
     
     # Check media_ws_ai.py for configure_session calls
-    with open('server/media_ws_ai.py', 'r') as f:
+    media_ws_path = project_root / 'server' / 'media_ws_ai.py'
+    with open(media_ws_path, 'r') as f:
         content = f.read()
     
     # Find configure_session calls with temperature parameter
