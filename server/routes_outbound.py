@@ -1549,9 +1549,8 @@ def stop_queue():
         if not run:
             return jsonify({"error": "הרצה לא נמצאה"}), 404
         
-        # 🔥 FIX: Mark as STOPPED (not just stopping) and set stopped_at
+        # 🔥 FIX: Mark as STOPPED and set completed_at
         run.status = "stopped"
-        run.stopped_at = datetime.utcnow()
         run.completed_at = datetime.utcnow()
         
         # 🔥 FIX: Cancel all queued jobs (not started yet)
@@ -1626,13 +1625,25 @@ def get_active_bulk_run():
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
-        # 🔥 FIX: Find active run for this business
-        # Only check for 'queued' and 'running' (NOT 'stopping' or 'stopped')
-        # This ensures UI shows active=false immediately after stop button
+        # 🔥 FIX: Proper "active run" definition per user requirements
+        # A run is active ONLY if:
+        # 1. status = 'running' (not queued/stopped/completed)
+        # 2. created within last 30 minutes (prevents ancient stuck runs)
+        # 3. Has actual activity (queued > 0 OR in_progress > 0)
+        
+        from datetime import datetime, timedelta
+        cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+        
         active_run = OutboundCallRun.query.filter_by(
-            business_id=tenant_id
+            business_id=tenant_id,
+            status='running'
         ).filter(
-            OutboundCallRun.status.in_(['queued', 'running'])
+            OutboundCallRun.created_at >= cutoff_time
+        ).filter(
+            db.or_(
+                OutboundCallRun.queued_count > 0,
+                OutboundCallRun.in_progress_count > 0
+            )
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not active_run:
@@ -2056,8 +2067,9 @@ def process_bulk_call_run(run_id: int):
     
     with app.app_context():
         try:
-            # 🔒 CLEANUP: Reset any stuck jobs from previous run failures
+            # 🔒 CLEANUP: Reset any stuck jobs and runs from previous failures
             cleanup_stuck_dialing_jobs()
+            cleanup_stuck_runs()
             
             run = OutboundCallRun.query.get(run_id)
             if not run:
@@ -2375,6 +2387,56 @@ def cleanup_stuck_dialing_jobs():
         
     except Exception as e:
         log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
+        db.session.rollback()
+        return 0
+
+
+def cleanup_stuck_runs():
+    """
+    🔥 CRITICAL: Cleanup runs stuck in 'running' status after server restart
+    
+    This prevents "ghost active queue" bug where old runs from before a crash/restart
+    continue showing as active even though no actual processing is happening.
+    
+    A run is considered stuck if:
+    - status = 'running' 
+    - updated_at > 30 minutes ago (no recent activity)
+    - OR queued_count = 0 AND in_progress_count = 0 (nothing actually running)
+    
+    These runs are marked as 'completed' to prevent showing false "active" status.
+    
+    NOTE: This function assumes it's called from within an app context
+    (typically during app startup or from a periodic cleanup task)
+    """
+    from server.models_sql import OutboundCallRun
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+    
+    try:
+        # Mark runs as completed if they're stuck (old and inactive)
+        cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+        
+        result = db.session.execute(text("""
+            UPDATE outbound_call_runs 
+            SET status='completed',
+                completed_at=NOW()
+            WHERE status='running'
+                AND (
+                    updated_at < :cutoff_time
+                    OR (queued_count = 0 AND in_progress_count = 0)
+                )
+        """), {"cutoff_time": cutoff_time})
+        
+        db.session.commit()
+        
+        cleaned_count = result.rowcount
+        if cleaned_count > 0:
+            log.info(f"[CLEANUP] ✅ Marked {cleaned_count} stuck runs as completed (ghost active queue cleanup)")
+        
+        return cleaned_count
+        
+    except Exception as e:
+        log.error(f"[CLEANUP] Error cleaning up stuck runs: {e}")
         db.session.rollback()
         return 0
 

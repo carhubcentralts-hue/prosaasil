@@ -523,13 +523,15 @@ def create_app():
         from server.routes_outbound import outbound_bp, cleanup_stuck_dialing_jobs
         app.register_blueprint(outbound_bp)
         
-        # 🔒 CRITICAL: Cleanup stuck jobs on startup to prevent blocking
+        # 🔒 CRITICAL: Cleanup stuck jobs and runs on startup to prevent blocking
         # This runs immediately after blueprint registration
-        # Must run in app context since cleanup_stuck_dialing_jobs expects it
+        # Must run in app context since cleanup functions expect it
         try:
-            logger.info("[STARTUP] Running cleanup_stuck_dialing_jobs on startup...")
+            logger.info("[STARTUP] Running cleanup on startup...")
             with app.app_context():
+                from server.routes_outbound import cleanup_stuck_runs
                 cleanup_stuck_dialing_jobs()
+                cleanup_stuck_runs()  # 🔥 NEW: Also cleanup stuck runs (ghost active queue fix)
             logger.info("[STARTUP] ✅ Cleanup complete")
         except Exception as e:
             logger.error(f"[STARTUP] ⚠️ Cleanup failed: {e}")
