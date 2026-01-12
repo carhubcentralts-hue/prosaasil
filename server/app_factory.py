@@ -775,6 +775,10 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
+    # 🔥 CRITICAL FIX: Global flag to ensure migrations complete before warmup
+    # Prevents "InFailedSqlTransaction" errors when warmup queries fail
+    _migrations_complete = threading.Event()
+    
     # ⚡ DEPLOYMENT FIX: Run heavy initialization in background
     # This prevents deployment timeout while still ensuring DB is ready
     # SKIP if in migration mode to prevent hanging
@@ -797,6 +801,11 @@ def create_app():
                         from server.environment_validation import validate_database_schema
                         from server.db import db
                         validate_database_schema(db)
+                        
+                        # 🔥 CRITICAL FIX: Signal that migrations are complete
+                        # This prevents warmup from running before migrations finish
+                        _migrations_complete.set()
+                        logger.info("🔒 Migrations complete - warmup can now proceed")
                         
                         # Migrate legacy admin roles to system_admin
                         try:
@@ -840,14 +849,23 @@ def create_app():
                                     faq_cache.invalidate(bid)
                         except Exception:
                             pass
-                except Exception:
+                except Exception as e:
+                    # 🔥 CRITICAL FIX: Even on migration failure, signal complete
+                    # This prevents warmup from hanging forever
+                    logger.error(f"Migration failed: {e}")
+                    _migrations_complete.set()
                     pass
             else:
                 # Development mode - quick table creation
                 try:
                     with app.app_context():
                         db.create_all()
+                        # 🔥 CRITICAL FIX: Signal migrations complete in dev mode too
+                        _migrations_complete.set()
+                        logger.info("🔒 Dev mode DB setup complete - warmup can now proceed")
                 except Exception:
+                    # Even on failure, allow warmup to proceed
+                    _migrations_complete.set()
                     pass
             
             # Shared initialization
@@ -944,15 +962,28 @@ def create_app():
             from server.agent_tools.agent_factory import warmup_all_agents
             
             def warmup_with_context():
-                # 🔥 FIX: Add delay to ensure database is fully initialized before warmup
-                # This prevents OperationalError: connection failed during startup
+                # 🔥 CRITICAL FIX: Wait for migrations to complete before starting warmup
+                # This prevents "InFailedSqlTransaction" errors when warmup queries fail
+                # due to missing columns (e.g., business.company_id)
                 import time
-                time.sleep(2.0)  # Wait 2 seconds for DB connection pool to initialize
+                
+                # Wait up to 60 seconds for migrations to complete
+                logger.info("🔥 Warmup waiting for migrations to complete...")
+                migrations_ready = _migrations_complete.wait(timeout=60.0)
+                
+                if not migrations_ready:
+                    logger.warning("⚠️ Warmup timeout waiting for migrations - proceeding anyway")
+                else:
+                    logger.info("✅ Migrations complete - starting warmup")
+                
+                # Additional 1 second delay for DB connection pool to settle
+                time.sleep(1.0)
                 
                 with app.app_context():
                     try:
                         warmup_all_agents()
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Warmup failed: {e}")
                         pass
             
             import threading

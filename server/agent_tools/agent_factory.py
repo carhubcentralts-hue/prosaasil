@@ -1567,6 +1567,7 @@ def warmup_all_agents():
     """
     try:
         from server.models_sql import Business, db
+        from sqlalchemy.exc import SQLAlchemyError
         from datetime import datetime, timedelta
         import time
         
@@ -1590,7 +1591,9 @@ def warmup_all_agents():
                 active_businesses = Business.query.order_by(Business.id.desc()).limit(10).all()
                 break  # Success - exit retry loop
                 
-            except Exception as db_error:
+            except SQLAlchemyError as db_error:
+                # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                db.session.rollback()
                 if attempt < max_retries - 1:
                     print(f"⏳ Database not ready (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
                     logger.warning(f"Database not ready (attempt {attempt + 1}/{max_retries}): {db_error}")
@@ -1598,7 +1601,9 @@ def warmup_all_agents():
                     retry_delay = min(retry_delay * 2, 5.0)  # Exponential backoff with 5s cap
                 else:
                     # Final attempt failed
-                    raise db_error
+                    print(f"❌ Database connection failed after {max_retries} attempts")
+                    logger.error(f"Database connection failed after {max_retries} attempts: {db_error}")
+                    return
         
         if not active_businesses:
             print("⚠️  No active businesses found for warmup")
