@@ -68,7 +68,7 @@ export function getPermissionStatus(): NotificationPermission | 'unsupported' {
 
 // Check if running on iOS (needs special handling)
 export function isIOS(): boolean {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
 
 // Check if running as PWA (standalone mode)

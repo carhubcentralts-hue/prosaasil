@@ -229,8 +229,8 @@ def send_test_push():
         )
         
         # Dispatch synchronously to get result
-        from server.services.notifications.dispatcher import _do_dispatch
-        result = _do_dispatch(user_id, business_id, payload)
+        from server.services.notifications.dispatcher import dispatch_push_sync
+        result = dispatch_push_sync(user_id, business_id, payload)
         
         return jsonify({
             "success": result.successful > 0,

@@ -7,6 +7,7 @@ Environment variables required:
 - VAPID_PRIVATE_KEY: Base64-encoded private key  
 - VAPID_SUBJECT: Contact email or URL (e.g., mailto:admin@example.com)
 """
+import json
 import os
 import logging
 from typing import Optional, Dict, Any
@@ -112,8 +113,6 @@ class WebPushSender:
             }
         
         try:
-            import json
-            
             # Build subscription info dict
             sub_info = {
                 "endpoint": subscription_info.get("endpoint"),

@@ -196,6 +196,14 @@ def dispatch_push_for_notification(
         entity_id: Optional related entity ID
         tag: Optional tag for deduplication
     """
+    # Generate tag for deduplication
+    if tag:
+        notification_tag = tag
+    elif entity_id:
+        notification_tag = f"{notification_type}_{entity_id}"
+    else:
+        notification_tag = notification_type
+    
     payload = PushPayload(
         title=title,
         body=body,
@@ -203,10 +211,30 @@ def dispatch_push_for_notification(
         notification_type=notification_type,
         entity_id=entity_id,
         business_id=business_id,
-        tag=tag or f"{notification_type}_{entity_id}" if entity_id else notification_type
+        tag=notification_tag
     )
     
     dispatch_push_to_user(user_id, business_id, payload, background=True)
+
+
+def dispatch_push_sync(
+    user_id: int,
+    business_id: int,
+    payload: PushPayload
+) -> DispatchResult:
+    """
+    Public synchronous dispatch method.
+    Use this when you need to wait for the result (e.g., test notifications).
+    
+    Args:
+        user_id: Target user ID
+        business_id: Business context
+        payload: PushPayload with notification content
+        
+    Returns:
+        DispatchResult with counts of successful/failed dispatches
+    """
+    return _dispatch_push_sync(user_id, business_id, payload)
 
 
 def dispatch_push_to_business_owners(
