@@ -274,7 +274,7 @@ body, html {
     .responsive-table td::before {
       content: attr(data-label);
       font-weight: 600;
-      margin-left: 1rem;
+      margin-inline-start: 1rem;
     }
   }
 }

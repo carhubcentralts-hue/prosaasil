@@ -194,9 +194,8 @@ export function MainLayout() {
 
   // ✅ Close mobile drawer on route change
   useEffect(() => {
-    if (sidebarOpen) {
-      setSidebarOpen(false);
-    }
+    // Only close if currently open - using functional update to avoid dependency on sidebarOpen
+    setSidebarOpen(false);
   }, [location.pathname]); // Close drawer when route changes
 
   // Filter menu items based on user role and impersonation state
@@ -619,7 +618,7 @@ export function MainLayout() {
               >
                 <item.icon className="h-5 w-5 mb-1" />
                 <span className="text-[10px] font-medium leading-tight text-center max-w-[64px] truncate">
-                  {item.label.length > 8 ? item.label.substring(0, 7) + '…' : item.label}
+                  {item.label}
                 </span>
               </button>
             );

@@ -10,6 +10,10 @@ import { LoginPage } from '../pages/Auth/LoginPage';
 import { ForgotPasswordPage } from '../pages/Auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/Auth/ResetPasswordPage';
 
+// Legal Pages (kept eager - needed for app store compliance)
+import { PrivacyPolicyPage } from '../pages/Legal/PrivacyPolicyPage';
+import { TermsOfServicePage } from '../pages/Legal/TermsOfServicePage';
+
 // ⚡ BUILD 168.2: Lazy loading for heavy pages - faster initial load
 const AdminHomePage = lazy(() => import('../pages/Admin/AdminHomePage').then(m => ({ default: m.AdminHomePage })));
 const BusinessHomePage = lazy(() => import('../pages/Business/BusinessHomePage').then(m => ({ default: m.BusinessHomePage })));
@@ -66,6 +70,10 @@ export function AppRoutes() {
       <Route path="/forgot" element={<ForgotPasswordPage />} />
       <Route path="/reset" element={<ResetPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      
+      {/* Legal Pages - Public (required for App Store/Play Store compliance) */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/terms" element={<TermsOfServicePage />} />
 
       {/* Protected Routes */}
       <Route
