@@ -11568,7 +11568,7 @@ class MediaStreamHandler:
                         file=audio_file,
                         language="he",  # חייב עברית
                         prompt="זוהי שיחת טלפון בעברית. תמלל רק דיבור ברור. אם אין דיבור ברור - החזר ריק.",  # הנחיה חמורה!
-                        temperature=0.0  # 🔥 FIX: Temperature 0.0 לדיוק מקסימלי
+                        temperature=0.0  # 🔥 FIX: Temperature 0.0 for maximum accuracy
                     )
             
             import os

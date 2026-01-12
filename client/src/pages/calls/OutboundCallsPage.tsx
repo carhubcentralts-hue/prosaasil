@@ -804,7 +804,7 @@ export function OutboundCallsPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/outbound/recent-calls'] });
       
       // 🔥 FIX: Set counts to 0 immediately (optimistic update) to prevent blink
-      queryClient.setQueryData(['/api/outbound_calls/counts'], (old: any) => {
+      queryClient.setQueryData(['/api/outbound_calls/counts'], (old: CallCounts | undefined) => {
         if (!old) return old;
         return {
           ...old,
