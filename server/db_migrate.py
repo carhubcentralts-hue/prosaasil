@@ -2391,6 +2391,34 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ email_settings table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 64: Add company_id field to Business table
+        # 🏢 PURPOSE: Store Israeli company registration number (ח.פ) 
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 64: Adding company_id field to Business table")
+        
+        if check_table_exists('business'):
+            try:
+                # Add company_id column if missing
+                if not check_column_exists('business', 'company_id'):
+                    checkpoint("  → Adding company_id to business table...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN company_id VARCHAR(50)
+                    """))
+                    checkpoint("  ✅ business.company_id added")
+                    migrations_applied.append('add_business_company_id')
+                else:
+                    checkpoint("  ✅ business.company_id already exists")
+                
+                checkpoint("✅ Migration 64 completed - company_id field added to Business")
+            except Exception as e:
+                log.error(f"❌ Migration 64 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ business table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

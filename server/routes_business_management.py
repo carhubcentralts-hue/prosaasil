@@ -719,6 +719,7 @@ def get_current_business():
         return jsonify({
             "id": business.id,
             "name": business.name,
+            "company_id": getattr(business, 'company_id', None),  # ✅ Israeli company registration number
             "phone_number": getattr(settings, 'phone_number', None) or business.phone_e164 if settings else business.phone_e164,
             "email": getattr(settings, 'email', None) or f"office@{business.name.lower().replace(' ', '-')}.co.il" if settings else f"office@{business.name.lower().replace(' ', '-')}.co.il",
             "address": getattr(settings, 'address', "") if settings else "",
@@ -792,6 +793,21 @@ def update_current_business_settings():
         # Update business name if provided
         if 'business_name' in data:
             business.name = data['business_name']
+        
+        # Update company_id if provided
+        if 'company_id' in data:
+            # Clean and validate company_id (8-9 digits, optional)
+            company_id_input = str(data['company_id']).strip() if data['company_id'] else ''
+            if company_id_input:
+                # Remove non-digits
+                company_id_cleaned = ''.join(c for c in company_id_input if c.isdigit())
+                # Validate length (8-9 digits for Israeli company ID)
+                if len(company_id_cleaned) >= 8 and len(company_id_cleaned) <= 9:
+                    business.company_id = company_id_cleaned
+                else:
+                    return jsonify({"error": "ח.פ חייב להכיל 8-9 ספרות"}), 400
+            else:
+                business.company_id = None  # Allow clearing the field
             
         # Get or create settings
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()

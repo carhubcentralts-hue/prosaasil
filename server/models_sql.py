@@ -32,6 +32,8 @@ class Business(db.Model):
     webhook_secret = db.Column(db.String(128), unique=True, nullable=True)  # Format: wh_n8n_<random_hex>
     # Voice Library - per-business voice selection for Realtime phone calls
     voice_id = db.Column(db.String(32), nullable=False, default="ash")  # OpenAI Realtime voice (alloy, ash, etc.)
+    # Company registration info
+    company_id = db.Column(db.String(50), nullable=True)  # Israeli company registration number (ח.פ)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
