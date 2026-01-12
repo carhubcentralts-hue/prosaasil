@@ -147,7 +147,7 @@ async def extract_appointment_request(conversation_history: list, business_id: i
                 {"role": "user", "content": f"שיחה:\n{conversation_text}"}
             ],
             response_format={"type": "json_object"},
-            temperature=0.1,
+            temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic appointment extraction
             max_tokens=150  # Reduced from 200
         )
         

@@ -237,7 +237,7 @@ Summary: 80-150 words, factual only."""
                 {"role": "user", "content": prompt}
             ],
             max_tokens=400,
-            temperature=0.2
+            temperature=0.0  # 🔥 FIX: Temperature 0.0 for deterministic summaries
         )
         
         summary = response.choices[0].message.content
@@ -338,7 +338,7 @@ def extract_lead_info(transcription: str, business_type: Optional[str] = None) -
                 {"role": "user", "content": prompt}
             ],
             max_tokens=200,
-            temperature=0.1
+            temperature=0.0  # 🔥 FIX: Temperature 0.0 for deterministic classification
         )
         
         import json

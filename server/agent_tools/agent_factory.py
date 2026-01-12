@@ -62,7 +62,7 @@ _openai_client = OpenAIClient(
 AGENT_MODEL_SETTINGS = ModelSettings(
     # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
     # We'll pass the OpenAI client to Runner.run() instead
-    temperature=0.15,      # Very low temperature for consistent tool usage
+    temperature=0.0,       # 🔥 FIX: Temperature 0.0 for deterministic tool usage
     max_tokens=60,         # 🔥 CRITICAL: 60 tokens = ~15 words in Hebrew - prevents long responses & queue overflow!
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
@@ -1237,7 +1237,7 @@ Be friendly and professional."""
         # WhatsApp: 800 tokens (~200-250 Hebrew words) - allows full detailed responses without truncation
         if channel == "whatsapp":
             model_settings = ModelSettings(
-                temperature=0.15,
+                temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic responses
                 max_tokens=800,  # 🔥 WhatsApp: 800 tokens for complete responses without mid-sentence cuts
                 tool_choice="auto",
                 parallel_tool_calls=True

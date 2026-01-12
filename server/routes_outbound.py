@@ -11,7 +11,7 @@ import os
 import re
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from threading import Thread
 from sqlalchemy import func
@@ -1549,15 +1549,37 @@ def stop_queue():
         if not run:
             return jsonify({"error": "הרצה לא נמצאה"}), 404
         
-        # Mark as stopping (worker will check this before each call)
-        run.status = "stopping"
+        # 🔥 FIX: Mark as STOPPED and set completed_at
+        run.status = "stopped"
+        run.completed_at = datetime.utcnow()
+        
+        # 🔥 FIX: Cancel all queued jobs (not started yet)
+        # Use raw SQL for performance with large queues
+        cancelled_count = db.session.execute(text("""
+            UPDATE outbound_call_jobs 
+            SET status='cancelled',
+                error_message='Queue stopped by user',
+                completed_at=NOW()
+            WHERE run_id=:run_id 
+                AND status='queued'
+        """), {"run_id": run_id}).rowcount
+        
+        # 🔥 FIX: Update run counters to reflect reality
+        # Move queued jobs to failed count (they won't run)
+        run.failed_count += cancelled_count
+        run.queued_count = 0
+        
+        # Note: Jobs in 'calling' or 'dialing' state will complete naturally
+        # We don't forcefully terminate active calls
+        
         db.session.commit()
         
-        log.info(f"✅ Stopping queue run {run_id} (set to 'stopping' state)")
+        log.info(f"✅ Stopped queue run {run_id}: cancelled {cancelled_count} queued jobs")
         
         return jsonify({
             "success": True,
-            "message": "התור מופסק בהדרגה (שיחות פעילות יסתיימו)"
+            "message": f"התור נעצר ({cancelled_count} שיחות בוטלו, שיחות פעילות יסתיימו)",
+            "cancelled_jobs": cancelled_count
         })
         
     except Exception as e:
@@ -1603,12 +1625,22 @@ def get_active_bulk_run():
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
-        # Find active run for this business
-        # Check for multiple statuses: queued, running, stopping (not just running)
-        active_run = OutboundCallRun.query.filter_by(
-            business_id=tenant_id
-        ).filter(
-            OutboundCallRun.status.in_(['queued', 'running', 'stopping'])
+        # 🔥 FIX: Proper "active run" definition per user requirements
+        # A run is active ONLY if:
+        # 1. status = 'running' (not queued/stopped/completed)
+        # 2. created within last 30 minutes (prevents ancient stuck runs)
+        # 3. Has actual activity (queued > 0 OR in_progress > 0)
+        
+        cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+        
+        active_run = OutboundCallRun.query.filter(
+            OutboundCallRun.business_id == tenant_id,
+            OutboundCallRun.status == 'running',
+            OutboundCallRun.created_at >= cutoff_time,
+            db.or_(
+                OutboundCallRun.queued_count > 0,
+                OutboundCallRun.in_progress_count > 0
+            )
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not active_run:
@@ -2032,8 +2064,9 @@ def process_bulk_call_run(run_id: int):
     
     with app.app_context():
         try:
-            # 🔒 CLEANUP: Reset any stuck jobs from previous run failures
+            # 🔒 CLEANUP: Reset any stuck jobs and runs from previous failures
             cleanup_stuck_dialing_jobs()
+            cleanup_stuck_runs()
             
             run = OutboundCallRun.query.get(run_id)
             if not run:
@@ -2312,8 +2345,6 @@ def cleanup_stuck_dialing_jobs():
     (either during app startup or from a request handler)
     """
     from server.models_sql import OutboundCallJob
-    from datetime import datetime, timedelta
-    from sqlalchemy import text
     
     # 🔥 FIX: Don't call get_process_app() - assume we're already in app context
     # This prevents circular dependency when called from create_app()
@@ -2351,6 +2382,54 @@ def cleanup_stuck_dialing_jobs():
         
     except Exception as e:
         log.error(f"[CLEANUP] Error cleaning up stuck jobs: {e}")
+        db.session.rollback()
+        return 0
+
+
+def cleanup_stuck_runs():
+    """
+    🔥 CRITICAL: Cleanup runs stuck in 'running' status after server restart
+    
+    This prevents "ghost active queue" bug where old runs from before a crash/restart
+    continue showing as active even though no actual processing is happening.
+    
+    A run is considered stuck if:
+    - status = 'running' 
+    - updated_at > 30 minutes ago (no recent activity)
+    - OR queued_count = 0 AND in_progress_count = 0 (nothing actually running)
+    
+    These runs are marked as 'completed' to prevent showing false "active" status.
+    
+    NOTE: This function assumes it's called from within an app context
+    (typically during app startup or from a periodic cleanup task)
+    """
+    from server.models_sql import OutboundCallRun
+    
+    try:
+        # Mark runs as completed if they're stuck (old and inactive)
+        cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+        
+        result = db.session.execute(text("""
+            UPDATE outbound_call_runs 
+            SET status='completed',
+                completed_at=NOW()
+            WHERE status='running'
+                AND (
+                    updated_at < :cutoff_time
+                    OR (queued_count = 0 AND in_progress_count = 0)
+                )
+        """), {"cutoff_time": cutoff_time})
+        
+        db.session.commit()
+        
+        cleaned_count = result.rowcount
+        if cleaned_count > 0:
+            log.info(f"[CLEANUP] ✅ Marked {cleaned_count} stuck runs as completed (ghost active queue cleanup)")
+        
+        return cleaned_count
+        
+    except Exception as e:
+        log.error(f"[CLEANUP] Error cleaning up stuck runs: {e}")
         db.session.rollback()
         return 0
 

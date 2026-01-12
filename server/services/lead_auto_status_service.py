@@ -1157,7 +1157,7 @@ class LeadAutoStatusService:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Low temperature for consistent classification
+                temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic classification
                 max_tokens=20
             )
             
@@ -1405,7 +1405,7 @@ class LeadAutoStatusService:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
+                temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic responses
                 max_tokens=100
             )
             
