@@ -116,13 +116,21 @@ def warmup_services_async():
         try:
             from server.app_factory import get_process_app
             from server.agent_tools.agent_factory import get_or_create_agent
-            from server.models_sql import Business, BusinessSettings
+            from server.models_sql import Business, BusinessSettings, db
+            from sqlalchemy.exc import SQLAlchemyError
             
             # 🔥 ARCHITECT FIX: Need app context for database operations!
             app = get_process_app()
             with app.app_context():
                 # 🔥 MULTI-TENANT: Warmup ALL active businesses (up to 10 for reasonable startup time)
-                businesses = Business.query.filter_by(is_active=True).limit(10).all()
+                try:
+                    businesses = Business.query.filter_by(is_active=True).limit(10).all()
+                except SQLAlchemyError as db_error:
+                    # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                    db.session.rollback()
+                    print(f"    ❌ Database query failed during warmup: {db_error}")
+                    log.error(f"WARMUP_DB_ERR: {db_error}")
+                    businesses = []
                 
                 if not businesses:
                     print("    ⚠️ No active businesses to warm up")
@@ -142,7 +150,14 @@ def warmup_services_async():
                         for channel in ['calls', 'whatsapp']:
                             try:
                                 # Get prompt from database for THIS business
-                                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                                try:
+                                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                                except SQLAlchemyError as db_error:
+                                    # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                                    db.session.rollback()
+                                    log.warning(f"WARMUP_SETTINGS_ERR: business={business_id} - {db_error}")
+                                    settings = None
+                                    
                                 custom_instructions = ""  # Default empty string
                                 if settings and settings.ai_prompt:
                                     import json

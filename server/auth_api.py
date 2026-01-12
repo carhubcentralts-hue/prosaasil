@@ -93,7 +93,13 @@ def login():
             return jsonify({'success': False, 'error': 'Missing email or password'}), 400
         
         # Find user by email (fix field names to match DB schema)
-        user = User.query.filter_by(email=email, is_active=True).first()
+        try:
+            user = User.query.filter_by(email=email, is_active=True).first()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[AUTH] Database error during login query: {db_error}")
+            return jsonify({'success': False, 'error': 'Database error'}), 500
         
         if not user:
             print(f"❌ LOGIN: User not found for email={email}")
@@ -129,7 +135,13 @@ def login():
         # Get business info if exists
         business = None
         if user.business_id:
-            business = Business.query.get(user.business_id)
+            try:
+                business = Business.query.get(user.business_id)
+            except Exception as db_error:
+                # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                db.session.rollback()
+                logger.warning(f"[AUTH] Failed to load business {user.business_id}: {db_error}")
+                business = None
         
         # Prepare user response
         user_data = {
@@ -292,14 +304,27 @@ def refresh_token():
             return jsonify({'success': False, 'error': 'Invalid or expired refresh token'}), 401
         
         # Get user from database
-        user = User.query.get(refresh_token_obj.user_id)
+        try:
+            user = User.query.get(refresh_token_obj.user_id)
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[AUTH] Database error loading user: {db_error}")
+            return jsonify({'success': False, 'error': 'Database error'}), 500
+            
         if not user or not user.is_active:
             return jsonify({'success': False, 'error': 'User not found or inactive'}), 401
         
         # Get business info if exists
         business = None
         if user.business_id:
-            business = Business.query.get(user.business_id)
+            try:
+                business = Business.query.get(user.business_id)
+            except Exception as db_error:
+                # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                db.session.rollback()
+                logger.warning(f"[AUTH] Failed to load business {user.business_id}: {db_error}")
+                business = None
         
         # Prepare user response
         user_data = {
@@ -384,7 +409,13 @@ def get_current_user():
         # Get tenant info from business
         business = None
         if tenant_id:
-            business = Business.query.get(tenant_id)
+            try:
+                business = Business.query.get(tenant_id)
+            except Exception as db_error:
+                # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                db.session.rollback()
+                logger.warning(f"[AUTH] Failed to load business {tenant_id}: {db_error}")
+                business = None
         
         # Prepare tenant response (required by frontend)
         # 🔥 HARDENING: No fallback to 1 - tenant_id can be None for system_admin
@@ -423,7 +454,14 @@ def get_current_user_legacy():
         business = None
         if user.get('business_id'):
             from server.models_sql import Business
-            business_obj = Business.query.get(user['business_id'])
+            try:
+                business_obj = Business.query.get(user['business_id'])
+            except Exception as db_error:
+                # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                db.session.rollback()
+                logger.warning(f"[AUTH] Failed to load business {user.get('business_id')}: {db_error}")
+                business_obj = None
+                
             if business_obj:
                 business = {
                     'id': business_obj.id,
