@@ -33,6 +33,49 @@ REALTIME_VERBOSE = os.getenv("REALTIME_VERBOSE", "0") == "1"  # Explicit verbose
 
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
 
+# 🔥 CRITICAL FIX: OpenAI Realtime API temperature constraint
+# Per OpenAI API error: decimal_below_min_value (Expected >= 0.6, got 0.0)
+# The Realtime API requires temperature >= 0.6, unlike Chat Completion API
+REALTIME_TEMPERATURE_MIN = 0.6
+REALTIME_TEMPERATURE_DEFAULT = 0.6
+
+# Track if we've already logged the temperature clamp warning (log once per session)
+_temperature_clamp_warned = False
+
+
+def _clamp_temperature(requested_temp: Optional[float]) -> float:
+    """
+    Clamp temperature to OpenAI Realtime API minimum (0.6).
+    
+    The Realtime API enforces a minimum temperature of 0.6, unlike the Chat Completion API
+    which accepts 0.0. This function ensures we never send an invalid temperature.
+    
+    Args:
+        requested_temp: The desired temperature value (None for default)
+    
+    Returns:
+        Clamped temperature value (>= 0.6)
+    """
+    global _temperature_clamp_warned
+    
+    if requested_temp is None:
+        return REALTIME_TEMPERATURE_DEFAULT
+    
+    if requested_temp < REALTIME_TEMPERATURE_MIN:
+        # Log warning only once per process to avoid log spam
+        if not _temperature_clamp_warned:
+            logger.warning(
+                f"⚠️ [TEMPERATURE CLAMP] Requested temperature {requested_temp} is below "
+                f"OpenAI Realtime API minimum of {REALTIME_TEMPERATURE_MIN}. "
+                f"Clamping to {REALTIME_TEMPERATURE_MIN}. "
+                f"(This warning appears once per session)"
+            )
+            _temperature_clamp_warned = True
+        return REALTIME_TEMPERATURE_MIN
+    
+    return requested_temp
+
+
 def _get_realtime_sanitizer():
     """
     Best-effort import to keep Realtime inputs voice-friendly and small.
@@ -507,7 +550,7 @@ class OpenAIRealtimeClient:
         vad_threshold: float = None,  # 🔥 BUILD 341: Default from config
         silence_duration_ms: int = None,  # 🔥 BUILD 341: Default from config
         prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
-        temperature: float = 0.0,  # 🔥 FIX: Temperature 0.0 for maximum accuracy and deterministic responses
+        temperature: Optional[float] = None,  # 🔥 CRITICAL FIX: Defaults to 0.6 (OpenAI Realtime API minimum)
         max_tokens: int = 300,
         transcription_prompt: str = "",  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
         tools: list = None,  # 🔥 NEW: Realtime API tools (for appointments)
@@ -527,11 +570,15 @@ class OpenAIRealtimeClient:
             vad_threshold: Voice activity detection threshold (0-1), defaults to SERVER_VAD_THRESHOLD from config
             silence_duration_ms: Silence duration to detect end of speech, defaults to SERVER_VAD_SILENCE_MS from config
             prefix_padding_ms: Audio padding before speech starts, defaults to SERVER_VAD_PREFIX_PADDING_MS from config
-            temperature: AI temperature (0.0 for maximum accuracy and deterministic responses)
+            temperature: AI temperature (defaults to 0.6, minimum allowed by OpenAI Realtime API)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
             force: Force resend even if hash matches (set to True during retry)
         """
+        # 🔥 CRITICAL FIX: Clamp temperature to OpenAI Realtime API minimum (>= 0.6)
+        # The Realtime API enforces minimum temperature of 0.6, unlike Chat Completion API
+        temperature = _clamp_temperature(temperature)
+        
         # 🔥 CRITICAL FIX: Allow FULL business prompt (up to 8000 chars) to be sent.
         # The architecture was changed to "LATENCY-FIRST: FULL PROMPT ONLY from the very first second"
         # so we need to support the full prompt size here.
@@ -598,7 +645,7 @@ class OpenAIRealtimeClient:
                 # 🔥 SERVER-FIRST APPOINTMENTS: set False to allow the server to decide when to respond.
                 "create_response": bool(auto_create_response)
             },
-            "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
+            "temperature": temperature,  # 🔥 CRITICAL: Clamped to >= 0.6 (Realtime API minimum)
             "max_response_output_tokens": max_tokens
         }
         
