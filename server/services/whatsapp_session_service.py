@@ -445,7 +445,7 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
                 {"role": "user", "content": prompt}
             ],
             max_tokens=150,
-            temperature=0.3
+            temperature=0.0  # 🔥 FIX: Temperature 0.0 לדיוק מקסימלי
         )
         
         content = response.choices[0].message.content

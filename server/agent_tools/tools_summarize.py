@@ -156,7 +156,7 @@ Respond in JSON only:
                 {"role": "system", "content": "Summarize CRM conversations in Hebrew. Respond in JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
+            temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic summaries
             max_tokens=400,
             response_format={"type": "json_object"}
         )

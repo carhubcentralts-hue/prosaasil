@@ -423,7 +423,7 @@ class AIService:
                     "business_name": business_name,  # 🔥 FIX: Include business name for FAQ handler
                     "model": "gpt-4o-mini",  # Fast model
                     "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences (no mid-sentence cuts!)
-                    "temperature": 0.3  # Balanced temperature for natural responses
+                    "temperature": 0.0  # 🔥 FIX: Temperature 0.0 for deterministic responses
                 }
             else:
                 prompt_data = {
@@ -431,7 +431,7 @@ class AIService:
                     "business_name": business_name,  # 🔥 FIX: Include business name for FAQ handler
                     "model": settings.model,
                     "max_tokens": min(settings.max_tokens, 350),  # ⚡ BUILD 117: Cap at 350 for complete sentences
-                    "temperature": min(settings.temperature, 0.4)  # Balanced temperature
+                    "temperature": 0.0  # 🔥 FIX: Temperature 0.0 (ignore DB setting for consistency)
                 }
             
             # שמירה בקאש
@@ -452,7 +452,7 @@ class AIService:
                 "business_name": business_name,  # 🔥 FIX: Include business name for FAQ handler
                 "model": "gpt-4o-mini",
                 "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences
-                "temperature": 0.3  # Balanced
+                "temperature": 0.0  # 🔥 FIX: Temperature 0.0 for deterministic responses
             }
     
     def _get_default_hebrew_prompt(self, business_name: str = "העסק שלנו", channel: str = "calls") -> str:
@@ -762,7 +762,7 @@ class AIService:
                     {"role": "user", "content": faq_prompt}
                 ],
                 max_tokens=80,
-                temperature=0.3,
+                temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic responses
                 timeout=4.0
             )
             
@@ -953,7 +953,7 @@ class AIService:
                         {"role": "system", "content": faq_system},
                         {"role": "user", "content": f"{faq_facts}\n\n{question}"}
                     ],
-                    temperature=0.3,  # ⚡ Balanced for speed vs quality
+                    temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic FAQ responses
                     max_tokens=80,  # ⚡ SPEED: Reduced from 150 to 80 for faster FAQ
                     timeout=4.0  # ⚡ Consistent with Agent timeout (was 2.0s)
                 )
@@ -1000,7 +1000,7 @@ class AIService:
                         {"role": "system", "content": faq_system},
                         {"role": "user", "content": f"{faq_facts[:400]}\n\n{question}"}
                     ],
-                    temperature=0.3,
+                    temperature=0.0,  # 🔥 FIX: Temperature 0.0 for deterministic responses
                     max_tokens=60,  # ⚡ Even shorter for retry
                     timeout=2.5  # ⚡ Shorter timeout for retry
                 )

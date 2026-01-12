@@ -3091,7 +3091,7 @@ class MediaStreamHandler:
                 auto_create_response=not manual_turns,
                 vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.85) - reduced false positives
                 silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (600ms) - optimal for Hebrew
-                temperature=0.2,  # 🔥 FIX: Lower temperature for Hebrew consistency (was 0.6)
+                temperature=0.0,  # 🔥 FIX: Temperature 0.0 for maximum accuracy and consistency in Hebrew
                 max_tokens=greeting_max_tokens,
                 # 🔥 PRODUCTION STT QUALITY: Neutral transcription prompt for Hebrew
                 # Per OpenAI best practices: Keep prompt simple and neutral
@@ -11568,7 +11568,7 @@ class MediaStreamHandler:
                         file=audio_file,
                         language="he",  # חייב עברית
                         prompt="זוהי שיחת טלפון בעברית. תמלל רק דיבור ברור. אם אין דיבור ברור - החזר ריק.",  # הנחיה חמורה!
-                        temperature=0.1  # נמוך מאוד - פחות יצירתיות
+                        temperature=0.0  # 🔥 FIX: Temperature 0.0 לדיוק מקסימלי
                     )
             
             import os
