@@ -192,6 +192,12 @@ export function MainLayout() {
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
+  // ✅ Close mobile drawer on route change
+  useEffect(() => {
+    // Close drawer when route changes (no dependency on sidebarOpen needed)
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   // Filter menu items based on user role and impersonation state
   const filteredMenuItems = menuItems.filter(item => {
     // Check role permissions first
@@ -308,7 +314,7 @@ export function MainLayout() {
       {/* Sidebar backdrop overlay - visible when sidebar is open on mobile */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden drawer-backdrop"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
           data-testid="sidebar-backdrop"
@@ -319,37 +325,48 @@ export function MainLayout() {
       <aside 
         ref={sidebarRef}
         className={cn(
-          'fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out flex flex-col',
-          'md:relative md:translate-x-0 md:w-72 md:shadow-sm md:border-l md:border-slate-200',
+          // Base styles
+          'fixed inset-y-0 right-0 z-50 bg-white shadow-2xl flex flex-col drawer-slide',
+          // Mobile: Full height drawer with safe area
+          'w-[min(320px,85vw)] pt-safe',
+          // Desktop: Fixed sidebar
+          'md:relative md:translate-x-0 md:w-[var(--sidebar-width)] md:shadow-sm md:border-l md:border-slate-200 md:pt-0',
+          // Animation
           sidebarOpen ? 'translate-x-0' : 'translate-x-full'
         )}
-        style={{ height: '100dvh', maxHeight: '-webkit-fill-available' }}
+        style={{ 
+          height: '100dvh', 
+          maxHeight: '-webkit-fill-available',
+          // Ensure consistent width on desktop
+        }}
         role="navigation"
         aria-label="תפריט ראשי"
         aria-expanded={sidebarOpen ? 'true' : 'false'}
         id="sidebar"
       >
-        {/* Sidebar header */}
-        <div className="flex items-center justify-between h-20 px-6 border-b border-slate-200">
-          <div className="flex items-center">
+        {/* Sidebar header with close button */}
+        <div className="flex items-center justify-between h-20 px-4 md:px-6 border-b border-slate-200 flex-shrink-0">
+          <div className="flex items-center min-w-0 flex-1">
             <div className="flex-shrink-0">
-              <div className="w-12 h-12 gradient-brand rounded-xl flex items-center justify-center">
-                <span className="text-white font-bold text-xl">P</span>
+              <div className="w-11 h-11 md:w-12 md:h-12 gradient-brand rounded-xl flex items-center justify-center">
+                <span className="text-white font-bold text-lg md:text-xl">P</span>
               </div>
             </div>
-            <div className="mr-4">
-              <h1 className="text-xl font-bold text-slate-900">
+            <div className="mr-3 md:mr-4 min-w-0 flex-1">
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 truncate">
                 <span className="text-black">Pro</span><span className="text-blue-600">SaaS</span>
               </h1>
-              <p className="text-xs text-slate-500">{tenant?.name || 'Multi-Tenant CRM'}</p>
+              <p className="text-xs text-slate-500 truncate">{tenant?.name || 'Multi-Tenant CRM'}</p>
             </div>
           </div>
+          {/* Mobile close button - larger touch target */}
           <button
-            className="md:hidden p-2 rounded-xl hover:bg-slate-100 transition-colors"
+            className="md:hidden p-3 -mr-2 rounded-xl hover:bg-slate-100 transition-colors touch-target"
             onClick={() => setSidebarOpen(false)}
             aria-label="סגור תפריט"
+            data-testid="button-close-sidebar"
           >
-            <X className="h-6 w-6" />
+            <X className="h-6 w-6 text-slate-600" />
           </button>
         </div>
 
@@ -435,16 +452,16 @@ export function MainLayout() {
               <div className="flex items-center">
                 <button
                   ref={toggleButtonRef}
-                  className="md:hidden p-2 rounded-xl hover:bg-slate-100 transition-colors"
+                  className="md:hidden p-3 -ml-2 rounded-xl hover:bg-slate-100 transition-colors touch-target"
                   onClick={() => setSidebarOpen(true)}
                   aria-expanded={sidebarOpen ? 'true' : 'false'}
                   aria-controls="sidebar"
                   aria-label="פתח תפריט"
                   data-testid="button-menu"
                 >
-                  <Menu className="h-6 w-6" />
+                  <Menu className="h-6 w-6 text-slate-700" />
                 </button>
-                <h1 className="mr-3 md:mr-0 text-lg font-semibold text-slate-900">
+                <h1 className="mr-2 md:mr-0 text-lg font-semibold text-slate-900 truncate max-w-[200px] md:max-w-none">
                   {user?.role === 'system_admin' || user?.role === 'owner' || user?.role === 'admin'
                     ? 'מנהל המערכת' 
                     : tenant?.name || 'ProSaaS'}
@@ -452,24 +469,24 @@ export function MainLayout() {
               </div>
 
               {/* Right side - Action buttons + User */}
-              <div className="flex items-center space-x-reverse space-x-2">
+              <div className="flex items-center space-x-reverse space-x-1 md:space-x-2">
                 {/* Global Search - Quick access button */}
                 <button
-                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative group"
+                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative group touch-target"
                   onClick={() => setSearchModalOpen(true)}
                   data-testid="button-search"
                   title="חיפוש גלובלי - לחץ כאן או Ctrl+K"
                 >
                   <Search className="h-5 w-5" />
-                  {/* Keyboard shortcut hint */}
-                  <span className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                  {/* Keyboard shortcut hint - hidden on mobile */}
+                  <span className="hidden md:block absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
                     Ctrl+K
                   </span>
                 </button>
 
                 {/* Notifications */}
                 <button
-                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
+                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative touch-target"
                   onClick={() => setNotificationsPanelOpen(!notificationsPanelOpen)}
                   data-testid="button-notifications"
                   title="התראות"
@@ -567,8 +584,8 @@ export function MainLayout() {
           </div>
         </header>
 
-        {/* Page content */}
-        <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
+        {/* Page content - with proper padding for bottom nav */}
+        <div className="flex-1 overflow-y-auto pb-24 md:pb-4">
           <Suspense fallback={
             <div className="flex items-center justify-center min-h-[200px]">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--brand)]"></div>
@@ -579,8 +596,8 @@ export function MainLayout() {
         </div>
       </main>
 
-      {/* Bottom Navigation for mobile (optional - top 4 items) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 shadow-xl">
+      {/* Bottom Navigation for mobile - with safe area padding */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 pt-2 shadow-xl z-30 pb-safe" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.5rem)' }}>
         <div className="flex justify-around items-center">
           {filteredMenuItems.slice(0, 4).map((item, index) => {
             const isActive = item.to && location.pathname === item.to;
@@ -588,7 +605,7 @@ export function MainLayout() {
               <button
                 key={index}
                 className={cn(
-                  'flex flex-col items-center p-2 min-h-[60px] transition-all duration-200 rounded-xl',
+                  'flex flex-col items-center p-2 min-h-[56px] min-w-[56px] transition-all duration-200 rounded-xl touch-target',
                   isActive 
                     ? 'text-[var(--brand)] bg-blue-50 scale-105' 
                     : 'text-slate-500 hover:text-[var(--brand)] active:scale-95'
@@ -596,14 +613,12 @@ export function MainLayout() {
                 onClick={() => {
                   if (item.to) {
                     navigate(item.to);
-                    // Always close sidebar after navigation (mobile AND desktop)  
-                    setTimeout(() => setSidebarOpen(false), 100);
                   }
                 }}
               >
                 <item.icon className="h-5 w-5 mb-1" />
-                <span className="text-[11px] font-medium leading-tight text-center">
-                  {item.label.length > 7 ? item.label.substring(0, 6) + '...' : item.label}
+                <span className="text-[10px] font-medium leading-tight text-center max-w-[64px] truncate">
+                  {item.label}
                 </span>
               </button>
             );

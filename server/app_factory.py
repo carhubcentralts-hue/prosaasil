@@ -256,25 +256,36 @@ def create_app():
     @app.after_request
     def add_security_headers(response):
         """Add enterprise security headers"""
-        # CSP (Content Security Policy)
+        # CSP (Content Security Policy) - Strict but functional
         csp_policy = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' https://unpkg.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data: https:; "
-            "connect-src 'self' wss: ws:; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
             "frame-ancestors 'none'; "
-            "object-src 'none';"
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self';"
         )
         response.headers['Content-Security-Policy'] = csp_policy
+        
+        # HSTS - Strict Transport Security (force HTTPS)
+        # Only add in production (when using HTTPS)
+        if cookie_secure:
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         
         # Additional security headers
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=(), payment=()'
+        
+        # Cross-Origin headers for additional security
+        response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+        response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
         
         # Cache control for sensitive pages
         if request.endpoint and ('admin' in request.endpoint or 'biz' in request.endpoint):
