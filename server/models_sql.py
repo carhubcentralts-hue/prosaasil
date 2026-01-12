@@ -1118,3 +1118,44 @@ class BusinessAISettings(db.Model):
     
     # Relationships
     business = db.relationship("Business", backref="ai_settings", uselist=False)
+
+
+# === PUSH NOTIFICATIONS SYSTEM ===
+
+class PushSubscription(db.Model):
+    """
+    Push notification subscriptions for users
+    Supports: webpush (Web Push API), fcm (Firebase Cloud Messaging), apns (Apple Push)
+    """
+    __tablename__ = "push_subscriptions"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Channel type: webpush | fcm | apns
+    channel = db.Column(db.String(16), nullable=False, default="webpush")
+    
+    # WebPush subscription data
+    endpoint = db.Column(db.Text, nullable=False)  # Push service endpoint URL
+    p256dh = db.Column(db.Text)  # Public key for encryption
+    auth = db.Column(db.Text)  # Auth secret for encryption
+    
+    # Device info (user agent, platform)
+    device_info = db.Column(db.String(512))
+    
+    # Active status
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="push_subscriptions")
+    user = db.relationship("User", backref="push_subscriptions")
+    
+    # Unique constraint: one endpoint per user
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'endpoint', name='uq_push_subscription_user_endpoint'),
+    )
