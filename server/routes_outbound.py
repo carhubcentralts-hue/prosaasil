@@ -1549,15 +1549,38 @@ def stop_queue():
         if not run:
             return jsonify({"error": "הרצה לא נמצאה"}), 404
         
-        # Mark as stopping (worker will check this before each call)
-        run.status = "stopping"
+        # 🔥 FIX: Mark as STOPPED (not just stopping) and set stopped_at
+        run.status = "stopped"
+        run.stopped_at = datetime.utcnow()
+        run.completed_at = datetime.utcnow()
+        
+        # 🔥 FIX: Cancel all queued jobs (not started yet)
+        # Use raw SQL for performance with large queues
+        cancelled_count = db.session.execute(text("""
+            UPDATE outbound_call_jobs 
+            SET status='cancelled',
+                error_message='Queue stopped by user',
+                completed_at=NOW()
+            WHERE run_id=:run_id 
+                AND status='queued'
+        """), {"run_id": run_id}).rowcount
+        
+        # 🔥 FIX: Update run counters to reflect reality
+        # Move queued jobs to failed count (they won't run)
+        run.failed_count += cancelled_count
+        run.queued_count = 0
+        
+        # Note: Jobs in 'calling' or 'dialing' state will complete naturally
+        # We don't forcefully terminate active calls
+        
         db.session.commit()
         
-        log.info(f"✅ Stopping queue run {run_id} (set to 'stopping' state)")
+        log.info(f"✅ Stopped queue run {run_id}: cancelled {cancelled_count} queued jobs")
         
         return jsonify({
             "success": True,
-            "message": "התור מופסק בהדרגה (שיחות פעילות יסתיימו)"
+            "message": f"התור נעצר ({cancelled_count} שיחות בוטלו, שיחות פעילות יסתיימו)",
+            "cancelled_jobs": cancelled_count
         })
         
     except Exception as e:
@@ -1603,12 +1626,13 @@ def get_active_bulk_run():
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
-        # Find active run for this business
-        # Check for multiple statuses: queued, running, stopping (not just running)
+        # 🔥 FIX: Find active run for this business
+        # Only check for 'queued' and 'running' (NOT 'stopping' or 'stopped')
+        # This ensures UI shows active=false immediately after stop button
         active_run = OutboundCallRun.query.filter_by(
             business_id=tenant_id
         ).filter(
-            OutboundCallRun.status.in_(['queued', 'running', 'stopping'])
+            OutboundCallRun.status.in_(['queued', 'running'])
         ).order_by(OutboundCallRun.created_at.desc()).first()
         
         if not active_run:

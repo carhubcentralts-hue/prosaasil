@@ -3091,7 +3091,7 @@ class MediaStreamHandler:
                 auto_create_response=not manual_turns,
                 vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.85) - reduced false positives
                 silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (600ms) - optimal for Hebrew
-                temperature=0.6,
+                temperature=0.2,  # 🔥 FIX: Lower temperature for Hebrew consistency (was 0.6)
                 max_tokens=greeting_max_tokens,
                 # 🔥 PRODUCTION STT QUALITY: Neutral transcription prompt for Hebrew
                 # Per OpenAI best practices: Keep prompt simple and neutral

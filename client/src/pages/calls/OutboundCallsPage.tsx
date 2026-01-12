@@ -208,9 +208,11 @@ export function OutboundCallsPage() {
   }, [location.search]);
 
   // Queries
+  // 🔥 FIX: Only poll for counts when there's actually a running process
   const { data: counts, isLoading: countsLoading, refetch: refetchCounts, error: countsError } = useQuery<CallCounts>({
     queryKey: ['/api/outbound_calls/counts'],
-    refetchInterval: 10000,
+    refetchInterval: activeRunId ? 10000 : false, // Only poll when queue is running
+    enabled: true, // Always enabled for initial fetch
     retry: 1,
     staleTime: 0, // ✅ FIX: Always fetch fresh data, no cache
     gcTime: 0, // ✅ FIX: Don't keep in cache (renamed from cacheTime in v5)
@@ -783,22 +785,35 @@ export function OutboundCallsPage() {
     if (!activeRunId) return;
     
     try {
+      // 🔥 FIX: Stop the queue and wait for confirmation
       await http.post(`/api/outbound/stop-queue`, { run_id: activeRunId });
       
-      // Clear polling
+      // Clear polling immediately
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
       
-      // Reset UI state
+      // 🔥 FIX: Reset UI state IMMEDIATELY (don't wait for server)
       setActiveRunId(null);
       setQueueStatus(null);
       
-      // ✅ FIX: Invalidate queries to clear any cached status
+      // 🔥 FIX: Invalidate ALL outbound-related queries to force refetch
       queryClient.invalidateQueries({ queryKey: ['/api/outbound_calls/counts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/outbound/bulk/active'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/outbound/recent-calls'] });
       
+      // 🔥 FIX: Set counts to 0 immediately (optimistic update) to prevent blink
+      queryClient.setQueryData(['/api/outbound_calls/counts'], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          active_outbound: 0,
+          // Keep max values unchanged
+        };
+      });
+      
+      // Refetch to sync with server
       refetchCounts();
       refetchRecentCalls();
     } catch (error) {
