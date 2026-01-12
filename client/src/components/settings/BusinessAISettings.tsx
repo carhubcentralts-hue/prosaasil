@@ -43,6 +43,7 @@ interface CallControlSettings {
 interface Voice {
   id: string;
   name: string;
+  label?: string;  // Hebrew label for display
   gender?: string;
   description?: string;
 }
@@ -830,31 +831,30 @@ export function BusinessAISettings() {
               </div>
             ) : (
               <>
-                {/* 🔥 FIX: Voice dropdown with LTR text alignment for English names */}
-                <div style={{ direction: 'ltr', textAlign: 'left' }}>
+                {/* 🔥 FIX: Voice dropdown with Hebrew labels - RTL for Hebrew text */}
                 <select
                   value={voiceLibrary.voiceId}
                   onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
+                  dir="rtl"
                   style={{
                     minWidth: '320px',
                     whiteSpace: 'nowrap',
                     textOverflow: 'ellipsis'
                   }}
-                  title={voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.name || voiceLibrary.voiceId}
+                  title={voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.label || voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.name || voiceLibrary.voiceId}
                   data-testid="select-voice"
                 >
                   {voiceLibrary.availableVoices.map((voice) => (
                     <option 
                       key={voice.id} 
                       value={voice.id} 
-                      title={voice.name || voice.id}
+                      title={voice.label || voice.name || voice.id}
                     >
-                      {voice.name || voice.id}
+                      {voice.label || voice.name || voice.id}
                     </option>
                   ))}
                 </select>
-              </div>
               </>
             )}
             <p className="text-xs text-slate-500 mt-1">

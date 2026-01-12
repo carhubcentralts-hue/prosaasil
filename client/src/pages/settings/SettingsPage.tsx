@@ -59,6 +59,7 @@ const Badge = ({ children, className = "", variant = "default" }: {
 // Settings interfaces
 interface BusinessSettings {
   business_name: string;
+  company_id?: string;  // ✅ Israeli company registration number (ח.פ)
   phone_number: string;
   email: string;
   address: string;
@@ -209,6 +210,7 @@ export function SettingsPage() {
   // Business data query
   const { data: businessData, isLoading: businessLoading } = useQuery<{
     name: string;
+    company_id?: string;  // ✅ Israeli company registration number
     phone_number: string;
     email: string;
     address: string;
@@ -290,6 +292,7 @@ export function SettingsPage() {
     if (businessData) {
       setBusinessSettings({
         business_name: businessData.name || '',  // API returns 'name' but UI uses 'business_name'
+        company_id: businessData.company_id || '',  // ✅ Israeli company registration number
         phone_number: businessData.phone_number || '',
         email: businessData.email || '',
         address: businessData.address || '',
@@ -551,6 +554,26 @@ export function SettingsPage() {
                     onChange={(e) => setBusinessSettings({...businessSettings, business_name: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">ח.פ (מספר עוסק)</label>
+                  <input
+                    type="text"
+                    value={businessSettings.company_id || ''}
+                    onChange={(e) => {
+                      // Clean input - only digits
+                      const cleaned = e.target.value.replace(/\D/g, '');
+                      setBusinessSettings({...businessSettings, company_id: cleaned});
+                    }}
+                    placeholder="לדוגמה: 515123456"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    dir="ltr"
+                    maxLength={9}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    מספר ח.פ או ע.מ (8-9 ספרות) - שדה אופציונלי
+                  </p>
                 </div>
                 
                 <div>

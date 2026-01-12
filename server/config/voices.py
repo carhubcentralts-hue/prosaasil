@@ -26,7 +26,7 @@ OPENAI_VOICES_METADATA = {
     "alloy": {
         "id": "alloy",
         "name": "Alloy (Neutral, balanced)",
-        "label": "Alloy (Neutral, balanced)",
+        "label": "אלוי",
         "gender": "neutral",
         "description": "Balanced and versatile voice",
         "preview_engine": "speech_create",
@@ -35,7 +35,7 @@ OPENAI_VOICES_METADATA = {
     "ash": {
         "id": "ash",
         "name": "Ash (Male, clear)",
-        "label": "Ash (Male, clear)",
+        "label": "אש",
         "gender": "male",
         "description": "Clear and professional male voice",
         "preview_engine": "speech_create",
@@ -44,7 +44,7 @@ OPENAI_VOICES_METADATA = {
     "ballad": {
         "id": "ballad",
         "name": "Ballad (Male, warm)",
-        "label": "Ballad (Male, warm)",
+        "label": "בלאד",
         "gender": "male",
         "description": "Warm and engaging male voice",
         "preview_engine": "realtime",
@@ -53,7 +53,7 @@ OPENAI_VOICES_METADATA = {
     "cedar": {
         "id": "cedar",
         "name": "Cedar (Male, deep)",
-        "label": "Cedar (Male, deep)",
+        "label": "סידר",
         "gender": "male",
         "description": "Deep and authoritative male voice",
         "preview_engine": "realtime",
@@ -62,7 +62,7 @@ OPENAI_VOICES_METADATA = {
     "coral": {
         "id": "coral",
         "name": "Coral (Female, warm)",
-        "label": "Coral (Female, warm)",
+        "label": "קורל",
         "gender": "female",
         "description": "Warm and friendly female voice",
         "preview_engine": "realtime",
@@ -71,7 +71,7 @@ OPENAI_VOICES_METADATA = {
     "echo": {
         "id": "echo",
         "name": "Echo (Male, resonant)",
-        "label": "Echo (Male, resonant)",
+        "label": "הד",
         "gender": "male",
         "description": "Resonant and impactful male voice",
         "preview_engine": "speech_create",
@@ -80,7 +80,7 @@ OPENAI_VOICES_METADATA = {
     "marin": {
         "id": "marin",
         "name": "Marin (Female, calm)",
-        "label": "Marin (Female, calm)",
+        "label": "מרין",
         "gender": "female",
         "description": "Calm and soothing female voice",
         "preview_engine": "realtime",
@@ -89,7 +89,7 @@ OPENAI_VOICES_METADATA = {
     "sage": {
         "id": "sage",
         "name": "Sage (Female, wise)",
-        "label": "Sage (Female, wise)",
+        "label": "סייג׳",
         "gender": "female",
         "description": "Wise and reassuring female voice",
         "preview_engine": "realtime",
@@ -98,7 +98,7 @@ OPENAI_VOICES_METADATA = {
     "shimmer": {
         "id": "shimmer",
         "name": "Shimmer (Female, soft)",
-        "label": "Shimmer (Female, soft)",
+        "label": "שימר",
         "gender": "female",
         "description": "Soft and gentle female voice",
         "preview_engine": "speech_create",
@@ -107,7 +107,7 @@ OPENAI_VOICES_METADATA = {
     "verse": {
         "id": "verse",
         "name": "Verse (Male, dynamic)",
-        "label": "Verse (Male, dynamic)",
+        "label": "ורס",
         "gender": "male",
         "description": "Dynamic and expressive male voice",
         "preview_engine": "realtime",

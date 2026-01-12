@@ -212,6 +212,8 @@ export function OutboundCallsPage() {
     queryKey: ['/api/outbound_calls/counts'],
     refetchInterval: 10000,
     retry: 1,
+    staleTime: 0, // ✅ FIX: Always fetch fresh data, no cache
+    gcTime: 0, // ✅ FIX: Don't keep in cache (renamed from cacheTime in v5)
   });
 
   // Fetch lead statuses for both Kanban and Table views
@@ -319,8 +321,20 @@ export function OutboundCallsPage() {
     }
   }, [activeLeadsData]);
 
-  // 🔥 NEW REQUIREMENT E: Check for active bulk call run on mount
+  // 🔥 REQUIREMENT FIX: Reset UI state and fetch fresh from server
+  // ✅ FIX: Clear all outbound UI state on mount, then fetch from server
   useEffect(() => {
+    // 1. Reset all UI state to initial values (clean slate)
+    setActiveRunId(null);
+    setQueueStatus(null);
+    setShowResults(false);
+    setCallResults([]);
+    
+    // 2. Invalidate any cached outbound queries to force refetch
+    queryClient.invalidateQueries({ queryKey: ['/api/outbound_calls/counts'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/outbound/bulk/active'] });
+    
+    // 3. Fetch active run status from server (single source of truth)
     const checkActiveRun = async () => {
       try {
         const response = await http.get<{ active: boolean; run?: any }>('/api/outbound/bulk/active');
@@ -335,6 +349,8 @@ export function OutboundCallsPage() {
           });
           // Start polling for this run
           startQueuePolling(response.run.run_id);
+        } else {
+          console.log('[OutboundCallsPage] ✅ No active run found - UI clean');
         }
       } catch (error) {
         console.error('[OutboundCallsPage] Failed to check active run:', error);
@@ -750,13 +766,16 @@ export function OutboundCallsPage() {
     }, 5000); // Poll every 5 seconds (per requirement)
   };
 
-  // Clean up polling interval on unmount
+  // Clean up polling interval and invalidate queries on unmount
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
+      // ✅ FIX: Clear outbound queries on unmount to prevent stale data
+      queryClient.invalidateQueries({ queryKey: ['/api/outbound_calls/counts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/outbound/bulk/active'] });
     };
   }, []);
 
@@ -772,8 +791,14 @@ export function OutboundCallsPage() {
         pollIntervalRef.current = null;
       }
       
+      // Reset UI state
       setActiveRunId(null);
       setQueueStatus(null);
+      
+      // ✅ FIX: Invalidate queries to clear any cached status
+      queryClient.invalidateQueries({ queryKey: ['/api/outbound_calls/counts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/outbound/bulk/active'] });
+      
       refetchCounts();
       refetchRecentCalls();
     } catch (error) {
