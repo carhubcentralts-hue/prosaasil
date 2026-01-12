@@ -23,7 +23,7 @@ export function PrivacyPolicyPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900">מדיניות פרטיות</h1>
-              <p className="text-sm text-slate-500">עדכון אחרון: ינואר 2026</p>
+              <p className="text-sm text-slate-500">עדכון אחרון: ינואר 2025</p>
             </div>
           </div>
         </div>
@@ -101,8 +101,8 @@ export function PrivacyPolicyPage() {
             <h2 className="text-xl font-semibold text-slate-900 mb-3">7. שמירת מידע</h2>
             <p className="text-slate-600 leading-relaxed">
               אנו שומרים את המידע שלכם למשך הזמן הנדרש למטרות שלשמן נאסף, 
-              או כנדרש על פי חוק. הקלטות שיחות נמחקות אוטומטית לאחר 7 ימים 
-              אלא אם כן נדרשת שמירה ארוכה יותר.
+              או כנדרש על פי חוק. הקלטות שיחות נמחקות אוטומטית בהתאם להגדרות 
+              המערכת, אלא אם כן נדרשת שמירה ארוכה יותר לצרכים עסקיים או משפטיים.
             </p>
           </section>
           
@@ -126,9 +126,10 @@ export function PrivacyPolicyPage() {
         </div>
         
         {/* Footer Links */}
-        <div className="mt-6 text-center text-sm text-slate-500">
-          <Link to="/terms" className="text-blue-600 hover:underline ml-4">תנאי שימוש</Link>
-          <Link to="/login" className="text-blue-600 hover:underline">כניסה למערכת</Link>
+        <div className="mt-6 flex justify-center items-center gap-4 text-sm">
+          <Link to="/terms" className="text-blue-600 hover:underline px-3 py-2">תנאי שימוש</Link>
+          <span className="text-slate-300">|</span>
+          <Link to="/login" className="text-blue-600 hover:underline px-3 py-2">כניסה למערכת</Link>
         </div>
       </div>
     </div>

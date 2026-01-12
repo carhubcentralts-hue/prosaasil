@@ -194,9 +194,9 @@ export function MainLayout() {
 
   // ✅ Close mobile drawer on route change
   useEffect(() => {
-    // Only close if currently open - using functional update to avoid dependency on sidebarOpen
+    // Close drawer when route changes (no dependency on sidebarOpen needed)
     setSidebarOpen(false);
-  }, [location.pathname]); // Close drawer when route changes
+  }, [location.pathname]);
 
   // Filter menu items based on user role and impersonation state
   const filteredMenuItems = menuItems.filter(item => {

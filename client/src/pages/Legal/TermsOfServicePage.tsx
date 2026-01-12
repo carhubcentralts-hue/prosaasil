@@ -23,7 +23,7 @@ export function TermsOfServicePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900">תנאי שימוש</h1>
-              <p className="text-sm text-slate-500">עדכון אחרון: ינואר 2026</p>
+              <p className="text-sm text-slate-500">עדכון אחרון: ינואר 2025</p>
             </div>
           </div>
         </div>
@@ -146,9 +146,10 @@ export function TermsOfServicePage() {
         </div>
         
         {/* Footer Links */}
-        <div className="mt-6 text-center text-sm text-slate-500">
-          <Link to="/privacy" className="text-blue-600 hover:underline ml-4">מדיניות פרטיות</Link>
-          <Link to="/login" className="text-blue-600 hover:underline">כניסה למערכת</Link>
+        <div className="mt-6 flex justify-center items-center gap-4 text-sm">
+          <Link to="/privacy" className="text-blue-600 hover:underline px-3 py-2">מדיניות פרטיות</Link>
+          <span className="text-slate-300">|</span>
+          <Link to="/login" className="text-blue-600 hover:underline px-3 py-2">כניסה למערכת</Link>
         </div>
       </div>
     </div>
