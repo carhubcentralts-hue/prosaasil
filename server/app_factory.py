@@ -3,6 +3,7 @@ Hebrew AI Call Center CRM - App Factory (לפי ההנחיות המדויקות)
 """
 import os
 import logging
+import threading
 from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session, g
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -880,7 +881,6 @@ def create_app():
                 pass
         
         # Start background initialization thread
-        import threading
         init_thread = threading.Thread(target=_background_initialization, daemon=True)
         init_thread.start()
         
@@ -986,7 +986,6 @@ def create_app():
                         logger.warning(f"Warmup failed: {e}")
                         pass
             
-            import threading
             warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
             warmup_thread.start()
         except Exception:
@@ -995,7 +994,6 @@ def create_app():
         # Automatic recording cleanup scheduler (7-day retention)
         try:
             from server.tasks_recording import auto_cleanup_old_recordings
-            import threading
             import time as scheduler_time
             
             def recording_cleanup_scheduler():
@@ -1024,7 +1022,6 @@ def create_app():
         # Recording transcription worker (offline STT + lead extraction)
         try:
             from server.tasks_recording import start_recording_worker
-            import threading
             
             recording_thread = threading.Thread(
                 target=start_recording_worker,
