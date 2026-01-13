@@ -53,6 +53,43 @@ function convertApiNotification(apiNotif: any): Notification {
     };
   }
   
+  // FIX: Handle appointment notifications
+  if (apiNotif.reminder_type === 'system_appointment_created') {
+    return {
+      id: apiNotif.id,
+      type: 'meeting',
+      title: apiNotif.title || '📅 פגישה חדשה',
+      message: apiNotif.description || apiNotif.title || 'נקבעה פגישה חדשה',
+      timestamp: new Date(apiNotif.due_date),
+      read: false,
+      metadata: {
+        priority: apiNotif.priority || 'medium',
+        actionRequired: false,
+        reminderType: 'system_appointment_created',
+        navigateTo: '/app/calendar',
+        dueAt: apiNotif.due_date
+      }
+    };
+  }
+  
+  // Handle other system notifications generically
+  if (apiNotif.reminder_type?.startsWith('system_')) {
+    return {
+      id: apiNotif.id,
+      type: 'system',
+      title: apiNotif.title || '🔔 התראת מערכת',
+      message: apiNotif.description || apiNotif.title || 'התראה חדשה',
+      timestamp: new Date(apiNotif.due_date),
+      read: false,
+      metadata: {
+        priority: apiNotif.priority || 'medium',
+        actionRequired: false,
+        reminderType: apiNotif.reminder_type,
+        dueAt: apiNotif.due_date
+      }
+    };
+  }
+  
   // Default task notification handling
   const priority = apiNotif.category === 'overdue' ? 'urgent' : 
                   apiNotif.category === 'today' ? 'high' : 'medium';
@@ -88,7 +125,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [dismissedUrgent, setDismissedUrgent] = useState<Set<string>>(new Set());
   const [countCallback, setCountCallback] = useState<((count: number) => void) | null>(null);
   const countCallbackRef = useRef<((count: number) => void) | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  // FIX: Use ref instead of state to prevent stale closure issues and ensure proper locking
+  const isRefreshingRef = useRef<boolean>(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const lastCountRef = useRef<number>(0);
   
@@ -107,13 +145,14 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return;
     }
     
-    // Prevent concurrent refreshes
-    if (isRefreshing) {
+    // FIX: Use ref for lock check to prevent stale closure issues
+    if (isRefreshingRef.current) {
       console.log('[NotificationContext] Refresh already in progress, skipping');
       return;
     }
 
-    setIsRefreshing(true);
+    // Set lock immediately using ref
+    isRefreshingRef.current = true;
     try {
       // BUILD 143: Use http.get() instead of raw fetch - ensures CSRF and credentials
       const data = await http.get<{ success?: boolean; notifications?: any[] }>('/api/notifications');
@@ -133,10 +172,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         setNotifications([]);
       }
     } catch (error) {
-      console.error('Error fetching notifications:', error);
-      setNotifications([]);
+      console.error('[NotificationContext] Error fetching notifications:', error);
+      // Don't clear notifications on error - preserve last good state
     } finally {
-      setIsRefreshing(false);
+      // FIX: Always release the lock in finally block to prevent deadlocks
+      isRefreshingRef.current = false;
     }
   }, [countCallback, isAuthenticated, user]);
 

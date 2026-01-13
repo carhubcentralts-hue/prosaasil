@@ -7,9 +7,13 @@ from datetime import datetime, timedelta
 from server.models_sql import Appointment, Business, Customer, Deal, CallLog, WhatsAppMessage, User, db
 from server.routes_admin import require_api_auth  # Standardized import per guidelines
 from server.routes_crm import get_business_id
+from server.services.notifications.dispatcher import notify_user
 import json
 from sqlalchemy import and_, or_, desc, asc
 import pytz
+import logging
+
+log = logging.getLogger(__name__)
 
 # 🔥 Israel timezone for converting naive datetimes to timezone-aware
 tz = pytz.timezone("Asia/Jerusalem")
@@ -355,6 +359,30 @@ def create_appointment():
         db.session.add(appointment)
         db.session.commit()
         
+        # 🔔 Send notification for new appointment (in-app bell + push)
+        try:
+            created_by_user_id = user_data.get('id') if user_data else None
+            if created_by_user_id and business_id:
+                # Format start time for notification
+                start_time_local = tz.localize(start_time) if start_time.tzinfo is None else start_time
+                time_str = start_time_local.strftime('%d/%m %H:%M')
+                
+                notify_user(
+                    event_type='appointment_created',
+                    title='📅 פגישה חדשה נקבעה',
+                    body=f'{appointment.title} - {time_str}',
+                    url=f'/app/calendar?appointment={appointment.id}',
+                    user_id=created_by_user_id,
+                    business_id=business_id,
+                    entity_id=str(appointment.id),
+                    priority='medium',
+                    save_to_bell=True
+                )
+                log.info(f"🔔 Notification sent for new appointment {appointment.id}")
+        except Exception as notify_error:
+            log.warning(f"⚠️ Failed to send appointment notification: {notify_error}")
+            # Don't fail the request if notification fails
+        
         return jsonify({
             'success': True,
             'appointment_id': appointment.id,
@@ -363,7 +391,7 @@ def create_appointment():
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error creating appointment: {e}")
+        log.error(f"Error creating appointment: {e}")
         return jsonify({'error': 'שגיאה ביצירת הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['GET'])

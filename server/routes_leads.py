@@ -1218,14 +1218,22 @@ def get_notifications():
     for reminder, lead in reminders:
         # Categorize by date
         category = None
+        
+        # FIX: System notifications (like appointment_created, whatsapp_disconnect) 
+        # should always be shown regardless of due_at
+        is_system_notification = reminder.reminder_type and reminder.reminder_type.startswith('system_')
+        
         if reminder.due_at < now:
             category = "overdue"
         elif reminder.due_at.date() == today:
             category = "today"
         elif reminder.due_at <= soon_threshold:
             category = "soon"
+        elif is_system_notification:
+            # System notifications always show even if not "due" yet
+            category = "system"
         else:
-            # Skip future tasks (beyond 3 hours)
+            # Skip future tasks (beyond 3 hours) - but NOT system notifications
             continue
         
         notifications.append({
