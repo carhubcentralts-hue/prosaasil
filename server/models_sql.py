@@ -1159,3 +1159,22 @@ class PushSubscription(db.Model):
     __table_args__ = (
         db.UniqueConstraint('user_id', 'endpoint', name='uq_push_subscription_user_endpoint'),
     )
+
+
+class ReminderPushLog(db.Model):
+    """
+    Track sent reminder push notifications to prevent duplicates.
+    Uses DB-backed deduplication to work correctly with multiple workers/replicas.
+    """
+    __tablename__ = "reminder_push_log"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    reminder_id = db.Column(db.Integer, db.ForeignKey("lead_reminders.id", ondelete="CASCADE"), nullable=False, index=True)
+    offset_minutes = db.Column(db.Integer, nullable=False)  # 30 or 15
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Unique constraint: one notification per reminder per offset
+    __table_args__ = (
+        db.UniqueConstraint('reminder_id', 'offset_minutes', name='uq_reminder_push_log'),
+        db.Index('idx_reminder_push_log_sent_at', 'sent_at'),  # For cleanup queries
+    )

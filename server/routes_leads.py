@@ -1161,11 +1161,11 @@ def get_notifications():
     """Get task notifications categorized by urgency (overdue, today, soon)"""
     try:
         tenant_id = get_current_tenant()
-        print(f"🔔 /api/notifications - tenant_id={tenant_id}, g.tenant={getattr(g, 'tenant', None)}")
-        
-        # BUILD 142 FINAL: system_admin (no tenant) should see ALL notifications
         user = get_current_user()
+        user_id = user.get('id') if user else None
         is_system_admin = user.get('role') == 'system_admin' if user else False
+        
+        print(f"🔔 /api/notifications - tenant_id={tenant_id}, user_id={user_id}, is_system_admin={is_system_admin}")
         
         # If no tenant and NOT system_admin, return empty
         if not tenant_id and not is_system_admin:
@@ -1183,29 +1183,40 @@ def get_notifications():
             # Continue without tenant filter
         
         from datetime import timedelta
-        from sqlalchemy import and_, cast, Date
+        from sqlalchemy import and_, cast, Date, or_
         
         now = datetime.utcnow()
         today = now.date()
         soon_threshold = now + timedelta(hours=3)
+        tomorrow = today + timedelta(days=1)
         
-        # BUILD 142 FINAL: Use tenant_id consistently (no business_id!)
-        # Get all incomplete reminders for this business (or ALL for system_admin)
-        print(f"🔔 Querying reminders for tenant_id={tenant_id}, is_system_admin={is_system_admin}")
-        
+        # Build query with proper user-level filtering
         query = db.session.query(LeadReminder, Lead).outerjoin(
             Lead, LeadReminder.lead_id == Lead.id
         ).filter(
             LeadReminder.completed_at.is_(None)
         )
         
-        # Add tenant filter ONLY if not system_admin
+        # Add tenant filter (business scoping)
         if tenant_id:
             query = query.filter(LeadReminder.tenant_id == tenant_id)
         
+        # Add user-level filter: only show notifications for current user
+        # Exception: lead-related reminders (lead_id is not None) are shared within business
+        if user_id and not is_system_admin:
+            query = query.filter(
+                or_(
+                    LeadReminder.created_by == user_id,  # User's own notifications
+                    LeadReminder.lead_id.isnot(None)     # Lead-related reminders are shared
+                )
+            )
+        
+        # Order by due_at to show most urgent first
+        query = query.order_by(LeadReminder.due_at.asc())
+        
         reminders = query.all()
         
-        print(f"🔔 Found {len(reminders)} reminders")
+        print(f"🔔 Found {len(reminders)} reminders for user {user_id}")
     
     except Exception as e:
         import traceback
@@ -1216,17 +1227,25 @@ def get_notifications():
     notifications = []
     
     for reminder, lead in reminders:
-        # Categorize by date
+        # FIX: Show ALL notifications with smart categorization
+        # Categorize by urgency for display purposes
         category = None
+        
+        is_system_notification = reminder.reminder_type and reminder.reminder_type.startswith('system_')
+        
         if reminder.due_at < now:
             category = "overdue"
         elif reminder.due_at.date() == today:
             category = "today"
         elif reminder.due_at <= soon_threshold:
             category = "soon"
+        elif reminder.due_at.date() == tomorrow:
+            category = "tomorrow"
+        elif is_system_notification:
+            category = "system"
         else:
-            # Skip future tasks (beyond 3 hours)
-            continue
+            # Future notifications - still show them but mark as upcoming
+            category = "upcoming"
         
         notifications.append({
             "id": str(reminder.id),

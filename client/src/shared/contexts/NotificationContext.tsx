@@ -53,11 +53,63 @@ function convertApiNotification(apiNotif: any): Notification {
     };
   }
   
-  // Default task notification handling
-  const priority = apiNotif.category === 'overdue' ? 'urgent' : 
-                  apiNotif.category === 'today' ? 'high' : 'medium';
+  // FIX: Handle appointment notifications
+  if (apiNotif.reminder_type === 'system_appointment_created') {
+    return {
+      id: apiNotif.id,
+      type: 'meeting',
+      title: apiNotif.title || '📅 פגישה חדשה',
+      message: apiNotif.description || apiNotif.title || 'נקבעה פגישה חדשה',
+      timestamp: new Date(apiNotif.due_date),
+      read: false,
+      metadata: {
+        priority: apiNotif.priority || 'medium',
+        actionRequired: false,
+        reminderType: 'system_appointment_created',
+        navigateTo: '/app/calendar',
+        dueAt: apiNotif.due_date
+      }
+    };
+  }
   
-  const actionRequired = apiNotif.category === 'overdue';
+  // Handle other system notifications generically
+  if (apiNotif.reminder_type?.startsWith('system_')) {
+    return {
+      id: apiNotif.id,
+      type: 'system',
+      title: apiNotif.title || '🔔 התראת מערכת',
+      message: apiNotif.description || apiNotif.title || 'התראה חדשה',
+      timestamp: new Date(apiNotif.due_date),
+      read: false,
+      metadata: {
+        priority: apiNotif.priority || 'medium',
+        actionRequired: false,
+        reminderType: apiNotif.reminder_type,
+        dueAt: apiNotif.due_date
+      }
+    };
+  }
+  
+  // Default task notification handling - supports all categories
+  const getCategoryInfo = (category: string) => {
+    switch (category) {
+      case 'overdue':
+        return { priority: 'urgent' as const, title: '⚠️ באיחור!', actionRequired: true };
+      case 'today':
+        return { priority: 'high' as const, title: '📅 מיועד להיום', actionRequired: false };
+      case 'soon':
+        return { priority: 'high' as const, title: '⏰ בקרוב', actionRequired: false };
+      case 'tomorrow':
+        return { priority: 'medium' as const, title: '📆 מחר', actionRequired: false };
+      case 'system':
+        return { priority: 'medium' as const, title: '🔔 התראה', actionRequired: false };
+      case 'upcoming':
+      default:
+        return { priority: 'low' as const, title: '📋 משימה קרובה', actionRequired: false };
+    }
+  };
+  
+  const categoryInfo = getCategoryInfo(apiNotif.category);
   
   let message = apiNotif.title;
   if (apiNotif.lead_name) {
@@ -67,18 +119,18 @@ function convertApiNotification(apiNotif: any): Notification {
   return {
     id: apiNotif.id,
     type: 'task',
-    title: apiNotif.category === 'overdue' ? '⚠️ באיחור!' : 
-           apiNotif.category === 'today' ? '📅 מיועד להיום' : '⏰ בקרוב',
+    title: categoryInfo.title,
     message: message,
     timestamp: new Date(apiNotif.due_date),
     read: false,
     metadata: {
       clientName: apiNotif.lead_name,
       clientPhone: apiNotif.phone,
-      priority: priority,
-      actionRequired: actionRequired,
+      priority: categoryInfo.priority,
+      actionRequired: categoryInfo.actionRequired,
       relatedId: apiNotif.lead_id?.toString(),
-      dueAt: apiNotif.due_date
+      dueAt: apiNotif.due_date,
+      category: apiNotif.category
     }
   };
 }
@@ -88,7 +140,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [dismissedUrgent, setDismissedUrgent] = useState<Set<string>>(new Set());
   const [countCallback, setCountCallback] = useState<((count: number) => void) | null>(null);
   const countCallbackRef = useRef<((count: number) => void) | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  // FIX: Use ref instead of state to prevent stale closure issues and ensure proper locking
+  const isRefreshingRef = useRef<boolean>(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const lastCountRef = useRef<number>(0);
   
@@ -107,13 +160,14 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return;
     }
     
-    // Prevent concurrent refreshes
-    if (isRefreshing) {
+    // FIX: Use ref for lock check to prevent stale closure issues
+    if (isRefreshingRef.current) {
       console.log('[NotificationContext] Refresh already in progress, skipping');
       return;
     }
 
-    setIsRefreshing(true);
+    // Set lock immediately using ref
+    isRefreshingRef.current = true;
     try {
       // BUILD 143: Use http.get() instead of raw fetch - ensures CSRF and credentials
       const data = await http.get<{ success?: boolean; notifications?: any[] }>('/api/notifications');
@@ -133,10 +187,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         setNotifications([]);
       }
     } catch (error) {
-      console.error('Error fetching notifications:', error);
-      setNotifications([]);
+      console.error('[NotificationContext] Error fetching notifications:', error);
+      // IMPORTANT: Preserve last good state on error rather than clearing notifications.
+      // This prevents the bell from showing 0 during temporary network issues.
+      // The next successful refresh will update the state with fresh data.
     } finally {
-      setIsRefreshing(false);
+      // FIX: Always release the lock in finally block to prevent deadlocks
+      isRefreshingRef.current = false;
     }
   }, [countCallback, isAuthenticated, user]);
 
