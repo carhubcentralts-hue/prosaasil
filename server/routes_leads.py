@@ -1188,6 +1188,7 @@ def get_notifications():
         now = datetime.utcnow()
         today = now.date()
         soon_threshold = now + timedelta(hours=3)
+        tomorrow = today + timedelta(days=1)
         
         # BUILD 142 FINAL: Use tenant_id consistently (no business_id!)
         # Get all incomplete reminders for this business (or ALL for system_admin)
@@ -1203,6 +1204,9 @@ def get_notifications():
         if tenant_id:
             query = query.filter(LeadReminder.tenant_id == tenant_id)
         
+        # Order by due_at to show most urgent first
+        query = query.order_by(LeadReminder.due_at.asc())
+        
         reminders = query.all()
         
         print(f"🔔 Found {len(reminders)} reminders")
@@ -1216,11 +1220,10 @@ def get_notifications():
     notifications = []
     
     for reminder, lead in reminders:
-        # Categorize by date
+        # FIX: Show ALL notifications with smart categorization
+        # Categorize by urgency for display purposes
         category = None
         
-        # FIX: System notifications (like appointment_created, whatsapp_disconnect) 
-        # should always be shown regardless of due_at
         is_system_notification = reminder.reminder_type and reminder.reminder_type.startswith('system_')
         
         if reminder.due_at < now:
@@ -1229,12 +1232,13 @@ def get_notifications():
             category = "today"
         elif reminder.due_at <= soon_threshold:
             category = "soon"
+        elif reminder.due_at.date() == tomorrow:
+            category = "tomorrow"
         elif is_system_notification:
-            # System notifications always show even if not "due" yet
             category = "system"
         else:
-            # Skip future tasks (beyond 3 hours) - but NOT system notifications
-            continue
+            # Future notifications - still show them but mark as upcoming
+            category = "upcoming"
         
         notifications.append({
             "id": str(reminder.id),

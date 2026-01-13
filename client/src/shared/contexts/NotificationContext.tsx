@@ -90,11 +90,26 @@ function convertApiNotification(apiNotif: any): Notification {
     };
   }
   
-  // Default task notification handling
-  const priority = apiNotif.category === 'overdue' ? 'urgent' : 
-                  apiNotif.category === 'today' ? 'high' : 'medium';
+  // Default task notification handling - supports all categories
+  const getCategoryInfo = (category: string) => {
+    switch (category) {
+      case 'overdue':
+        return { priority: 'urgent' as const, title: '⚠️ באיחור!', actionRequired: true };
+      case 'today':
+        return { priority: 'high' as const, title: '📅 מיועד להיום', actionRequired: false };
+      case 'soon':
+        return { priority: 'high' as const, title: '⏰ בקרוב', actionRequired: false };
+      case 'tomorrow':
+        return { priority: 'medium' as const, title: '📆 מחר', actionRequired: false };
+      case 'system':
+        return { priority: 'medium' as const, title: '🔔 התראה', actionRequired: false };
+      case 'upcoming':
+      default:
+        return { priority: 'low' as const, title: '📋 משימה קרובה', actionRequired: false };
+    }
+  };
   
-  const actionRequired = apiNotif.category === 'overdue';
+  const categoryInfo = getCategoryInfo(apiNotif.category);
   
   let message = apiNotif.title;
   if (apiNotif.lead_name) {
@@ -104,18 +119,18 @@ function convertApiNotification(apiNotif: any): Notification {
   return {
     id: apiNotif.id,
     type: 'task',
-    title: apiNotif.category === 'overdue' ? '⚠️ באיחור!' : 
-           apiNotif.category === 'today' ? '📅 מיועד להיום' : '⏰ בקרוב',
+    title: categoryInfo.title,
     message: message,
     timestamp: new Date(apiNotif.due_date),
     read: false,
     metadata: {
       clientName: apiNotif.lead_name,
       clientPhone: apiNotif.phone,
-      priority: priority,
-      actionRequired: actionRequired,
+      priority: categoryInfo.priority,
+      actionRequired: categoryInfo.actionRequired,
       relatedId: apiNotif.lead_id?.toString(),
-      dueAt: apiNotif.due_date
+      dueAt: apiNotif.due_date,
+      category: apiNotif.category
     }
   };
 }
