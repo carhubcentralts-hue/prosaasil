@@ -2466,6 +2466,43 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 66: Reminder Push Log - Track sent reminder push notifications
+        # 🔔 PURPOSE: Prevent duplicate reminder push notifications across workers
+        # Uses DB-backed deduplication with unique constraint on (reminder_id, offset_minutes)
+        # ═══════════════════════════════════════════════════════════════════════
+        if not check_table_exists('reminder_push_log'):
+            checkpoint("Migration 66: Creating reminder_push_log table for reminder notification deduplication")
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    CREATE TABLE reminder_push_log (
+                        id SERIAL PRIMARY KEY,
+                        reminder_id INTEGER NOT NULL REFERENCES lead_reminders(id) ON DELETE CASCADE,
+                        offset_minutes INTEGER NOT NULL,
+                        sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for efficient querying
+                db.session.execute(text("""
+                    CREATE INDEX idx_reminder_push_log_reminder_id ON reminder_push_log(reminder_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_reminder_push_log_sent_at ON reminder_push_log(sent_at)
+                """))
+                # Unique constraint to prevent duplicate notifications
+                db.session.execute(text("""
+                    CREATE UNIQUE INDEX uq_reminder_push_log ON reminder_push_log(reminder_id, offset_minutes)
+                """))
+                
+                migrations_applied.append('create_reminder_push_log_table')
+                checkpoint("✅ Applied migration 66: create_reminder_push_log_table - Reminder push notification deduplication")
+            except Exception as e:
+                log.error(f"❌ Migration 66 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
