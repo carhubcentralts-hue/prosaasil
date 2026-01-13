@@ -48,14 +48,61 @@ openssl ec -in vapid_private.pem -pubout -out vapid_public.pem
 # Convert to base64 (implementation varies by platform)
 ```
 
+## Usage - Unified Notification Function
+
+**IMPORTANT**: Always use the unified `notify_user()` function to send notifications.
+This ensures both the bell (in-app) and push notifications are sent consistently.
+
+```python
+from server.services.notifications import notify_user, notify_business_owners
+
+# After committing a DB transaction, notify a specific user:
+notify_user(
+    event_type='appointment_reminder',
+    title='⏰ תזכורת לפגישה',
+    body='יש לך פגישה בעוד שעה',
+    url='/app/calendar',
+    user_id=123,
+    business_id=1,
+    priority='high'
+)
+
+# Notify all business owners/admins (for system alerts):
+notify_business_owners(
+    event_type='whatsapp_disconnect',
+    title='⚠️ חיבור WhatsApp נותק',
+    body='יש להיכנס להגדרות ולחבר מחדש',
+    url='/app/settings',
+    business_id=1,
+    priority='high'
+)
+```
+
+### Parameters
+
+- `event_type`: Type of notification (e.g., 'appointment_reminder', 'task_due', 'whatsapp_disconnect')
+- `title`: Hebrew notification title
+- `body`: Hebrew notification body text
+- `url`: Deep link URL to open when notification is clicked
+- `user_id`: Target user ID
+- `business_id`: Business/tenant ID
+- `entity_id`: Optional related entity ID
+- `priority`: 'low', 'medium', or 'high'
+- `save_to_bell`: Set to `False` if already saved elsewhere (default: `True`)
+
+### When to Call
+
+**ALWAYS** call `notify_user()` or `notify_business_owners()` AFTER `db.session.commit()`.
+This ensures the notification is sent only after the related data is persisted.
+
 ## Features
 
 ### What notifications are sent as push:
 
-1. **WhatsApp Disconnect** - When the business's WhatsApp connection is lost
-2. **Appointment Reminders** - Upcoming appointments (coming soon)
-3. **New Leads** - When a new lead is created (coming soon)
-4. **Task Reminders** - Due and overdue tasks (coming soon)
+1. **Task Reminders** - New reminders/tasks created
+2. **WhatsApp Disconnect** - When the business's WhatsApp connection is lost
+3. **Appointment Reminders** - Upcoming appointments
+4. **Lead Updates** - When leads are assigned or updated
 
 ### Multi-device support
 
@@ -85,15 +132,34 @@ Unregister a push subscription.
 Send a test push notification.
 
 ### GET /api/push/status
-Get push notification status for current user.
+Get push notification status for current user. Returns:
+```json
+{
+  "supported": true,
+  "vapid_configured": true,
+  "subscribed": true,
+  "active_subscriptions_count": 1,
+  "user_id": 123,
+  "business_id": 1
+}
+```
 
 ## Frontend Integration
 
 The frontend handles:
 1. Checking browser support
 2. Requesting notification permission
-3. Registering the service worker
+3. Registering the service worker (on app boot)
 4. Creating and sending the subscription to the backend
+
+## Service Worker
+
+The service worker (`sw.js`) is located at `/client/public/sw.js` and is served at `/sw.js` in production.
+
+Verify it's working by:
+1. Open browser DevTools → Application → Service Workers
+2. Should see `sw.js` with status "Activated"
+3. Or navigate directly to `https://YOUR_DOMAIN/sw.js`
 
 ## PWA / iOS Notes
 
@@ -102,3 +168,4 @@ On iOS Safari, push notifications only work when:
 2. The user grants notification permission
 
 The UI displays guidance for iOS users to add the site to their home screen.
+

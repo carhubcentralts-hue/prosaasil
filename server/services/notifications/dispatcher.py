@@ -275,6 +275,155 @@ def dispatch_push_to_business_owners(
         log.error(f"Error dispatching push to business owners: {e}")
 
 
+# =============================================================================
+# UNIFIED NOTIFICATION FUNCTION
+# This is the main entry point for creating notifications that appear in both
+# the bell (in-app) AND as push notifications
+# =============================================================================
+
+def notify_user(
+    event_type: str,
+    title: str,
+    body: str,
+    url: str,
+    user_id: int,
+    business_id: int,
+    entity_id: Optional[str] = None,
+    priority: str = 'medium',
+    save_to_bell: bool = True
+) -> Optional[int]:
+    """
+    Unified notification function that:
+    1. Saves notification to the bell (LeadReminder with appropriate type)
+    2. Dispatches push notification to user's devices
+    
+    This is the SINGLE entry point for all notifications to ensure consistency.
+    
+    Args:
+        event_type: Type of notification (appointment_reminder, task_due, whatsapp_disconnect, etc.)
+        title: Notification title (Hebrew)
+        body: Notification body text (Hebrew)
+        url: Deep link URL when notification is clicked
+        user_id: Target user ID
+        business_id: Business/tenant ID
+        entity_id: Optional related entity ID
+        priority: Priority level (low, medium, high)
+        save_to_bell: Whether to save to bell (LeadReminder). Set False if already saved elsewhere.
+        
+    Returns:
+        Reminder ID if saved to bell, None otherwise
+        
+    Usage:
+        # After committing a DB transaction:
+        notify_user(
+            event_type='appointment_reminder',
+            title='⏰ תזכורת לפגישה',
+            body='יש לך פגישה בעוד שעה',
+            url='/app/calendar',
+            user_id=123,
+            business_id=1,
+            priority='high'
+        )
+    """
+    reminder_id = None
+    
+    # 1. Save to bell (LeadReminder) if requested
+    if save_to_bell:
+        try:
+            from server.models_sql import LeadReminder
+            from server.db import db
+            from datetime import datetime
+            
+            reminder = LeadReminder()
+            reminder.tenant_id = business_id
+            reminder.lead_id = None  # System notification
+            reminder.due_at = datetime.utcnow()
+            reminder.note = title
+            reminder.description = body
+            reminder.channel = 'ui'
+            reminder.priority = priority
+            reminder.reminder_type = f'system_{event_type}'
+            reminder.created_by = user_id
+            
+            db.session.add(reminder)
+            db.session.commit()
+            reminder_id = reminder.id
+            
+            log.info(f"🔔 Saved notification to bell: {event_type} for user {user_id}")
+        except Exception as e:
+            log.error(f"Failed to save notification to bell: {e}")
+            # Continue to push even if bell fails
+    
+    # 2. Dispatch push notification (always runs in background thread)
+    try:
+        dispatch_push_for_notification(
+            user_id=user_id,
+            business_id=business_id,
+            notification_type=event_type,
+            title=title,
+            body=body,
+            url=url,
+            entity_id=entity_id
+        )
+        log.info(f"📱 Dispatched push notification: {event_type} for user {user_id}")
+    except Exception as e:
+        log.warning(f"⚠️ Push dispatch failed (non-critical): {e}")
+    
+    return reminder_id
+
+
+def notify_business_owners(
+    event_type: str,
+    title: str,
+    body: str,
+    url: str,
+    business_id: int,
+    entity_id: Optional[str] = None,
+    priority: str = 'medium',
+    save_to_bell: bool = True
+) -> None:
+    """
+    Notify all owners/admins of a business.
+    
+    Used for system alerts like WhatsApp disconnect, critical errors, etc.
+    
+    Args:
+        event_type: Type of notification
+        title: Notification title
+        body: Notification body text
+        url: Deep link URL
+        business_id: Business/tenant ID
+        entity_id: Optional related entity ID
+        priority: Priority level
+        save_to_bell: Whether to save to bell
+    """
+    from server.models_sql import User
+    
+    try:
+        # Get all owners and admins for this business
+        owners = User.query.filter(
+            User.business_id == business_id,
+            User.is_active == True,
+            User.role.in_(['owner', 'admin'])
+        ).all()
+        
+        for owner in owners:
+            notify_user(
+                event_type=event_type,
+                title=title,
+                body=body,
+                url=url,
+                user_id=owner.id,
+                business_id=business_id,
+                entity_id=entity_id,
+                priority=priority,
+                save_to_bell=save_to_bell
+            )
+            
+    except Exception as e:
+        log.error(f"Error notifying business owners: {e}")
+
+
 def dispatch_push_for_reminder(
     reminder_id: int,
     tenant_id: int,
