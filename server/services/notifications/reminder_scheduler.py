@@ -40,6 +40,24 @@ def _try_send_with_dedupe(db, reminder, lead, offset_minutes: int) -> bool:
     """
     from server.models_sql import ReminderPushLog
     from sqlalchemy.exc import IntegrityError
+    from sqlalchemy import inspect
+    
+    # 🔒 SAFETY CHECK: Verify table exists before attempting operations
+    # This prevents "relation does not exist" errors during startup
+    try:
+        inspector = inspect(db.engine)
+        if 'reminder_push_log' not in inspector.get_table_names():
+            log.debug("reminder_push_log table does not exist yet, sending without deduplication")
+            # Table doesn't exist yet - send without deduplication (one-time during migration)
+            try:
+                _send_reminder_push(reminder, lead, offset_minutes)
+                return True
+            except Exception as e:
+                log.warning(f"⚠️ Push send failed (no deduplication available): {e}")
+                return False
+    except Exception as e:
+        log.warning(f"Error checking table existence: {e}")
+        # On error, proceed with normal flow (will fail if table doesn't exist)
     
     # Step 1: Try to claim this notification slot
     try:
@@ -81,8 +99,16 @@ def _try_send_with_dedupe(db, reminder, lead, offset_minutes: int) -> bool:
 def _cleanup_old_push_logs(db):
     """Clean up old push log entries to prevent table from growing too large"""
     from server.models_sql import ReminderPushLog
+    from sqlalchemy import text, inspect
     
     try:
+        # 🔒 SAFETY CHECK: Verify table exists before attempting cleanup
+        # This prevents "relation does not exist" errors during startup
+        inspector = inspect(db.engine)
+        if 'reminder_push_log' not in inspector.get_table_names():
+            log.debug("reminder_push_log table does not exist yet, skipping cleanup")
+            return
+        
         cutoff = datetime.utcnow() - timedelta(days=CLEANUP_DAYS)
         deleted = ReminderPushLog.query.filter(
             ReminderPushLog.sent_at < cutoff
