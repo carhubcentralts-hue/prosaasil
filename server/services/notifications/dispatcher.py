@@ -273,3 +273,80 @@ def dispatch_push_to_business_owners(
             
     except Exception as e:
         log.error(f"Error dispatching push to business owners: {e}")
+
+
+def dispatch_push_for_reminder(
+    reminder_id: int,
+    tenant_id: int,
+    created_by: Optional[int],
+    note: Optional[str],
+    lead_name: Optional[str] = None,
+    lead_id: Optional[int] = None,
+    reminder_type: str = 'general',
+    priority: str = 'medium'
+) -> None:
+    """
+    Dispatch push notification for a newly created reminder.
+    
+    Called after creating a LeadReminder to send push notifications.
+    For lead-related reminders, notifies the creator.
+    For system reminders, notifies business owners/admins.
+    
+    Args:
+        reminder_id: ID of the created reminder
+        tenant_id: Business ID
+        created_by: User ID who created the reminder (target for push)
+        note: Reminder note/description
+        lead_name: Name of associated lead (if any)
+        lead_id: ID of associated lead (if any)
+        reminder_type: Type of reminder (general, lead_related, system_*)
+        priority: Priority level (low, medium, high)
+    """
+    try:
+        # Skip system notifications - they have their own dispatch logic
+        if reminder_type and reminder_type.startswith('system_'):
+            log.debug(f"Skipping push for system reminder {reminder_id}")
+            return
+        
+        # Build notification content
+        if lead_name:
+            title = f"⏰ תזכורת: {lead_name}"
+            url = f"/app/leads/{lead_id}" if lead_id else "/app/notifications"
+        else:
+            title = "⏰ תזכורת חדשה"
+            url = "/app/notifications"
+        
+        body = note or "יש לך תזכורת חדשה"
+        
+        # Add priority indicator
+        if priority == 'high':
+            title = f"🔴 {title}"
+        elif priority == 'medium':
+            title = f"🟡 {title}"
+        
+        # If created_by exists, notify them
+        if created_by:
+            dispatch_push_for_notification(
+                user_id=created_by,
+                business_id=tenant_id,
+                notification_type='reminder_created',
+                title=title,
+                body=body,
+                url=url,
+                entity_id=str(reminder_id)
+            )
+        else:
+            # No specific creator - notify business owners
+            dispatch_push_to_business_owners(
+                business_id=tenant_id,
+                notification_type='reminder_created',
+                title=title,
+                body=body,
+                url=url,
+                entity_id=str(reminder_id)
+            )
+        
+        log.info(f"📱 Dispatched push for reminder {reminder_id}")
+        
+    except Exception as e:
+        log.warning(f"⚠️ Push dispatch for reminder failed (non-critical): {e}")

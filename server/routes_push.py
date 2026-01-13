@@ -254,6 +254,14 @@ def get_push_status():
     """
     GET /api/push/status
     Get push notification status for current user
+    
+    Returns comprehensive diagnostic info:
+    - supported: True (backend always supports push)
+    - vapid_configured: Whether VAPID keys are set
+    - subscribed: Whether user has active subscriptions
+    - active_subscriptions_count: Number of active subscriptions
+    - user_id: Current user ID
+    - business_id: Current business ID
     """
     try:
         user = g.user
@@ -263,12 +271,13 @@ def get_push_status():
         user_id = user.get('id')
         business_id = g.tenant
         
-        # Check if push is configured
+        # Check if push is configured (VAPID keys present)
         sender = get_webpush_sender()
-        is_configured = sender.is_configured
+        vapid_configured = sender.is_configured
         
-        # Count active subscriptions
+        # Count active subscriptions for this user in this business
         subscription_count = 0
+        all_user_subscriptions = 0
         if business_id:
             subscription_count = PushSubscription.query.filter_by(
                 user_id=user_id,
@@ -276,9 +285,23 @@ def get_push_status():
                 is_active=True
             ).count()
         
+        # Also count all user subscriptions (across businesses)
+        all_user_subscriptions = PushSubscription.query.filter_by(
+            user_id=user_id,
+            is_active=True
+        ).count()
+        
         return jsonify({
             "success": True,
-            "configured": is_configured,
+            "supported": True,  # Backend always supports push
+            "vapid_configured": vapid_configured,
+            "subscribed": subscription_count > 0,
+            "active_subscriptions_count": subscription_count,
+            "all_user_subscriptions": all_user_subscriptions,
+            "user_id": user_id,
+            "business_id": business_id,
+            # Backwards compatibility
+            "configured": vapid_configured,
             "subscriptionCount": subscription_count,
             "enabled": subscription_count > 0
         })
