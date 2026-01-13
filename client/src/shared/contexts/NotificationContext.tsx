@@ -188,7 +188,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }
     } catch (error) {
       console.error('[NotificationContext] Error fetching notifications:', error);
-      // Don't clear notifications on error - preserve last good state
+      // IMPORTANT: Preserve last good state on error rather than clearing notifications.
+      // This prevents the bell from showing 0 during temporary network issues.
+      // The next successful refresh will update the state with fresh data.
     } finally {
       // FIX: Always release the lock in finally block to prevent deadlocks
       isRefreshingRef.current = false;

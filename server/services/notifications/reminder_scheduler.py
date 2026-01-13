@@ -15,6 +15,11 @@ from typing import Optional, List, Set
 
 log = logging.getLogger(__name__)
 
+# Configuration constants
+INITIAL_DELAY_SECONDS = 30  # Wait before first check after startup
+CHECK_INTERVAL_SECONDS = 60  # Check every minute
+MAX_NOTIFICATION_CACHE_SIZE = 10000  # Clear cache when it exceeds this size
+
 # Track which reminders have been notified to avoid duplicates
 # Key: f"{reminder_id}_{minutes_before}" e.g. "123_30" or "123_15"
 _notified_reminders: Set[str] = set()
@@ -45,11 +50,11 @@ def _mark_as_notified(reminder_id: int, minutes_before: int) -> bool:
 
 def _cleanup_old_notifications():
     """Clean up old notification tracking entries (run periodically)"""
-    # Keep the set from growing too large - clear entries older than 24 hours
+    # Keep the set from growing too large - clear when exceeds threshold
     # Since we only track by ID, we can safely clear periodically
     global _notified_reminders
     with _notified_lock:
-        if len(_notified_reminders) > 10000:
+        if len(_notified_reminders) > MAX_NOTIFICATION_CACHE_SIZE:
             _notified_reminders = set()
             log.info("🧹 Cleared notification tracking cache")
 
@@ -122,8 +127,10 @@ def check_and_send_reminder_notifications(app):
 
 def _send_reminder_push(reminder, lead, minutes_before: int):
     """Send a push notification for an upcoming reminder"""
-    from server.services.notifications.dispatcher import dispatch_push_for_notification
-    from server.models_sql import User
+    from server.services.notifications.dispatcher import (
+        dispatch_push_for_notification,
+        dispatch_push_to_business_owners
+    )
     
     try:
         # Build notification content
@@ -164,7 +171,6 @@ def _send_reminder_push(reminder, lead, minutes_before: int):
             log.info(f"📱 Sent {minutes_before}-min reminder push for reminder {reminder.id} to user {user_id}")
         else:
             # No specific user - notify business owners
-            from server.services.notifications.dispatcher import dispatch_push_to_business_owners
             dispatch_push_to_business_owners(
                 business_id=business_id,
                 notification_type='reminder_approaching',
@@ -197,7 +203,7 @@ def start_reminder_scheduler(app):
         log.info("🔔 Reminder notification scheduler started")
         
         # Wait a bit before first check
-        time.sleep(30)
+        time.sleep(INITIAL_DELAY_SECONDS)
         
         while _scheduler_running:
             try:
@@ -205,8 +211,8 @@ def start_reminder_scheduler(app):
             except Exception as e:
                 log.error(f"Scheduler error: {e}")
             
-            # Check every minute
-            time.sleep(60)
+            # Check at configured interval
+            time.sleep(CHECK_INTERVAL_SECONDS)
         
         log.info("🔔 Reminder notification scheduler stopped")
     
