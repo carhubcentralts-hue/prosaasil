@@ -25,33 +25,56 @@ _scheduler_running = False
 _scheduler_thread: Optional[threading.Thread] = None
 
 
-def _try_mark_as_sent(db, reminder_id: int, offset_minutes: int) -> bool:
+def _try_send_with_dedupe(db, reminder, lead, offset_minutes: int) -> bool:
     """
-    Try to mark a reminder notification as sent using DB-backed deduplication.
-    Uses INSERT with unique constraint - if it fails, notification was already sent.
+    Try to send a reminder push with DB-backed deduplication.
     
-    Returns True if this is a new notification (successfully inserted).
-    Returns False if already sent (unique constraint violation).
+    Flow:
+    1. INSERT log entry (atomic claim)
+    2. If INSERT fails (unique constraint) -> already sent, return False
+    3. Try to send push
+    4. If send fails -> DELETE log entry to allow retry, return False
+    5. If send succeeds -> keep log entry, return True
+    
+    Returns True if notification was sent successfully.
     """
     from server.models_sql import ReminderPushLog
     from sqlalchemy.exc import IntegrityError
     
+    # Step 1: Try to claim this notification slot
     try:
         log_entry = ReminderPushLog(
-            reminder_id=reminder_id,
+            reminder_id=reminder.id,
             offset_minutes=offset_minutes,
             sent_at=datetime.utcnow()
         )
         db.session.add(log_entry)
         db.session.commit()
-        return True
     except IntegrityError:
-        # Unique constraint violation - already sent
+        # Already sent by another worker
         db.session.rollback()
         return False
     except Exception as e:
         db.session.rollback()
-        log.warning(f"Error checking push log: {e}")
+        log.warning(f"Error claiming push log slot: {e}")
+        return False
+    
+    # Step 2: Try to send the notification
+    try:
+        _send_reminder_push(reminder, lead, offset_minutes)
+        return True
+    except Exception as e:
+        # Send failed - delete log entry to allow retry on next cycle
+        log.warning(f"⚠️ Push send failed, removing log entry for retry: {e}")
+        try:
+            ReminderPushLog.query.filter_by(
+                reminder_id=reminder.id,
+                offset_minutes=offset_minutes
+            ).delete()
+            db.session.commit()
+        except Exception as del_err:
+            db.session.rollback()
+            log.error(f"Failed to delete log entry for retry: {del_err}")
         return False
 
 
@@ -117,16 +140,14 @@ def check_and_send_reminder_notifications(app):
                 
                 # Check if due in ~30 minutes
                 if window_30_start <= reminder.due_at <= window_30_end:
-                    # DB-backed deduplication - prevents duplicates across workers
-                    if _try_mark_as_sent(db, reminder.id, 30):
-                        _send_reminder_push(reminder, lead, 30)
+                    # DB-backed deduplication with retry on failure
+                    if _try_send_with_dedupe(db, reminder, lead, 30):
                         notifications_sent += 1
                 
                 # Check if due in ~15 minutes
                 elif window_15_start <= reminder.due_at <= window_15_end:
-                    # DB-backed deduplication - prevents duplicates across workers
-                    if _try_mark_as_sent(db, reminder.id, 15):
-                        _send_reminder_push(reminder, lead, 15)
+                    # DB-backed deduplication with retry on failure
+                    if _try_send_with_dedupe(db, reminder, lead, 15):
                         notifications_sent += 1
             
             if notifications_sent > 0:
