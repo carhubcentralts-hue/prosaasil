@@ -7,15 +7,20 @@ This script checks:
 2. Safety guards are added to reminder_scheduler.py
 3. WebPush 410 handling is present in dispatcher.py
 """
+import os
 import re
 import sys
+
+# Get the repository root directory (parent of the script location)
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def check_migration_exists():
     """Check that Migration 66 is added to db_migrate.py"""
     print("🔍 Checking Migration 66 in db_migrate.py...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/db_migrate.py', 'r') as f:
+    db_migrate_path = os.path.join(REPO_ROOT, 'server', 'db_migrate.py')
+    with open(db_migrate_path, 'r') as f:
         content = f.read()
     
     # Check for migration 66
@@ -69,7 +74,8 @@ def check_safety_guards():
     """Check that safety guards are added to reminder_scheduler.py"""
     print("🔍 Checking safety guards in reminder_scheduler.py...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/services/notifications/reminder_scheduler.py', 'r') as f:
+    scheduler_path = os.path.join(REPO_ROOT, 'server', 'services', 'notifications', 'reminder_scheduler.py')
+    with open(scheduler_path, 'r') as f:
         content = f.read()
     
     # Check _cleanup_old_push_logs has table existence check
@@ -115,7 +121,8 @@ def check_webpush_410_handling():
     print("🔍 Checking WebPush 410 error handling...")
     
     # Check dispatcher.py
-    with open('/home/runner/work/prosaasil/prosaasil/server/services/notifications/dispatcher.py', 'r') as f:
+    dispatcher_path = os.path.join(REPO_ROOT, 'server', 'services', 'notifications', 'dispatcher.py')
+    with open(dispatcher_path, 'r') as f:
         dispatcher_content = f.read()
     
     if 'should_deactivate' not in dispatcher_content:
@@ -134,7 +141,8 @@ def check_webpush_410_handling():
     print("✅ is_active = False update found in dispatcher.py")
     
     # Check webpush_sender.py
-    with open('/home/runner/work/prosaasil/prosaasil/server/services/push/webpush_sender.py', 'r') as f:
+    sender_path = os.path.join(REPO_ROOT, 'server', 'services', 'push', 'webpush_sender.py')
+    with open(sender_path, 'r') as f:
         sender_content = f.read()
     
     if '410' not in sender_content and '404' not in sender_content:
