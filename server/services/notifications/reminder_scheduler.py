@@ -5,58 +5,71 @@ Sends push notifications for upcoming reminders:
 - 30 minutes before due time
 - 15 minutes before due time
 
-Also handles immediate notifications for urgent events.
+Uses DB-backed deduplication to work correctly with multiple workers/replicas.
 """
 import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Optional, List, Set
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
 # Configuration constants
 INITIAL_DELAY_SECONDS = 30  # Wait before first check after startup
 CHECK_INTERVAL_SECONDS = 60  # Check every minute
-MAX_NOTIFICATION_CACHE_SIZE = 10000  # Clear cache when it exceeds this size
-
-# Track which reminders have been notified to avoid duplicates
-# Key: f"{reminder_id}_{minutes_before}" e.g. "123_30" or "123_15"
-_notified_reminders: Set[str] = set()
-_notified_lock = threading.Lock()
+CLEANUP_DAYS = 7  # Clean up push log entries older than this
 
 # Scheduler state
 _scheduler_running = False
 _scheduler_thread: Optional[threading.Thread] = None
 
 
-def _get_notification_key(reminder_id: int, minutes_before: int) -> str:
-    """Generate unique key for tracking sent notifications"""
-    return f"{reminder_id}_{minutes_before}"
-
-
-def _mark_as_notified(reminder_id: int, minutes_before: int) -> bool:
+def _try_mark_as_sent(db, reminder_id: int, offset_minutes: int) -> bool:
     """
-    Mark a reminder as notified for a specific time window.
-    Returns True if this is a new notification, False if already sent.
+    Try to mark a reminder notification as sent using DB-backed deduplication.
+    Uses INSERT with unique constraint - if it fails, notification was already sent.
+    
+    Returns True if this is a new notification (successfully inserted).
+    Returns False if already sent (unique constraint violation).
     """
-    key = _get_notification_key(reminder_id, minutes_before)
-    with _notified_lock:
-        if key in _notified_reminders:
-            return False
-        _notified_reminders.add(key)
+    from server.models_sql import ReminderPushLog
+    from sqlalchemy.exc import IntegrityError
+    
+    try:
+        log_entry = ReminderPushLog(
+            reminder_id=reminder_id,
+            offset_minutes=offset_minutes,
+            sent_at=datetime.utcnow()
+        )
+        db.session.add(log_entry)
+        db.session.commit()
         return True
+    except IntegrityError:
+        # Unique constraint violation - already sent
+        db.session.rollback()
+        return False
+    except Exception as e:
+        db.session.rollback()
+        log.warning(f"Error checking push log: {e}")
+        return False
 
 
-def _cleanup_old_notifications():
-    """Clean up old notification tracking entries (run periodically)"""
-    # Keep the set from growing too large - clear when exceeds threshold
-    # Since we only track by ID, we can safely clear periodically
-    global _notified_reminders
-    with _notified_lock:
-        if len(_notified_reminders) > MAX_NOTIFICATION_CACHE_SIZE:
-            _notified_reminders = set()
-            log.info("🧹 Cleared notification tracking cache")
+def _cleanup_old_push_logs(db):
+    """Clean up old push log entries to prevent table from growing too large"""
+    from server.models_sql import ReminderPushLog
+    
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=CLEANUP_DAYS)
+        deleted = ReminderPushLog.query.filter(
+            ReminderPushLog.sent_at < cutoff
+        ).delete(synchronize_session=False)
+        db.session.commit()
+        if deleted > 0:
+            log.info(f"🧹 Cleaned up {deleted} old push log entries")
+    except Exception as e:
+        db.session.rollback()
+        log.warning(f"Error cleaning up push logs: {e}")
 
 
 def check_and_send_reminder_notifications(app):
@@ -67,25 +80,26 @@ def check_and_send_reminder_notifications(app):
     - 30 minutes before
     - 15 minutes before
     
+    Uses DB-backed deduplication to prevent duplicate sends across workers.
+    
     Args:
         app: Flask application instance for context
     """
     from server.db import db
-    from server.models_sql import LeadReminder, Lead, User
-    from server.services.notifications.dispatcher import dispatch_push_for_notification
+    from server.models_sql import LeadReminder, Lead
     
     try:
         with app.app_context():
             now = datetime.utcnow()
             
-            # Time windows for notifications
+            # Time windows for notifications (with tolerance for drift)
             window_30_start = now + timedelta(minutes=29)
             window_30_end = now + timedelta(minutes=31)
             window_15_start = now + timedelta(minutes=14)
             window_15_end = now + timedelta(minutes=16)
             
             # Query reminders that are due soon (within next 35 minutes)
-            # and haven't been completed
+            # and haven't been completed - limited scope for efficiency
             upcoming_reminders = db.session.query(LeadReminder, Lead).outerjoin(
                 Lead, LeadReminder.lead_id == Lead.id
             ).filter(
@@ -103,21 +117,23 @@ def check_and_send_reminder_notifications(app):
                 
                 # Check if due in ~30 minutes
                 if window_30_start <= reminder.due_at <= window_30_end:
-                    if _mark_as_notified(reminder.id, 30):
+                    # DB-backed deduplication - prevents duplicates across workers
+                    if _try_mark_as_sent(db, reminder.id, 30):
                         _send_reminder_push(reminder, lead, 30)
                         notifications_sent += 1
                 
                 # Check if due in ~15 minutes
                 elif window_15_start <= reminder.due_at <= window_15_end:
-                    if _mark_as_notified(reminder.id, 15):
+                    # DB-backed deduplication - prevents duplicates across workers
+                    if _try_mark_as_sent(db, reminder.id, 15):
                         _send_reminder_push(reminder, lead, 15)
                         notifications_sent += 1
             
             if notifications_sent > 0:
                 log.info(f"🔔 Sent {notifications_sent} reminder push notification(s)")
             
-            # Periodic cleanup
-            _cleanup_old_notifications()
+            # Periodic cleanup of old log entries
+            _cleanup_old_push_logs(db)
             
     except Exception as e:
         log.error(f"❌ Error in reminder notification scheduler: {e}")
