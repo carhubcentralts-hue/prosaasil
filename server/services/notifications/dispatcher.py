@@ -309,12 +309,13 @@ def dispatch_push_for_reminder(
             return
         
         # Build notification content
+        # URL is determined by lead_id, not lead_name
+        url = f"/app/leads/{lead_id}" if lead_id else "/app/notifications"
+        
         if lead_name:
             title = f"⏰ תזכורת: {lead_name}"
-            url = f"/app/leads/{lead_id}" if lead_id else "/app/notifications"
         else:
             title = "⏰ תזכורת חדשה"
-            url = "/app/notifications"
         
         body = note or "יש לך תזכורת חדשה"
         

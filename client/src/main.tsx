@@ -7,10 +7,13 @@ import './index.css'
 // Register SW early on app load (production/HTTPS only)
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    // Only register in production (HTTPS) or localhost
-    const isLocalhost = window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1';
-    const isSecure = window.location.protocol === 'https:' || isLocalhost;
+    // Only register in production (HTTPS) or local development
+    const hostname = window.location.hostname;
+    const isLocalDev = hostname === 'localhost' || 
+                       hostname === '127.0.0.1' ||
+                       hostname.startsWith('192.168.') ||
+                       hostname.endsWith('.local');
+    const isSecure = window.location.protocol === 'https:' || isLocalDev;
     
     if (isSecure) {
       navigator.serviceWorker.register('/sw.js')
