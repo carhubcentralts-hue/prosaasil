@@ -17,6 +17,9 @@ from werkzeug.utils import secure_filename
 # Import status webhook service
 from server.services.status_webhook_service import dispatch_lead_status_webhook
 
+# Import push notification dispatcher
+from server.services.notifications.dispatcher import dispatch_push_for_reminder
+
 # Import psycopg2 for database error handling
 try:
     import psycopg2.errors
@@ -900,6 +903,10 @@ def create_reminder(lead_id):
     user = get_current_user()
     tenant_id = get_current_tenant()
     
+    # Get lead name for push notification
+    lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+    lead_name = lead.full_name if lead else None
+    
     reminder = LeadReminder()
     reminder.tenant_id = tenant_id  # Required for new schema
     reminder.lead_id = lead_id
@@ -924,6 +931,18 @@ def create_reminder(lead_id):
     )
     
     db.session.commit()
+    
+    # 🔔 Dispatch push notification for new reminder
+    dispatch_push_for_reminder(
+        reminder_id=reminder.id,
+        tenant_id=tenant_id,
+        created_by=user.get('id') if user else None,
+        note=reminder.note,
+        lead_name=lead_name,
+        lead_id=lead_id,
+        reminder_type='lead_related',
+        priority='medium'
+    )
     
     return jsonify({
         "id": reminder.id,
@@ -1511,10 +1530,12 @@ def create_general_reminder():
     
     # If lead_id is provided, verify access
     lead_id = data.get('lead_id')
+    lead_name = None
     if lead_id:
         lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
         if not lead:
             return jsonify({"error": "Lead not found or access denied"}), 404
+        lead_name = lead.full_name
     
     user = get_current_user()
     
@@ -1547,6 +1568,18 @@ def create_general_reminder():
     
     db.session.commit()
     log.info(f"✅ CREATE REMINDER - Success! reminder_id={reminder.id}, tenant_id={tenant_id}")
+    
+    # 🔔 Dispatch push notification for new reminder
+    dispatch_push_for_reminder(
+        reminder_id=reminder.id,
+        tenant_id=tenant_id,
+        created_by=user.get('id') if user else None,
+        note=reminder.note,
+        lead_name=lead_name,
+        lead_id=lead_id,
+        reminder_type=reminder.reminder_type,
+        priority=reminder.priority
+    )
     
     return jsonify({
         "message": "Reminder created successfully",

@@ -1764,6 +1764,8 @@ def _create_whatsapp_disconnect_notification(business_id: int):
     🔔 BUILD 151: Create a system notification when WhatsApp disconnects
     Uses LeadReminder with type='system_whatsapp_disconnect' so it flows through
     the existing notification system.
+    
+    Also dispatches push notifications to business owners.
     """
     try:
         # Check if notification already exists (prevent duplicates)
@@ -1796,6 +1798,21 @@ def _create_whatsapp_disconnect_notification(business_id: int):
         db.session.commit()
         
         log.info(f"[WHATSAPP_STATUS] ✅ Created disconnect notification for business_id={business_id}")
+        
+        # 🔔 Push notification dispatch to business owners/admins
+        try:
+            from server.services.notifications.dispatcher import dispatch_push_to_business_owners
+            dispatch_push_to_business_owners(
+                business_id=business_id,
+                notification_type='whatsapp_disconnect',
+                title='⚠️ חיבור WhatsApp נותק',
+                body='יש להיכנס להגדרות ולחבר מחדש את WhatsApp',
+                url='/app/settings',
+                entity_id=str(business_id)
+            )
+            log.info(f"[WHATSAPP_STATUS] 📱 Dispatched push notification for WhatsApp disconnect")
+        except Exception as push_error:
+            log.warning(f"[WHATSAPP_STATUS] ⚠️ Push notification dispatch failed (non-critical): {push_error}")
         
     except Exception as e:
         log.error(f"[WHATSAPP_STATUS] ❌ Failed to create disconnect notification: {e}")

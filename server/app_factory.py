@@ -441,6 +441,11 @@ def create_app():
         app.register_blueprint(email_bp)
         app.logger.info("✅ Email System blueprint registered")
         
+        # Push Notifications - /api/push/*
+        from server.routes_push import push_bp
+        app.register_blueprint(push_bp)
+        app.logger.info("✅ Push Notifications blueprint registered")
+        
     except Exception as e:
         app.logger.error(f"❌ CRITICAL: Failed to register essential API blueprints: {e}")
         import traceback

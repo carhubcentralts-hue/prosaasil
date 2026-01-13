@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2, Link2 } from 'lucide-react';
+import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2, Link2, Bell } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { BusinessAISettings } from '@/components/settings/BusinessAISettings';
 import { useAuth } from '@/features/auth/hooks';
+import { 
+  isPushSupported, 
+  getPermissionStatus, 
+  isIOS, 
+  isPWA, 
+  getPushStatus, 
+  subscribeToPush, 
+  unsubscribeFromPush, 
+  sendTestNotification,
+  type PushStatus 
+} from '@/services/push';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -116,7 +127,7 @@ interface AISettings {
 
 export function SettingsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security' | 'notifications'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
   // WhatsApp Webhook Secret state
@@ -125,6 +136,12 @@ export function SettingsPage() {
   const [hasWebhookSecret, setHasWebhookSecret] = useState(false);
   const [showRotateModal, setShowRotateModal] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
+  
+  // Push Notifications state
+  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushSuccess, setPushSuccess] = useState<string | null>(null);
   
   // ✅ BUILD 130: AI tab restricted to system_admin, owner, admin (not agent)
   const canEditAIPrompts = user?.role && ['system_admin', 'owner', 'admin'].includes(user.role);
@@ -257,6 +274,73 @@ export function SettingsPage() {
       setHasWebhookSecret(webhookSecretData.has_secret);
     }
   }, [webhookSecretData]);
+  
+  // Load push notification status
+  useEffect(() => {
+    const loadPushStatus = async () => {
+      try {
+        const status = await getPushStatus();
+        setPushStatus(status);
+      } catch (error) {
+        console.error('Error loading push status:', error);
+      }
+    };
+    loadPushStatus();
+  }, []);
+  
+  // Handle push notification subscribe/unsubscribe
+  const handlePushToggle = async () => {
+    setPushLoading(true);
+    setPushError(null);
+    setPushSuccess(null);
+    
+    try {
+      if (pushStatus?.subscribed) {
+        const result = await unsubscribeFromPush();
+        if (result.success) {
+          setPushSuccess(result.message);
+          setPushStatus(prev => prev ? { ...prev, subscribed: false } : null);
+        } else {
+          setPushError(result.message);
+        }
+      } else {
+        const result = await subscribeToPush();
+        if (result.success) {
+          setPushSuccess(result.message);
+          setPushStatus(prev => prev ? { ...prev, subscribed: true, permission: 'granted' } : null);
+        } else {
+          setPushError(result.message);
+        }
+      }
+    } catch (error) {
+      setPushError('שגיאה לא צפויה');
+    } finally {
+      setPushLoading(false);
+      // Refresh status
+      const newStatus = await getPushStatus();
+      setPushStatus(newStatus);
+    }
+  };
+  
+  // Handle test notification
+  const handleTestPush = async () => {
+    setPushLoading(true);
+    setPushError(null);
+    setPushSuccess(null);
+    
+    try {
+      const result = await sendTestNotification();
+      if (result.success) {
+        setPushSuccess(result.message || 'התראת בדיקה נשלחה בהצלחה!');
+      } else {
+        setPushError(result.error || 'שגיאה בשליחת התראת בדיקה');
+      }
+    } catch (error) {
+      setPushError('שגיאה בשליחת התראת בדיקה');
+    } finally {
+      setPushLoading(false);
+    }
+  };
   
   // Rotate webhook secret function
   const handleRotateWebhookSecret = async () => {
@@ -524,6 +608,18 @@ export function SettingsPage() {
           >
             <Zap className="w-4 h-4 mr-2" />
             אינטגרציות
+          </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`${
+              activeTab === 'notifications'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+            data-testid="tab-notifications"
+          >
+            <Bell className="w-4 h-4 mr-2" />
+            התראות
           </button>
           <button
             onClick={() => setActiveTab('security')}
@@ -1236,6 +1332,137 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'notifications' && (
+          <div className="max-w-2xl space-y-6">
+            <Card className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Bell className="w-6 h-6 text-blue-600" />
+                <h3 className="text-lg font-semibold text-gray-900">התראות לטלפון (Push)</h3>
+                {pushStatus?.subscribed ? (
+                  <Badge variant="success">פעיל ✅</Badge>
+                ) : pushStatus?.permission === 'denied' ? (
+                  <Badge variant="destructive">חסום</Badge>
+                ) : pushStatus?.supported === false ? (
+                  <Badge variant="default">לא נתמך</Badge>
+                ) : (
+                  <Badge variant="default">לא פעיל</Badge>
+                )}
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-6">
+                קבל התראות על פגישות, לידים חדשים ועדכונים חשובים גם כשאתה לא באתר.
+                ההתראות יישלחו לטלפון או למחשב.
+              </p>
+              
+              {/* Status Messages */}
+              {pushError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  ❌ {pushError}
+                </div>
+              )}
+              {pushSuccess && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                  ✅ {pushSuccess}
+                </div>
+              )}
+              
+              {/* Browser/Device Not Supported */}
+              {pushStatus?.supported === false && (
+                <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h4 className="font-medium text-yellow-800 mb-2">⚠️ לא נתמך במכשיר/דפדפן הזה</h4>
+                  <p className="text-sm text-yellow-700">
+                    הדפדפן או המכשיר שלך לא תומך בהתראות. נסה לפתוח את האתר בדפדפן Chrome או Firefox.
+                  </p>
+                </div>
+              )}
+              
+              {/* iOS Safari PWA Message */}
+              {pushStatus?.supported && isIOS() && !isPWA() && (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-medium text-blue-800 mb-2">📱 הוראות עבור אייפון</h4>
+                  <p className="text-sm text-blue-700">
+                    באייפון צריך להוסיף את האתר למסך הבית כדי לקבל התראות:
+                  </p>
+                  <ol className="text-sm text-blue-700 list-decimal list-inside mt-2 space-y-1">
+                    <li>לחץ על כפתור השיתוף (ריבוע עם חץ למעלה)</li>
+                    <li>בחר "הוסף למסך הבית"</li>
+                    <li>פתח את האפליקציה מהמסך הראשי</li>
+                    <li>חזור לכאן והפעל התראות</li>
+                  </ol>
+                </div>
+              )}
+              
+              {/* Permission Denied */}
+              {pushStatus?.permission === 'denied' && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <h4 className="font-medium text-red-800 mb-2">🚫 ההתראות חסומות</h4>
+                  <p className="text-sm text-red-700">
+                    ההתראות חסומות בהגדרות הדפדפן. כדי להפעיל אותן, יש לשנות את ההרשאות ידנית:
+                  </p>
+                  <ul className="text-sm text-red-700 list-disc list-inside mt-2 space-y-1">
+                    <li>לחץ על האייקון ליד שורת הכתובת</li>
+                    <li>מצא את הגדרות ההתראות</li>
+                    <li>שנה מ"חסום" ל"אפשר"</li>
+                    <li>רענן את הדף</li>
+                  </ul>
+                </div>
+              )}
+              
+              {/* Toggle and Actions */}
+              {pushStatus?.supported && pushStatus.permission !== 'denied' && (
+                <div className="space-y-4">
+                  {/* Enable/Disable Toggle */}
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <h4 className="font-medium text-gray-900">הפעל התראות Push</h4>
+                      <p className="text-sm text-gray-600">
+                        {pushStatus.subscribed ? 'ההתראות פעילות ותישלחנה למכשיר זה' : 'לחץ כדי להפעיל התראות למכשיר זה'}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pushStatus.subscribed}
+                        onChange={handlePushToggle}
+                        disabled={pushLoading}
+                        className="sr-only peer"
+                        data-testid="toggle-push-notifications"
+                      />
+                      <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 ${pushLoading ? 'opacity-50' : ''}`}></div>
+                    </label>
+                  </div>
+                  
+                  {/* Test Notification Button */}
+                  {pushStatus.subscribed && (
+                    <Button
+                      variant="outline"
+                      onClick={handleTestPush}
+                      disabled={pushLoading}
+                      className="w-full justify-center"
+                      data-testid="button-test-push"
+                    >
+                      <Bell className="w-4 h-4 mr-2" />
+                      {pushLoading ? 'שולח...' : 'שלח התראת בדיקה'}
+                    </Button>
+                  )}
+                </div>
+              )}
+              
+              {/* Info Section */}
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-medium text-blue-800 mb-2">📋 מה תקבל בהתראות:</h4>
+                <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                  <li>תזכורות לפגישות</li>
+                  <li>פגישות חדשות שנקבעו</li>
+                  <li>משימות ותזכורות</li>
+                  <li>ניתוק WhatsApp (לבעלים)</li>
+                  <li>עדכונים חשובים במערכת</li>
+                </ul>
+              </div>
+            </Card>
           </div>
         )}
 

@@ -2419,6 +2419,53 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ business table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 65: Push Subscriptions - Web Push notifications support
+        # 🔔 PURPOSE: Enable push notifications to users' devices (PWA, future native apps)
+        # Supports: webpush (now), fcm/apns (future)
+        # ═══════════════════════════════════════════════════════════════════════
+        if not check_table_exists('push_subscriptions'):
+            checkpoint("Migration 65: Creating push_subscriptions table for Web Push notifications")
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    CREATE TABLE push_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        channel VARCHAR(16) NOT NULL DEFAULT 'webpush',
+                        endpoint TEXT NOT NULL,
+                        p256dh TEXT,
+                        auth TEXT,
+                        device_info VARCHAR(512),
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for efficient querying
+                db.session.execute(text("""
+                    CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions(user_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_push_subscriptions_business_id ON push_subscriptions(business_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_push_subscriptions_is_active ON push_subscriptions(is_active)
+                """))
+                # Unique constraint to prevent duplicate subscriptions
+                db.session.execute(text("""
+                    CREATE UNIQUE INDEX idx_push_subscriptions_user_endpoint ON push_subscriptions(user_id, endpoint)
+                """))
+                
+                migrations_applied.append('create_push_subscriptions_table')
+                checkpoint("✅ Applied migration 65: create_push_subscriptions_table - Web Push notifications support")
+            except Exception as e:
+                log.error(f"❌ Migration 65 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
