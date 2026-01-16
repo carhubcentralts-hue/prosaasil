@@ -399,6 +399,7 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [filterMode, setFilterMode] = useState<'all' | 'overdue'>('all');  // 🔥 NEW: Filter mode
 
   // Fetch notifications when panel opens
   useEffect(() => {
@@ -417,6 +418,24 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
 
   // Calculate unread count from context
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // 🔥 NEW: Filter notifications based on filter mode
+  const filteredNotifications = filterMode === 'overdue' 
+    ? notifications.filter(n => {
+        // Show only overdue (past due date and not completed)
+        if (!n.metadata?.dueAt) return false;
+        const dueDate = new Date(n.metadata.dueAt);
+        const now = new Date();
+        return dueDate < now; // Past due date
+      })
+    : notifications; // Show all
+
+  const overdueCount = notifications.filter(n => {
+    if (!n.metadata?.dueAt) return false;
+    const dueDate = new Date(n.metadata.dueAt);
+    const now = new Date();
+    return dueDate < now;
+  }).length;
 
   if (!isOpen) return null;
 
@@ -444,42 +463,86 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
       
       <div className="fixed top-16 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-slate-600" />
-            <h2 className="text-lg font-semibold text-slate-900">התראות</h2>
-            {unreadCount > 0 && (
-              <span 
-                className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-medium"
-                data-testid="unread-count-panel"
-              >
-                {unreadCount}
-              </span>
-            )}
+        <div className="flex flex-col p-4 border-b border-slate-200">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-slate-600" />
+              <h2 className="text-lg font-semibold text-slate-900">התראות</h2>
+              {unreadCount > 0 && (
+                <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded-full">
+                  {unreadCount}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              data-testid="button-close-notifications"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          
+          {/* 🔥 NEW: Filter buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFilterMode('all')}
+              className={cn(
+                "flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                filterMode === 'all'
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              כל ההתראות ({notifications.length})
+            </button>
+            <button
+              onClick={() => setFilterMode('overdue')}
+              className={cn(
+                "flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                filterMode === 'overdue'
+                  ? "bg-red-100 text-red-700"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              )}
+            >
+              באיחור ({overdueCount})
+            </button>
+          </div>
         </div>
 
         {/* Notifications List - ACTUALLY Fixed scrolling */}
         <div className="overflow-y-scroll" style={{ height: '400px' }}>
-          {notifications.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            </div>
+          ) : filteredNotifications.length === 0 ? (
             <div className="p-8 text-center text-slate-500">
-              <Bell className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-              <p>אין התראות חדשות</p>
+              {filterMode === 'overdue' ? (
+                <>
+                  <Clock className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">אין משימות באיחור</p>
+                  <p className="text-xs mt-1">כל המשימות מטופלות בזמן! 🎉</p>
+                </>
+              ) : (
+                <>
+                  <Bell className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">אין התראות חדשות</p>
+                  <p className="text-xs mt-1">נעדכן אותך כשיהיו עדכונים</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {notifications.map((notification) => (
+              {filteredNotifications.map((notification) => (
                 <NotificationItem
                   key={notification.id}
                   notification={notification}
                   onClick={() => handleNotificationClick(notification)}
-                  onMarkComplete={markAsComplete}
+                  onMarkComplete={async (id) => {
+                    await markAsComplete(id);
+                    await refreshNotifications();
+                  }}
                 />
               ))}
             </div>
