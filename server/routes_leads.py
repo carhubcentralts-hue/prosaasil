@@ -1673,7 +1673,6 @@ def update_general_reminder(reminder_id):
             reminder.due_at = due_at.replace(tzinfo=None) if due_at.tzinfo else due_at
         except ValueError:
             return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
-            return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
     
     if 'note' in data:
         reminder.note = data['note']
