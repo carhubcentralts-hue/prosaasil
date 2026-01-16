@@ -59,10 +59,10 @@ def global_search():
                 log.error(f"No business_id for user {user.get('email')} role {user_role}")
                 return jsonify({'error': 'Business context required'}), 401
         
-        log.info(f"Global search: user={user.get('email')}, role={user_role}, business_id={business_id}, query='{query}'")
-        
         # Get search parameters
         query = request.args.get('q', '').strip()
+        
+        log.info(f"Global search: user={user.get('email')}, role={user_role}, business_id={business_id}, query='{query}'")
         if len(query) < 2:
             log.info(f"Search query too short: '{query}'")
             return jsonify({

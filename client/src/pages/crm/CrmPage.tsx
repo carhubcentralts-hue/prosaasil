@@ -79,6 +79,7 @@ export function CrmPage() {
   const [editingTask, setEditingTask] = useState<CRMTask | null>(null);
   const [deletingCompleted, setDeletingCompleted] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingTask, setDeletingTask] = useState<string | number | null>(null);
   const [taskForm, setTaskForm] = useState({
     note: '',
     description: '',
@@ -234,6 +235,24 @@ export function CrmPage() {
     }
   };
 
+  const handleDeleteSingleTask = async (taskId: string | number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק משימה זו?')) {
+      return;
+    }
+    
+    setDeletingTask(taskId);
+    try {
+      await http.delete(`/api/reminders/${taskId}`);
+      loadData();
+      refreshNotifications();
+    } catch (error: any) {
+      console.error('Error deleting task:', error);
+      alert(`שגיאה במחיקת משימה: ${error.message || 'שגיאה לא ידועה'}`);
+    } finally {
+      setDeletingTask(null);
+    }
+  };
+
   const getPendingTasks = () => {
     return tasks.filter(r => !r.completed_at && new Date(r.due_at) > new Date());
   };
@@ -354,6 +373,20 @@ export function CrmPage() {
                           <Edit2 className="w-3 h-3 ml-1" />
                           ערוך
                         </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleDeleteSingleTask(task.id)}
+                          className="text-red-600 hover:bg-red-50"
+                          disabled={deletingTask === task.id}
+                          data-testid={`button-delete-task-${task.id}`}
+                        >
+                          {deletingTask === task.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                        </Button>
                       </div>
                     </Card>
                   ))}
@@ -419,6 +452,20 @@ export function CrmPage() {
                         >
                           <Edit2 className="w-3 h-3 ml-1" />
                           ערוך
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleDeleteSingleTask(task.id)}
+                          className="text-red-600 hover:bg-red-50"
+                          disabled={deletingTask === task.id}
+                          data-testid={`button-delete-overdue-task-${task.id}`}
+                        >
+                          {deletingTask === task.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
                         </Button>
                       </div>
                     </Card>
