@@ -1203,11 +1203,23 @@ def get_notifications():
         soon_threshold = now + timedelta(hours=3)
         tomorrow = today + timedelta(days=1)
         
-        # Build query with proper user-level filtering
+        # 🔥 FIX: Only show reminders that are due (past or today), not future reminders
+        # Show:
+        # 1. Overdue reminders (past)
+        # 2. Today's reminders
+        # 3. System notifications (always show)
+        # Don't show: Future reminders
         query = db.session.query(LeadReminder, Lead).outerjoin(
             Lead, LeadReminder.lead_id == Lead.id
         ).filter(
-            LeadReminder.completed_at.is_(None)
+            LeadReminder.completed_at.is_(None),
+            or_(
+                LeadReminder.due_at <= tomorrow,  # Past, today, or early tomorrow
+                and_(
+                    LeadReminder.reminder_type.isnot(None),
+                    LeadReminder.reminder_type.like('system_%')  # Always show system notifications
+                )
+            )
         )
         
         # Add tenant filter (business scoping)
