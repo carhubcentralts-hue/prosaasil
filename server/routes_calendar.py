@@ -299,12 +299,22 @@ def create_appointment():
         
         # Parse and validate dates
         try:
-            start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-            end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
+            # 🔥 FIX: Handle both formats - with and without timezone
+            # If the datetime string doesn't have timezone info, treat it as local Israel time
+            start_str = data['start_time']
+            end_str = data['end_time']
             
-            # 🔥 CRITICAL FIX: Remove timezone before saving to DB
-            # DB columns are DateTime (not DateTimeTZ), so we save local Israel time without timezone
-            # This prevents PostgreSQL from converting to UTC which causes 2-hour shift!
+            # Remove 'Z' if present (legacy format)
+            if start_str.endswith('Z'):
+                start_str = start_str[:-1]
+            if end_str.endswith('Z'):
+                end_str = end_str[:-1]
+            
+            # Parse as naive datetime (no timezone) - this is local Israel time
+            start_time = datetime.fromisoformat(start_str)
+            end_time = datetime.fromisoformat(end_str)
+            
+            # Ensure naive datetime (remove timezone if somehow present)
             if start_time.tzinfo is not None:
                 start_time = start_time.replace(tzinfo=None)
             if end_time.tzinfo is not None:
@@ -525,16 +535,24 @@ def update_appointment(appointment_id):
         # Handle date fields
         if 'start_time' in data:
             try:
-                start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-                # 🔥 Remove timezone before saving to DB
+                # 🔥 FIX: Handle both formats - with and without timezone
+                start_str = data['start_time']
+                if start_str.endswith('Z'):
+                    start_str = start_str[:-1]
+                start_time = datetime.fromisoformat(start_str)
+                # Ensure naive datetime (local Israel time)
                 appointment.start_time = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
             except ValueError:
                 return jsonify({'error': 'פורמט זמן התחלה לא תקין'}), 400
         
         if 'end_time' in data:
             try:
-                end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
-                # 🔥 Remove timezone before saving to DB
+                # 🔥 FIX: Handle both formats - with and without timezone
+                end_str = data['end_time']
+                if end_str.endswith('Z'):
+                    end_str = end_str[:-1]
+                end_time = datetime.fromisoformat(end_str)
+                # Ensure naive datetime (local Israel time)
                 appointment.end_time = end_time.replace(tzinfo=None) if end_time.tzinfo else end_time
             except ValueError:
                 return jsonify({'error': 'פורמט זמן סיום לא תקין'}), 400

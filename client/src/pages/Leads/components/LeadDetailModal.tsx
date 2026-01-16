@@ -160,8 +160,9 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
 
     try {
       setLoading(true);
+      // 🔥 FIX: Keep local time without UTC conversion
       await http.post(`/api/leads/${lead.id}/reminders`, {
-        due_at: new Date(newReminderDate).toISOString(),
+        due_at: `${newReminderDate}:00`,
         note: newReminderNote.trim(),
         channel: 'ui',
       });
