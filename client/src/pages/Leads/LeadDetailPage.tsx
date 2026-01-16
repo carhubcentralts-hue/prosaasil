@@ -1365,17 +1365,24 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
         lead_id: lead?.id
       };
 
+      console.log('Saving appointment:', dataToSend);
+      
       if (editingAppointment) {
-        await http.patch(`/api/calendar/appointments/${editingAppointment.id}`, dataToSend);
+        const result = await http.patch(`/api/calendar/appointments/${editingAppointment.id}`, dataToSend);
+        console.log('Update result:', result);
       } else {
-        await http.post('/api/calendar/appointments', dataToSend);
+        const result = await http.post('/api/calendar/appointments', dataToSend);
+        console.log('Create result:', result);
       }
       
+      // Success feedback
+      alert(editingAppointment ? 'הפגישה עודכנה בהצלחה!' : 'הפגישה נוצרה בהצלחה!');
       closeModal();
       onRefresh?.();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving appointment:', err);
-      alert(editingAppointment ? 'שגיאה בעדכון הפגישה' : 'שגיאה ביצירת הפגישה');
+      const errorMsg = err?.error || err?.message || (editingAppointment ? 'שגיאה בעדכון הפגישה' : 'שגיאה ביצירת הפגישה');
+      alert(`${errorMsg}. אנא נסה שוב או פנה לתמיכה.`);
     } finally {
       setSaving(false);
     }
@@ -1386,11 +1393,15 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
     
     try {
       setDeleting(appointmentId);
-      await http.delete(`/api/calendar/appointments/${appointmentId}`);
+      console.log('Deleting appointment:', appointmentId);
+      const result = await http.delete(`/api/calendar/appointments/${appointmentId}`);
+      console.log('Delete result:', result);
+      alert('הפגישה נמחקה בהצלחה!');
       onRefresh?.();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting appointment:', err);
-      alert('שגיאה במחיקת הפגישה');
+      const errorMsg = err?.error || err?.message || 'שגיאה במחיקת הפגישה';
+      alert(`${errorMsg}. אנא נסה שוב או פנה לתמיכה.`);
     } finally {
       setDeleting(null);
     }
