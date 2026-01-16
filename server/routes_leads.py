@@ -896,7 +896,14 @@ def create_reminder(lead_id):
         return jsonify({"error": "due_at is required"}), 400
     
     try:
-        due_at = datetime.fromisoformat(data['due_at'].replace('Z', '+00:00'))
+        # 🔥 FIX: Handle both formats - with and without timezone
+        due_at_str = data['due_at']
+        if due_at_str.endswith('Z'):
+            due_at_str = due_at_str[:-1]
+        due_at = datetime.fromisoformat(due_at_str)
+        # Ensure naive datetime (local Israel time)
+        if due_at.tzinfo is not None:
+            due_at = due_at.replace(tzinfo=None)
     except ValueError:
         return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
     
@@ -1081,7 +1088,13 @@ def update_reminder(lead_id, reminder_id):
     # Update allowed fields
     if 'due_at' in data:
         try:
-            reminder.due_at = datetime.fromisoformat(data['due_at'].replace('Z', '+00:00'))
+            # 🔥 FIX: Handle both formats - with and without timezone
+            due_at_str = data['due_at']
+            if due_at_str.endswith('Z'):
+                due_at_str = due_at_str[:-1]
+            due_at = datetime.fromisoformat(due_at_str)
+            # Ensure naive datetime (local Israel time)
+            reminder.due_at = due_at.replace(tzinfo=None) if due_at.tzinfo else due_at
         except ValueError:
             return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
     
@@ -1543,7 +1556,14 @@ def create_general_reminder():
         return jsonify({"error": "due_at and note are required"}), 400
     
     try:
-        due_at = datetime.fromisoformat(data['due_at'].replace('Z', '+00:00'))
+        # 🔥 FIX: Handle both formats - with and without timezone
+        due_at_str = data['due_at']
+        if due_at_str.endswith('Z'):
+            due_at_str = due_at_str[:-1]
+        due_at = datetime.fromisoformat(due_at_str)
+        # Ensure naive datetime (local Israel time)
+        if due_at.tzinfo is not None:
+            due_at = due_at.replace(tzinfo=None)
     except ValueError:
         return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
     
@@ -1632,8 +1652,15 @@ def update_general_reminder(reminder_id):
     # Update allowed fields
     if 'due_at' in data:
         try:
-            reminder.due_at = datetime.fromisoformat(data['due_at'].replace('Z', '+00:00'))
+            # 🔥 FIX: Handle both formats - with and without timezone
+            due_at_str = data['due_at']
+            if due_at_str.endswith('Z'):
+                due_at_str = due_at_str[:-1]
+            due_at = datetime.fromisoformat(due_at_str)
+            # Ensure naive datetime (local Israel time)
+            reminder.due_at = due_at.replace(tzinfo=None) if due_at.tzinfo else due_at
         except ValueError:
+            return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
             return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
     
     if 'note' in data:
@@ -1644,7 +1671,12 @@ def update_general_reminder(reminder_id):
     
     if 'completed_at' in data:
         if data['completed_at']:
-            reminder.completed_at = datetime.fromisoformat(data['completed_at'].replace('Z', '+00:00'))
+            # 🔥 FIX: Handle both formats - with and without timezone
+            completed_str = data['completed_at']
+            if completed_str.endswith('Z'):
+                completed_str = completed_str[:-1]
+            completed = datetime.fromisoformat(completed_str)
+            reminder.completed_at = completed.replace(tzinfo=None) if completed.tzinfo else completed
         else:
             reminder.completed_at = None
         

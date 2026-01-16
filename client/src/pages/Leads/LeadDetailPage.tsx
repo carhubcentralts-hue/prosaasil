@@ -1349,11 +1349,13 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
     try {
       setSaving(true);
       
+      // 🔥 FIX: Convert datetime-local values WITHOUT timezone conversion
+      // The datetime-local input is already in local Israel time
       const dataToSend = {
         title: formData.title,
         appointment_type: formData.appointment_type,
-        start_time: new Date(formData.start_time).toISOString(),
-        end_time: new Date(formData.end_time).toISOString(),
+        start_time: formData.start_time ? `${formData.start_time}:00` : formData.start_time,
+        end_time: formData.end_time ? `${formData.end_time}:00` : formData.end_time,
         status: formData.status,
         location: formData.location,
         contact_name: formData.contact_name || (lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : ''),
