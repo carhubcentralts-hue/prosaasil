@@ -1303,11 +1303,10 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
   });
 
   const formatDateTime = (dateStr: string) => {
-    // Use centralized format utility with timezone fix
+    // 🔥 FIX: Use timeZone: 'Asia/Jerusalem' directly - it handles the offset automatically
+    // No manual +2 hours needed! That causes double offset when combined with timeZone setting
     const date = new Date(dateStr);
-    // Add 2 hours to adjust from UTC to Israel time
-    const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
-    return adjusted.toLocaleString('he-IL', {
+    return date.toLocaleString('he-IL', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
