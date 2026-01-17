@@ -128,10 +128,10 @@ export function CrmPage() {
       }
 
       // ✅ FIX: Convert local date/time to UTC properly
-      // Create a Date object from local date and time, then convert to ISO string (UTC)
+      // Create a Date object from local date and time, then convert to ISO UTC format
       const localDateTime = `${taskForm.due_date}T${taskForm.due_time || '09:00'}:00`;
       const localDate = new Date(localDateTime);
-      const due_at = localDate.toISOString(); // This properly converts to UTC with 'Z' suffix
+      const due_at = localDate.toISOString(); // Converts local time to UTC
 
       const payload = {
         note: taskForm.note,

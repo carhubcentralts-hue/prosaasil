@@ -15,6 +15,10 @@ from server.models_sql import (
 
 log = logging.getLogger(__name__)
 
+# ✅ FIX: Default lead names as constants to avoid duplication
+DEFAULT_LEAD_NAME_CALL = "ליד חדש - שיחה נכנסת"
+DEFAULT_LEAD_NAME_WHATSAPP = "ליד חדש - WhatsApp"
+
 class CustomerIntelligence:
     """מחלקה למיטוב זיהוי לקוחות ויצירת לידים אוטומטית"""
     
@@ -59,7 +63,7 @@ class CustomerIntelligence:
                 customer = Customer()
                 customer.business_id = self.business_id
                 customer.phone_e164 = phone_e164  # ✅ מנורמל!
-                customer.name = extracted_info.get('name') or "ליד חדש - WhatsApp"  # ✅ FIX: Default name for WhatsApp
+                customer.name = extracted_info.get('name') or DEFAULT_LEAD_NAME_WHATSAPP
                 customer.created_at = datetime.utcnow()
                 
                 db.session.add(customer)
@@ -397,7 +401,7 @@ class CustomerIntelligence:
             customer = Customer()
             customer.business_id = self.business_id
             customer.phone_e164 = phone
-            customer.name = extracted_info.get('name', "ליד חדש - שיחה נכנסת")  # ✅ FIX: Default name
+            customer.name = extracted_info.get('name', DEFAULT_LEAD_NAME_CALL)
             customer.status = "new"
             customer.created_at = datetime.utcnow()
             db.session.add(customer)
@@ -415,7 +419,7 @@ class CustomerIntelligence:
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = phone
-        customer.name = extracted_info.get('name', "ליד חדש - שיחה נכנסת")  # ✅ FIX: Default name
+        customer.name = extracted_info.get('name', DEFAULT_LEAD_NAME_CALL)
         customer.status = "new"
         customer.created_at = datetime.utcnow()
         
@@ -429,7 +433,7 @@ class CustomerIntelligence:
         lead.source = "call"
         lead.external_id = call_sid
         lead.status = "new"
-        lead.first_name = extracted_info.get('name', "ליד חדש - שיחה נכנסת")  # ✅ FIX: Default name
+        lead.first_name = extracted_info.get('name', DEFAULT_LEAD_NAME_CALL)
         lead.notes = f"נוצר מתוך שיחה {call_sid}"
         lead.created_at = datetime.utcnow()
         
@@ -456,7 +460,7 @@ class CustomerIntelligence:
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = phone
-        customer.name = extracted_info.get('name', "ליד חדש - WhatsApp")  # ✅ FIX: Default name for WhatsApp
+        customer.name = extracted_info.get('name', DEFAULT_LEAD_NAME_WHATSAPP)
         customer.status = "new"
         customer.created_at = datetime.utcnow()
         
@@ -470,7 +474,7 @@ class CustomerIntelligence:
         lead.source = "whatsapp"
         lead.external_id = f"wa_{int(datetime.utcnow().timestamp())}"
         lead.status = "new"
-        lead.first_name = extracted_info.get('name', "ליד חדש - WhatsApp")  # ✅ FIX: Default name for WhatsApp
+        lead.first_name = extracted_info.get('name', DEFAULT_LEAD_NAME_WHATSAPP)
         lead.notes = f"נוצר מתוך WhatsApp: {message[:100]}..."
         lead.created_at = datetime.utcnow()
         
@@ -595,7 +599,7 @@ class CustomerIntelligence:
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = self._normalize_phone(phone)
-        customer.name = "ליד חדש - שיחה נכנסת"  # ✅ FIX: Default fallback name
+        customer.name = DEFAULT_LEAD_NAME_CALL
         customer.status = "new"
         customer.created_at = datetime.utcnow()
         
@@ -613,7 +617,7 @@ class CustomerIntelligence:
         lead.external_id = external_id
         lead.status = "new"
         # ✅ FIX: Set appropriate default name based on source
-        lead.first_name = "ליד חדש - WhatsApp" if source == "whatsapp" else "ליד חדש - שיחה נכנסת"
+        lead.first_name = DEFAULT_LEAD_NAME_WHATSAPP if source == "whatsapp" else DEFAULT_LEAD_NAME_CALL
         lead.notes = "נוצר אוטומטית - דרוש עדכון ידני"
         lead.created_at = datetime.utcnow()
         
