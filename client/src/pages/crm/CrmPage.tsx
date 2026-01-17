@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
-import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle, Trash2, Loader2 } from 'lucide-react';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
+import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle, Trash2, Loader2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNotifications } from '../../shared/contexts/NotificationContext';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -80,6 +77,10 @@ export function CrmPage() {
   const [deletingCompleted, setDeletingCompleted] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingTask, setDeletingTask] = useState<string | number | null>(null);
+  // Date range filter state
+  const [dateFilterFrom, setDateFilterFrom] = useState('');
+  const [dateFilterTo, setDateFilterTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [taskForm, setTaskForm] = useState({
     note: '',
     description: '',
@@ -253,16 +254,35 @@ export function CrmPage() {
     }
   };
 
+  // Date range filter helper
+  const isInDateRange = (dueAt: string): boolean => {
+    if (!dateFilterFrom && !dateFilterTo) return true;
+    
+    const taskDate = new Date(dueAt);
+    const fromDate = dateFilterFrom ? new Date(dateFilterFrom + 'T00:00:00') : null;
+    const toDate = dateFilterTo ? new Date(dateFilterTo + 'T23:59:59') : null;
+    
+    if (fromDate && taskDate < fromDate) return false;
+    if (toDate && taskDate > toDate) return false;
+    
+    return true;
+  };
+
+  const clearDateFilters = () => {
+    setDateFilterFrom('');
+    setDateFilterTo('');
+  };
+
   const getPendingTasks = () => {
-    return tasks.filter(r => !r.completed_at && new Date(r.due_at) > new Date());
+    return tasks.filter(r => !r.completed_at && new Date(r.due_at) > new Date() && isInDateRange(r.due_at));
   };
 
   const getOverdueTasks = () => {
-    return tasks.filter(r => !r.completed_at && new Date(r.due_at) <= new Date());
+    return tasks.filter(r => !r.completed_at && new Date(r.due_at) <= new Date() && isInDateRange(r.due_at));
   };
 
   const getCompletedTasks = () => {
-    return tasks.filter(r => !!r.completed_at);
+    return tasks.filter(r => !!r.completed_at && isInDateRange(r.due_at));
   };
 
   const getPriorityColor = (priority?: string) => {
@@ -295,31 +315,91 @@ export function CrmPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-gray-50">
+    <div className="flex flex-col min-h-screen bg-gray-50 pb-20 md:pb-6">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell className="w-6 h-6 text-purple-600" />
-            <h1 className="text-2xl font-bold text-gray-900">משימות</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900">משימות</h1>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* Filter Toggle Button */}
+            <Button 
+              variant="outline"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`${(dateFilterFrom || dateFilterTo) ? 'border-purple-500 text-purple-600' : ''}`}
+            >
+              <Filter className="w-4 h-4 mr-1" />
+              <span className="hidden sm:inline">סינון</span>
+              {showFilters ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+            </Button>
+            
             <Button 
               onClick={() => setShowTaskModal(true)}
             >
               <Plus className="w-4 h-4 mr-2" />
-              משימה חדשה
+              <span className="hidden sm:inline">משימה חדשה</span>
+              <span className="sm:hidden">חדש</span>
             </Button>
           </div>
         </div>
+        
+        {/* Date Range Filter - Collapsible */}
+        {showFilters && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Calendar className="w-4 h-4" />
+                <span>סינון לפי תאריך:</span>
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex items-center gap-1">
+                  <label className="text-sm text-gray-500">מתאריך:</label>
+                  <input
+                    type="date"
+                    value={dateFilterFrom}
+                    onChange={(e) => setDateFilterFrom(e.target.value)}
+                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <label className="text-sm text-gray-500">עד תאריך:</label>
+                  <input
+                    type="date"
+                    value={dateFilterTo}
+                    onChange={(e) => setDateFilterTo(e.target.value)}
+                    className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  />
+                </div>
+                {(dateFilterFrom || dateFilterTo) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearDateFilters}
+                    className="text-red-600 hover:bg-red-50"
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    נקה
+                  </Button>
+                )}
+              </div>
+            </div>
+            {(dateFilterFrom || dateFilterTo) && (
+              <div className="mt-2 text-sm text-purple-600">
+                מציג משימות {dateFilterFrom ? `מ-${dateFilterFrom}` : ''} {dateFilterTo ? `עד ${dateFilterTo}` : ''}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      {/* Content - Scrollable on mobile */}
+      <div className="flex-1 overflow-y-auto">
           {/* Tasks Board */}
-          <div className="h-full p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full">
+          <div className="p-4 md:p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               {/* Pending Column */}
               <div className="flex flex-col">
                 <div className="flex items-center gap-2 mb-4">

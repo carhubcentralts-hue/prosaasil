@@ -20,7 +20,8 @@ import {
   Bot,
   Clock,
   Send,
-  Mail
+  Mail,
+  BarChart3
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -77,6 +78,12 @@ const menuItems = [
     icon: Mail, 
     label: 'מיילים',
     to: '/app/emails',
+    roles: ['system_admin', 'owner', 'admin', 'agent']
+  },
+  { 
+    icon: BarChart3, 
+    label: 'סטטיסטיקות',
+    to: '/app/statistics',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
