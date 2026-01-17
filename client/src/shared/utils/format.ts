@@ -1,36 +1,24 @@
 /**
  * 🎯 TIMEZONE FIX: All date formatting with correct timezone handling
  * 
- * The server stores dates in UTC (datetime.utcnow) and sends ISO strings without timezone info.
- * When JavaScript creates dates from these ISO strings, it interprets them as LOCAL timezone,
- * causing incorrect display if the browser is not in UTC+0.
+ * The server stores dates as naive datetime in Israel local time using datetime.now().
+ * It then adds timezone info (+02:00 or +03:00) via localize_datetime_to_israel() before sending.
+ * The ISO strings sent to frontend include proper timezone offset (e.g., "2024-01-20T19:00:00+02:00").
  * 
- * Solution: Add 2 hours to all dates before formatting to convert UTC -> Israel Time (UTC+2)
- * This ensures consistent display regardless of browser timezone.
+ * JavaScript correctly interprets these timezone-aware strings.
+ * We simply need to format with Asia/Jerusalem timezone - NO manual offset adjustment needed.
  * 
- * Note: In summer (DST), Israel is UTC+3, but the system uses UTC+2 year-round for consistency.
+ * Note: The Intl.DateTimeFormat with timeZone: 'Asia/Jerusalem' handles DST automatically.
  */
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
-const ISRAEL_OFFSET_HOURS = 2;  // UTC+2 (fixed offset, not DST-aware)
-
-/**
- * Convert UTC datetime string to Israel time by adding offset
- * @internal - used by all format functions
- */
-function adjustToIsraelTime(date: string | Date): Date {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  // Add 2 hours (UTC+2) to convert from UTC to Israel time
-  const adjusted = new Date(d.getTime() + ISRAEL_OFFSET_HOURS * 60 * 60 * 1000);
-  return adjusted;
-}
 
 /**
  * Format date with time in Israeli timezone
- * Example: "14/12/2025, 19:30" (adjusted from UTC to Israel time)
+ * Example: "14/12/2025, 19:30"
  */
 export function formatDate(date: string | Date): string {
-  const adjusted = adjustToIsraelTime(date);
+  const d = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',
     month: '2-digit',
@@ -38,7 +26,7 @@ export function formatDate(date: string | Date): string {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: ISRAEL_TIMEZONE, // Display in Israel timezone
-  }).format(adjusted);
+  }).format(d);
 }
 
 /**
@@ -46,37 +34,36 @@ export function formatDate(date: string | Date): string {
  * Example: "14/12/2025"
  */
 export function formatDateOnly(date: string | Date): string {
-  const adjusted = adjustToIsraelTime(date);
+  const d = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('he-IL', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     timeZone: ISRAEL_TIMEZONE,
-  }).format(adjusted);
+  }).format(d);
 }
 
 /**
  * Format time only in Israeli timezone
- * Example: "19:30" (adjusted from UTC)
+ * Example: "19:30"
  */
 export function formatTimeOnly(date: string | Date): string {
-  const adjusted = adjustToIsraelTime(date);
+  const d = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('he-IL', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: ISRAEL_TIMEZONE,
-  }).format(adjusted);
+  }).format(d);
 }
 
 /**
  * Format relative time (e.g., "לפני 5 דקות", "לפני 3 שעות")
- * 🎯 FIX: Calculate diff in Israeli timezone to avoid offset issues
  */
 export function formatRelativeTime(dateString: string | null | undefined): string {
   if (!dateString) return 'אף פעם';
   
   try {
-    // Parse the date
+    // Parse the date - JavaScript handles timezone-aware strings correctly
     const date = new Date(dateString);
     const now = new Date();
     
@@ -104,14 +91,14 @@ export function formatRelativeTime(dateString: string | null | undefined): strin
  * Example: "יום חמישי, 14 בדצמבר 2025"
  */
 export function formatLongDate(date: string | Date): string {
-  const adjusted = adjustToIsraelTime(date);
+  const d = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('he-IL', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     timeZone: ISRAEL_TIMEZONE,
-  }).format(adjusted);
+  }).format(d);
 }
 
 export function formatNumber(num: number): string {
