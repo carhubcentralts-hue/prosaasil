@@ -2873,6 +2873,9 @@ function EmailTab({ lead }: EmailTabProps) {
   const [sending, setSending] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   
+  // Text templates for quick content
+  const [textTemplates, setTextTemplates] = useState<{id: number; name: string; category: string; subject_line: string; body_text: string}[]>([]);
+  
   // Saved template settings
   const [savedTemplateSettings, setSavedTemplateSettings] = useState({
     theme_id: 'classic_blue',
@@ -2899,7 +2902,18 @@ function EmailTab({ lead }: EmailTabProps) {
     loadEmails();
     loadThemes();
     loadTemplateSettings();
+    loadTextTemplates();
   }, [lead.id]);
+  
+  const loadTextTemplates = async () => {
+    try {
+      const response = await http.get<{templates: {id: number; name: string; category: string; subject_line: string; body_text: string}[]}>('/api/email/text-templates');
+      setTextTemplates(response.templates || []);
+    } catch (err) {
+      console.error('Failed to load text templates:', err);
+      setTextTemplates([]);
+    }
+  };
   
   const loadTemplateSettings = async () => {
     try {
@@ -3254,6 +3268,40 @@ function EmailTab({ lead }: EmailTabProps) {
                   <span className="text-lg">📝</span>
                   <span>תוכן *</span>
                 </label>
+                
+                {/* 🔥 NEW: Text Template Quick Select */}
+                {textTemplates.length > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
+                    <label className="block text-xs font-medium text-green-800 mb-1.5 flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5" />
+                      טען מתבנית טקסט
+                    </label>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const template = textTemplates.find(t => t.id === parseInt(e.target.value));
+                        if (template) {
+                          setThemeFields(prev => ({
+                            ...prev,
+                            subject: template.subject_line || prev.subject,
+                            body: template.body_text
+                          }));
+                          setSuccess(`תבנית "${template.name}" נטענה!`);
+                          setTimeout(() => setSuccess(null), 3000);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-green-300 rounded-lg bg-white text-sm focus:ring-2 focus:ring-green-200 focus:border-green-500"
+                    >
+                      <option value="">-- בחר תבנית טקסט לטעינה --</option>
+                      {textTemplates.map(template => (
+                        <option key={template.id} value={template.id}>
+                          {template.name} {template.category ? `(${template.category === 'quote' ? 'הצעת מחיר' : template.category === 'greeting' ? 'ברכה' : template.category === 'pricing' ? 'מחירים' : 'כללי'})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
                 <textarea
                   value={themeFields.body}
                   onChange={(e) => setThemeFields({...themeFields, body: e.target.value})}
