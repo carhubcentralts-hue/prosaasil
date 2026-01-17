@@ -34,7 +34,9 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
           setDueDate(date);
           setDueTime(time);
         } else {
-          // Fallback for unexpected format
+          // Fallback for unexpected format: manually format as local time
+          // Note: Date object treats input as local time when no timezone specified
+          // This ensures consistency with the primary parsing path above
           const dueDate = new Date(reminder.due_at);
           const year = dueDate.getFullYear();
           const month = String(dueDate.getMonth() + 1).padStart(2, '0');

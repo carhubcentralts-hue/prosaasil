@@ -9,6 +9,7 @@ Tests that:
 """
 
 from datetime import datetime, timedelta
+import traceback
 
 def test_reminder_modal_format():
     """Test that ReminderModal sends correct format"""
@@ -59,6 +60,8 @@ def test_utc_vs_local():
     print("Demonstrating UTC vs Local time issue...")
     
     now_local = datetime.now()
+    # Note: Using deprecated datetime.utcnow() for demonstration only
+    # In production code, we've switched to datetime.now() for local time
     now_utc = datetime.utcnow()
     
     print(f"Local time (Israel): {now_local}")
@@ -124,6 +127,5 @@ if __name__ == "__main__":
         exit(1)
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
-        import traceback
         traceback.print_exc()
         exit(1)
