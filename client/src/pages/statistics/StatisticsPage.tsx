@@ -73,6 +73,37 @@ interface BusinessStats {
   total_summaries: number;
 }
 
+// API Response interfaces for type safety
+interface CallCountsResponse {
+  active_total: number;
+  active_outbound: number;
+}
+
+interface LeadsResponse {
+  total: number;
+  items?: Array<{ id: number }>;
+}
+
+interface RemindersResponse {
+  reminders: Array<{
+    id: number;
+    completed_at: string | null;
+    due_at: string;
+  }>;
+}
+
+interface AppointmentsResponse {
+  appointments: Array<{
+    id: number;
+    start_time: string;
+  }>;
+}
+
+interface EmailsResponse {
+  total?: number;
+  emails?: Array<{ id: number }>;
+}
+
 interface StatCardProps {
   icon: React.ReactNode;
   title: string;
@@ -140,41 +171,51 @@ export function StatisticsPage() {
         meetingsData,
         emailsData
       ] = await Promise.allSettled([
-        http.get('/api/outbound_calls/counts'),
-        http.get('/api/leads?pageSize=1'),
-        http.get('/api/reminders'),
-        http.get('/api/calendar/appointments'),
-        http.get('/api/email/messages?limit=1')
+        http.get<CallCountsResponse>('/api/outbound_calls/counts'),
+        http.get<LeadsResponse>('/api/leads?pageSize=1'),
+        http.get<RemindersResponse>('/api/reminders'),
+        http.get<AppointmentsResponse>('/api/calendar/appointments'),
+        http.get<EmailsResponse>('/api/email/messages?limit=1')
       ]);
 
-      // Extract call stats
-      const callCounts = callsData.status === 'fulfilled' ? callsData.value : { active_total: 0, active_outbound: 0 };
+      // Extract call stats with proper typing
+      const callCounts: CallCountsResponse = callsData.status === 'fulfilled' 
+        ? callsData.value 
+        : { active_total: 0, active_outbound: 0 };
       
-      // Extract lead stats  
-      const leadResponse = leadsData.status === 'fulfilled' ? leadsData.value : { total: 0 };
-      const totalLeads = (leadResponse as any)?.total || 0;
+      // Extract lead stats with proper typing
+      const leadResponse: LeadsResponse = leadsData.status === 'fulfilled' 
+        ? leadsData.value 
+        : { total: 0 };
+      const totalLeads = leadResponse.total || 0;
       
-      // Extract task stats
-      const taskResponse = tasksData.status === 'fulfilled' ? tasksData.value : { reminders: [] };
-      const reminders = (taskResponse as any)?.reminders || [];
-      const pendingTasks = reminders.filter((r: any) => !r.completed_at && new Date(r.due_at) > new Date()).length;
-      const overdueTasks = reminders.filter((r: any) => !r.completed_at && new Date(r.due_at) <= new Date()).length;
-      const completedTasks = reminders.filter((r: any) => !!r.completed_at).length;
+      // Extract task stats with proper typing
+      const taskResponse: RemindersResponse = tasksData.status === 'fulfilled' 
+        ? tasksData.value 
+        : { reminders: [] };
+      const reminders = taskResponse.reminders || [];
+      const pendingTasks = reminders.filter(r => !r.completed_at && new Date(r.due_at) > new Date()).length;
+      const overdueTasks = reminders.filter(r => !r.completed_at && new Date(r.due_at) <= new Date()).length;
+      const completedTasks = reminders.filter(r => !!r.completed_at).length;
       
-      // Extract meeting stats
-      const meetingResponse = meetingsData.status === 'fulfilled' ? meetingsData.value : { appointments: [] };
-      const appointments = (meetingResponse as any)?.appointments || [];
-      const upcomingMeetings = appointments.filter((m: any) => new Date(m.start_time) > new Date()).length;
+      // Extract meeting stats with proper typing
+      const meetingResponse: AppointmentsResponse = meetingsData.status === 'fulfilled' 
+        ? meetingsData.value 
+        : { appointments: [] };
+      const appointments = meetingResponse.appointments || [];
+      const upcomingMeetings = appointments.filter(m => new Date(m.start_time) > new Date()).length;
       
-      // Extract email stats
-      const emailResponse = emailsData.status === 'fulfilled' ? emailsData.value : { total: 0 };
-      const emailsSent = (emailResponse as any)?.total || (emailResponse as any)?.emails?.length || 0;
+      // Extract email stats with proper typing
+      const emailResponse: EmailsResponse = emailsData.status === 'fulfilled' 
+        ? emailsData.value 
+        : { total: 0 };
+      const emailsSent = emailResponse.total || emailResponse.emails?.length || 0;
 
       // Build stats object
       setStats({
-        total_calls: (callCounts as any)?.active_total || 0,
-        inbound_calls: (callCounts as any)?.active_total - (callCounts as any)?.active_outbound || 0,
-        outbound_calls: (callCounts as any)?.active_outbound || 0,
+        total_calls: callCounts.active_total || 0,
+        inbound_calls: (callCounts.active_total || 0) - (callCounts.active_outbound || 0),
+        outbound_calls: callCounts.active_outbound || 0,
         answered_calls: 0,
         missed_calls: 0,
         total_call_duration: 0,
