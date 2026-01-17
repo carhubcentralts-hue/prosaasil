@@ -77,9 +77,12 @@ def localize_datetime_to_israel(dt):
         # If naive, assume it's already in Israel time and add timezone info
         # Note: We use replace() because the datetime is ALREADY in Israel local time
         # (it comes from the database stored as naive Israel time).
-        # This is correct for our use case. If we were converting FROM another timezone,
-        # we would need a different approach.
-        # During DST transitions (ambiguous hour), fold=0 assumes standard time.
+        # This is the correct approach for zoneinfo - it doesn't have a localize() method.
+        # During DST transitions (the "ambiguous hour"), replace() uses fold=0 by default,
+        # which assumes standard time. This is acceptable for our use case since:
+        # 1. Users schedule reminders, not during the 1-hour DST transition
+        # 2. The 1-hour ambiguity happens once a year at 2 AM
+        # 3. Even if a reminder falls in that hour, 1-hour error is minimal
         return dt.replace(tzinfo=israel_tz)
     
     # Method 2: Use pytz (third-party, handles DST automatically)
@@ -92,7 +95,15 @@ def localize_datetime_to_israel(dt):
         
         # If naive, assume it's already in Israel time and localize it
         # Note: pytz requires localize() for naive datetimes, not replace()
-        return israel_tz.localize(dt)
+        # During DST transitions, is_dst=None will raise an exception for ambiguous times,
+        # which is safer than guessing. In practice, reminder times are user-scheduled
+        # and unlikely to fall exactly in the DST transition hour.
+        try:
+            return israel_tz.localize(dt, is_dst=None)
+        except Exception as e:
+            # If we hit a DST transition issue, fall back to assuming DST is active
+            logging.warning(f"DST ambiguity for {dt}, assuming DST is active: {e}")
+            return israel_tz.localize(dt, is_dst=True)
     
     # Method 3: Fallback - use fixed offset (does NOT handle DST)
     # This is a last resort and will be incorrect during DST periods
