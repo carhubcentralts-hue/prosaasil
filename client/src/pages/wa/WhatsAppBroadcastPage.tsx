@@ -1512,7 +1512,7 @@ export function WhatsAppBroadcastPage() {
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <h3 className="font-medium text-slate-900">{template.name}</h3>
-                          <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap line-clamp-3">
+                          <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
                             {template.message_text}
                           </p>
                           <p className="text-xs text-slate-400 mt-2">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil, Save } from 'lucide-react';
+import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil, Save, Edit2, Trash2, FileText } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
@@ -44,6 +44,18 @@ interface EmailTemplate {
   html_template: string;
   text_template: string;
   is_active: boolean;
+}
+
+// Text templates for quick email content (quotes, greetings, pricing info)
+interface EmailTextTemplate {
+  id: number;
+  name: string;
+  category: string;
+  subject_line: string;
+  body_text: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
 }
 
 interface EmailSettings {
@@ -138,6 +150,18 @@ export function EmailsPage() {
   const [previewSubject, setPreviewSubject] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   
+  // Text Templates state (for quick content like quotes, greetings, pricing)
+  const [templateSubTab, setTemplateSubTab] = useState<'design' | 'text'>('design');
+  const [textTemplates, setTextTemplates] = useState<EmailTextTemplate[]>([]);
+  const [textTemplatesLoading, setTextTemplatesLoading] = useState(false);
+  const [showCreateTextTemplate, setShowCreateTextTemplate] = useState(false);
+  const [editingTextTemplate, setEditingTextTemplate] = useState<EmailTextTemplate | null>(null);
+  const [newTextTemplateName, setNewTextTemplateName] = useState('');
+  const [newTextTemplateCategory, setNewTextTemplateCategory] = useState('general');
+  const [newTextTemplateSubject, setNewTextTemplateSubject] = useState('');
+  const [newTextTemplateBody, setNewTextTemplateBody] = useState('');
+  const [savingTextTemplate, setSavingTextTemplate] = useState(false);
+  
   // Bulk selection state for Leads tab
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [showBulkComposeModal, setShowBulkComposeModal] = useState(false);
@@ -154,6 +178,7 @@ export function EmailsPage() {
   useEffect(() => {
     loadSettings();
     loadEmailSettings(); // Load template settings
+    loadTextTemplates(); // Load text templates on mount
     if (activeTab === 'all' || activeTab === 'sent') {
       loadEmails();
     } else if (activeTab === 'templates') {
@@ -352,6 +377,106 @@ export function EmailsPage() {
     } finally {
       setTemplatesLoading(false);
     }
+  };
+  
+  // Load Text Templates (quick content templates)
+  const loadTextTemplates = async () => {
+    try {
+      setTextTemplatesLoading(true);
+      const response = await axios.get('/api/email/text-templates');
+      setTextTemplates(response.data.templates || []);
+    } catch (err: any) {
+      console.error('Failed to load text templates:', err);
+      setTextTemplates([]);
+    } finally {
+      setTextTemplatesLoading(false);
+    }
+  };
+
+  const handleSaveTextTemplate = async () => {
+    if (!newTextTemplateName.trim() || !newTextTemplateBody.trim()) {
+      setError('נא למלא שם תבנית ותוכן');
+      return;
+    }
+
+    try {
+      setSavingTextTemplate(true);
+      setError(null);
+      
+      if (editingTextTemplate) {
+        // Update existing template
+        await axios.patch(`/api/email/text-templates/${editingTextTemplate.id}`, {
+          name: newTextTemplateName,
+          category: newTextTemplateCategory,
+          subject_line: newTextTemplateSubject,
+          body_text: newTextTemplateBody
+        });
+        setSuccessMessage('תבנית עודכנה בהצלחה');
+      } else {
+        // Create new template
+        await axios.post('/api/email/text-templates', {
+          name: newTextTemplateName,
+          category: newTextTemplateCategory,
+          subject_line: newTextTemplateSubject,
+          body_text: newTextTemplateBody
+        });
+        setSuccessMessage('תבנית נוצרה בהצלחה');
+      }
+      
+      // Reset form
+      setNewTextTemplateName('');
+      setNewTextTemplateCategory('general');
+      setNewTextTemplateSubject('');
+      setNewTextTemplateBody('');
+      setEditingTextTemplate(null);
+      setShowCreateTextTemplate(false);
+      
+      // Reload templates
+      loadTextTemplates();
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Error saving text template:', err);
+      setError(err.response?.data?.error || 'שגיאה בשמירת התבנית');
+    } finally {
+      setSavingTextTemplate(false);
+    }
+  };
+
+  const handleEditTextTemplate = (template: EmailTextTemplate) => {
+    setEditingTextTemplate(template);
+    setNewTextTemplateName(template.name);
+    setNewTextTemplateCategory(template.category);
+    setNewTextTemplateSubject(template.subject_line || '');
+    setNewTextTemplateBody(template.body_text);
+    setShowCreateTextTemplate(true);
+  };
+
+  const handleDeleteTextTemplate = async (templateId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק תבנית זו?')) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/email/text-templates/${templateId}`);
+      setSuccessMessage('תבנית נמחקה בהצלחה');
+      loadTextTemplates();
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Error deleting text template:', err);
+      setError('שגיאה במחיקת התבנית');
+    }
+  };
+
+  const handleUseTextTemplate = (template: EmailTextTemplate) => {
+    // Set the email fields from the template and switch to compose
+    setThemeFields(prev => ({
+      ...prev,
+      subject: template.subject_line || prev.subject,
+      body: template.body_text
+    }));
+    setActiveTab('leads');
+    setSuccessMessage(`תבנית "${template.name}" נטענה - בחר ליד כדי לשלוח`);
+    setTimeout(() => setSuccessMessage(null), 3000);
   };
   
   // 🎨 Load Luxury Theme Templates - 🔥 FIX: Robust loading with proper error handling
@@ -1223,7 +1348,36 @@ export function EmailsPage() {
               )}
             </div>
           ) : activeTab === 'templates' ? (
-            // Templates Tab - Edit Template Settings (Footer, Greeting, Theme defaults)
+            // Templates Tab - With sub-tabs for Design and Text templates
+            <div className="space-y-6">
+              {/* Template Sub-tabs */}
+              <div className="flex items-center gap-4 border-b border-gray-200">
+                <button
+                  onClick={() => setTemplateSubTab('design')}
+                  className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+                    templateSubTab === 'design'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Settings className="h-4 w-4" />
+                  הגדרות עיצוב
+                </button>
+                <button
+                  onClick={() => setTemplateSubTab('text')}
+                  className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+                    templateSubTab === 'text'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <FileText className="h-4 w-4" />
+                  תבניות טקסט ({textTemplates.length})
+                </button>
+              </div>
+
+              {/* Design Templates Sub-tab */}
+              {templateSubTab === 'design' && (
             <div className="max-w-3xl">
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold">הגדרות תבנית כלליות</h2>
@@ -1421,12 +1575,231 @@ export function EmailsPage() {
                       💡 מה ההבדל בין הגדרות תבנית לתוכן ההודעה?
                     </h3>
                     <ul className="text-sm text-blue-700 mt-2 space-y-1 list-disc list-inside">
-                      <li><strong>הגדרות תבנית (כאן)</strong> - עיצוב, ברכה כללית, פוטר, צבעים - משפיע על כל המיילים</li>
+                      <li><strong>הגדרות עיצוב (כאן)</strong> - עיצוב, ברכה כללית, פוטר, צבעים - משפיע על כל המיילים</li>
+                      <li><strong>תבניות טקסט</strong> - תוכן מוכן כמו הצעות מחיר, מחירונים, ברכות</li>
                       <li><strong>תוכן הודעה (בשליחה)</strong> - נושא ותוכן ספציפי לכל מייל שאתה שולח</li>
                     </ul>
                   </div>
                 </div>
               </div>
+            </div>
+              )}
+
+              {/* Text Templates Sub-tab */}
+              {templateSubTab === 'text' && (
+                <div className="max-w-3xl">
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h2 className="text-2xl font-semibold">תבניות טקסט</h2>
+                      <p className="text-sm text-gray-600 mt-1">
+                        צור תבניות מוכנות לתוכן כמו הצעות מחיר, מחירונים, ברכות ועוד
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingTextTemplate(null);
+                        setNewTextTemplateName('');
+                        setNewTextTemplateCategory('general');
+                        setNewTextTemplateSubject('');
+                        setNewTextTemplateBody('');
+                        setShowCreateTextTemplate(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    >
+                      <Plus className="w-4 h-4" />
+                      תבנית חדשה
+                    </button>
+                  </div>
+
+                  {error && (
+                    <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800 flex items-start gap-2">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                  
+                  {successMessage && (
+                    <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 flex items-start gap-2">
+                      <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                      <span>{successMessage}</span>
+                    </div>
+                  )}
+
+                  {textTemplatesLoading ? (
+                    <div className="text-center py-12">
+                      <RefreshCw className="w-8 h-8 animate-spin mx-auto text-gray-400" />
+                      <p className="text-sm text-gray-600 mt-2">טוען תבניות...</p>
+                    </div>
+                  ) : textTemplates.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-300">
+                      <FileText className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                      <p className="text-gray-600 font-medium">אין תבניות טקסט</p>
+                      <p className="text-sm text-gray-500 mt-1">לחץ על "תבנית חדשה" כדי ליצור את התבנית הראשונה שלך</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {textTemplates.map((template) => (
+                        <div
+                          key={template.id}
+                          className="bg-white border-2 border-gray-200 rounded-xl p-5 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-2">
+                                <h3 className="font-semibold text-gray-900">{template.name}</h3>
+                                <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
+                                  {template.category === 'quote' ? 'הצעת מחיר' :
+                                   template.category === 'greeting' ? 'ברכה' :
+                                   template.category === 'pricing' ? 'מחירים' :
+                                   template.category === 'info' ? 'מידע' : 'כללי'}
+                                </span>
+                              </div>
+                              {template.subject_line && (
+                                <p className="text-sm text-blue-600 mb-2">
+                                  📧 נושא: {template.subject_line}
+                                </p>
+                              )}
+                              <p className="text-sm text-gray-600 whitespace-pre-wrap overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                                {template.body_text}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 mr-4 flex-shrink-0">
+                              <button
+                                onClick={() => handleUseTextTemplate(template)}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                              >
+                                <Send className="w-3 h-3" />
+                                השתמש
+                              </button>
+                              <button
+                                onClick={() => handleEditTextTemplate(template)}
+                                className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTextTemplate(template.id)}
+                                className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Create/Edit Text Template Modal */}
+                  {showCreateTextTemplate && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setShowCreateTextTemplate(false)}>
+                      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+                          <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-bold">
+                              {editingTextTemplate ? 'ערוך תבנית טקסט' : 'תבנית טקסט חדשה'}
+                            </h2>
+                            <button
+                              onClick={() => setShowCreateTextTemplate(false)}
+                              className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-150px)]">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              שם התבנית *
+                            </label>
+                            <input
+                              type="text"
+                              value={newTextTemplateName}
+                              onChange={(e) => setNewTextTemplateName(e.target.value)}
+                              className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="לדוגמה: הצעת מחיר סטנדרטית"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              קטגוריה
+                            </label>
+                            <select
+                              value={newTextTemplateCategory}
+                              onChange={(e) => setNewTextTemplateCategory(e.target.value)}
+                              className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            >
+                              <option value="general">כללי</option>
+                              <option value="quote">הצעת מחיר</option>
+                              <option value="greeting">ברכה</option>
+                              <option value="pricing">מחירים</option>
+                              <option value="info">מידע</option>
+                            </select>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              נושא המייל (אופציונלי)
+                            </label>
+                            <input
+                              type="text"
+                              value={newTextTemplateSubject}
+                              onChange={(e) => setNewTextTemplateSubject(e.target.value)}
+                              className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              placeholder="לדוגמה: הצעת מחיר מ-{{business.name}}"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              💡 ניתן להשתמש ב-{"{{lead.first_name}}"}, {"{{business.name}}"} ועוד
+                            </p>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              תוכן התבנית *
+                            </label>
+                            <textarea
+                              value={newTextTemplateBody}
+                              onChange={(e) => setNewTextTemplateBody(e.target.value)}
+                              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                              rows={8}
+                              placeholder="כתוב כאן את תוכן התבנית..."
+                              dir="rtl"
+                            />
+                          </div>
+                          
+                          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                            <button
+                              onClick={() => setShowCreateTextTemplate(false)}
+                              className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              ביטול
+                            </button>
+                            <button
+                              onClick={handleSaveTextTemplate}
+                              disabled={savingTextTemplate || !newTextTemplateName.trim() || !newTextTemplateBody.trim()}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                            >
+                              {savingTextTemplate ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                  שומר...
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="w-4 h-4" />
+                                  {editingTextTemplate ? 'עדכן תבנית' : 'צור תבנית'}
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : activeTab === 'settings' ? (
             // Settings Tab

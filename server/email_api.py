@@ -1095,3 +1095,267 @@ def render_theme_template():
             'ok': False,
             'error': str(e)
         }), 500
+
+
+# ========================================================================
+# EMAIL TEXT TEMPLATES API - Quick text snippets for email content
+# ========================================================================
+
+@email_bp.route('/api/email/text-templates', methods=['GET'])
+@require_api_auth
+def list_email_text_templates():
+    """
+    List all email text templates for the current business
+    
+    Returns:
+        JSON with templates array
+    """
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # Get templates from database
+        result = db.session.execute(
+            sa_text("""
+                SELECT id, name, category, subject_line, body_text, is_active, created_at, updated_at
+                FROM email_text_templates
+                WHERE business_id = :business_id AND is_active = TRUE
+                ORDER BY created_at DESC
+            """),
+            {"business_id": business_id}
+        ).fetchall()
+        
+        templates = []
+        for row in result:
+            templates.append({
+                'id': row[0],
+                'name': row[1],
+                'category': row[2] or 'general',
+                'subject_line': row[3] or '',
+                'body_text': row[4],
+                'is_active': row[5],
+                'created_at': row[6].isoformat() if row[6] else None,
+                'updated_at': row[7].isoformat() if row[7] else None
+            })
+        
+        return jsonify({'ok': True, 'templates': templates}), 200
+        
+    except Exception as e:
+        logger.exception("[EMAIL_API] Failed to list text templates")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@email_bp.route('/api/email/text-templates', methods=['POST'])
+@require_api_auth
+def create_email_text_template():
+    """
+    Create a new email text template
+    
+    JSON body:
+        - name: Template name (required)
+        - category: Category like 'quote', 'greeting', 'pricing' (optional)
+        - subject_line: Default subject line (optional)
+        - body_text: Template body content (required)
+    """
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        data = request.get_json() or {}
+        
+        name = data.get('name', '').strip()
+        category = data.get('category', 'general').strip()
+        subject_line = data.get('subject_line', '').strip()
+        body_text = data.get('body_text', '').strip()
+        
+        # Validation
+        if not name:
+            return jsonify({'ok': False, 'error': 'Template name is required'}), 400
+        if not body_text:
+            return jsonify({'ok': False, 'error': 'Template body text is required'}), 400
+        
+        # Get current user ID
+        user_id = None
+        if hasattr(g, 'user') and g.user and isinstance(g.user, dict):
+            user_id = g.user.get('id')
+        
+        # Insert template
+        result = db.session.execute(
+            sa_text("""
+                INSERT INTO email_text_templates 
+                (business_id, name, category, subject_line, body_text, created_by_user_id, is_active, created_at, updated_at)
+                VALUES (:business_id, :name, :category, :subject_line, :body_text, :user_id, TRUE, NOW(), NOW())
+                RETURNING id, created_at
+            """),
+            {
+                "business_id": business_id,
+                "name": name,
+                "category": category,
+                "subject_line": subject_line,
+                "body_text": body_text,
+                "user_id": user_id
+            }
+        )
+        row = result.fetchone()
+        db.session.commit()
+        
+        logger.info(f"[EMAIL_API] Created text template: id={row[0]}, name={name}, business_id={business_id}")
+        
+        return jsonify({
+            'ok': True,
+            'template': {
+                'id': row[0],
+                'name': name,
+                'category': category,
+                'subject_line': subject_line,
+                'body_text': body_text,
+                'created_at': row[1].isoformat() if row[1] else None
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("[EMAIL_API] Failed to create text template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@email_bp.route('/api/email/text-templates/<int:template_id>', methods=['GET'])
+@require_api_auth
+def get_email_text_template(template_id: int):
+    """Get a specific email text template"""
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        result = db.session.execute(
+            sa_text("""
+                SELECT id, name, category, subject_line, body_text, is_active, created_at, updated_at
+                FROM email_text_templates
+                WHERE id = :template_id AND business_id = :business_id
+            """),
+            {"template_id": template_id, "business_id": business_id}
+        ).fetchone()
+        
+        if not result:
+            return jsonify({'ok': False, 'error': 'Template not found'}), 404
+        
+        return jsonify({
+            'ok': True,
+            'template': {
+                'id': result[0],
+                'name': result[1],
+                'category': result[2] or 'general',
+                'subject_line': result[3] or '',
+                'body_text': result[4],
+                'is_active': result[5],
+                'created_at': result[6].isoformat() if result[6] else None,
+                'updated_at': result[7].isoformat() if result[7] else None
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.exception("[EMAIL_API] Failed to get text template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@email_bp.route('/api/email/text-templates/<int:template_id>', methods=['PATCH'])
+@require_api_auth
+def update_email_text_template(template_id: int):
+    """Update an email text template"""
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        data = request.get_json() or {}
+        
+        # Check template exists and belongs to this business
+        existing = db.session.execute(
+            sa_text("SELECT id FROM email_text_templates WHERE id = :id AND business_id = :business_id"),
+            {"id": template_id, "business_id": business_id}
+        ).fetchone()
+        
+        if not existing:
+            return jsonify({'ok': False, 'error': 'Template not found'}), 404
+        
+        # Build update query dynamically
+        updates = []
+        params = {"id": template_id, "business_id": business_id}
+        
+        if 'name' in data:
+            updates.append("name = :name")
+            params['name'] = data['name'].strip()
+        if 'category' in data:
+            updates.append("category = :category")
+            params['category'] = data['category'].strip()
+        if 'subject_line' in data:
+            updates.append("subject_line = :subject_line")
+            params['subject_line'] = data['subject_line'].strip()
+        if 'body_text' in data:
+            updates.append("body_text = :body_text")
+            params['body_text'] = data['body_text'].strip()
+        if 'is_active' in data:
+            updates.append("is_active = :is_active")
+            params['is_active'] = bool(data['is_active'])
+        
+        if not updates:
+            return jsonify({'ok': False, 'error': 'No fields to update'}), 400
+        
+        updates.append("updated_at = NOW()")
+        
+        db.session.execute(
+            sa_text(f"""
+                UPDATE email_text_templates
+                SET {', '.join(updates)}
+                WHERE id = :id AND business_id = :business_id
+            """),
+            params
+        )
+        db.session.commit()
+        
+        logger.info(f"[EMAIL_API] Updated text template: id={template_id}, business_id={business_id}")
+        
+        return jsonify({'ok': True, 'message': 'Template updated successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("[EMAIL_API] Failed to update text template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@email_bp.route('/api/email/text-templates/<int:template_id>', methods=['DELETE'])
+@require_api_auth
+def delete_email_text_template(template_id: int):
+    """Delete (soft-delete by setting is_active=false) an email text template"""
+    try:
+        business_id = get_current_business_id()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # Soft delete - set is_active to false
+        result = db.session.execute(
+            sa_text("""
+                UPDATE email_text_templates
+                SET is_active = FALSE, updated_at = NOW()
+                WHERE id = :id AND business_id = :business_id
+                RETURNING id
+            """),
+            {"id": template_id, "business_id": business_id}
+        )
+        row = result.fetchone()
+        db.session.commit()
+        
+        if not row:
+            return jsonify({'ok': False, 'error': 'Template not found'}), 404
+        
+        logger.info(f"[EMAIL_API] Deleted text template: id={template_id}, business_id={business_id}")
+        
+        return jsonify({'ok': True, 'message': 'Template deleted successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("[EMAIL_API] Failed to delete text template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
