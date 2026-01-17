@@ -808,16 +808,48 @@ export function WhatsAppBroadcastPage() {
                   )}
                 </div>
               ) : (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium mb-2">תוכן ההודעה</label>
-                  <textarea
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    rows={4}
-                    placeholder="כתוב את תוכן ההודעה..."
-                    dir="rtl"
-                  />
+                <div className="mt-4 space-y-4">
+                  {/* 🔥 NEW: Manual Template Quick Select for Baileys freetext */}
+                  {manualTemplates.length > 0 && (
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                      <label className="block text-sm font-medium text-purple-900 mb-2 flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        טען מתבנית ידנית
+                      </label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const template = manualTemplates.find(t => t.id === parseInt(e.target.value));
+                          if (template) {
+                            setMessageText(template.message_text);
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-purple-300 rounded-md bg-white text-sm"
+                      >
+                        <option value="">-- בחר תבנית לטעינה --</option>
+                        {manualTemplates.map(template => (
+                          <option key={template.id} value={template.id}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-purple-600 mt-1">
+                        בחר תבנית כדי לטעון את התוכן שלה לתיבת הטקסט
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <label className="block text-sm font-medium mb-2">תוכן ההודעה</label>
+                    <textarea
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      rows={4}
+                      placeholder="כתוב את תוכן ההודעה..."
+                      dir="rtl"
+                    />
+                  </div>
                 </div>
               )}
             </Card>

@@ -226,9 +226,9 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete
   };
 
   const formatTime = (date: Date) => {
-    // Add 2 hours to adjust from UTC to Israel time
-    const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
-    return adjusted.toLocaleString('he-IL', {
+    // 🔥 FIX: Use timeZone: 'Asia/Jerusalem' directly - it handles the offset automatically
+    // No manual +2 hours needed! That causes double offset when combined with timeZone setting
+    return date.toLocaleString('he-IL', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -331,8 +331,8 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete
                     <span className="font-medium">
                       {(() => {
                         const date = new Date(notification.metadata.dueAt);
-                        const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
-                        return adjusted.toLocaleString('he-IL', {
+                        // 🔥 FIX: No manual +2 hours - timeZone handles it automatically
+                        return date.toLocaleString('he-IL', {
                           timeZone: 'Asia/Jerusalem'
                         });
                       })()}
@@ -666,8 +666,8 @@ export function UrgentNotificationPopup({ notification, onDismiss, onCloseAll, o
             <p className="text-lg font-semibold text-slate-900">
               {(() => {
                 const date = new Date(notification.metadata.dueAt);
-                const adjusted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
-                return adjusted.toLocaleString('he-IL', {
+                // 🔥 FIX: No manual +2 hours - timeZone handles it automatically
+                return date.toLocaleString('he-IL', {
                   dateStyle: 'short',
                   timeStyle: 'short',
                   timeZone: 'Asia/Jerusalem'

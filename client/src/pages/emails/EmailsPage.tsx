@@ -972,14 +972,14 @@ export function EmailsPage() {
   ];
   
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-          <Mail className="w-8 h-8 text-blue-600" />
+    <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 max-w-7xl" dir="rtl">
+      {/* Header - Mobile Optimized */}
+      <div className="mb-4 sm:mb-6">
+        <h1 className="text-xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+          <Mail className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
           מיילים
         </h1>
-        <p className="text-gray-600 mt-1">
+        <p className="text-sm sm:text-base text-gray-600 mt-1">
           ניהול מיילים ושליחות לליידים
         </p>
       </div>
@@ -999,11 +999,11 @@ export function EmailsPage() {
       
       {/* Tabs */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-        <div className="border-b border-gray-200">
-          <nav className="flex -mb-px">
+        <div className="border-b border-gray-200 overflow-x-auto">
+          <nav className="flex -mb-px min-w-max">
             <button
               onClick={() => setActiveTab('all')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'all'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1013,7 +1013,7 @@ export function EmailsPage() {
             </button>
             <button
               onClick={() => setActiveTab('sent')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'sent'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1023,18 +1023,19 @@ export function EmailsPage() {
             </button>
             <button
               onClick={() => setActiveTab('leads')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'leads'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Mail className="w-4 h-4 inline ml-2" />
-              שלח ללידים
+              <Mail className="w-4 h-4 inline ml-1 sm:ml-2" />
+              <span className="hidden sm:inline">שלח ללידים</span>
+              <span className="sm:hidden">שלח</span>
             </button>
             <button
               onClick={() => setActiveTab('templates')}
-              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'templates'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1045,21 +1046,21 @@ export function EmailsPage() {
             {isAdmin && (
               <button
                 onClick={() => setActiveTab('settings')}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'settings'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <Settings className="w-4 h-4 inline ml-2" />
+                <Settings className="w-4 h-4 inline ml-1 sm:ml-2" />
                 הגדרות
               </button>
             )}
           </nav>
         </div>
         
-        {/* Content */}
-        <div className="p-6">
+        {/* Content - Mobile Optimized */}
+        <div className="p-3 sm:p-6">
           {activeTab === 'leads' ? (
             // Leads Tab - Send emails to leads
             <div>

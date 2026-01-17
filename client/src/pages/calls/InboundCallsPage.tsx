@@ -987,7 +987,7 @@ export function InboundCallsPage() {
           <PhoneIncoming className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 flex-shrink-0" />
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">שיחות נכנסות</h1>
-            <p className="text-xs sm:text-sm text-gray-500 line-clamp-1">לידים שמקורם משיחות נכנסות + ניהול רשימות ייבוא</p>
+            <p className="text-xs sm:text-sm text-gray-500 line-clamp-1">לידים שמקורם משיחות נכנסות</p>
           </div>
         </div>
         
@@ -1132,7 +1132,7 @@ export function InboundCallsPage() {
           <div className="flex items-center gap-2">
             <PhoneIncoming className="h-4 w-4" />
             <span className="hidden sm:inline">לידים לשיחות נכנסות</span>
-            <span className="sm:hidden">יוצאות</span>
+            <span className="sm:hidden">נכנסות</span>
           </div>
         </button>
         <button

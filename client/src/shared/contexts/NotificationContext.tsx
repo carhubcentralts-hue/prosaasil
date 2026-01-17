@@ -270,25 +270,33 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length;
   
-  // Compute urgent notifications (today's meetings, overdue, high priority, system alerts)
+  // Compute urgent notifications - only show when time has arrived or is imminent (within 15 minutes)
   const urgentNotifications = notifications.filter(n => {
     // Skip if already dismissed
     if (dismissedUrgent.has(n.id)) return false;
     
-    // System notifications (like WhatsApp disconnect)
+    // System notifications (like WhatsApp disconnect) - show immediately
     if (n.type === 'system' || n.type === 'urgent') return true;
     
-    // Overdue notifications
-    if (n.metadata?.priority === 'urgent') return true;
-    
-    // Today's meetings/tasks with high priority
-    if (n.metadata?.priority === 'high' && n.metadata?.dueAt) {
+    // For notifications with dueAt, only show popup when time has arrived or is imminent
+    if (n.metadata?.dueAt) {
       const dueDate = new Date(n.metadata.dueAt);
-      const today = new Date();
-      if (dueDate.toDateString() === today.toDateString()) {
-        return true;
+      const now = new Date();
+      const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+      
+      // 🔥 FIX: Only show urgent popup if:
+      // 1. Overdue (past due date), OR
+      // 2. Due within the next 15 minutes
+      if (dueDate <= fifteenMinutesFromNow) {
+        // It's time or almost time - show the popup
+        return n.metadata?.priority === 'urgent' || n.metadata?.priority === 'high';
       }
+      // Not yet time - don't show popup even if high priority
+      return false;
     }
+    
+    // Notifications without dueAt but marked as urgent priority - show immediately
+    if (n.metadata?.priority === 'urgent') return true;
     
     return false;
   });
