@@ -8,13 +8,19 @@ Verifies that the reminder scheduler now sends notifications at:
 - 5 minutes before (NEW)
 """
 
+import os
+import sys
 import re
 
 def test_scheduler_has_5_minute_warning():
     """Test that reminder_scheduler.py includes 5-minute warning logic"""
     print("Testing for 5-minute notification warning...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/services/notifications/reminder_scheduler.py', 'r') as f:
+    # Use relative path from script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    scheduler_path = os.path.join(script_dir, 'server/services/notifications/reminder_scheduler.py')
+    
+    with open(scheduler_path, 'r') as f:
         content = f.read()
     
     # Check for 5-minute window definition
@@ -65,7 +71,11 @@ def test_popup_window_is_30_minutes():
     """Test that popup window is set to 30 minutes"""
     print("\nTesting popup window duration...")
     
-    with open('/home/runner/work/prosaasil/prosaasil/client/src/shared/contexts/NotificationContext.tsx', 'r') as f:
+    # Use relative path from script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    context_path = os.path.join(script_dir, 'client/src/shared/contexts/NotificationContext.tsx')
+    
+    with open(context_path, 'r') as f:
         content = f.read()
     
     # Check for 30 minute constant
@@ -110,13 +120,13 @@ if __name__ == "__main__":
             print("  • 15 minutes before")
             print("  • 5 minutes before (NEW!)")
             print("\nPopup alerts will show for tasks within 30 minutes")
-            exit(0)
+            sys.exit(0)
         else:
             print("\n❌ SOME TESTS FAILED")
-            exit(1)
+            sys.exit(1)
             
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
-        exit(1)
+        sys.exit(1)
