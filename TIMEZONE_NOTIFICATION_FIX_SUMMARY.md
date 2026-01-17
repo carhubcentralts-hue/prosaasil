@@ -6,12 +6,14 @@
 3. ✅ Pop-ups appearing as if the alert is happening now (should only appear 30/15/5 minutes before)
 4. ✅ Completed tasks still showing pop-ups/alerts
 5. ✅ All displayed data should be timezone-consistent
+6. ✅ **NEW:** Every notification appears as if it's happening "now" or "ago" instead of showing "in X time" for future tasks
 
 ## Root Cause
-The system was mixing UTC (Universal Time) with local Israel time:
+The system was mixing UTC (Universal Time) with local Israel time, and notification display was confusing:
 - **Before:** Frontend sent times with `.000Z` suffix (UTC marker)
 - **Before:** Backend compared times using `datetime.utcnow()` (UTC) against naive local times
-- **Result:** 2-3 hour mismatch (Israel is UTC+2 in winter, UTC+3 in summer)
+- **Before:** The `timeAgo` function displayed all tasks as "ago", even future tasks!
+- **Result:** 2-3 hour mismatch + confusing time display (task in 2 hours showed as "2 hours ago")
 
 ## What Was Fixed
 
@@ -99,6 +101,7 @@ Created comprehensive test file (`test_timezone_fix_manual.py`) that verifies:
 
 ### Frontend (React/TypeScript)
 - `client/src/pages/Leads/components/ReminderModal.tsx`
+- `client/src/shared/components/ui/NotificationPanel.tsx` (fix time display)
 
 ### Backend (Python)
 - `server/services/notifications/reminder_scheduler.py`
@@ -108,6 +111,7 @@ Created comprehensive test file (`test_timezone_fix_manual.py`) that verifies:
 
 ### Tests
 - `test_timezone_fix_manual.py` (new)
+- `test_notification_display_fix.py` (new - time display tests)
 
 ## Technical Summary
 
@@ -120,6 +124,9 @@ This ensures:
 - Notifications are scheduled correctly
 - All users see the same time
 - No confusion between UTC and local time
+- **Future tasks display correctly:** "in 2 hours" instead of "2 hours ago"
+- **Past tasks display correctly:** "30 minutes ago"
+- **Current tasks display:** "now"
 
 ---
 
