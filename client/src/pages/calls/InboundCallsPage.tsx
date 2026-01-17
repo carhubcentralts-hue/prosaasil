@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Phone, Loader2, Search, LayoutGrid, List, CheckSquare } from 'lucide-react';
+import { Phone, Loader2, Search, LayoutGrid, List, CheckSquare, FolderOpen, Plus } from 'lucide-react';
 import { http } from '../../services/http';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
@@ -9,6 +9,9 @@ import { Input } from '../../shared/components/ui/Input';
 import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
 import { LeadKanbanView } from '../Leads/components/LeadKanbanView';
 import LeadCard from '../Leads/components/LeadCard';
+import { ProjectsListView } from './components/ProjectsListView';
+import { ProjectDetailView } from './components/ProjectDetailView';
+import { CreateProjectModal } from './components/CreateProjectModal';
 
 // Lead interface aligned with main Leads page
 interface Lead {
@@ -38,18 +41,63 @@ interface LeadStatus {
   is_system?: boolean;
 }
 
+interface Project {
+  id: number;
+  name: string;
+  description?: string;
+  status: 'draft' | 'active' | 'completed' | 'paused';
+  created_at: string;
+  total_leads: number;
+  stats?: {
+    total_calls: number;
+    answered: number;
+    no_answer: number;
+    failed: number;
+    total_duration: number;
+  } | null;
+}
+
 type ViewMode = 'kanban' | 'list';
+type TabType = 'leads' | 'projects';
 
 export function InboundCallsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<TabType>('leads');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const pageSize = 25;
+  
+  // Project state
+  const [projectsPage, setProjectsPage] = useState(1);
+  const [projectsSearch, setProjectsSearch] = useState('');
+  const [projectsStatusFilter, setProjectsStatusFilter] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  const projectsPageSize = 20;
+
+  // Sync tab with URL on mount
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const tabParam = sp.get('tab') as TabType | null;
+    if (tabParam && ['leads', 'projects'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [location.search]);
+  
+  // Update URL when tab changes
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const currentTab = sp.get('tab');
+    if (currentTab !== activeTab) {
+      sp.set('tab', activeTab);
+      navigate(`${location.pathname}?${sp.toString()}`, { replace: true });
+    }
+  }, [activeTab, navigate, location.pathname, location.search]);
 
   // Support deep-link from Lead page tiles: /app/calls?phone=... or ?leadId=...
   useEffect(() => {
@@ -96,7 +144,36 @@ export function InboundCallsPage() {
       return await http.get(`/api/leads?${params.toString()}`);
     },
     retry: 1,
+    enabled: activeTab === 'leads',
   });
+
+  // Fetch projects
+  const { data: projectsData, isLoading: projectsLoading } = useQuery({
+    queryKey: ['/api/projects', 'inbound', projectsPage, projectsSearch, projectsStatusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: projectsPage.toString(),
+        pageSize: projectsPageSize.toString(),
+        type: 'inbound', // Filter for inbound projects
+      });
+      
+      if (projectsSearch) {
+        params.append('search', projectsSearch);
+      }
+      
+      if (projectsStatusFilter) {
+        params.append('status', projectsStatusFilter);
+      }
+
+      return await http.get(`/api/projects?${params.toString()}`);
+    },
+    enabled: activeTab === 'projects',
+    retry: 1,
+  });
+
+  const projects: Project[] = Array.isArray((projectsData as any)?.items) ? (projectsData as any).items : [];
+  const totalProjects = (projectsData as any)?.total || 0;
+  const totalProjectsPages = Math.ceil(totalProjects / projectsPageSize);
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ leadId, newStatus }: { leadId: number; newStatus: string }) => {
@@ -186,9 +263,47 @@ export function InboundCallsPage() {
     await updateStatusMutation.mutateAsync({ leadId, newStatus });
   };
 
-  const loading = leadsLoading || statusesLoading;
+  // Project handlers
+  const handleProjectClick = (projectId: number) => {
+    setSelectedProjectId(projectId);
+  };
 
-  if (loading && leads.length === 0) {
+  const handleBackToProjects = () => {
+    setSelectedProjectId(null);
+  };
+
+  const handleDeleteProject = async (projectId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק פרויקט זה?')) {
+      return;
+    }
+    try {
+      await http.delete(`/api/projects/${projectId}`);
+      queryClient.invalidateQueries({ queryKey: ['/api/projects', 'inbound'] });
+    } catch (error: any) {
+      console.error('Error deleting project:', error);
+      alert('שגיאה במחיקת הפרויקט');
+    }
+  };
+
+  const handleCreateProject = async (name: string, description: string, leadIds: number[]) => {
+    try {
+      await http.post('/api/projects', { 
+        name, 
+        description, 
+        lead_ids: leadIds,
+        type: 'inbound'
+      });
+      setShowCreateProject(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/projects', 'inbound'] });
+    } catch (error: any) {
+      console.error('Error creating project:', error);
+      throw error;
+    }
+  };
+
+  const loading = activeTab === 'leads' ? (leadsLoading || statusesLoading) : projectsLoading;
+
+  if (loading && leads.length === 0 && projects.length === 0 && !selectedProjectId) {
     return (
       <div className="flex items-center justify-center h-96" dir="rtl">
         <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
@@ -196,10 +311,20 @@ export function InboundCallsPage() {
     );
   }
 
+  // If a project is selected, show the project detail view
+  if (selectedProjectId) {
+    return (
+      <ProjectDetailView
+        projectId={selectedProjectId}
+        onBack={handleBackToProjects}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 p-6" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-green-100 rounded-full">
             <Phone className="h-6 w-6 text-green-600" />
@@ -210,45 +335,86 @@ export function InboundCallsPage() {
           </div>
         </div>
 
-        {/* View Mode Toggle */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                viewMode === 'kanban'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-              data-testid="button-kanban-view"
-            >
-              <LayoutGrid className="h-4 w-4" />
-              Kanban
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                viewMode === 'list'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-              data-testid="button-list-view"
-            >
-              <List className="h-4 w-4" />
-              רשימה
-            </button>
-          </div>
-          
-          {selectedLeadIds.size > 0 && (
-            <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-lg">
-              <CheckSquare className="h-4 w-4 text-blue-600" />
-              <span className="text-sm text-blue-900">
-                {selectedLeadIds.size} נבחרו
-              </span>
-            </div>
+        {/* Actions */}
+        <div className="flex items-center gap-3">
+          {activeTab === 'projects' && (
+            <Button onClick={() => setShowCreateProject(true)} className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              פרויקט חדש
+            </Button>
           )}
         </div>
       </div>
+
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-reverse space-x-6">
+          <button
+            onClick={() => setActiveTab('leads')}
+            className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+              activeTab === 'leads'
+                ? 'border-green-500 text-green-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Phone className="h-4 w-4" />
+            לידים ({total})
+          </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+              activeTab === 'projects'
+                ? 'border-green-500 text-green-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <FolderOpen className="h-4 w-4" />
+            פרויקטים ({totalProjects})
+          </button>
+        </nav>
+      </div>
+
+      {/* Leads Tab Content */}
+      {activeTab === 'leads' && (
+        <>
+          {/* View Mode Toggle */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  viewMode === 'kanban'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                data-testid="button-kanban-view"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                Kanban
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  viewMode === 'list'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                data-testid="button-list-view"
+              >
+                <List className="h-4 w-4" />
+                רשימה
+              </button>
+            </div>
+            
+            {selectedLeadIds.size > 0 && (
+              <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-lg">
+                <CheckSquare className="h-4 w-4 text-blue-600" />
+                <span className="text-sm text-blue-900">
+                  {selectedLeadIds.size} נבחרו
+                </span>
+              </div>
+            )}
+          </div>
 
       {/* Search and Filters */}
       <Card className="p-4">
@@ -353,6 +519,28 @@ export function InboundCallsPage() {
             הבא
           </Button>
         </div>
+      )}
+        </>
+      )}
+
+      {/* Projects Tab Content */}
+      {activeTab === 'projects' && (
+        <ProjectsListView
+          projects={projects}
+          loading={projectsLoading}
+          onCreateProject={() => setShowCreateProject(true)}
+          onOpenProject={handleProjectClick}
+          onDeleteProject={handleDeleteProject}
+        />
+      )}
+
+      {/* Create Project Modal */}
+      {showCreateProject && (
+        <CreateProjectModal
+          onClose={() => setShowCreateProject(false)}
+          onCreate={handleCreateProject}
+          statuses={statuses}
+        />
       )}
     </div>
   );
