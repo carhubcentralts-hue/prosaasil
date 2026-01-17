@@ -352,13 +352,26 @@ export function CalendarPage() {
       
       const method = editingAppointment ? 'PUT' : 'POST';
       
-      // 🔥 FIX: Convert datetime-local values to ISO format WITHOUT timezone conversion
-      // The datetime-local input is already in local Israel time, so we just append :00Z
-      // to maintain the same time value without UTC conversion
+      // ✅ FIX: Properly convert local datetime to UTC ISO string
+      // The datetime-local input provides local time (e.g., "2024-01-15T14:30")
+      // We need to convert it to UTC properly
+      let start_time_utc = formData.start_time;
+      let end_time_utc = formData.end_time;
+      
+      if (formData.start_time) {
+        const localDate = new Date(formData.start_time);
+        start_time_utc = localDate.toISOString(); // Converts to UTC with Z suffix
+      }
+      
+      if (formData.end_time) {
+        const localDate = new Date(formData.end_time);
+        end_time_utc = localDate.toISOString(); // Converts to UTC with Z suffix
+      }
+      
       const dataToSend = {
         ...formData,
-        start_time: formData.start_time ? `${formData.start_time}:00` : formData.start_time,
-        end_time: formData.end_time ? `${formData.end_time}:00` : formData.end_time
+        start_time: start_time_utc,
+        end_time: end_time_utc
       };
       
       // Get CSRF token from cookie
