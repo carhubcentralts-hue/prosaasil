@@ -127,10 +127,16 @@ export function CrmPage() {
         return;
       }
 
+      // ✅ FIX: Convert local date/time to UTC properly
+      // Create a Date object from local date and time, then convert to ISO UTC format
+      const localDateTime = `${taskForm.due_date}T${taskForm.due_time || '09:00'}:00`;
+      const localDate = new Date(localDateTime);
+      const due_at = localDate.toISOString(); // Converts local time to UTC
+
       const payload = {
         note: taskForm.note,
         description: taskForm.description,
-        due_at: `${taskForm.due_date}T${taskForm.due_time || '09:00'}:00Z`,
+        due_at,
         priority: taskForm.priority,
         reminder_type: taskForm.reminder_type,
         lead_id: taskForm.lead_id ? parseInt(taskForm.lead_id) : undefined,
@@ -157,12 +163,21 @@ export function CrmPage() {
 
   const handleEditTask = (task: CRMTask) => {
     setEditingTask(task);
+    // ✅ FIX: Convert UTC time back to local time for display
     const dueDate = new Date(task.due_at);
+    
+    // Extract local date and time components
+    const year = dueDate.getFullYear();
+    const month = String(dueDate.getMonth() + 1).padStart(2, '0');
+    const day = String(dueDate.getDate()).padStart(2, '0');
+    const hours = String(dueDate.getHours()).padStart(2, '0');
+    const minutes = String(dueDate.getMinutes()).padStart(2, '0');
+    
     setTaskForm({
       note: task.note,
       description: task.description || '',
-      due_date: dueDate.toISOString().split('T')[0],
-      due_time: dueDate.toTimeString().slice(0, 5),
+      due_date: `${year}-${month}-${day}`,
+      due_time: `${hours}:${minutes}`,
       priority: task.priority || 'medium',
       reminder_type: task.reminder_type || 'general',
       lead_id: task.lead_id?.toString() || ''

@@ -240,6 +240,45 @@ def get_call_counts_endpoint():
         return jsonify({"error": "שגיאה בטעינת נתונים"}), 500
 
 
+@outbound_bp.route("/api/inbound_calls/counts", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_inbound_call_counts_endpoint():
+    """
+    Get current active call counts for the business (inbound endpoint)
+    
+    This endpoint provides the same data as /api/outbound_calls/counts
+    but is used by the inbound calls page for consistency.
+    
+    Returns:
+        active_total: Total active calls
+        active_outbound: Active outbound calls
+        max_total: Maximum allowed total calls
+        max_outbound: Maximum allowed outbound calls
+    """
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    # For system_admin without tenant context, return zero counts
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({
+                "active_total": 0,
+                "active_outbound": 0,
+                "max_total": MAX_TOTAL_CALLS_PER_BUSINESS,
+                "max_outbound": MAX_OUTBOUND_CALLS_PER_BUSINESS,
+                "message": "בחר עסק לצפייה בשיחות פעילות"
+            })
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        counts = get_call_counts(tenant_id)
+        return jsonify(counts)
+    except Exception as e:
+        log.error(f"Error getting call counts: {e}")
+        return jsonify({"error": "שגיאה בטעינת נתונים"}), 500
+
+
 def _validate_project_access(project_id: int, tenant_id: int) -> bool:
     """
     Validate that project exists and belongs to tenant.

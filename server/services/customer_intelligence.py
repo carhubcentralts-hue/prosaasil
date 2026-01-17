@@ -15,6 +15,10 @@ from server.models_sql import (
 
 log = logging.getLogger(__name__)
 
+# ✅ FIX: Default lead names as constants to avoid duplication
+DEFAULT_LEAD_NAME_CALL = "ליד חדש - שיחה נכנסת"
+DEFAULT_LEAD_NAME_WHATSAPP = "ליד חדש - WhatsApp"
+
 class CustomerIntelligence:
     """מחלקה למיטוב זיהוי לקוחות ויצירת לידים אוטומטית"""
     
@@ -59,7 +63,7 @@ class CustomerIntelligence:
                 customer = Customer()
                 customer.business_id = self.business_id
                 customer.phone_e164 = phone_e164  # ✅ מנורמל!
-                customer.name = extracted_info.get('name') or f"WhatsApp {phone_e164[-4:]}"
+                customer.name = extracted_info.get('name') or DEFAULT_LEAD_NAME_WHATSAPP
                 customer.created_at = datetime.utcnow()
                 
                 db.session.add(customer)
@@ -397,7 +401,7 @@ class CustomerIntelligence:
             customer = Customer()
             customer.business_id = self.business_id
             customer.phone_e164 = phone
-            customer.name = extracted_info.get('name', f"לקוח {phone[-4:]}")
+            customer.name = extracted_info.get('name', DEFAULT_LEAD_NAME_CALL)
             customer.status = "new"
             customer.created_at = datetime.utcnow()
             db.session.add(customer)
@@ -415,7 +419,7 @@ class CustomerIntelligence:
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = phone
-        customer.name = extracted_info.get('name', f"לקוח {phone[-4:]}")  # השתמש ב-4 ספרות אחרונות אם אין שם
+        customer.name = extracted_info.get('name', DEFAULT_LEAD_NAME_CALL)
         customer.status = "new"
         customer.created_at = datetime.utcnow()
         
@@ -429,7 +433,7 @@ class CustomerIntelligence:
         lead.source = "call"
         lead.external_id = call_sid
         lead.status = "new"
-        lead.first_name = extracted_info.get('name', "")
+        lead.first_name = extracted_info.get('name', DEFAULT_LEAD_NAME_CALL)
         lead.notes = f"נוצר מתוך שיחה {call_sid}"
         lead.created_at = datetime.utcnow()
         
@@ -456,7 +460,7 @@ class CustomerIntelligence:
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = phone
-        customer.name = extracted_info.get('name', f"WhatsApp {phone[-4:]}")
+        customer.name = extracted_info.get('name', DEFAULT_LEAD_NAME_WHATSAPP)
         customer.status = "new"
         customer.created_at = datetime.utcnow()
         
@@ -470,7 +474,7 @@ class CustomerIntelligence:
         lead.source = "whatsapp"
         lead.external_id = f"wa_{int(datetime.utcnow().timestamp())}"
         lead.status = "new"
-        lead.first_name = extracted_info.get('name', "")
+        lead.first_name = extracted_info.get('name', DEFAULT_LEAD_NAME_WHATSAPP)
         lead.notes = f"נוצר מתוך WhatsApp: {message[:100]}..."
         lead.created_at = datetime.utcnow()
         
@@ -595,7 +599,7 @@ class CustomerIntelligence:
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = self._normalize_phone(phone)
-        customer.name = f"לקוח {phone[-4:] if phone else 'לא ידוע'}"
+        customer.name = DEFAULT_LEAD_NAME_CALL
         customer.status = "new"
         customer.created_at = datetime.utcnow()
         
@@ -608,10 +612,12 @@ class CustomerIntelligence:
         lead = Lead()
         lead.tenant_id = self.business_id
         lead.phone_e164 = customer.phone_e164
-        lead.source = "call" if "CA_" in external_id else "whatsapp"
+        source = "call" if "CA_" in external_id else "whatsapp"
+        lead.source = source
         lead.external_id = external_id
         lead.status = "new"
-        lead.first_name = customer.name
+        # ✅ FIX: Set appropriate default name based on source
+        lead.first_name = DEFAULT_LEAD_NAME_WHATSAPP if source == "whatsapp" else DEFAULT_LEAD_NAME_CALL
         lead.notes = "נוצר אוטומטית - דרוש עדכון ידני"
         lead.created_at = datetime.utcnow()
         
