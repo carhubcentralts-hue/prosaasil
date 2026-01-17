@@ -10,6 +10,9 @@ import { LoginPage } from '../pages/Auth/LoginPage';
 import { ForgotPasswordPage } from '../pages/Auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/Auth/ResetPasswordPage';
 
+// Error Pages (kept eager - needed for error handling)
+import { ForbiddenPage } from '../pages/Error/ForbiddenPage';
+
 // Legal Pages (kept eager - needed for app store compliance)
 import { PrivacyPolicyPage } from '../pages/Legal/PrivacyPolicyPage';
 import { TermsOfServicePage } from '../pages/Legal/TermsOfServicePage';
@@ -293,6 +296,9 @@ export function AppRoutes() {
 
         {/* DISABLED: Customer Intelligence - removed from product */}
         <Route path="intelligence" element={<Navigate to="/app/leads" replace />} />
+
+        {/* 403 Forbidden Page */}
+        <Route path="forbidden" element={<ForbiddenPage />} />
 
         {/* BUILD 135: Smart default redirect based on role */}
         <Route path="" element={<DefaultRedirect />} />
