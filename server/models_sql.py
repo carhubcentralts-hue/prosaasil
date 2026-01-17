@@ -1233,7 +1233,7 @@ class SecurityEvent(db.Model):
     method = db.Column(db.String(16), nullable=True)  # GET, POST, PUT, DELETE
     
     # Additional metadata as JSON
-    metadata = db.Column(db.JSON, nullable=True)  # Flexible additional data
+    event_metadata = db.Column(db.JSON, nullable=True)  # Flexible additional data
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

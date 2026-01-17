@@ -41,13 +41,16 @@ if gcp_creds and gcp_creds.startswith('{'):
 # Lazy Flask app creation
 twilio_log = logging.getLogger("twilio_ws")
 flask_app = None
+flask_app_lock = threading.Lock()
 
 def get_flask_app():
-    """Lazy Flask app creation - only when needed"""
+    """Lazy Flask app creation - only when needed (thread-safe singleton)"""
     global flask_app
     if flask_app is None:
-        from server.app_factory import create_app
-        flask_app = create_app()
+        with flask_app_lock:
+            if flask_app is None:  # Double-check pattern
+                from server.app_factory import create_app
+                flask_app = create_app()
     return flask_app
 
 # Background warmup

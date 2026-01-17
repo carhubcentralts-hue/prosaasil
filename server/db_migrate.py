@@ -2600,7 +2600,7 @@ def apply_migrations():
                         resource_id VARCHAR(64),
                         endpoint VARCHAR(255),
                         method VARCHAR(16),
-                        metadata JSONB,
+                        event_metadata JSONB,
                         assigned_to_user_id INTEGER REFERENCES users(id),
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         resolved_at TIMESTAMP,
