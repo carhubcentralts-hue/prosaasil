@@ -2641,6 +2641,24 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 70: Rename metadata to event_metadata in security_events (SQLAlchemy reserved name fix)
+        checkpoint("Migration 70: Checking if security_events.metadata needs to be renamed to event_metadata")
+        if check_table_exists('security_events') and check_column_exists('security_events', 'metadata'):
+            try:
+                from sqlalchemy import text
+                checkpoint("Migration 70: Renaming security_events.metadata to event_metadata (SQLAlchemy reserved name)")
+                db.session.execute(text("""
+                    ALTER TABLE security_events RENAME COLUMN metadata TO event_metadata
+                """))
+                migrations_applied.append('rename_security_events_metadata_to_event_metadata')
+                checkpoint("✅ Applied migration 70: rename_security_events_metadata_to_event_metadata")
+            except Exception as e:
+                log.error(f"❌ Migration 70 failed: {e}")
+                db.session.rollback()
+                raise
+        elif check_table_exists('security_events'):
+            checkpoint("Migration 70: Column security_events.metadata does not exist (already event_metadata or new table) - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
