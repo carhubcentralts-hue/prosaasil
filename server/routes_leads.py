@@ -6,19 +6,27 @@ from flask import Blueprint, jsonify, request, session, g, send_file
 from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog
 from server.db import db
 from server.auth_api import require_api_auth
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 import logging
 import os
 import uuid
 from werkzeug.utils import secure_filename
+
+# Timezone handling - prefer zoneinfo (Python 3.9+), fallback to pytz
 try:
-    import pytz
-    PYTZ_AVAILABLE = True
-except ImportError:
+    from zoneinfo import ZoneInfo
+    ZONEINFO_AVAILABLE = True
     PYTZ_AVAILABLE = False
-    logging.warning("pytz not available - timezone conversion may be limited")
+except ImportError:
+    ZONEINFO_AVAILABLE = False
+    try:
+        import pytz
+        PYTZ_AVAILABLE = True
+    except ImportError:
+        PYTZ_AVAILABLE = False
+        logging.warning("Neither zoneinfo nor pytz available - using fixed UTC+2 offset")
 
 # Import status webhook service
 from server.services.status_webhook_service import dispatch_lead_status_webhook
@@ -43,7 +51,9 @@ def localize_datetime_to_israel(dt):
     Convert a naive datetime (assumed to be in Israel time) to timezone-aware datetime.
     
     This fixes the issue where naive datetimes are sent to the client and interpreted as UTC,
-    causing a 2-hour offset for Israel timezone.
+    causing a 2-hour offset for Israel timezone (or 3 hours during DST).
+    
+    Uses Python's built-in zoneinfo (preferred), falls back to pytz if needed.
     
     Args:
         dt: datetime object (naive or aware)
@@ -54,23 +64,39 @@ def localize_datetime_to_israel(dt):
     if dt is None:
         return None
     
-    if not PYTZ_AVAILABLE:
-        # Fallback: assume UTC+2 (Israel standard time)
-        if dt.tzinfo is None:
-            # Add timezone info assuming it's in Israel time
-            import datetime as dt_module
-            israel_offset = dt_module.timezone(dt_module.timedelta(hours=2))
-            return dt.replace(tzinfo=israel_offset)
-        return dt
+    # Method 1: Use zoneinfo (Python 3.9+, built-in, handles DST automatically)
+    if ZONEINFO_AVAILABLE:
+        israel_tz = ZoneInfo('Asia/Jerusalem')
+        
+        # If already timezone-aware, convert to Israel timezone
+        if dt.tzinfo is not None:
+            return dt.astimezone(israel_tz)
+        
+        # If naive, assume it's already in Israel time and add timezone info
+        return dt.replace(tzinfo=israel_tz)
     
-    israel_tz = pytz.timezone('Asia/Jerusalem')
+    # Method 2: Use pytz (third-party, handles DST automatically)
+    if PYTZ_AVAILABLE:
+        israel_tz = pytz.timezone('Asia/Jerusalem')
+        
+        # If already timezone-aware, convert to Israel timezone
+        if dt.tzinfo is not None:
+            return dt.astimezone(israel_tz)
+        
+        # If naive, assume it's already in Israel time and localize it
+        # Note: pytz requires localize() for naive datetimes, not replace()
+        return israel_tz.localize(dt)
     
-    # If already timezone-aware, convert to Israel timezone
-    if dt.tzinfo is not None:
-        return dt.astimezone(israel_tz)
-    
-    # If naive, assume it's already in Israel time and localize it
-    return israel_tz.localize(dt)
+    # Method 3: Fallback - use fixed offset (does NOT handle DST)
+    # This is a last resort and will be incorrect during DST periods
+    # Israel Standard Time is UTC+2, Israel Daylight Time is UTC+3
+    # For a proper fix without zoneinfo/pytz, we'd need to implement DST rules manually
+    logging.warning("Using fixed UTC+2 offset - will be incorrect during DST periods")
+    if dt.tzinfo is None:
+        israel_offset = timezone(timedelta(hours=2))
+        return dt.replace(tzinfo=israel_offset)
+    return dt
+
 
 def normalize_source(source: str) -> str:
     """
