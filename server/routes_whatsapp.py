@@ -3069,7 +3069,7 @@ def get_current_business_id_wa():
 
 
 @whatsapp_bp.route('/manual-templates', methods=['GET'])
-@require_api_auth
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def list_manual_templates():
     """List all WhatsApp manual templates for the current business"""
     try:
@@ -3109,7 +3109,7 @@ def list_manual_templates():
 
 @whatsapp_bp.route('/manual-templates', methods=['POST'])
 @csrf.exempt
-@require_api_auth
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def create_manual_template():
     """Create a new WhatsApp manual template"""
     try:
@@ -3170,7 +3170,7 @@ def create_manual_template():
 
 @whatsapp_bp.route('/manual-templates/<int:template_id>', methods=['PATCH'])
 @csrf.exempt
-@require_api_auth
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def update_manual_template(template_id: int):
     """Update a WhatsApp manual template"""
     try:
@@ -3233,7 +3233,7 @@ def update_manual_template(template_id: int):
 
 @whatsapp_bp.route('/manual-templates/<int:template_id>', methods=['DELETE'])
 @csrf.exempt
-@require_api_auth
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def delete_manual_template(template_id: int):
     """Delete (soft-delete) a WhatsApp manual template"""
     try:
