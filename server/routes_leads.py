@@ -18,15 +18,17 @@ from werkzeug.utils import secure_filename
 try:
     from zoneinfo import ZoneInfo
     ZONEINFO_AVAILABLE = True
-    PYTZ_AVAILABLE = False
 except ImportError:
     ZONEINFO_AVAILABLE = False
-    try:
-        import pytz
-        PYTZ_AVAILABLE = True
-    except ImportError:
-        PYTZ_AVAILABLE = False
-        logging.warning("Neither zoneinfo nor pytz available - using fixed UTC+2 offset")
+
+try:
+    import pytz
+    PYTZ_AVAILABLE = True
+except ImportError:
+    PYTZ_AVAILABLE = False
+
+if not ZONEINFO_AVAILABLE and not PYTZ_AVAILABLE:
+    logging.warning("Neither zoneinfo nor pytz available - using fixed UTC+2 offset")
 
 # Import status webhook service
 from server.services.status_webhook_service import dispatch_lead_status_webhook
@@ -73,6 +75,11 @@ def localize_datetime_to_israel(dt):
             return dt.astimezone(israel_tz)
         
         # If naive, assume it's already in Israel time and add timezone info
+        # Note: We use replace() because the datetime is ALREADY in Israel local time
+        # (it comes from the database stored as naive Israel time).
+        # This is correct for our use case. If we were converting FROM another timezone,
+        # we would need a different approach.
+        # During DST transitions (ambiguous hour), fold=0 assumes standard time.
         return dt.replace(tzinfo=israel_tz)
     
     # Method 2: Use pytz (third-party, handles DST automatically)
