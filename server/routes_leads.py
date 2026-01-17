@@ -6,13 +6,29 @@ from flask import Blueprint, jsonify, request, session, g, send_file
 from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog
 from server.db import db
 from server.auth_api import require_api_auth
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 import logging
 import os
 import uuid
 from werkzeug.utils import secure_filename
+
+# Timezone handling - prefer zoneinfo (Python 3.9+), fallback to pytz
+try:
+    from zoneinfo import ZoneInfo
+    ZONEINFO_AVAILABLE = True
+except ImportError:
+    ZONEINFO_AVAILABLE = False
+
+try:
+    import pytz
+    PYTZ_AVAILABLE = True
+except ImportError:
+    PYTZ_AVAILABLE = False
+
+if not ZONEINFO_AVAILABLE and not PYTZ_AVAILABLE:
+    logging.warning("Neither zoneinfo nor pytz available - using fixed UTC+2 offset")
 
 # Import status webhook service
 from server.services.status_webhook_service import dispatch_lead_status_webhook
@@ -31,6 +47,74 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 leads_bp = Blueprint("leads_bp", __name__)
+
+def localize_datetime_to_israel(dt):
+    """
+    Convert a naive datetime (assumed to be in Israel time) to timezone-aware datetime.
+    
+    This fixes the issue where naive datetimes are sent to the client and interpreted as UTC,
+    causing a 2-hour offset for Israel timezone (or 3 hours during DST).
+    
+    Uses Python's built-in zoneinfo (preferred), falls back to pytz if needed.
+    
+    Args:
+        dt: datetime object (naive or aware)
+    
+    Returns:
+        timezone-aware datetime in Asia/Jerusalem timezone
+    """
+    if dt is None:
+        return None
+    
+    # Method 1: Use zoneinfo (Python 3.9+, built-in, handles DST automatically)
+    if ZONEINFO_AVAILABLE:
+        israel_tz = ZoneInfo('Asia/Jerusalem')
+        
+        # If already timezone-aware, convert to Israel timezone
+        if dt.tzinfo is not None:
+            return dt.astimezone(israel_tz)
+        
+        # If naive, assume it's already in Israel time and add timezone info
+        # Note: We use replace() because the datetime is ALREADY in Israel local time
+        # (it comes from the database stored as naive Israel time).
+        # This is the correct approach for zoneinfo - it doesn't have a localize() method.
+        # During DST transitions (the "ambiguous hour"), replace() uses fold=0 by default,
+        # which assumes standard time. This is acceptable for our use case since:
+        # 1. Users schedule reminders, not during the 1-hour DST transition
+        # 2. The 1-hour ambiguity happens once a year at 2 AM
+        # 3. Even if a reminder falls in that hour, 1-hour error is minimal
+        return dt.replace(tzinfo=israel_tz)
+    
+    # Method 2: Use pytz (third-party, handles DST automatically)
+    if PYTZ_AVAILABLE:
+        israel_tz = pytz.timezone('Asia/Jerusalem')
+        
+        # If already timezone-aware, convert to Israel timezone
+        if dt.tzinfo is not None:
+            return dt.astimezone(israel_tz)
+        
+        # If naive, assume it's already in Israel time and localize it
+        # Note: pytz requires localize() for naive datetimes, not replace()
+        # During DST transitions, is_dst=None will raise an exception for ambiguous times,
+        # which is safer than guessing. In practice, reminder times are user-scheduled
+        # and unlikely to fall exactly in the DST transition hour.
+        try:
+            return israel_tz.localize(dt, is_dst=None)
+        except Exception as e:
+            # If we hit a DST transition issue, fall back to assuming DST is active
+            logging.warning(f"DST ambiguity for {dt}, assuming DST is active: {e}")
+            return israel_tz.localize(dt, is_dst=True)
+    
+    # Method 3: Fallback - use fixed offset (does NOT handle DST)
+    # This is a last resort and will be incorrect during DST periods
+    # Israel Standard Time is UTC+2, Israel Daylight Time is UTC+3
+    # For a proper fix without zoneinfo/pytz, we'd need to implement DST rules manually
+    logging.warning("Using fixed UTC+2 offset - will be incorrect during DST periods")
+    if dt.tzinfo is None:
+        israel_offset = timezone(timedelta(hours=2))
+        return dt.replace(tzinfo=israel_offset)
+    return dt
+
 
 def normalize_source(source: str) -> str:
     """
@@ -579,11 +663,11 @@ def get_lead_detail(lead_id):
             try:
                 formatted_reminders.append({
                     "id": r.id,
-                    "due_at": r.due_at.isoformat() if r.due_at else None,
+                    "due_at": localize_datetime_to_israel(r.due_at).isoformat() if r.due_at else None,
                     "note": r.note,
                     "channel": r.channel,
-                    "delivered_at": r.delivered_at.isoformat() if r.delivered_at else None,
-                    "completed_at": r.completed_at.isoformat() if r.completed_at else None
+                    "delivered_at": localize_datetime_to_israel(r.delivered_at).isoformat() if r.delivered_at else None,
+                    "completed_at": localize_datetime_to_israel(r.completed_at).isoformat() if r.completed_at else None
                 })
             except Exception as e:
                 log.error(f"Error formatting reminder {r.id}: {e}")
@@ -847,10 +931,10 @@ def get_lead_reminders(lead_id):
             {
                 "id": r.id,
                 "lead_id": r.lead_id,
-                "due_at": r.due_at.isoformat() if r.due_at else None,
+                "due_at": localize_datetime_to_israel(r.due_at).isoformat() if r.due_at else None,
                 "note": r.note,
                 "channel": r.channel,
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                "completed_at": localize_datetime_to_israel(r.completed_at).isoformat() if r.completed_at else None,
                 "created_by": r.created_by
             }
             for r in reminders
@@ -953,7 +1037,7 @@ def create_reminder(lead_id):
     
     return jsonify({
         "id": reminder.id,
-        "due_at": reminder.due_at.isoformat(),
+        "due_at": localize_datetime_to_israel(reminder.due_at).isoformat(),
         "note": reminder.note,
         "channel": reminder.channel,
         "message": "Reminder created successfully"
@@ -1060,12 +1144,12 @@ def get_reminder(lead_id, reminder_id):
     
     return jsonify({
         "id": reminder.id,
-        "due_at": reminder.due_at.isoformat() if reminder.due_at else None,
+        "due_at": localize_datetime_to_israel(reminder.due_at).isoformat() if reminder.due_at else None,
         "note": reminder.note,
         "channel": reminder.channel,
-        "delivered_at": reminder.delivered_at.isoformat() if reminder.delivered_at else None,
-        "completed_at": reminder.completed_at.isoformat() if reminder.completed_at else None,
-        "created_at": reminder.created_at.isoformat() if reminder.created_at else None
+        "delivered_at": localize_datetime_to_israel(reminder.delivered_at).isoformat() if reminder.delivered_at else None,
+        "completed_at": localize_datetime_to_israel(reminder.completed_at).isoformat() if reminder.completed_at else None,
+        "created_at": localize_datetime_to_israel(reminder.created_at).isoformat() if reminder.created_at else None
     })
 
 @leads_bp.route("/api/leads/<int:lead_id>/reminders/<int:reminder_id>", methods=["PATCH"])
@@ -1195,11 +1279,11 @@ def get_due_reminders():
             "lead_id": reminder.lead_id,
             "lead_name": lead.full_name if lead else None,
             "lead_phone": lead.display_phone if lead else None,
-            "due_at": reminder.due_at.isoformat(),
+            "due_at": localize_datetime_to_israel(reminder.due_at).isoformat(),
             "note": reminder.note,
             "channel": reminder.channel,
             "overdue_minutes": int((now - reminder.due_at).total_seconds() / 60) if reminder.due_at < now else 0,
-            "created_at": reminder.created_at.isoformat()
+            "created_at": localize_datetime_to_israel(reminder.created_at).isoformat()
         })
 
     return jsonify({
@@ -1319,12 +1403,12 @@ def get_notifications():
             "id": str(reminder.id),
             "title": reminder.note or "משימה ללא תיאור",
             "description": reminder.description,  # BUILD 151: For system notifications
-            "due_date": reminder.due_at.isoformat(),
+            "due_date": localize_datetime_to_israel(reminder.due_at).isoformat(),
             "category": category,
             "phone": lead.display_phone if lead else None,
             "lead_id": reminder.lead_id,
             "lead_name": lead.full_name if lead else None,
-            "created_at": reminder.created_at.isoformat() if reminder.created_at else None,
+            "created_at": localize_datetime_to_israel(reminder.created_at).isoformat() if reminder.created_at else None,
             "reminder_type": reminder.reminder_type,  # BUILD 151: For system notifications
             "priority": reminder.priority  # BUILD 151: For urgency indication
         })
@@ -1578,15 +1662,15 @@ def get_all_reminders():
                 "id": r.id,
                 "lead_id": r.lead_id,
                 "lead_name": lead_names.get(r.lead_id) if r.lead_id else None,
-                "due_at": r.due_at.isoformat() if r.due_at else None,
+                "due_at": localize_datetime_to_israel(r.due_at).isoformat() if r.due_at else None,
                 "note": r.note,
                 "description": r.description or r.note,  # BUILD 143: Use actual description
                 "channel": r.channel,
                 "priority": r.priority or "medium",  # BUILD 143: Use actual priority
                 "reminder_type": r.reminder_type or "general",  # BUILD 143: Use actual type
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                "completed_at": localize_datetime_to_israel(r.completed_at).isoformat() if r.completed_at else None,
                 "created_by": r.created_by,
-                "created_at": r.created_at.isoformat() if r.created_at else None
+                "created_at": localize_datetime_to_israel(r.created_at).isoformat() if r.created_at else None
             }
             for r in reminders
         ]
