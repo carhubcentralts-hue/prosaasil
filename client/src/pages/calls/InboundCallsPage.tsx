@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Phone, 
   PhoneIncoming, 
-  Users, 
   Loader2, 
   AlertTriangle, 
   CheckCircle2,
@@ -49,7 +48,7 @@ interface CallResult {
   error?: string;
 }
 
-type TabType = 'system' | 'active' | 'recent';
+type TabType = 'active' | 'recent';
 
 // Default number of available call slots when counts haven't loaded yet
 const DEFAULT_AVAILABLE_SLOTS = 3;
@@ -77,7 +76,7 @@ export function InboundCallsPage() {
   const queryClient = useQueryClient();
   
   // Tab and view state
-  const [activeTab, setActiveTab] = useState<TabType>('system');
+  const [activeTab, setActiveTab] = useState<TabType>('active');
   const [viewMode, setViewMode] = useState<ViewMode>('kanban'); // Default to Kanban
   const [hasWebhook, setHasWebhook] = useState(false);
   
@@ -85,7 +84,7 @@ export function InboundCallsPage() {
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
     const tabParam = sp.get('tab') as TabType | null;
-    if (tabParam && ['system', 'active', 'recent'].includes(tabParam)) {
+    if (tabParam && ['active', 'recent'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [location.search]);
@@ -106,9 +105,8 @@ export function InboundCallsPage() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [callResults, setCallResults] = useState<CallResult[]>([]);
-  const [systemLeadsPage, setSystemLeadsPage] = useState(1);
   const [activeLeadsPage, setActiveLeadsPage] = useState(1);
-  const systemLeadsPageSize = 50;
+  const activeLeadsPageSize = 50;
   
   // State for UI controls
   const [updatingStatusLeadId, setUpdatingStatusLeadId] = useState<number | null>(null);
@@ -129,10 +127,10 @@ export function InboundCallsPage() {
     const phone = sp.get('phone');
     const leadId = sp.get('leadId');
     if (phone) {
-      setActiveTab('system');
+      setActiveTab('active');
       setSearchQuery(phone);
     } else if (leadId) {
-      setActiveTab('system');
+      setActiveTab('active');
       setSearchQuery(leadId);
     }
   }, [location.search]);
@@ -174,39 +172,6 @@ export function InboundCallsPage() {
     loadWebhookStatus();
   }, []);
 
-  const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery({
-    queryKey: ['/api/leads', 'system', searchQuery, selectedStatuses, systemLeadsPage],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        page: String(systemLeadsPage),
-        pageSize: String(systemLeadsPageSize),
-      });
-      
-      if (searchQuery) {
-        params.append('q', searchQuery);
-      }
-
-      // Add multi-status filter
-      if (selectedStatuses.length > 0) {
-        selectedStatuses.forEach(status => {
-          params.append('statuses[]', status);
-        });
-      }
-
-      return await http.get(`/api/leads?${params.toString()}`);
-    },
-    enabled: activeTab === 'system',
-    select: (data: any) => {
-      if (!data) return { leads: [], total: 0 };
-      // Try different response formats for backward compatibility
-      if (Array.isArray(data)) return { leads: data, total: data.length };
-      if (data.items && Array.isArray(data.items)) return { leads: data.items, total: data.total || data.items.length };
-      if (data.leads && Array.isArray(data.leads)) return { leads: data.leads, total: data.total || data.leads.length };
-      return { leads: [], total: 0 };
-    },
-    retry: 1,
-  });
-
   // Query for active outbound leads (leads assigned to outbound campaign)
   const { data: activeLeadsData, isLoading: activeLoading, error: activeError } = useQuery({
     queryKey: ['/api/leads', 'active-outbound', searchQuery, selectedStatuses, activeLeadsPage],
@@ -214,7 +179,7 @@ export function InboundCallsPage() {
       const params = new URLSearchParams({
         direction: 'inbound',
         page: String(activeLeadsPage),
-        pageSize: String(systemLeadsPageSize),
+        pageSize: String(activeLeadsPageSize),
       });
       
       if (searchQuery) {
@@ -240,12 +205,6 @@ export function InboundCallsPage() {
     },
     retry: 1,
   });
-
-  useEffect(() => {
-    if (leadsData?.leads) {
-      console.log('[InboundCallsPage] ✅ System leads loaded:', leadsData.leads.length, 'leads');
-    }
-  }, [leadsData]);
 
   useEffect(() => {
     if (activeLeadsData?.leads) {
@@ -325,13 +284,11 @@ export function InboundCallsPage() {
   const totalRecentCalls = recentCallsData?.total || 0;
   const totalRecentPages = Math.ceil(totalRecentCalls / recentCallsPageSize);
 
-  const systemLeads = Array.isArray(leadsData?.leads) ? leadsData.leads : [];
   const activeLeads = Array.isArray(activeLeadsData?.leads) ? activeLeadsData.leads : [];
-  const totalSystemLeads = leadsData?.total || 0;
   const totalActiveLeads = activeLeadsData?.total || 0;
 
   // Get the appropriate leads array based on active tab
-  const leads = activeTab === 'system' ? systemLeads : activeLeads;
+  const leads = activeLeads;
 
   // Mutations
   const startCallsMutation = useMutation({
@@ -397,19 +354,7 @@ export function InboundCallsPage() {
       await queryClient.cancelQueries({ queryKey: ['/api/leads'] });
       
       // Snapshot previous values for rollback
-      const previousSystemLeads = queryClient.getQueryData(['/api/leads', 'system', searchQuery, selectedStatuses]);
       const previousActiveLeads = queryClient.getQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses]);
-      
-      // Optimistically update system leads
-      queryClient.setQueryData(['/api/leads', 'system', searchQuery, selectedStatuses], (old: any) => {
-        if (!old?.leads) return old;
-        return {
-          ...old,
-          leads: old.leads.map((lead: any) =>
-            lead.id === leadId ? { ...lead, status: newStatus } : lead
-          ),
-        };
-      });
       
       // Optimistically update active outbound leads
       queryClient.setQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses], (old: any) => {
@@ -422,13 +367,10 @@ export function InboundCallsPage() {
         };
       });
       
-      return { previousSystemLeads, previousActiveLeads };
+      return { previousActiveLeads };
     },
     onError: (error, variables, context) => {
       // Rollback on error
-      if (context?.previousSystemLeads) {
-        queryClient.setQueryData(['/api/leads', 'system', searchQuery, selectedStatuses], context.previousSystemLeads);
-      }
       if (context?.previousActiveLeads) {
         queryClient.setQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses], context.previousActiveLeads);
       }
@@ -630,7 +572,7 @@ export function InboundCallsPage() {
 
   // Helper to check if all leads in current filtered view are selected
   const areAllFilteredLeadsSelected = () => {
-    const currentLeads = activeTab === 'active' ? activeLeads : systemLeads;
+    const currentLeads = activeLeads;
     const currentSelection = selectedLeads;
     
     if (currentLeads.length === 0) return false;
@@ -651,7 +593,7 @@ export function InboundCallsPage() {
     // Build URL with navigation context including current tab
     const params = new URLSearchParams();
     params.set('from', 'inbound_calls');
-    params.set('tab', activeTab);  // Preserve which tab user is on (system/active/recent)
+    params.set('tab', activeTab);  // Preserve which tab user is on (active/recent)
     
     // Add filter context if applicable
     if (searchQuery) params.set('filterSearch', searchQuery);
@@ -702,7 +644,6 @@ export function InboundCallsPage() {
 
   // For now, show counts based on loaded leads
   // In a future enhancement, fetch real counts from backend
-  const systemLeadsStatusCounts = calculateStatusCounts(systemLeads);
   const activeLeadsStatusCounts = calculateStatusCounts(activeLeads);
   
   // Defensive guard: Ensure selections are always Sets (fix for runtime errors)
@@ -757,7 +698,7 @@ export function InboundCallsPage() {
           )}
           
           {/* View Mode Toggle */}
-          {(activeTab === 'system' || activeTab === 'active') && !showResults && (
+          {activeTab === 'active' && !showResults && (
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-full sm:w-auto">
               <button
                 onClick={() => {
@@ -813,7 +754,7 @@ export function InboundCallsPage() {
       </div>
 
       {/* Errors */}
-      {(leadsError || countsError) && (
+      {(activeError || countsError) && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
           <XCircle className="h-5 w-5 text-red-600" />
           <span className="text-red-800">
@@ -833,25 +774,6 @@ export function InboundCallsPage() {
 
       {/* Tabs */}
       <div className="flex overflow-x-auto border-b border-gray-200 -mx-4 sm:mx-0 px-4 sm:px-0 scrollbar-hide">
-        <button
-          className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
-            activeTab === 'system'
-              ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-          onClick={() => {
-            setActiveTab('system');
-            setShowResults(false);
-            setCallResults([]);
-          }}
-          data-testid="tab-system-leads"
-        >
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">לידים במערכת</span>
-            <span className="sm:hidden">במערכת</span>
-          </div>
-        </button>
         <button
           className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
             activeTab === 'active'
@@ -936,230 +858,6 @@ export function InboundCallsPage() {
             הפעל שיחות נוספות
           </Button>
         </Card>
-      )}
-
-      {/* System Leads Tab - For Browsing and Selection */}
-      {!showResults && activeTab === 'system' && (
-        <div className="space-y-4">
-          {/* Sticky Action Bar */}
-          <div className="sticky top-0 z-30 bg-white border-b border-gray-200 -mx-6 px-6 py-3 shadow-sm">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <div className="w-full sm:w-48">
-                  <MultiStatusSelect
-                    statuses={statuses}
-                    selectedStatuses={selectedStatuses}
-                    onChange={setSelectedStatuses}
-                    placeholder="סנן לפי סטטוס"
-                    data-testid="system-kanban-status-filter"
-                  />
-                </div>
-                {selectedStatuses.length > 0 && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleSelectAllInStatuses}
-                    className="whitespace-nowrap"
-                    data-testid="button-select-all-in-statuses"
-                  >
-                    בחר הכל בסטטוסים ({selectedStatuses.length})
-                  </Button>
-                )}
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="חיפוש לפי שם או טלפון..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pr-10 w-full"
-                    data-testid="input-kanban-lead-search"
-                  />
-                </div>
-              </div>
-              <Button
-                size="lg"
-                disabled={
-                  safeSelectedLeads.size === 0 ||
-                  !canStartCalls ||
-                  startCallsMutation.isPending
-                }
-                onClick={handleStartCalls}
-                className="px-8 w-full sm:w-auto"
-                data-testid="button-start-calls"
-              >
-                {startCallsMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-5 w-5 ml-2 animate-spin" />
-                    מתחיל שיחות...
-                  </>
-                ) : (
-                  <>
-                    <PlayCircle className="h-5 w-5 ml-2" />
-                    הפעל {safeSelectedLeads.size} שיחות
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {/* Kanban View */}
-          {viewMode === 'kanban' && (
-            <>
-
-              {(leadsLoading || statusesLoading) ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
-                </div>
-              ) : statuses.length === 0 ? (
-                <Card className="p-8 text-center text-gray-500">
-                  לא נמצאו סטטוסים. יש להגדיר סטטוסים במערכת.
-                </Card>
-              ) : (
-                <div className="min-h-[600px]">
-                  <OutboundKanbanView
-                    leads={filteredLeads}
-                    statuses={statuses}
-                    loading={leadsLoading}
-                    selectedLeadIds={selectedLeadIdsSet}
-                    onLeadSelect={handleLeadSelect}
-                    onLeadClick={handleLeadClick}
-                    onStatusChange={handleStatusChange}
-                    onSelectAll={handleSelectAll}
-                    onClearSelection={handleClearSelection}
-                    updatingStatusLeadId={updatingStatusLeadId}
-                    statusCounts={systemLeadsStatusCounts}
-                    totalLeads={totalSystemLeads}
-                  />
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Table View */}
-          {viewMode === 'table' && (
-          <Card className="p-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-              <h3 className="font-semibold flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                לידים במערכת ({totalSystemLeads} כולל)
-                {safeSelectedLeads.size > 0 && (
-                  <span className="text-blue-600"> • {safeSelectedLeads.size} נבחרו</span>
-                )}
-              </h3>
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                {viewMode === 'table' && (
-                  <div className="w-full sm:w-48">
-                    <MultiStatusSelect
-                      statuses={statuses}
-                      selectedStatuses={selectedStatuses}
-                      onChange={setSelectedStatuses}
-                      placeholder="סנן לפי סטטוס"
-                      data-testid="outbound-status-filter"
-                    />
-                  </div>
-                )}
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="חיפוש לפי שם או טלפון..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pr-10 w-full"
-                    data-testid="input-lead-search"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {leadsLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-              </div>
-            ) : filteredLeads.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                {searchQuery ? 'לא נמצאו לידים מתאימים' : 'אין לידים עם מספר טלפון'}
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
-                  {filteredLeads.map((lead: Lead) => {
-                    const isSelected = safeSelectedLeads.has(lead.id);
-                    
-                    return (
-                    <div
-                      key={lead.id}
-                      className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                        isSelected
-                          ? 'bg-blue-50 border-blue-300'
-                          : 'bg-white border-gray-200 hover:bg-gray-50'
-                      } cursor-pointer`}
-                      data-testid={`lead-select-${lead.id}`}
-                    >
-                      <div 
-                        className="flex-1"
-                        onClick={() => handleLeadClick(lead.id)}
-                      >
-                        <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
-                        <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {/* ✅ Editable status dropdown */}
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <StatusDropdownWithWebhook
-                            leadId={lead.id}
-                            currentStatus={lead.status}
-                            statuses={statuses}
-                            onStatusChange={async (newStatus) => await handleStatusChange(lead.id, newStatus)}
-                            source="inbound_calls"
-                            hasWebhook={hasWebhook}
-                            size="sm"
-                          />
-                        </div>
-                        <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
-                          {isSelected ? (
-                            <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
-                          ) : (
-                            <div className="h-5 w-5 border-2 border-gray-300 rounded cursor-pointer"></div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );})}
-                </div>
-
-                {/* Pagination */}
-                {totalSystemLeads > systemLeadsPageSize && (
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                    <div className="text-sm text-gray-500">
-                      עמוד {systemLeadsPage} מתוך {Math.ceil(totalSystemLeads / systemLeadsPageSize)}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setSystemLeadsPage(p => Math.max(1, p - 1))}
-                        disabled={systemLeadsPage === 1}
-                        data-testid="button-prev-system-page"
-                      >
-                        הקודם
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setSystemLeadsPage(p => Math.min(Math.ceil(totalSystemLeads / systemLeadsPageSize), p + 1))}
-                        disabled={systemLeadsPage >= Math.ceil(totalSystemLeads / systemLeadsPageSize)}
-                        data-testid="button-next-system-page"
-                      >
-                        הבא
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </Card>
-          )}
-        </div>
       )}
 
       {/* Active Outbound Leads Tab - For Managing Active Campaign */}
@@ -1292,10 +990,10 @@ export function InboundCallsPage() {
                 </div>
 
                 {/* Pagination */}
-                {totalActiveLeads > systemLeadsPageSize && (
+                {totalActiveLeads > activeLeadsPageSize && (
                   <div className="flex items-center justify-between mt-4 pt-4 border-t">
                     <div className="text-sm text-gray-500">
-                      עמוד {activeLeadsPage} מתוך {Math.ceil(totalActiveLeads / systemLeadsPageSize)}
+                      עמוד {activeLeadsPage} מתוך {Math.ceil(totalActiveLeads / activeLeadsPageSize)}
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -1310,8 +1008,8 @@ export function InboundCallsPage() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => setActiveLeadsPage(p => Math.min(Math.ceil(totalActiveLeads / systemLeadsPageSize), p + 1))}
-                        disabled={activeLeadsPage >= Math.ceil(totalActiveLeads / systemLeadsPageSize)}
+                        onClick={() => setActiveLeadsPage(p => Math.min(Math.ceil(totalActiveLeads / activeLeadsPageSize), p + 1))}
+                        disabled={activeLeadsPage >= Math.ceil(totalActiveLeads / activeLeadsPageSize)}
                         data-testid="button-next-active-page"
                       >
                         הבא
