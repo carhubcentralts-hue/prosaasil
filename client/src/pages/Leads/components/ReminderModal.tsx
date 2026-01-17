@@ -130,7 +130,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
                   type="date"
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
-                  min={defaultDate}
                   required
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   data-testid="input-reminder-date"

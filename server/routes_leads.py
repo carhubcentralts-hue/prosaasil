@@ -1121,6 +1121,45 @@ def update_reminder(lead_id, reminder_id):
     
     return jsonify({"message": "Reminder updated successfully"})
 
+@leads_bp.route("/api/leads/<int:lead_id>/reminders/<int:reminder_id>", methods=["DELETE"])
+@require_api_auth()
+def delete_lead_reminder(lead_id, reminder_id):
+    """Delete a reminder associated with a lead"""
+    
+    if not check_lead_access(lead_id):
+        return jsonify({"error": "Lead not found or access denied"}), 404
+    
+    reminder = LeadReminder.query.filter_by(id=reminder_id, lead_id=lead_id).first()
+    if not reminder:
+        return jsonify({"error": "Reminder not found"}), 404
+    
+    try:
+        # Store note for logging before deletion
+        note = reminder.note
+        
+        # Delete reminder
+        db.session.delete(reminder)
+        db.session.commit()
+        
+        # Log deletion after successful commit
+        user = get_current_user()
+        create_activity(
+            lead_id,
+            "reminder_deleted",
+            {
+                "reminder_id": reminder_id,
+                "note": note,
+                "deleted_by": user.get('email', 'unknown') if user else 'unknown'
+            },
+            user.get('id') if user else None
+        )
+        
+        return jsonify({"message": "Reminder deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting reminder {reminder_id}: {e}")
+        return jsonify({"error": "Failed to delete reminder"}), 500
+
 
 @leads_bp.route("/api/reminders/due", methods=["GET"])
 @require_api_auth()  # BUILD 137: Added missing decorator

@@ -47,28 +47,29 @@ export function LoginPage() {
         <div className="mx-auto w-full max-w-sm text-white">
           <div className="mb-8">
             <Building2 className="h-12 w-12 mb-6" />
-            <h1 className="text-3xl font-semibold mb-4">
-              מערכת הניהול
+            <h1 className="text-4xl font-bold mb-2">
+              <span className="text-white">Pro</span><span className="text-blue-200">SaaS</span>
             </h1>
-            <p className="text-lg opacity-90">
-              דור חדש של שירות לקוח
-              <br />
-              עם AI מתקדם
+            <p className="text-xl font-medium opacity-95 mb-2">
+              מערכת ניהול לקוחות חכמה
+            </p>
+            <p className="text-base opacity-80">
+              עם בינה מלאכותית מתקדמת
             </p>
           </div>
           
-          <div className="space-y-4 text-sm opacity-80">
+          <div className="space-y-3 text-sm opacity-85">
             <div className="flex items-center">
               <div className="w-2 h-2 bg-white rounded-full mr-3"></div>
-              שיחות טלפון בזמן אמת
+              שיחות אוטומטיות בזמן אמת
             </div>
             <div className="flex items-center">
               <div className="w-2 h-2 bg-white rounded-full mr-3"></div>
-              WhatsApp אוטומטי
+              ניהול WhatsApp חכם
             </div>
             <div className="flex items-center">
               <div className="w-2 h-2 bg-white rounded-full mr-3"></div>
-              לידים בקליק
+              מעקב לידים ומשימות
             </div>
           </div>
         </div>
@@ -92,10 +93,10 @@ export function LoginPage() {
         <div className="mx-auto w-full max-w-sm lg:w-96 mt-16 lg:mt-0">
           <div className="text-center lg:text-right mb-8">
             <h2 className="text-2xl font-semibold text-slate-900">
-              ברוכים השבים!
+              ברוכים הבאים!
             </h2>
             <p className="mt-2 text-sm text-slate-600">
-              היכנסו למשטח האישי שלכם
+              התחברו למערכת שלכם
             </p>
           </div>
 
