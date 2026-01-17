@@ -1133,23 +1133,32 @@ def delete_lead_reminder(lead_id, reminder_id):
     if not reminder:
         return jsonify({"error": "Reminder not found"}), 404
     
-    # Log deletion
-    user = get_current_user()
-    create_activity(
-        lead_id,
-        "reminder_deleted",
-        {
-            "reminder_id": reminder_id,
-            "note": reminder.note,
-            "deleted_by": user.get('email', 'unknown') if user else 'unknown'
-        },
-        user.get('id') if user else None
-    )
-    
-    db.session.delete(reminder)
-    db.session.commit()
-    
-    return jsonify({"message": "Reminder deleted successfully"})
+    try:
+        # Store note for logging before deletion
+        note = reminder.note
+        
+        # Delete reminder
+        db.session.delete(reminder)
+        db.session.commit()
+        
+        # Log deletion after successful commit
+        user = get_current_user()
+        create_activity(
+            lead_id,
+            "reminder_deleted",
+            {
+                "reminder_id": reminder_id,
+                "note": note,
+                "deleted_by": user.get('email', 'unknown') if user else 'unknown'
+            },
+            user.get('id') if user else None
+        )
+        
+        return jsonify({"message": "Reminder deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting reminder {reminder_id}: {e}")
+        return jsonify({"error": "Failed to delete reminder"}), 500
 
 
 @leads_bp.route("/api/reminders/due", methods=["GET"])
