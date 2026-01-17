@@ -2575,6 +2575,72 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 69: ISO 27001 Security Events Table - Audit and incident tracking
+        # Required for ISO 27001 compliance (A.12.4, A.16) and audit readiness
+        checkpoint("Migration 69: Creating security_events table for ISO 27001 compliance")
+        if not check_table_exists('security_events'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    CREATE TABLE security_events (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER REFERENCES business(id),
+                        event_type VARCHAR(64) NOT NULL,
+                        severity VARCHAR(16) NOT NULL DEFAULT 'low' CHECK (severity IN ('critical', 'high', 'medium', 'low')),
+                        description TEXT NOT NULL,
+                        impact TEXT,
+                        response TEXT,
+                        lessons_learned TEXT,
+                        status VARCHAR(32) DEFAULT 'open' CHECK (status IN ('open', 'investigating', 'mitigated', 'resolved', 'closed')),
+                        user_id INTEGER REFERENCES users(id),
+                        user_email VARCHAR(255),
+                        ip_address VARCHAR(64),
+                        user_agent VARCHAR(512),
+                        resource_type VARCHAR(64),
+                        resource_id VARCHAR(64),
+                        endpoint VARCHAR(255),
+                        method VARCHAR(16),
+                        metadata JSONB,
+                        assigned_to_user_id INTEGER REFERENCES users(id),
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        resolved_at TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for efficient querying
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_business_id ON security_events(business_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_event_type ON security_events(event_type)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_severity ON security_events(severity)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_status ON security_events(status)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_created_at ON security_events(created_at)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_business_severity ON security_events(business_id, severity)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_status_created ON security_events(status, created_at)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_security_events_type_created ON security_events(event_type, created_at)
+                """))
+                
+                migrations_applied.append('create_security_events_table')
+                checkpoint("✅ Applied migration 69: create_security_events_table - ISO 27001 security audit compliance")
+            except Exception as e:
+                log.error(f"❌ Migration 69 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

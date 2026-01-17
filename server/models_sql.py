@@ -1178,3 +1178,85 @@ class ReminderPushLog(db.Model):
         db.UniqueConstraint('reminder_id', 'offset_minutes', name='uq_reminder_push_log'),
         db.Index('idx_reminder_push_log_sent_at', 'sent_at'),  # For cleanup queries
     )
+
+
+# =============================================================================
+# ISO 27001 SECURITY EVENT LOGGING
+# =============================================================================
+
+class SecurityEvent(db.Model):
+    """
+    Security Events Table - ISO 27001 Compliance
+    
+    Tracks all security-related events for audit, compliance, and incident response.
+    Required for:
+    - A.12.4 Logging and monitoring
+    - A.16 Information security incident management
+    - Audit readiness and evidence collection
+    """
+    __tablename__ = "security_events"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Multi-tenant: Some events are system-wide (NULL), some are tenant-specific
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    
+    # Event classification
+    event_type = db.Column(db.String(64), nullable=False, index=True)  # auth_failure, access_denied, data_access, config_change, etc.
+    severity = db.Column(db.String(16), nullable=False, default="low", index=True)  # critical, high, medium, low
+    
+    # Event details
+    description = db.Column(db.Text, nullable=False)
+    
+    # Impact assessment (for incidents)
+    impact = db.Column(db.Text, nullable=True)  # Business impact assessment
+    
+    # Response and resolution
+    response = db.Column(db.Text, nullable=True)  # Actions taken
+    lessons_learned = db.Column(db.Text, nullable=True)  # Post-incident findings
+    
+    # Status tracking
+    status = db.Column(db.String(32), default="open", index=True)  # open, investigating, mitigated, resolved, closed
+    
+    # User context
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    user_email = db.Column(db.String(255), nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(512), nullable=True)
+    
+    # Resource context
+    resource_type = db.Column(db.String(64), nullable=True)  # user, lead, call, etc.
+    resource_id = db.Column(db.String(64), nullable=True)
+    
+    # Request context
+    endpoint = db.Column(db.String(255), nullable=True)
+    method = db.Column(db.String(16), nullable=True)  # GET, POST, PUT, DELETE
+    
+    # Additional metadata as JSON
+    metadata = db.Column(db.JSON, nullable=True)  # Flexible additional data
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Assignment for incident response
+    assigned_to_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("security_events", lazy="dynamic"), foreign_keys=[business_id])
+    reporter = db.relationship("User", backref=db.backref("reported_security_events", lazy="dynamic"), foreign_keys=[user_id])
+    assigned_to = db.relationship("User", backref=db.backref("assigned_security_events", lazy="dynamic"), foreign_keys=[assigned_to_user_id])
+    
+    # Valid values for constrained fields
+    SEVERITY_LEVELS = ('critical', 'high', 'medium', 'low')
+    STATUS_VALUES = ('open', 'investigating', 'mitigated', 'resolved', 'closed')
+    
+    # Indexes and constraints for efficient querying and data integrity
+    __table_args__ = (
+        db.Index('idx_security_events_business_severity', 'business_id', 'severity'),
+        db.Index('idx_security_events_status_created', 'status', 'created_at'),
+        db.Index('idx_security_events_type_created', 'event_type', 'created_at'),
+        db.CheckConstraint("severity IN ('critical', 'high', 'medium', 'low')", name='chk_security_events_severity'),
+        db.CheckConstraint("status IN ('open', 'investigating', 'mitigated', 'resolved', 'closed')", name='chk_security_events_status'),
+    )
