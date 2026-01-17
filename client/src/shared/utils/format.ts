@@ -3,9 +3,12 @@
  * 
  * The server stores dates as naive datetime in Israel local time using datetime.now().
  * It then adds timezone info (+02:00 or +03:00) via localize_datetime_to_israel() before sending.
- * The ISO strings sent to frontend include proper timezone offset (e.g., "2024-01-20T19:00:00+02:00").
+ * The ISO strings sent to frontend include proper timezone offset.
  * 
- * JavaScript correctly interprets these timezone-aware strings.
+ * Example from backend: "2024-01-20T19:00:00+02:00"
+ * This means 19:00 (7 PM) in Israel timezone (UTC+2).
+ * 
+ * JavaScript correctly interprets these timezone-aware ISO 8601 strings.
  * We simply need to format with Asia/Jerusalem timezone - NO manual offset adjustment needed.
  * 
  * Note: The Intl.DateTimeFormat with timeZone: 'Asia/Jerusalem' handles DST automatically.
@@ -58,16 +61,23 @@ export function formatTimeOnly(date: string | Date): string {
 
 /**
  * Format relative time (e.g., "לפני 5 דקות", "לפני 3 שעות")
+ * 
+ * Note: This function calculates time differences using JavaScript Date.getTime()
+ * which works correctly regardless of browser timezone, as long as the input
+ * dateString is a valid ISO 8601 string with timezone info (e.g., "2024-01-20T19:00:00+02:00").
+ * JavaScript automatically converts all dates to UTC internally for calculations.
  */
 export function formatRelativeTime(dateString: string | null | undefined): string {
   if (!dateString) return 'אף פעם';
   
   try {
     // Parse the date - JavaScript handles timezone-aware strings correctly
+    // e.g., "2024-01-20T19:00:00+02:00" is correctly converted to UTC internally
     const date = new Date(dateString);
     const now = new Date();
     
     // Calculate difference in milliseconds
+    // This is timezone-safe because Date.getTime() returns milliseconds since Unix epoch (UTC)
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMins / 60);
