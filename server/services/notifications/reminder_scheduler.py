@@ -64,7 +64,8 @@ def _try_send_with_dedupe(db, reminder, lead, offset_minutes: int) -> bool:
         log_entry = ReminderPushLog(
             reminder_id=reminder.id,
             offset_minutes=offset_minutes,
-            sent_at=datetime.utcnow()
+            # 🔥 FIX: Use local time for consistency
+            sent_at=datetime.now()
         )
         db.session.add(log_entry)
         db.session.commit()
@@ -109,7 +110,8 @@ def _cleanup_old_push_logs(db):
             log.debug("reminder_push_log table does not exist yet, skipping cleanup")
             return
         
-        cutoff = datetime.utcnow() - timedelta(days=CLEANUP_DAYS)
+        # 🔥 FIX: Use local time for consistency
+        cutoff = datetime.now() - timedelta(days=CLEANUP_DAYS)
         deleted = ReminderPushLog.query.filter(
             ReminderPushLog.sent_at < cutoff
         ).delete(synchronize_session=False)
@@ -139,7 +141,10 @@ def check_and_send_reminder_notifications(app):
     
     try:
         with app.app_context():
-            now = datetime.utcnow()
+            # 🔥 FIX: Use local Israel time instead of UTC
+            # Since reminders are stored as naive datetime in local Israel time,
+            # we must compare against local time, not UTC
+            now = datetime.now()  # Local Israel time (naive datetime)
             
             # Time windows for notifications (with tolerance for drift)
             window_30_start = now + timedelta(minutes=29)

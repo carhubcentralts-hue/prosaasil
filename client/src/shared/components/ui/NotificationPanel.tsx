@@ -92,6 +92,20 @@ function NotificationItem({ notification, onClick, onMarkComplete }: Notificatio
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
+    // 🔥 FIX: Show "in the future" or "in the past" correctly
+    if (diffMs < 0) {
+      // Future time - show "in X minutes/hours"
+      // Calculate absolute values directly from diffMs for efficiency
+      const absMins = Math.floor(Math.abs(diffMs) / 60000);
+      const absHours = Math.floor(absMins / 60);
+      const absDays = Math.floor(absHours / 24);
+      
+      if (absMins < 60) return `עוד ${absMins} דקות`;
+      if (absHours < 24) return `עוד ${absHours} שעות`;
+      return `עוד ${absDays} ימים`;
+    }
+    
+    // Past time - show "ago"
     if (diffMins < 1) return 'עכשיו';
     if (diffMins < 60) return `לפני ${diffMins} דקות`;
     if (diffHours < 24) return `לפני ${diffHours} שעות`;

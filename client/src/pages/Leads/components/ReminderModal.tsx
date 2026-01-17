@@ -24,13 +24,28 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
       if (reminder) {
         setNote(reminder.note || '');
         
-        // Parse due_at to extract date and time
-        const dueDate = new Date(reminder.due_at);
-        const dateStr = dueDate.toISOString().split('T')[0];
-        const timeStr = dueDate.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
-        
-        setDueDate(dateStr);
-        setDueTime(timeStr);
+        // 🔥 FIX: Parse due_at correctly as local Israel time
+        // The due_at from server is in local Israel time (naive datetime)
+        // Parse it directly without timezone conversion
+        const dueDateStr = reminder.due_at;
+        if (dueDateStr.includes('T')) {
+          const [date, timeWithSeconds] = dueDateStr.split('T');
+          const time = timeWithSeconds.split('.')[0].substring(0, 5); // Extract HH:MM
+          setDueDate(date);
+          setDueTime(time);
+        } else {
+          // Fallback for unexpected format: manually format as local time
+          // Note: Date object treats input as local time when no timezone specified
+          // This ensures consistency with the primary parsing path above
+          const dueDate = new Date(reminder.due_at);
+          const year = dueDate.getFullYear();
+          const month = String(dueDate.getMonth() + 1).padStart(2, '0');
+          const day = String(dueDate.getDate()).padStart(2, '0');
+          const hours = String(dueDate.getHours()).padStart(2, '0');
+          const minutes = String(dueDate.getMinutes()).padStart(2, '0');
+          setDueDate(`${year}-${month}-${day}`);
+          setDueTime(`${hours}:${minutes}`);
+        }
       } else {
         // Reset form when creating new reminder
         setNote('');
@@ -51,7 +66,10 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
     setIsSubmitting(true);
     
     try {
-      const dueAt = `${dueDate}T${dueTime}:00.000Z`;
+      // 🔥 FIX: Send local time without timezone suffix (no .000Z)
+      // This matches the CalendarPage approach - send local Israel time as-is
+      // The server will treat it as local time (naive datetime)
+      const dueAt = `${dueDate}T${dueTime}:00`;
       
       if (reminder) {
         // Update existing reminder
