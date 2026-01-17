@@ -34,6 +34,8 @@ class Business(db.Model):
     voice_id = db.Column(db.String(32), nullable=False, default="ash")  # OpenAI Realtime voice (alloy, ash, etc.)
     # Company registration info
     company_id = db.Column(db.String(50), nullable=True)  # Israeli company registration number (ח.פ)
+    # Page-level permissions - which pages/modules are enabled for this business
+    enabled_pages = db.Column(db.JSON, nullable=False, default=list)  # List of page_keys from page_registry
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

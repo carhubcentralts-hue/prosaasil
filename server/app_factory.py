@@ -519,6 +519,10 @@ def create_app():
         # Register auth blueprint - single clean system
         app.register_blueprint(auth_api)
         
+        # Context API - user permissions and enabled pages
+        from server.routes_context import context_bp
+        app.register_blueprint(context_bp)
+        
         # ⚡ NOTE: Critical API blueprints (admin, business, leads, search, crm, status, whatsapp, health, api_adapter)
         # are now registered EARLIER in a separate try-except block (before line 356)
         # This ensures they load even if other blueprints fail
