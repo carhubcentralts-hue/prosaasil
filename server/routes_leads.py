@@ -1102,7 +1102,8 @@ def update_reminder(lead_id, reminder_id):
         reminder.note = data['note']
     
     if 'completed' in data and data['completed']:
-        reminder.completed_at = datetime.utcnow()
+        # 🔥 FIX: Use local time for completed_at
+        reminder.completed_at = datetime.now()
         
         # Log completion
         user = get_current_user()
@@ -1173,8 +1174,8 @@ def get_due_reminders():
     if not tenant_id:
         return jsonify({"error": "No tenant access"}), 403
 
-    # Get current time and filter due reminders
-    now = datetime.utcnow()
+    # 🔥 FIX: Get current time in local Israel time
+    now = datetime.now()
     
     # Query for due reminders (not completed, due time has passed)
     # Use left join to support reminders without lead_id
@@ -1237,7 +1238,10 @@ def get_notifications():
         from datetime import timedelta
         from sqlalchemy import and_, cast, Date, or_
         
-        now = datetime.utcnow()
+        # 🔥 FIX: Use local Israel time instead of UTC
+        # Since reminders are stored as naive datetime in local Israel time,
+        # we must compare against local time, not UTC
+        now = datetime.now()  # Local Israel time (naive datetime)
         today = now.date()
         soon_threshold = now + timedelta(hours=3)
         tomorrow = today + timedelta(days=1)
@@ -1745,7 +1749,8 @@ def update_general_reminder(reminder_id):
             )
     
     if 'completed' in data and data['completed']:
-        reminder.completed_at = datetime.utcnow()
+        # 🔥 FIX: Use local time for completed_at
+        reminder.completed_at = datetime.now()
         
         # Log completion only if associated with a lead
         if reminder.lead_id:

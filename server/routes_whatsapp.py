@@ -1786,7 +1786,8 @@ def _create_whatsapp_disconnect_notification(business_id: int):
         reminder = LeadReminder()
         reminder.tenant_id = business_id
         reminder.lead_id = None  # System notification - not related to a lead
-        reminder.due_at = datetime.utcnow()  # Due immediately
+        # 🔥 FIX: Use local time for due_at (immediate system notification)
+        reminder.due_at = datetime.now()  # Due immediately
         reminder.note = "חיבור הווטסאפ נותק - יש להיכנס להגדרות ולחבר מחדש"
         reminder.description = "חיבור הווטסאפ לעסק נותק. יש להיכנס להגדרות WhatsApp ולסרוק את קוד ה-QR מחדש כדי להתחבר."
         reminder.channel = 'ui'
@@ -1833,8 +1834,9 @@ def _clear_whatsapp_disconnect_notification(business_id: int):
             log.info(f"[WHATSAPP_STATUS] No active disconnect notifications to clear for business_id={business_id}")
             return
         
+        # 🔥 FIX: Use local time for completed_at
         for reminder in reminders:
-            reminder.completed_at = datetime.utcnow()
+            reminder.completed_at = datetime.now()
         
         db.session.commit()
         log.info(f"[WHATSAPP_STATUS] ✅ Cleared {len(reminders)} disconnect notification(s) for business_id={business_id}")

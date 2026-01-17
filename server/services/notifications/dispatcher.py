@@ -337,7 +337,8 @@ def notify_user(
             reminder = LeadReminder()
             reminder.tenant_id = business_id
             reminder.lead_id = None  # System notification
-            reminder.due_at = datetime.utcnow()
+            # 🔥 FIX: Use local time for due_at (immediate system notification)
+            reminder.due_at = datetime.now()
             reminder.note = title
             reminder.description = body
             reminder.channel = 'ui'

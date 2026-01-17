@@ -139,7 +139,10 @@ def check_and_send_reminder_notifications(app):
     
     try:
         with app.app_context():
-            now = datetime.utcnow()
+            # 🔥 FIX: Use local Israel time instead of UTC
+            # Since reminders are stored as naive datetime in local Israel time,
+            # we must compare against local time, not UTC
+            now = datetime.now()  # Local Israel time (naive datetime)
             
             # Time windows for notifications (with tolerance for drift)
             window_30_start = now + timedelta(minutes=29)
