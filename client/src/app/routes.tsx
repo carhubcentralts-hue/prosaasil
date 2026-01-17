@@ -37,6 +37,7 @@ const BillingPage = lazy(() => import('../pages/billing/BillingPage').then(m => 
 const UsersPage = lazy(() => import('../pages/users/UsersPage').then(m => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const EmailsPage = lazy(() => import('../pages/emails/EmailsPage').then(m => ({ default: m.EmailsPage })));
+const StatisticsPage = lazy(() => import('../pages/statistics/StatisticsPage').then(m => ({ default: m.StatisticsPage })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -243,6 +244,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <EmailsPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Statistics Routes */}
+        <Route
+          path="statistics"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
+              <StatisticsPage />
             </RoleGuard>
           }
         />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
-import { Send, Users, MessageSquare, Filter, Upload, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Send, Users, MessageSquare, Filter, Upload, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Plus, Edit2, Trash2, FileText, X } from 'lucide-react';
 import { http } from '../../services/http';
 
 // UI Components
@@ -68,6 +68,15 @@ interface Template {
   components?: any[];
 }
 
+// Manual/Custom template that users can create themselves
+interface ManualTemplate {
+  id: number;
+  name: string;
+  message_text: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 interface BroadcastCampaign {
   id: number;
   name: string;
@@ -113,6 +122,16 @@ export function WhatsAppBroadcastPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   
+  // Manual templates state
+  const [templateSubTab, setTemplateSubTab] = useState<'meta' | 'manual'>('meta');
+  const [manualTemplates, setManualTemplates] = useState<ManualTemplate[]>([]);
+  const [loadingManualTemplates, setLoadingManualTemplates] = useState(false);
+  const [showCreateManualTemplate, setShowCreateManualTemplate] = useState(false);
+  const [editingManualTemplate, setEditingManualTemplate] = useState<ManualTemplate | null>(null);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateText, setNewTemplateText] = useState('');
+  const [savingManualTemplate, setSavingManualTemplate] = useState(false);
+  
   // Broadcast state
   const [messageType, setMessageType] = useState<'template' | 'freetext'>('template');
   const [provider, setProvider] = useState<'meta' | 'baileys'>('meta');
@@ -150,6 +169,7 @@ export function WhatsAppBroadcastPage() {
 
   useEffect(() => {
     loadTemplates();
+    loadManualTemplates();
     loadCampaigns();
     loadStatuses();
     loadImportLists();
@@ -184,6 +204,92 @@ export function WhatsAppBroadcastPage() {
     } finally {
       setLoadingTemplates(false);
     }
+  };
+
+  // Manual templates CRUD functions
+  const loadManualTemplates = async () => {
+    try {
+      setLoadingManualTemplates(true);
+      const response = await http.get<{ templates: ManualTemplate[] }>('/api/whatsapp/manual-templates');
+      setManualTemplates(response.templates || []);
+    } catch (error) {
+      console.error('Error loading manual templates:', error);
+      // Initialize with empty array if endpoint doesn't exist yet
+      setManualTemplates([]);
+    } finally {
+      setLoadingManualTemplates(false);
+    }
+  };
+
+  const handleSaveManualTemplate = async () => {
+    if (!newTemplateName.trim() || !newTemplateText.trim()) {
+      alert('נא למלא שם תבנית ותוכן');
+      return;
+    }
+
+    try {
+      setSavingManualTemplate(true);
+      
+      if (editingManualTemplate) {
+        // Update existing template
+        await http.patch(`/api/whatsapp/manual-templates/${editingManualTemplate.id}`, {
+          name: newTemplateName,
+          message_text: newTemplateText
+        });
+        alert('תבנית עודכנה בהצלחה');
+      } else {
+        // Create new template
+        await http.post('/api/whatsapp/manual-templates', {
+          name: newTemplateName,
+          message_text: newTemplateText
+        });
+        alert('תבנית נוצרה בהצלחה');
+      }
+      
+      // Reset form
+      setNewTemplateName('');
+      setNewTemplateText('');
+      setEditingManualTemplate(null);
+      setShowCreateManualTemplate(false);
+      
+      // Reload templates
+      loadManualTemplates();
+    } catch (error: any) {
+      console.error('Error saving manual template:', error);
+      alert('שגיאה בשמירת התבנית: ' + (error.message || 'שגיאה לא ידועה'));
+    } finally {
+      setSavingManualTemplate(false);
+    }
+  };
+
+  const handleEditManualTemplate = (template: ManualTemplate) => {
+    setEditingManualTemplate(template);
+    setNewTemplateName(template.name);
+    setNewTemplateText(template.message_text);
+    setShowCreateManualTemplate(true);
+  };
+
+  const handleDeleteManualTemplate = async (templateId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק תבנית זו?')) {
+      return;
+    }
+
+    try {
+      await http.delete(`/api/whatsapp/manual-templates/${templateId}`);
+      alert('תבנית נמחקה בהצלחה');
+      loadManualTemplates();
+    } catch (error: any) {
+      console.error('Error deleting manual template:', error);
+      alert('שגיאה במחיקת התבנית');
+    }
+  };
+
+  const handleUseManualTemplate = (template: ManualTemplate) => {
+    // Set the message text to the template content and switch to send tab
+    setMessageText(template.message_text);
+    setMessageType('freetext');
+    setProvider('baileys');
+    setActiveTab('send');
   };
 
   const loadCampaigns = async () => {
@@ -1292,52 +1398,238 @@ export function WhatsAppBroadcastPage() {
 
       {/* Templates Tab */}
       {activeTab === 'templates' && (
-        <Card className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">תבניות Meta</h2>
-            <Button variant="outline" onClick={loadTemplates} disabled={loadingTemplates}>
-              <RefreshCw className={`h-4 w-4 ml-2 ${loadingTemplates ? 'animate-spin' : ''}`} />
-              סנכרן מ-Meta
-            </Button>
+        <div className="space-y-6">
+          {/* Template Sub-tabs */}
+          <div className="flex items-center gap-4 border-b border-slate-200">
+            <button
+              onClick={() => setTemplateSubTab('meta')}
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                templateSubTab === 'meta'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <MessageSquare className="h-4 w-4 inline ml-2" />
+              תבניות Meta ({templates.filter(t => t.status === 'APPROVED').length})
+            </button>
+            <button
+              onClick={() => setTemplateSubTab('manual')}
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                templateSubTab === 'manual'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <FileText className="h-4 w-4 inline ml-2" />
+              תבניות ידניות ({manualTemplates.length})
+            </button>
           </div>
-          
-          {loadingTemplates ? (
-            <div className="text-center py-8">
-              <RefreshCw className="h-8 w-8 animate-spin mx-auto text-slate-400" />
-              <p className="text-sm text-slate-500 mt-2">טוען תבניות...</p>
-            </div>
-          ) : templates.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
-              <MessageSquare className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-              <p>אין תבניות</p>
-              <p className="text-sm mt-2">יש ליצור תבניות ב-Meta Business Manager</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {templates.map(template => (
-                <div key={template.id} className="border border-slate-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-medium text-slate-900">{template.name}</h3>
-                      <p className="text-sm text-slate-500">
-                        {template.language} • {template.category}
-                      </p>
+
+          {/* Meta Templates Sub-tab */}
+          {templateSubTab === 'meta' && (
+            <Card className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold">תבניות Meta</h2>
+                <Button variant="outline" onClick={loadTemplates} disabled={loadingTemplates}>
+                  <RefreshCw className={`h-4 w-4 ml-2 ${loadingTemplates ? 'animate-spin' : ''}`} />
+                  סנכרן מ-Meta
+                </Button>
+              </div>
+              
+              {loadingTemplates ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="h-8 w-8 animate-spin mx-auto text-slate-400" />
+                  <p className="text-sm text-slate-500 mt-2">טוען תבניות...</p>
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <MessageSquare className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p>אין תבניות</p>
+                  <p className="text-sm mt-2">יש ליצור תבניות ב-Meta Business Manager</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {templates.map(template => (
+                    <div key={template.id} className="border border-slate-200 rounded-lg p-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-medium text-slate-900">{template.name}</h3>
+                          <p className="text-sm text-slate-500">
+                            {template.language} • {template.category}
+                          </p>
+                        </div>
+                        <Badge 
+                          variant={
+                            template.status === 'APPROVED' ? 'success' :
+                            template.status === 'PENDING' ? 'warning' :
+                            'destructive'
+                          }
+                        >
+                          {template.status}
+                        </Badge>
+                      </div>
                     </div>
-                    <Badge 
-                      variant={
-                        template.status === 'APPROVED' ? 'success' :
-                        template.status === 'PENDING' ? 'warning' :
-                        'destructive'
-                      }
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Manual Templates Sub-tab */}
+          {templateSubTab === 'manual' && (
+            <Card className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold">תבניות ידניות</h2>
+                  <p className="text-sm text-slate-500 mt-1">צור תבניות מותאמות אישית לשימוש עם Baileys</p>
+                </div>
+                <Button onClick={() => {
+                  setEditingManualTemplate(null);
+                  setNewTemplateName('');
+                  setNewTemplateText('');
+                  setShowCreateManualTemplate(true);
+                }}>
+                  <Plus className="h-4 w-4 ml-2" />
+                  תבנית חדשה
+                </Button>
+              </div>
+              
+              {loadingManualTemplates ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="h-8 w-8 animate-spin mx-auto text-slate-400" />
+                  <p className="text-sm text-slate-500 mt-2">טוען תבניות...</p>
+                </div>
+              ) : manualTemplates.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <FileText className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p>אין תבניות ידניות</p>
+                  <p className="text-sm mt-2">לחץ על "תבנית חדשה" כדי ליצור את התבנית הראשונה שלך</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {manualTemplates.map(template => (
+                    <div key={template.id} className="border border-slate-200 rounded-lg p-4 hover:border-blue-300 transition-colors">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-slate-900">{template.name}</h3>
+                          <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                            {template.message_text}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-2">
+                            נוצר: {formatDate(template.created_at)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 mr-4">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleUseManualTemplate(template)}
+                          >
+                            <Send className="h-3 w-3 ml-1" />
+                            השתמש
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditManualTemplate(template)}
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteManualTemplate(template.id)}
+                            className="text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Create/Edit Manual Template Modal */}
+          {showCreateManualTemplate && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setShowCreateManualTemplate(false)}>
+              <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="p-6 border-b border-slate-200">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-semibold">
+                      {editingManualTemplate ? 'ערוך תבנית' : 'תבנית חדשה'}
+                    </h2>
+                    <button
+                      onClick={() => setShowCreateManualTemplate(false)}
+                      className="text-slate-500 hover:text-slate-700"
                     >
-                      {template.status}
-                    </Badge>
+                      <X className="h-6 w-6" />
+                    </button>
                   </div>
                 </div>
-              ))}
+                
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      שם התבנית *
+                    </label>
+                    <input
+                      type="text"
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="לדוגמה: הודעת ברכה ללקוח חדש"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      תוכן ההודעה *
+                    </label>
+                    <textarea
+                      value={newTemplateText}
+                      onChange={(e) => setNewTemplateText(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      rows={6}
+                      placeholder="כתוב כאן את תוכן ההודעה..."
+                      dir="rtl"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      תבנית זו תשמש לשליחת הודעות דרך Baileys (טקסט חופשי)
+                    </p>
+                  </div>
+                  
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowCreateManualTemplate(false)}
+                    >
+                      ביטול
+                    </Button>
+                    <Button
+                      onClick={handleSaveManualTemplate}
+                      disabled={savingManualTemplate || !newTemplateName.trim() || !newTemplateText.trim()}
+                    >
+                      {savingManualTemplate ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
+                          שומר...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 ml-2" />
+                          {editingManualTemplate ? 'עדכן תבנית' : 'צור תבנית'}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
-        </Card>
+        </div>
       )}
     </div>
   );

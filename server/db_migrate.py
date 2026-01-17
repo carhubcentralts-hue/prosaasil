@@ -2503,6 +2503,78 @@ def apply_migrations():
                 db.session.rollback()
                 raise
         
+        # Migration 67: Email Text Templates - Quick text snippets for email body content
+        # These are simple text templates (like quotes, greetings, pricing info) that can be used in emails
+        checkpoint("Migration 67: Creating email_text_templates table for quick text snippets")
+        if not check_table_exists('email_text_templates'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    CREATE TABLE email_text_templates (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        category VARCHAR(100) DEFAULT 'general',
+                        subject_line VARCHAR(500),
+                        body_text TEXT NOT NULL,
+                        created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for fast lookups
+                db.session.execute(text("""
+                    CREATE INDEX idx_email_text_templates_business_id ON email_text_templates(business_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_email_text_templates_category ON email_text_templates(category)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_email_text_templates_is_active ON email_text_templates(is_active)
+                """))
+                
+                migrations_applied.append('create_email_text_templates_table')
+                checkpoint("✅ Applied migration 67: create_email_text_templates_table - Email text snippets for quick content")
+            except Exception as e:
+                log.error(f"❌ Migration 67 failed: {e}")
+                db.session.rollback()
+                raise
+        
+        # Migration 68: WhatsApp Manual Templates - Custom text templates for broadcasts
+        checkpoint("Migration 68: Creating whatsapp_manual_templates table for custom broadcast templates")
+        if not check_table_exists('whatsapp_manual_templates'):
+            try:
+                from sqlalchemy import text
+                db.session.execute(text("""
+                    CREATE TABLE whatsapp_manual_templates (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        message_text TEXT NOT NULL,
+                        created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for fast lookups
+                db.session.execute(text("""
+                    CREATE INDEX idx_whatsapp_manual_templates_business_id ON whatsapp_manual_templates(business_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_whatsapp_manual_templates_is_active ON whatsapp_manual_templates(is_active)
+                """))
+                
+                migrations_applied.append('create_whatsapp_manual_templates_table')
+                checkpoint("✅ Applied migration 68: create_whatsapp_manual_templates_table - WhatsApp custom templates")
+            except Exception as e:
+                log.error(f"❌ Migration 68 failed: {e}")
+                db.session.rollback()
+                raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
