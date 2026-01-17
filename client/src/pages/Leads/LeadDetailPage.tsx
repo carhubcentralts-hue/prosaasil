@@ -1318,7 +1318,35 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
 
   const formatDatetimeLocal = (isoString: string) => {
     if (!isoString) return '';
+    
+    // 🔥 FIX: Parse the datetime string without timezone conversion
+    // The server sends Israel time with timezone info (e.g., "2024-01-15T14:00:00+02:00")
+    // We need to extract the date and time parts directly without letting JavaScript
+    // convert to browser's local timezone
+    
+    // Remove timezone info and milliseconds, parse the date/time parts directly
+    const dateTimePart = isoString.split('+')[0].split('Z')[0].split('.')[0];
+    
+    // If the string contains 'T', it's in ISO format
+    if (dateTimePart.includes('T')) {
+      const [datePart, timePart] = dateTimePart.split('T');
+      const [hours, minutes] = timePart.split(':');
+      // Return in datetime-local format (YYYY-MM-DDTHH:MM)
+      return `${datePart}T${hours}:${minutes}`;
+    }
+    
+    // Fallback to original behavior if format is unexpected
     const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  // Helper to format current local time for datetime-local input
+  const formatCurrentLocalTime = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -1409,9 +1437,9 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
   const openNewAppointment = () => {
     const now = new Date();
     now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30);
-    const startTime = formatDatetimeLocal(now.toISOString());
+    const startTime = formatCurrentLocalTime(now);
     now.setHours(now.getHours() + 1);
-    const endTime = formatDatetimeLocal(now.toISOString());
+    const endTime = formatCurrentLocalTime(now);
     
     setEditingAppointment(null);
     setFormData({

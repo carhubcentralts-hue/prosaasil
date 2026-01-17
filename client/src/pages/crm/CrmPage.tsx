@@ -127,11 +127,11 @@ export function CrmPage() {
         return;
       }
 
-      // ✅ FIX: Convert local date/time to UTC properly
-      // Create a Date object from local date and time, then convert to ISO UTC format
+      // 🔥 FIX: Send local Israel time without timezone conversion
+      // The server expects naive datetime (local Israel time) without timezone suffix
+      // Don't use toISOString() as it converts to UTC
       const localDateTime = `${taskForm.due_date}T${taskForm.due_time || '09:00'}:00`;
-      const localDate = new Date(localDateTime);
-      const due_at = localDate.toISOString(); // Converts local time to UTC
+      const due_at = localDateTime; // Send as-is (YYYY-MM-DDTHH:MM:SS)
 
       const payload = {
         note: taskForm.note,
@@ -163,21 +163,37 @@ export function CrmPage() {
 
   const handleEditTask = (task: CRMTask) => {
     setEditingTask(task);
-    // ✅ FIX: Convert UTC time back to local time for display
-    const dueDate = new Date(task.due_at);
     
-    // Extract local date and time components
-    const year = dueDate.getFullYear();
-    const month = String(dueDate.getMonth() + 1).padStart(2, '0');
-    const day = String(dueDate.getDate()).padStart(2, '0');
-    const hours = String(dueDate.getHours()).padStart(2, '0');
-    const minutes = String(dueDate.getMinutes()).padStart(2, '0');
+    // 🔥 FIX: Parse datetime WITHOUT timezone conversion
+    // The server sends Israel time with timezone info
+    // Extract date/time parts directly without JavaScript timezone conversion
+    const dateTimePart = task.due_at.split('+')[0].split('Z')[0].split('.')[0];
+    
+    let due_date = '';
+    let due_time = '';
+    
+    if (dateTimePart.includes('T')) {
+      const [datePart, timePart] = dateTimePart.split('T');
+      due_date = datePart;
+      const [hours, minutes] = timePart.split(':');
+      due_time = `${hours}:${minutes}`;
+    } else {
+      // Fallback: use Date object (will convert to browser local time)
+      const dueDate = new Date(task.due_at);
+      const year = dueDate.getFullYear();
+      const month = String(dueDate.getMonth() + 1).padStart(2, '0');
+      const day = String(dueDate.getDate()).padStart(2, '0');
+      const hours = String(dueDate.getHours()).padStart(2, '0');
+      const minutes = String(dueDate.getMinutes()).padStart(2, '0');
+      due_date = `${year}-${month}-${day}`;
+      due_time = `${hours}:${minutes}`;
+    }
     
     setTaskForm({
       note: task.note,
       description: task.description || '',
-      due_date: `${year}-${month}-${day}`,
-      due_time: `${hours}:${minutes}`,
+      due_date,
+      due_time,
       priority: task.priority || 'medium',
       reminder_type: task.reminder_type || 'general',
       lead_id: task.lead_id?.toString() || ''
