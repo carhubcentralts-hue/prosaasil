@@ -1248,9 +1248,15 @@ class SecurityEvent(db.Model):
     reporter = db.relationship("User", backref=db.backref("reported_security_events", lazy="dynamic"), foreign_keys=[user_id])
     assigned_to = db.relationship("User", backref=db.backref("assigned_security_events", lazy="dynamic"), foreign_keys=[assigned_to_user_id])
     
-    # Indexes for efficient querying
+    # Valid values for constrained fields
+    SEVERITY_LEVELS = ('critical', 'high', 'medium', 'low')
+    STATUS_VALUES = ('open', 'investigating', 'mitigated', 'resolved', 'closed')
+    
+    # Indexes and constraints for efficient querying and data integrity
     __table_args__ = (
         db.Index('idx_security_events_business_severity', 'business_id', 'severity'),
         db.Index('idx_security_events_status_created', 'status', 'created_at'),
         db.Index('idx_security_events_type_created', 'event_type', 'created_at'),
+        db.CheckConstraint("severity IN ('critical', 'high', 'medium', 'low')", name='chk_security_events_severity'),
+        db.CheckConstraint("status IN ('open', 'investigating', 'mitigated', 'resolved', 'closed')", name='chk_security_events_status'),
     )
