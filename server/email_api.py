@@ -1281,25 +1281,21 @@ def update_email_text_template(template_id: int):
         if not existing:
             return jsonify({'ok': False, 'error': 'Template not found'}), 404
         
-        # Build update query dynamically
+        # Allowlist of updatable fields - prevents SQL injection by only allowing known fields
+        ALLOWED_FIELDS = {'name', 'category', 'subject_line', 'body_text', 'is_active'}
+        
+        # Build update query dynamically using allowlisted fields
         updates = []
         params = {"id": template_id, "business_id": business_id}
         
-        if 'name' in data:
-            updates.append("name = :name")
-            params['name'] = data['name'].strip()
-        if 'category' in data:
-            updates.append("category = :category")
-            params['category'] = data['category'].strip()
-        if 'subject_line' in data:
-            updates.append("subject_line = :subject_line")
-            params['subject_line'] = data['subject_line'].strip()
-        if 'body_text' in data:
-            updates.append("body_text = :body_text")
-            params['body_text'] = data['body_text'].strip()
-        if 'is_active' in data:
-            updates.append("is_active = :is_active")
-            params['is_active'] = bool(data['is_active'])
+        for field in ALLOWED_FIELDS:
+            if field in data:
+                if field == 'is_active':
+                    updates.append(f"{field} = :{field}")
+                    params[field] = bool(data[field])
+                else:
+                    updates.append(f"{field} = :{field}")
+                    params[field] = str(data[field]).strip()
         
         if not updates:
             return jsonify({'ok': False, 'error': 'No fields to update'}), 400

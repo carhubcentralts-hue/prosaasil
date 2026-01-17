@@ -3052,3 +3052,217 @@ def stop_broadcast(broadcast_id):
         log.error(f"Error stopping broadcast: {e}")
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ========================================================================
+# WHATSAPP MANUAL TEMPLATES API - Custom text templates for broadcasts
+# ========================================================================
+
+def get_current_business_id_wa():
+    """Get current business ID from authenticated user"""
+    if hasattr(g, 'tenant') and g.tenant:
+        return g.tenant
+    
+    # Try session
+    user = session.get('al_user') or session.get('user', {})
+    return user.get('business_id')
+
+
+@whatsapp_bp.route('/manual-templates', methods=['GET'])
+@require_api_auth
+def list_manual_templates():
+    """List all WhatsApp manual templates for the current business"""
+    try:
+        business_id = get_current_business_id_wa()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        from sqlalchemy import text as sa_text
+        
+        result = db.session.execute(
+            sa_text("""
+                SELECT id, name, message_text, is_active, created_at, updated_at
+                FROM whatsapp_manual_templates
+                WHERE business_id = :business_id AND is_active = TRUE
+                ORDER BY created_at DESC
+            """),
+            {"business_id": business_id}
+        ).fetchall()
+        
+        templates = []
+        for row in result:
+            templates.append({
+                'id': row[0],
+                'name': row[1],
+                'message_text': row[2],
+                'is_active': row[3],
+                'created_at': row[4].isoformat() if row[4] else None,
+                'updated_at': row[5].isoformat() if row[5] else None
+            })
+        
+        return jsonify({'ok': True, 'templates': templates}), 200
+        
+    except Exception as e:
+        log.exception("[WA_MANUAL_TEMPLATES] Failed to list templates")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@whatsapp_bp.route('/manual-templates', methods=['POST'])
+@csrf.exempt
+@require_api_auth
+def create_manual_template():
+    """Create a new WhatsApp manual template"""
+    try:
+        business_id = get_current_business_id_wa()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        data = request.get_json() or {}
+        
+        name = data.get('name', '').strip()
+        message_text = data.get('message_text', '').strip()
+        
+        if not name:
+            return jsonify({'ok': False, 'error': 'Template name is required'}), 400
+        if not message_text:
+            return jsonify({'ok': False, 'error': 'Template message text is required'}), 400
+        
+        # Get current user ID
+        user = session.get('al_user') or session.get('user', {})
+        user_id = user.get('id')
+        
+        from sqlalchemy import text as sa_text
+        
+        result = db.session.execute(
+            sa_text("""
+                INSERT INTO whatsapp_manual_templates 
+                (business_id, name, message_text, created_by_user_id, is_active, created_at, updated_at)
+                VALUES (:business_id, :name, :message_text, :user_id, TRUE, NOW(), NOW())
+                RETURNING id, created_at
+            """),
+            {
+                "business_id": business_id,
+                "name": name,
+                "message_text": message_text,
+                "user_id": user_id
+            }
+        )
+        row = result.fetchone()
+        db.session.commit()
+        
+        log.info(f"[WA_MANUAL_TEMPLATES] Created template: id={row[0]}, name={name}, business_id={business_id}")
+        
+        return jsonify({
+            'ok': True,
+            'template': {
+                'id': row[0],
+                'name': name,
+                'message_text': message_text,
+                'created_at': row[1].isoformat() if row[1] else None
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        log.exception("[WA_MANUAL_TEMPLATES] Failed to create template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@whatsapp_bp.route('/manual-templates/<int:template_id>', methods=['PATCH'])
+@csrf.exempt
+@require_api_auth
+def update_manual_template(template_id: int):
+    """Update a WhatsApp manual template"""
+    try:
+        business_id = get_current_business_id_wa()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        data = request.get_json() or {}
+        
+        from sqlalchemy import text as sa_text
+        
+        # Check template exists
+        existing = db.session.execute(
+            sa_text("SELECT id FROM whatsapp_manual_templates WHERE id = :id AND business_id = :business_id"),
+            {"id": template_id, "business_id": business_id}
+        ).fetchone()
+        
+        if not existing:
+            return jsonify({'ok': False, 'error': 'Template not found'}), 404
+        
+        # Allowlist of updatable fields
+        ALLOWED_FIELDS = {'name', 'message_text', 'is_active'}
+        
+        updates = []
+        params = {"id": template_id, "business_id": business_id}
+        
+        for field in ALLOWED_FIELDS:
+            if field in data:
+                if field == 'is_active':
+                    updates.append(f"{field} = :{field}")
+                    params[field] = bool(data[field])
+                else:
+                    updates.append(f"{field} = :{field}")
+                    params[field] = str(data[field]).strip()
+        
+        if not updates:
+            return jsonify({'ok': False, 'error': 'No fields to update'}), 400
+        
+        updates.append("updated_at = NOW()")
+        
+        db.session.execute(
+            sa_text(f"""
+                UPDATE whatsapp_manual_templates
+                SET {', '.join(updates)}
+                WHERE id = :id AND business_id = :business_id
+            """),
+            params
+        )
+        db.session.commit()
+        
+        log.info(f"[WA_MANUAL_TEMPLATES] Updated template: id={template_id}, business_id={business_id}")
+        
+        return jsonify({'ok': True, 'message': 'Template updated successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        log.exception("[WA_MANUAL_TEMPLATES] Failed to update template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@whatsapp_bp.route('/manual-templates/<int:template_id>', methods=['DELETE'])
+@csrf.exempt
+@require_api_auth
+def delete_manual_template(template_id: int):
+    """Delete (soft-delete) a WhatsApp manual template"""
+    try:
+        business_id = get_current_business_id_wa()
+        if not business_id:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        from sqlalchemy import text as sa_text
+        
+        result = db.session.execute(
+            sa_text("""
+                UPDATE whatsapp_manual_templates
+                SET is_active = FALSE, updated_at = NOW()
+                WHERE id = :id AND business_id = :business_id
+                RETURNING id
+            """),
+            {"id": template_id, "business_id": business_id}
+        )
+        row = result.fetchone()
+        db.session.commit()
+        
+        if not row:
+            return jsonify({'ok': False, 'error': 'Template not found'}), 404
+        
+        log.info(f"[WA_MANUAL_TEMPLATES] Deleted template: id={template_id}, business_id={business_id}")
+        
+        return jsonify({'ok': True, 'message': 'Template deleted successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        log.exception("[WA_MANUAL_TEMPLATES] Failed to delete template")
+        return jsonify({'ok': False, 'error': str(e)}), 500
