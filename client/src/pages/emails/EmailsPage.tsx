@@ -2245,6 +2245,38 @@ export function EmailsPage() {
                     <span className="text-xl sm:text-2xl">📝</span>
                     <span>תוכן המייל *</span>
                   </label>
+                  
+                  {/* 🔥 NEW: Text Template Quick Select */}
+                  {textTemplates.length > 0 && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
+                      <label className="block text-xs font-medium text-green-800 mb-1.5 flex items-center gap-1">
+                        <FileText className="w-3.5 h-3.5" />
+                        טען מתבנית טקסט
+                      </label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const template = textTemplates.find(t => t.id === parseInt(e.target.value));
+                          if (template) {
+                            setThemeFields(prev => ({
+                              ...prev,
+                              subject: template.subject_line || prev.subject,
+                              body: template.body_text
+                            }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-green-300 rounded-lg bg-white text-sm focus:ring-2 focus:ring-green-200 focus:border-green-500"
+                      >
+                        <option value="">-- בחר תבנית טקסט לטעינה --</option>
+                        {textTemplates.map(template => (
+                          <option key={template.id} value={template.id}>
+                            {template.name} {template.category ? `(${template.category === 'quote' ? 'הצעת מחיר' : template.category === 'greeting' ? 'ברכה' : template.category === 'pricing' ? 'מחירים' : 'כללי'})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  
                   <textarea
                     value={themeFields.body}
                     onChange={(e) => setThemeFields({...themeFields, body: e.target.value})}
@@ -2603,6 +2635,38 @@ export function EmailsPage() {
                     <span className="text-xl sm:text-2xl">📝</span>
                     <span>תוכן המייל (משותף) *</span>
                   </label>
+                  
+                  {/* 🔥 NEW: Text Template Quick Select for Bulk */}
+                  {textTemplates.length > 0 && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
+                      <label className="block text-xs font-medium text-green-800 mb-1.5 flex items-center gap-1">
+                        <FileText className="w-3.5 h-3.5" />
+                        טען מתבנית טקסט
+                      </label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const template = textTemplates.find(t => t.id === parseInt(e.target.value));
+                          if (template) {
+                            setThemeFields(prev => ({
+                              ...prev,
+                              subject: template.subject_line || prev.subject,
+                              body: template.body_text
+                            }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-green-300 rounded-lg bg-white text-sm focus:ring-2 focus:ring-green-200 focus:border-green-500"
+                      >
+                        <option value="">-- בחר תבנית טקסט לטעינה --</option>
+                        {textTemplates.map(template => (
+                          <option key={template.id} value={template.id}>
+                            {template.name} {template.category ? `(${template.category === 'quote' ? 'הצעת מחיר' : template.category === 'greeting' ? 'ברכה' : template.category === 'pricing' ? 'מחירים' : 'כללי'})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  
                   <textarea
                     value={themeFields.body}
                     onChange={(e) => setThemeFields({...themeFields, body: e.target.value})}
