@@ -352,25 +352,17 @@ export function CalendarPage() {
       
       const method = editingAppointment ? 'PUT' : 'POST';
       
-      // ✅ FIX: Properly convert local datetime to UTC
-      // The datetime-local input provides local time which we convert to UTC
-      let start_time_utc = formData.start_time;
-      let end_time_utc = formData.end_time;
-      
-      if (formData.start_time) {
-        const localDate = new Date(formData.start_time);
-        start_time_utc = localDate.toISOString(); // Converts to UTC
-      }
-      
-      if (formData.end_time) {
-        const localDate = new Date(formData.end_time);
-        end_time_utc = localDate.toISOString(); // Converts to UTC
-      }
+      // 🔥 FIX: Send local Israel time without timezone conversion
+      // The datetime-local input already has local time in YYYY-MM-DDTHH:MM format
+      // The server expects naive datetime (local Israel time) without timezone suffix
+      // Don't use toISOString() as it converts to UTC
+      const start_time_local = formData.start_time ? `${formData.start_time}:00` : formData.start_time;
+      const end_time_local = formData.end_time ? `${formData.end_time}:00` : formData.end_time;
       
       const dataToSend = {
         ...formData,
-        start_time: start_time_utc,
-        end_time: end_time_utc
+        start_time: start_time_local,
+        end_time: end_time_local
       };
       
       // Get CSRF token from cookie
@@ -446,11 +438,24 @@ export function CalendarPage() {
   const openEditAppointmentModal = (appointment: Appointment) => {
     setEditingAppointment(appointment);
     
-    // Convert ISO datetime to local datetime-local format (handling timezone properly)
+    // 🔥 FIX: Convert ISO datetime to local datetime-local format WITHOUT timezone conversion
+    // The server sends Israel time with timezone (e.g., "2024-01-15T14:00:00+02:00")
+    // We need to extract the time parts directly without JavaScript converting timezones
     const formatDatetimeLocal = (isoString: string) => {
       if (!isoString) return '';
+      
+      // Remove timezone info and milliseconds, parse date/time directly
+      const dateTimePart = isoString.split('+')[0].split('Z')[0].split('.')[0];
+      
+      // If in ISO format with 'T', extract parts directly
+      if (dateTimePart.includes('T')) {
+        const [datePart, timePart] = dateTimePart.split('T');
+        const [hours, minutes] = timePart.split(':');
+        return `${datePart}T${hours}:${minutes}`;
+      }
+      
+      // Fallback: use Date object (will convert to browser local time)
       const date = new Date(isoString);
-      // Get local datetime in YYYY-MM-DDTHH:MM format
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
