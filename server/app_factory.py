@@ -527,12 +527,30 @@ def create_app():
         # are now registered EARLIER in a separate try-except block (before line 356)
         # This ensures they load even if other blueprints fail
         
+        # ⚡ CRITICAL: Register Twilio and Calendar blueprints (MUST succeed for calls to work)
+        # If these fail to register, app CRASHES (fail-fast) instead of running without call handling
+        try:
+            from server.routes_twilio import twilio_bp
+            app.register_blueprint(twilio_bp)
+            app.logger.info("✅ Twilio blueprint registered (call webhooks active)")
+        except Exception as e:
+            app.logger.error(f"❌ [BOOT][FATAL] Failed to import/register Twilio blueprint: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"Critical blueprint 'routes_twilio' failed to register: {e}")
+        
+        try:
+            from server.routes_calendar import calendar_bp
+            app.register_blueprint(calendar_bp)
+            app.logger.info("✅ Calendar blueprint registered")
+        except Exception as e:
+            app.logger.error(f"❌ [BOOT][FATAL] Failed to import/register Calendar blueprint: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"Critical blueprint 'routes_calendar' failed to register: {e}")
+        
         # Register additional API blueprints
-        from server.routes_twilio import twilio_bp
-        from server.routes_calendar import calendar_bp
         from server.routes_user_management import user_mgmt_api
-        app.register_blueprint(twilio_bp)
-        app.register_blueprint(calendar_bp)
         app.register_blueprint(user_mgmt_api)
         
         # Calls API for recordings and transcripts

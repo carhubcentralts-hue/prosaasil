@@ -452,6 +452,11 @@ def incoming_call():
         twilio_direction = request.form.get("Direction")  # 🔥 FIX: No default - None if missing
         parent_call_sid = request.form.get("ParentCallSid")  # 🔥 NEW: Capture parent call SID
     
+    # 🔥 TRACE LOGGING: Log all incoming calls immediately
+    x_twilio_signature = request.headers.get('X-Twilio-Signature', '')
+    logger.info(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} from={from_number} to={to_number} direction={twilio_direction} signature_present={bool(x_twilio_signature)}")
+    print(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} from={from_number} to={to_number}")
+    
     # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
     from server.models_sql import Business
     from sqlalchemy import or_
@@ -696,6 +701,11 @@ def outbound_call():
     
     from_number = request.form.get("From", "") or request.args.get("From", "")
     to_number = request.form.get("To", "") or request.args.get("To", "")
+    
+    # 🔥 TRACE LOGGING: Log all outbound calls immediately
+    x_twilio_signature = request.headers.get('X-Twilio-Signature', '')
+    logger.info(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} from={from_number} to={to_number} lead_id={lead_id} business_id={business_id} signature_present={bool(x_twilio_signature)}")
+    print(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} from={from_number} to={to_number}")
     
     logger.info(f"📞 OUTBOUND_CALL webhook: call_sid={call_sid}, lead={lead_name}, template={template_id}")
     

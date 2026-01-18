@@ -8,6 +8,7 @@ from server.models_sql import Appointment, Business, Customer, Deal, CallLog, Wh
 from server.routes_admin import require_api_auth  # Standardized import per guidelines
 from server.routes_crm import get_business_id
 from server.services.notifications.dispatcher import notify_user
+from server.security.permissions import require_page_access  # Page access decorator
 import json
 from sqlalchemy import and_, or_, desc, asc
 import pytz
