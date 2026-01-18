@@ -329,9 +329,9 @@ def get_contract(contract_id):
                     'id': cf.id,
                     'purpose': cf.purpose,
                     'attachment_id': cf.attachment_id,
-                    'filename': attachment.filename,
+                    'filename': attachment.filename_original,
                     'mime_type': attachment.mime_type,
-                    'size_bytes': attachment.size_bytes,
+                    'size_bytes': attachment.file_size,
                     'created_at': cf.created_at.isoformat(),
                     'created_by': cf.created_by
                 })
@@ -401,17 +401,36 @@ def upload_contract_file(contract_id):
         if not is_valid:
             return jsonify({'error': error_msg}), 400
         
-        # Upload via attachment service (creates Attachment record + uploads to R2)
-        attachment_id = attachment_service.upload_file(
-            file=file,
+        # Get file metadata
+        filename = secure_filename(file.filename)
+        mime_type = file.content_type or 'application/octet-stream'
+        
+        # Get file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        # Create attachment record first
+        attachment = Attachment(
             business_id=business_id,
-            user_id=user_id,
-            channel='email',
-            purpose='contract'  # Tag as contract-related
+            uploaded_by=user_id,
+            filename_original=filename,
+            mime_type=mime_type,
+            file_size=file_size,
+            storage_path='',
+            metadata={}
         )
         
-        if not attachment_id:
-            return jsonify({'error': 'Failed to upload file'}), 500
+        db.session.add(attachment)
+        db.session.flush()
+        
+        # Save file via attachment service
+        storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+        attachment.storage_path = storage_key
+        
+        db.session.commit()
+        
+        attachment_id = attachment.id
         
         # Create contract_file link
         contract_file = ContractFile(
@@ -434,7 +453,7 @@ def upload_contract_file(contract_id):
             business_id=business_id,
             event_type='file_uploaded',
             metadata={
-                'filename': attachment.filename if attachment else 'unknown',
+                'filename': attachment.filename_original if attachment else 'unknown',
                 'purpose': purpose,
                 'attachment_id': attachment_id
             },
@@ -447,9 +466,9 @@ def upload_contract_file(contract_id):
             'id': contract_file.id,
             'purpose': purpose,
             'attachment_id': attachment_id,
-            'filename': attachment.filename if attachment else None,
+            'filename': attachment.filename_original if attachment else None,
             'mime_type': attachment.mime_type if attachment else None,
-            'size_bytes': attachment.size_bytes if attachment else None,
+            'size_bytes': attachment.file_size if attachment else None,
             'created_at': contract_file.created_at.isoformat()
         }), 201
         
@@ -496,10 +515,10 @@ def download_contract_file(contract_id, file_id):
         attachment_service = get_attachment_service()
         ttl_seconds = int(os.getenv('SIGNED_URL_TTL_SECONDS', 900))
         
-        signed_url = attachment_service.generate_download_url(
-            attachment_id=attachment.id,
-            business_id=business_id,
-            ttl_seconds=ttl_seconds
+        signed_url = attachment_service.generate_signed_url(
+            attachment.id,
+            attachment.storage_path,
+            ttl_minutes=ttl_seconds // 60
         )
         
         if not signed_url:
@@ -512,7 +531,7 @@ def download_contract_file(contract_id, file_id):
             event_type='file_downloaded',
             metadata={
                 'file_id': file_id,
-                'filename': attachment.filename
+                'filename': attachment.filename_original
             },
             user_id=user_id
         )
@@ -520,7 +539,7 @@ def download_contract_file(contract_id, file_id):
         return jsonify({
             'url': signed_url,
             'expires_in': ttl_seconds,
-            'filename': attachment.filename
+            'filename': attachment.filename_original
         }), 200
         
     except Exception as e:
@@ -566,7 +585,328 @@ def get_contract_events(contract_id):
         return jsonify({'error': 'Failed to get events'}), 500
 
 
-# TODO: Implement signing flow
-# @contracts_bp.route('/<int:contract_id>/send_for_signature', methods=['POST'])
-# @contracts_bp.route('/sign/<token>', methods=['GET'])  # Public, no auth
-# @contracts_bp.route('/sign/<token>/complete', methods=['POST'])  # Public, no auth
+@contracts_bp.route('/<int:contract_id>/send_for_signature', methods=['POST'])
+@require_api_auth
+@require_page_access('contracts')
+def send_for_signature(contract_id):
+    """
+    Send contract for signature - generates signing token
+    
+    Validates:
+        - Contract status is 'draft'
+        - At least one file with purpose='original' exists
+    
+    Creates:
+        - ContractSignToken (hashed, 24h expiration)
+        - Updates contract status to 'sent'
+        - Logs audit event
+    
+    Returns:
+        - sign_url: Public URL for signing (contains token)
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        if contract.status != 'draft':
+            return jsonify({'error': f'Contract must be in draft status (current: {contract.status})'}), 400
+        
+        original_file = ContractFile.query.filter_by(
+            contract_id=contract_id,
+            business_id=business_id,
+            purpose='original'
+        ).filter(ContractFile.deleted_at.is_(None)).first()
+        
+        if not original_file:
+            return jsonify({'error': 'Contract must have at least one original file'}), 400
+        
+        token_plain, token_hash = generate_signing_token(
+            contract_id=contract_id,
+            business_id=business_id,
+            ttl_hours=24
+        )
+        
+        contract.status = 'sent'
+        contract.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='sent_for_signature',
+            metadata={'signer_name': contract.signer_name, 'signer_email': contract.signer_email},
+            user_id=user_id
+        )
+        
+        base_url = os.getenv('FRONTEND_URL', 'http://localhost:5000')
+        sign_url = f"{base_url}/contracts/sign/{token_plain}"
+        
+        logger.info(f"[CONTRACT_SEND] contract_id={contract_id} status=sent sign_url_generated=yes")
+        
+        return jsonify({
+            'sign_url': sign_url,
+            'expires_in_hours': 24,
+            'status': 'sent'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_SEND] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to send contract for signature'}), 500
+
+
+@contracts_bp.route('/sign/<token>', methods=['GET'])
+def get_signing_page(token):
+    """
+    PUBLIC endpoint - Get contract details for signing (NO auth required)
+    
+    Verifies:
+        - Token exists, not expired, not used
+    
+    Returns:
+        - Contract details
+        - File URL (presigned)
+        - Signer info
+    
+    Logs:
+        - 'viewed' audit event
+    """
+    try:
+        token_data = verify_signing_token(token)
+        if not token_data:
+            return jsonify({'error': 'Invalid, expired, or already used token'}), 403
+        
+        contract_id = token_data['contract_id']
+        business_id = token_data['business_id']
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        contract_files = ContractFile.query.filter_by(
+            contract_id=contract_id,
+            business_id=business_id,
+            purpose='original'
+        ).filter(ContractFile.deleted_at.is_(None)).order_by(ContractFile.created_at.desc()).all()
+        
+        files_data = []
+        attachment_service = get_attachment_service()
+        
+        for cf in contract_files:
+            attachment = Attachment.query.get(cf.attachment_id)
+            if attachment:
+                ttl_seconds = int(os.getenv('SIGNED_URL_TTL_SECONDS', 900))
+                signed_url = attachment_service.generate_signed_url(
+                    attachment.id,
+                    attachment.storage_path,
+                    ttl_minutes=ttl_seconds // 60
+                )
+                
+                files_data.append({
+                    'id': cf.id,
+                    'filename': attachment.filename_original,
+                    'mime_type': attachment.mime_type,
+                    'size_bytes': attachment.file_size,
+                    'download_url': signed_url
+                })
+        
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='viewed',
+            metadata={'token_used': token[:10] + '...'},
+            user_id=None
+        )
+        
+        return jsonify({
+            'id': contract.id,
+            'title': contract.title,
+            'signer_name': contract.signer_name,
+            'signer_phone': contract.signer_phone,
+            'signer_email': contract.signer_email,
+            'status': contract.status,
+            'files': files_data
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_SIGN_VIEW] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to load contract'}), 500
+
+
+@contracts_bp.route('/sign/<token>/complete', methods=['POST'])
+def complete_signing(token):
+    """
+    PUBLIC endpoint - Complete contract signing (NO auth required)
+    
+    Verifies:
+        - Token valid
+    
+    Accepts:
+        - Signed file upload (multipart/form-data)
+    
+    Creates:
+        - Attachment record
+        - ContractFile with purpose='signed'
+    
+    Updates:
+        - Contract status → 'signed'
+        - Contract signed_at timestamp
+        - Token used_at timestamp
+    
+    Logs:
+        - 'signed_completed' audit event
+    """
+    try:
+        token_data = verify_signing_token(token)
+        if not token_data:
+            return jsonify({'error': 'Invalid, expired, or already used token'}), 403
+        
+        contract_id = token_data['contract_id']
+        business_id = token_data['business_id']
+        token_id = token_data['token_id']
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'Signed file required'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        attachment_service = get_attachment_service()
+        
+        is_valid, error_msg = attachment_service.validate_file(file, channel='email')
+        if not is_valid:
+            return jsonify({'error': error_msg}), 400
+        
+        # Get file metadata
+        filename = secure_filename(file.filename)
+        mime_type = file.content_type or 'application/octet-stream'
+        
+        # Get file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        # Create attachment record
+        attachment = Attachment(
+            business_id=business_id,
+            uploaded_by=None,
+            filename_original=filename,
+            mime_type=mime_type,
+            file_size=file_size,
+            storage_path='',
+            metadata={}
+        )
+        
+        db.session.add(attachment)
+        db.session.flush()
+        
+        # Save file
+        storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+        attachment.storage_path = storage_key
+        
+        db.session.commit()
+        
+        attachment_id = attachment.id
+        
+        contract_file = ContractFile(
+            business_id=business_id,
+            contract_id=contract_id,
+            attachment_id=attachment_id,
+            purpose='signed',
+            created_by=None
+        )
+        
+        db.session.add(contract_file)
+        
+        contract.status = 'signed'
+        contract.signed_at = datetime.utcnow()
+        contract.updated_at = datetime.utcnow()
+        
+        sign_token = ContractSignToken.query.get(token_id)
+        if sign_token:
+            sign_token.used_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        attachment = Attachment.query.get(attachment_id)
+        
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='signed_completed',
+            metadata={
+                'filename': attachment.filename_original if attachment else 'unknown',
+                'signer_name': contract.signer_name
+            },
+            user_id=None
+        )
+        
+        logger.info(f"[CONTRACT_SIGN_COMPLETE] contract_id={contract_id} status=signed")
+        
+        return jsonify({
+            'message': 'Contract signed successfully',
+            'contract_id': contract_id,
+            'status': 'signed',
+            'signed_at': contract.signed_at.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_SIGN_COMPLETE] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to complete signing'}), 500
+
+
+@contracts_bp.route('/<int:contract_id>/cancel', methods=['POST'])
+@require_api_auth
+@require_page_access('contracts')
+def cancel_contract(contract_id):
+    """Cancel contract - updates status to 'cancelled'"""
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        if contract.status == 'cancelled':
+            return jsonify({'error': 'Contract already cancelled'}), 400
+        
+        contract.status = 'cancelled'
+        contract.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='cancelled',
+            metadata={'previous_status': contract.status},
+            user_id=user_id
+        )
+        
+        logger.info(f"[CONTRACT_CANCEL] contract_id={contract_id} status=cancelled")
+        
+        return jsonify({
+            'message': 'Contract cancelled successfully',
+            'status': 'cancelled'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_CANCEL] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to cancel contract'}), 500
