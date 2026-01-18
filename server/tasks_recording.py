@@ -1268,25 +1268,46 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
 
 ⏱️ {call_log.duration or 0} שניות"""
                             
-                            # Create the note
-                            call_note = LeadNote()
-                            call_note.lead_id = lead.id
-                            call_note.tenant_id = call_log.business_id
-                            call_note.note_type = 'call_summary'
-                            call_note.content = note_content
-                            call_note.call_id = call_log.id
-                            call_note.structured_data = {
-                                'call_duration': call_log.duration,
-                                'call_direction': call_log.direction,
-                                'call_sid': call_sid,
-                                'intent': conversation_summary.get('intent') if conversation_summary else None,
-                                'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
-                                'next_action': conversation_summary.get('next_action') if conversation_summary else None
-                            }
-                            call_note.created_at = dt.utcnow()
+                            # 🔥 FIX: Check if temporary note exists from media_ws_ai.py and UPDATE it
+                            # instead of creating a duplicate (which would fail due to unique constraint)
+                            existing_note = LeadNote.query.filter_by(
+                                lead_id=lead.id,
+                                call_id=call_log.id,
+                                note_type='call_summary'
+                            ).first()
                             
-                            db.session.add(call_note)
-                            log.info(f"[CustomerService] 🎧 Auto-saved customer-service optimized call summary to lead {lead.id} notes")
+                            if existing_note:
+                                # Update existing temporary note with proper AI summary
+                                existing_note.content = note_content
+                                existing_note.structured_data = {
+                                    'call_duration': call_log.duration,
+                                    'call_direction': call_log.direction,
+                                    'call_sid': call_sid,
+                                    'intent': conversation_summary.get('intent') if conversation_summary else None,
+                                    'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
+                                    'next_action': conversation_summary.get('next_action') if conversation_summary else None
+                                }
+                                log.info(f"[CustomerService] 🔄 Updated existing call summary note for lead {lead.id} with AI-generated summary")
+                            else:
+                                # Create new note if none exists
+                                call_note = LeadNote()
+                                call_note.lead_id = lead.id
+                                call_note.tenant_id = call_log.business_id
+                                call_note.note_type = 'call_summary'
+                                call_note.content = note_content
+                                call_note.call_id = call_log.id
+                                call_note.structured_data = {
+                                    'call_duration': call_log.duration,
+                                    'call_direction': call_log.direction,
+                                    'call_sid': call_sid,
+                                    'intent': conversation_summary.get('intent') if conversation_summary else None,
+                                    'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
+                                    'next_action': conversation_summary.get('next_action') if conversation_summary else None
+                                }
+                                call_note.created_at = dt.utcnow()
+                                
+                                db.session.add(call_note)
+                                log.info(f"[CustomerService] 🎧 Created new customer-service optimized call summary for lead {lead.id}")
                     except Exception as cs_err:
                         log.warning(f"[CustomerService] ⚠️ Failed to auto-save call summary: {cs_err}")
                         # Non-critical - continue with other processing
