@@ -6,7 +6,7 @@ Handles contract generation and signature collection
 from agents import function_tool
 
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional
 from datetime import datetime
 import logging
 
@@ -46,7 +46,7 @@ def contracts_generate_and_send(
     validity_date: str = "",
     lead_id: Optional[int] = None,
     appointment_id: Optional[int] = None
-) -> Dict[str, Any]:
+) -> ContractGenerateOutput:
     """
     🔥 BUILD 200: Generate a contract from template and send for digital signature
     GENERIC for any business type - no hardcoded service types!
@@ -63,7 +63,7 @@ def contracts_generate_and_send(
         appointment_id: Related appointment ID (optional)
         
     Returns:
-        Dict with ok, contract_id, sign_url, reason
+        ContractGenerateOutput with ok, contract_id, sign_url, reason
     """
     try:
         logger.info(f"📝 Generating contract template_id={template_id}, business_id={business_id}")
@@ -117,19 +117,19 @@ def contracts_generate_and_send(
         
         template = templates.get(template_id)
         if not template:
-            return {
-                "ok": False,
-                "reason": f"תבנית {template_id} לא נמצאה"
-            }
+            return ContractGenerateOutput(
+                ok=False,
+                reason=f"תבנית {template_id} לא נמצאה"
+            )
         
         # Fill template with variables
         try:
             contract_content = template["content"].format(**variables)
         except KeyError as e:
-            return {
-                "ok": False,
-                "reason": f"חסר משתנה נדרש: {str(e)}"
-            }
+            return ContractGenerateOutput(
+                ok=False,
+                reason=f"חסר משתנה נדרש: {str(e)}"
+            )
         
         # 🔥 FIX: Create or find Customer (not Lead!)
         # Contract.customer_id points to Customer table, not Lead table!
@@ -194,17 +194,17 @@ def contracts_generate_and_send(
         logger.info(f"✅ Contract created: ID={contract.id}, template={template_id}")
         logger.info(f"   Signature URL: {sign_url}")
         
-        return {
-            "ok": True,
-            "contract_id": contract.id,
-            "sign_url": sign_url
-        }
+        return ContractGenerateOutput(
+            ok=True,
+            contract_id=contract.id,
+            sign_url=sign_url
+        )
         
     except Exception as e:
         logger.error(f"❌ Error generating contract: {e}")
         from server.models_sql import db
         db.session.rollback()
-        return {
-            "ok": False,
-            "reason": str(e)[:160]
-        }
+        return ContractGenerateOutput(
+            ok=False,
+            reason=str(e)[:160]
+        )

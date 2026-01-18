@@ -46,7 +46,7 @@ def summarize_thread(
     source: str,
     source_id: str,
     max_words: int = 120
-) -> dict:
+) -> SummaryOutput:
     """
     Generate a structured summary of a conversation for CRM notes
     
@@ -57,7 +57,7 @@ def summarize_thread(
         max_words: Maximum words in summary (default 120)
         
     Returns:
-        Dict with ok, key_intent, chosen_treatment, preferred_time, next_step, sentiment, bullets, summary_text
+        SummaryOutput with ok, key_intent, chosen_treatment, preferred_time, next_step, sentiment, bullets, summary_text
     """
     try:
         logger.info(f"📊 Summarizing {source} ID={source_id}, business_id={business_id}")
@@ -71,10 +71,10 @@ def summarize_thread(
         if source == "call":
             call_log = CallLog.query.filter_by(call_sid=source_id, business_id=business_id).first()
             if not call_log:
-                return {
-                    "ok": False,
-                    "reason": "שיחה לא נמצאה"
-                }
+                return SummaryOutput(
+                    ok=False,
+                    reason="שיחה לא נמצאה"
+                )
             conversation_text = call_log.transcription or ""
             
         elif source == "whatsapp":
@@ -85,10 +85,10 @@ def summarize_thread(
             ).order_by(WhatsAppMessage.created_at).all()
             
             if not messages:
-                return {
-                    "ok": False,
-                    "reason": "שיחת WhatsApp לא נמצאה"
-                }
+                return SummaryOutput(
+                    ok=False,
+                    reason="שיחת WhatsApp לא נמצאה"
+                )
             
             # Build conversation
             conversation_text = "\n".join([
@@ -97,33 +97,39 @@ def summarize_thread(
             ])
         
         else:
-            return {
-                "ok": False,
-                "reason": f"סוג מקור לא נתמך: {source}"
-            }
+            return SummaryOutput(
+                ok=False,
+                reason=f"סוג מקור לא נתמך: {source}"
+            )
         
         if not conversation_text or len(conversation_text) < 10:
-            return {
-                "ok": False,
-                "reason": "אין מספיק תוכן לסיכום"
-            }
+            return SummaryOutput(
+                ok=False,
+                reason="אין מספיק תוכן לסיכום"
+            )
         
         # Generate structured summary using OpenAI
         summary = _generate_structured_summary(conversation_text, max_words)
         
         logger.info(f"✅ Summary generated: intent={summary.get('key_intent')}, treatment={summary.get('chosen_treatment')}")
         
-        return {
-            "ok": True,
-            **summary
-        }
+        return SummaryOutput(
+            ok=True,
+            key_intent=summary.get('key_intent'),
+            chosen_treatment=summary.get('chosen_treatment'),
+            preferred_time=summary.get('preferred_time'),
+            next_step=summary.get('next_step'),
+            sentiment=summary.get('sentiment'),
+            bullets=summary.get('bullets', []),
+            summary_text=summary.get('summary_text')
+        )
         
     except Exception as e:
         logger.error(f"❌ Error summarizing conversation: {e}")
-        return {
-            "ok": False,
-            "reason": str(e)[:160]
-        }
+        return SummaryOutput(
+            ok=False,
+            reason=str(e)[:160]
+        )
 
 def _generate_structured_summary(conversation_text: str, max_words: int = 120) -> dict:
     """

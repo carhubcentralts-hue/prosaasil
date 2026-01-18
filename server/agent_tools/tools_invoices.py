@@ -6,7 +6,7 @@ Handles invoice creation, payment links, and billing operations
 from agents import function_tool
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Literal, Dict, Any
+from typing import Optional, List, Literal
 from datetime import datetime
 import logging
 
@@ -31,7 +31,7 @@ class InvoiceCreateInput(BaseModel):
     customer_phone: Optional[str] = Field(None, description="Customer phone (optional)")
     currency: Literal["ILS", "USD"] = Field("ILS", description="Currency code")
     vat_rate: float = Field(0.17, description="VAT rate (0.17 for Israel)", ge=0, le=1)
-    items: List[Dict[str, Any]] = Field(..., description="Invoice items as list of dicts with description, quantity, unit_price")
+    items: List[InvoiceItem] = Field(..., description="Invoice items as list of items with description, quantity, unit_price")
     issue_status: Literal["draft", "final"] = Field("final", description="Draft or final invoice")
     send_channel: Optional[Literal["whatsapp", "sms", "email"]] = Field(None, description="Send via this channel")
 
@@ -73,7 +73,7 @@ def invoices_create(
     appointment_id: Optional[int] = None,
     customer_phone: Optional[str] = None,
     send_channel: Optional[str] = None
-) -> Dict[str, Any]:
+) -> InvoiceCreateOutput:
     """
     Create a single-line invoice and optionally generate payment link
     
@@ -192,27 +192,27 @@ def invoices_create(
             logger.info(f"📱 Sending invoice via {send_channel} to {customer_phone}")
             # notify_service.send_invoice(send_channel, customer_phone, invoice.id, payment_link)
         
-        return {
-            "ok": True,
-            "invoice_id": invoice.id,
-            "payment_link": payment_link,
-            "total_amount": total_amount
-        }
+        return InvoiceCreateOutput(
+            ok=True,
+            invoice_id=invoice.id,
+            payment_link=payment_link,
+            total_amount=total_amount
+        )
         
     except Exception as e:
         logger.error(f"❌ Error creating invoice: {e}")
         from server.models_sql import db
         db.session.rollback()
-        return {
-            "ok": False,
-            "reason": str(e)[:160]
-        }
+        return InvoiceCreateOutput(
+            ok=False,
+            reason=str(e)[:160]
+        )
 
 @function_tool
 def payments_link(
     business_id: int,
     invoice_id: int
-) -> Dict[str, Any]:
+) -> PaymentLinkOutput:
     """
     Generate or retrieve payment link for an existing invoice
     
@@ -221,7 +221,7 @@ def payments_link(
         invoice_id: Invoice ID to generate payment link for
         
     Returns:
-        Dict with ok, payment_link, invoice_id, reason
+        PaymentLinkOutput with ok, payment_link, invoice_id, reason
     """
     try:
         logger.info(f"💳 Generating payment link for invoice_id={invoice_id}, business_id={business_id}")
@@ -231,10 +231,10 @@ def payments_link(
         # Find invoice
         invoice = Invoice.query.filter_by(id=invoice_id, business_id=business_id).first()
         if not invoice:
-            return {
-                "ok": False,
-                "reason": "חשבונית לא נמצאה"
-            }
+            return PaymentLinkOutput(
+                ok=False,
+                reason="חשבונית לא נמצאה"
+            )
         
         # Generate payment link (placeholder - integrate with actual payment provider)
         payment_link = f"https://pay.example.com/invoice/{invoice.id}"
@@ -244,15 +244,15 @@ def payments_link(
         
         logger.info(f"✅ Payment link generated: {payment_link}")
         
-        return {
-            "ok": True,
-            "payment_link": payment_link,
-            "invoice_id": invoice.id
-        }
+        return PaymentLinkOutput(
+            ok=True,
+            payment_link=payment_link,
+            invoice_id=invoice.id
+        )
         
     except Exception as e:
         logger.error(f"❌ Error generating payment link: {e}")
-        return {
-            "ok": False,
-            "reason": str(e)[:160]
-        }
+        return PaymentLinkOutput(
+            ok=False,
+            reason=str(e)[:160]
+        )
