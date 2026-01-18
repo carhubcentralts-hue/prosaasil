@@ -2318,6 +2318,9 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
     // Define metadata emoji prefixes used in the format
     const METADATA_EMOJIS = ['🎯', '📋', '😊', '😟', '⏱️', '📞'];
     
+    // 🔥 FIX: Also exclude "תמלול:" lines (transcript snippets from old summaries)
+    const TRANSCRIPT_PREFIX = 'תמלול:';
+    
     // Split into lines and process
     const lines = content.split('\n');
     const summaryLines: string[] = [];
@@ -2335,6 +2338,13 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       
       // If we're in a summary block, continue adding lines until we hit another emoji prefix
       if (inSummaryBlock) {
+        // 🔥 FIX: Skip lines starting with "תמלול:" (transcript snippets)
+        // but continue processing remaining lines (don't break the loop)
+        if (trimmed.startsWith(TRANSCRIPT_PREFIX)) {
+          // Skip this line but continue to next line - there might be more summary content
+          continue;
+        }
+        
         // Check if this line starts with a metadata emoji
         const startsWithMetadataEmoji = METADATA_EMOJIS.some(emoji => trimmed.startsWith(emoji));
         
