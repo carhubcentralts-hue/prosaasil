@@ -1216,103 +1216,102 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # 🎧 CRM Context-Aware Support: Auto-save call summary to lead notes
                 # This happens AUTOMATICALLY after EACH call (inbound OR outbound)
                 # 🔥 FIX: ALWAYS update/create call summary to replace temporary transcription from media_ws_ai.py
-                if True:  # Always try to update/create call summary note
-                    try:
-                        from server.models_sql import BusinessSettings, LeadNote
-                        from datetime import datetime as dt
-                        
-                        # 🔥 NEW: Create a customer-service optimized summary
-                        # This summary is specifically for the NOTES and should be:
-                        # 1. Short and concise (for AI to read quickly)
-                        # 2. Focused on key customer info, needs, and next steps
-                        # 3. Different from the call_log.summary (which is for display)
-                        
-                        # Build customer-service focused note content
-                        cs_summary_parts = []
-                        
-                        # Add the main summary (already concise from summarize_conversation)
-                        if summary:
-                            cs_summary_parts.append(f"💬 {summary}")
+                try:
+                    from server.models_sql import LeadNote
+                    from datetime import datetime as dt
+                    
+                    # 🔥 NEW: Create a customer-service optimized summary
+                    # This summary is specifically for the NOTES and should be:
+                    # 1. Short and concise (for AI to read quickly)
+                    # 2. Focused on key customer info, needs, and next steps
+                    # 3. Different from the call_log.summary (which is for display)
+                    
+                    # Build customer-service focused note content
+                    cs_summary_parts = []
+                    
+                    # Add the main summary (already concise from summarize_conversation)
+                    if summary:
+                        cs_summary_parts.append(f"💬 {summary}")
+                    else:
+                        # 🔥 FIX: If no summary generated, add a placeholder instead of showing transcription
+                        if call_log.duration and call_log.duration < 5:
+                            cs_summary_parts.append(f"💬 שיחה קצרה מאוד - לא נענתה או נותקה מיד")
                         else:
-                            # 🔥 FIX: If no summary generated, add a placeholder instead of showing transcription
-                            if call_log.duration and call_log.duration < 5:
-                                cs_summary_parts.append(f"💬 שיחה קצרה מאוד - לא נענתה או נותקה מיד")
-                            else:
-                                cs_summary_parts.append(f"💬 סיכום לא זמין - שיחה של {call_log.duration or 0} שניות")
+                            cs_summary_parts.append(f"💬 סיכום לא זמין - שיחה של {call_log.duration or 0} שניות")
+                    
+                    # Add structured insights if available from conversation analysis
+                    if conversation_summary:
+                        if conversation_summary.get('intent'):
+                            intent_he = {
+                                'meeting_request': '🎯 רוצה לקבוע פגישה',
+                                'interested': '✅ מעוניין',
+                                'not_interested': '❌ לא מעוניין',
+                                'information_request': 'ℹ️ ביקש מידע',
+                                'general_inquiry': '❓ שאלה כללית'
+                            }.get(conversation_summary.get('intent'), '')
+                            if intent_he:
+                                cs_summary_parts.append(intent_he)
                         
-                        # Add structured insights if available from conversation analysis
-                        if conversation_summary:
-                            if conversation_summary.get('intent'):
-                                intent_he = {
-                                    'meeting_request': '🎯 רוצה לקבוע פגישה',
-                                    'interested': '✅ מעוניין',
-                                    'not_interested': '❌ לא מעוניין',
-                                    'information_request': 'ℹ️ ביקש מידע',
-                                    'general_inquiry': '❓ שאלה כללית'
-                                }.get(conversation_summary.get('intent'), '')
-                                if intent_he:
-                                    cs_summary_parts.append(intent_he)
-                            
-                            # Add next action suggestion
-                            if conversation_summary.get('next_action'):
-                                cs_summary_parts.append(f"📋 המשך: {conversation_summary.get('next_action')}")
-                            
-                            # Add sentiment if not neutral
-                            sentiment = conversation_summary.get('sentiment', 'neutral')
-                            if sentiment != 'neutral':
-                                sentiment_emoji = '😊' if sentiment == 'positive' else '😟'
-                                cs_summary_parts.append(f"{sentiment_emoji} סנטימנט: {sentiment}")
+                        # Add next action suggestion
+                        if conversation_summary.get('next_action'):
+                            cs_summary_parts.append(f"📋 המשך: {conversation_summary.get('next_action')}")
                         
-                        # Build final note content - SHORT and ACTIONABLE for AI
-                        note_content = f"""📞 סיכום לשירות לקוחות - {dt.now().strftime('%d/%m/%Y %H:%M')}
+                        # Add sentiment if not neutral
+                        sentiment = conversation_summary.get('sentiment', 'neutral')
+                        if sentiment != 'neutral':
+                            sentiment_emoji = '😊' if sentiment == 'positive' else '😟'
+                            cs_summary_parts.append(f"{sentiment_emoji} סנטימנט: {sentiment}")
+                    
+                    # Build final note content - SHORT and ACTIONABLE for AI
+                    note_content = f"""📞 סיכום לשירות לקוחות - {dt.now().strftime('%d/%m/%Y %H:%M')}
 
 {chr(10).join(cs_summary_parts)}
 
 ⏱️ {call_log.duration or 0} שניות"""
+                    
+                    # 🔥 FIX: Check if temporary note exists from media_ws_ai.py and UPDATE it
+                    # instead of creating a duplicate (which would fail due to unique constraint)
+                    existing_note = LeadNote.query.filter_by(
+                        lead_id=lead.id,
+                        call_id=call_log.id,
+                        note_type='call_summary'
+                    ).first()
+                    
+                    if existing_note:
+                        # Update existing temporary note with proper AI summary
+                        existing_note.content = note_content
+                        existing_note.structured_data = {
+                            'call_duration': call_log.duration,
+                            'call_direction': call_log.direction,
+                            'call_sid': call_sid,
+                            'intent': conversation_summary.get('intent') if conversation_summary else None,
+                            'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
+                            'next_action': conversation_summary.get('next_action') if conversation_summary else None
+                        }
+                        log.info(f"[CustomerService] 🔄 Updated existing call summary note for lead {lead.id} with AI-generated summary")
+                    else:
+                        # Create new note if none exists
+                        call_note = LeadNote()
+                        call_note.lead_id = lead.id
+                        call_note.tenant_id = call_log.business_id
+                        call_note.note_type = 'call_summary'
+                        call_note.content = note_content
+                        call_note.call_id = call_log.id
+                        call_note.structured_data = {
+                            'call_duration': call_log.duration,
+                            'call_direction': call_log.direction,
+                            'call_sid': call_sid,
+                            'intent': conversation_summary.get('intent') if conversation_summary else None,
+                            'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
+                            'next_action': conversation_summary.get('next_action') if conversation_summary else None
+                        }
+                        call_note.created_at = dt.utcnow()
                         
-                        # 🔥 FIX: Check if temporary note exists from media_ws_ai.py and UPDATE it
-                        # instead of creating a duplicate (which would fail due to unique constraint)
-                        existing_note = LeadNote.query.filter_by(
-                            lead_id=lead.id,
-                            call_id=call_log.id,
-                            note_type='call_summary'
-                        ).first()
-                        
-                        if existing_note:
-                            # Update existing temporary note with proper AI summary
-                            existing_note.content = note_content
-                            existing_note.structured_data = {
-                                'call_duration': call_log.duration,
-                                'call_direction': call_log.direction,
-                                'call_sid': call_sid,
-                                'intent': conversation_summary.get('intent') if conversation_summary else None,
-                                'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
-                                'next_action': conversation_summary.get('next_action') if conversation_summary else None
-                            }
-                            log.info(f"[CustomerService] 🔄 Updated existing call summary note for lead {lead.id} with AI-generated summary")
-                        else:
-                            # Create new note if none exists
-                            call_note = LeadNote()
-                            call_note.lead_id = lead.id
-                            call_note.tenant_id = call_log.business_id
-                            call_note.note_type = 'call_summary'
-                            call_note.content = note_content
-                            call_note.call_id = call_log.id
-                            call_note.structured_data = {
-                                'call_duration': call_log.duration,
-                                'call_direction': call_log.direction,
-                                'call_sid': call_sid,
-                                'intent': conversation_summary.get('intent') if conversation_summary else None,
-                                'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
-                                'next_action': conversation_summary.get('next_action') if conversation_summary else None
-                            }
-                            call_note.created_at = dt.utcnow()
-                            
-                            db.session.add(call_note)
-                            log.info(f"[CustomerService] 🎧 Created new customer-service optimized call summary for lead {lead.id}")
-                    except Exception as cs_err:
-                        log.warning(f"[CustomerService] ⚠️ Failed to auto-save call summary: {cs_err}")
-                        # Non-critical - continue with other processing
+                        db.session.add(call_note)
+                        log.info(f"[CustomerService] 🎧 Created new customer-service optimized call summary for lead {lead.id}")
+                except Exception as cs_err:
+                    log.warning(f"[CustomerService] ⚠️ Failed to auto-save call summary: {cs_err}")
+                    # Non-critical - continue with other processing
                 
                 # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש
                 # Get call direction from call_log
