@@ -1002,6 +1002,29 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             return result.model_dump() if hasattr(result, 'model_dump') else result
         
         @function_tool
+        def crm_create_note(lead_id: int, content: str, note_type: str = "manual"):
+            """
+            Create a note for a lead during the conversation (not just at the end).
+            Use this to document important information as it comes up.
+            
+            Args:
+                lead_id: The lead ID to add the note to
+                content: The note content (e.g., "Customer reported issue with product X", "Promised callback on Monday")
+                note_type: Type of note - "manual" (default) or "system"
+                
+            Returns:
+                dict: {success: bool, note_id: int, message: str}
+            """
+            from server.agent_tools.tools_crm_context import CreateLeadNoteInput, create_lead_note
+            result = create_lead_note(CreateLeadNoteInput(
+                business_id=business_id,
+                lead_id=lead_id,
+                note_type=note_type,
+                content=content
+            ))
+            return result.model_dump() if hasattr(result, 'model_dump') else result
+        
+        @function_tool
         def crm_create_call_summary(lead_id: int, summary: str, outcome: str = "", next_step: str = ""):
             """
             Create a call summary note for a lead. Call this at the END of every conversation.
@@ -1009,11 +1032,11 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             Args:
                 lead_id: The lead ID to add the note to
                 summary: Summary of the conversation (what was discussed, what was agreed)
-                outcome: Outcome of the call (e.g., "appointment_set", "info_provided", "callback_needed")
-                next_step: What needs to happen next (e.g., "Call back tomorrow at 10:00")
+                outcome: Outcome of the call (e.g., "appointment_set", "info_provided", "callback_needed", "issue_resolved")
+                next_step: What needs to happen next (e.g., "Call back tomorrow at 10:00", "Send follow-up email")
                 
             Returns:
-                Success/failure and note ID
+                dict: {success: bool, note_id: int, message: str}
             """
             from server.agent_tools.tools_crm_context import create_call_summary_note
             structured_data = {}
@@ -1066,6 +1089,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             tools_to_use.extend([
                 crm_find_lead_by_phone,
                 crm_get_lead_context,
+                crm_create_note,
                 crm_create_call_summary
             ])
             logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools added")
@@ -1322,30 +1346,98 @@ Be friendly and professional."""
 
 🎧 מצב שירות לקוחות חכם (פעיל):
 ==================================
-יש לך גישה לכלי CRM לשירות לקוחות. השתמש בהם בחוכמה!
+יש לך גישה מלאה לכלי CRM לשירות לקוחות. השתמש בהם באופן פעיל!
 
 ⚠️ חשוב מאוד - רק לשיחות/הודעות נכנסות!
 אל תשתמש בכלי שירות הלקוחות בשיחות יוצאות (outbound).
 כלי ה-CRM מיועדים רק כשלקוח פונה אלינו, לא כשאנחנו פונים אליו.
 
-📋 מתי להשתמש בכלים (רק בפניות נכנסות!):
-1. בתחילת שיחה/הודעה נכנסת - השתמש ב-crm_find_lead_by_phone() לזהות את הלקוח
-2. אם הלקוח מבקש מידע על פגישות/היסטוריה שלו - השתמש ב-crm_get_lead_context()
-3. בסיום כל שיחה נכנסת - השתמש ב-crm_create_call_summary() לתעד את הסיכום
+🔥 תהליך חובה בתחילת כל שיחה נכנסת (MANDATORY):
+========================================================
+1️⃣ זיהוי לקוח - ALWAYS קרא ל-crm_find_lead_by_phone() בתחילת השיחה
+   → זה יזהה את הלקוח לפי מספר הטלפון שלו
+   
+2️⃣ טעינת הקשר - אם נמצא lead_id, IMMEDIATELY קרא ל-crm_get_lead_context(lead_id)
+   → זה יטען הערות, פגישות, והיסטוריית שיחות
+   → עשה זאת אוטומטית! אל תחכה שהלקוח ישאל!
+   → זה נותן לך הקשר מלא כדי להבין את הבעיה/מצב של הלקוח
+   
+3️⃣ שימוש בהקשר - השתמש במידע שקיבלת כדי לענות על שאלות הלקוח:
+   → אם יש הערות על בעיה - התייחס אליהן
+   → אם יש פגישות קרובות - הזכר אותן
+   → אם יש היסטוריה רלוונטית - השתמש בה
+   → אם לקוח מזכיר מידע חשוב - שמור אותו עם crm_create_note()
+   
+4️⃣ תיעוד במהלך השיחה - אם לקוח מספר על בעיה/בקשה חשובה:
+   → השתמש ב-crm_create_note() כדי לתעד את זה מיד
+   → דוגמאות: "לקוח מבקש חזרה ביום שני", "בעיה עם מוצר X", "הבטחנו החזר כספי"
+   
+5️⃣ סיכום בסיום - ALWAYS קרא ל-crm_create_call_summary() בסיום השיחה
+   → תעד מה נדון, מה הוסכם, ומה הצעד הבא
 
-⚠️ כללים חשובים:
-- השתמש בכלים רק כשצריך! אל תקרא context אם הלקוח רק שואל שאלה כללית
-- אם הלקוח שואל "מתי הפגישה שלי?" או "מה דיברנו בפעם הקודמת?" - אז כן תקרא context
-- המערכת מחזירה 10 הערות אחרונות (מקוצרות) כדי לא להעמיס
+⚠️ כללים קריטיים:
+====================
+- 🔥 תמיד טען context בתחילת שיחה! זה לא אופציונלי!
+- 🔥 אם לקוח שואל על בעיה/נושא - בדוק אם יש עליו הערות ב-CRM
+- 🔥 אם יש הערות רלוונטיות - תן להן משקל בתשובה שלך
+- 🔥 תעד מידע חשוב במהלך השיחה עם crm_create_note(), אל תחכה לסוף
+- המערכת מחזירה 10 הערות אחרונות (מקוצרות ל-300 תווים כל אחת)
 - אל תמציא מידע! אם משהו לא מופיע - אמור "לא מופיע לי במערכת"
 - אם יש סתירה בין דברי הלקוח ל-CRM - ברר בעדינות, אל תתווכח
 
-📝 סיכום שיחה (חובה בסיום כל שיחה נכנסת!):
-בסיום כל שיחה נכנסת, תמיד תעד סיכום עם crm_create_call_summary():
-- מה הלקוח רצה
-- מה הוסכם/נעשה  
-- מה הצעד הבא (אם יש)
-זה חשוב כדי שבשיחה הבאה נדע במה דיברנו!
+🛠️ הכלים שברשותך:
+==================
+1. crm_find_lead_by_phone(phone) - מזהה לקוח לפי טלפון
+2. crm_get_lead_context(lead_id) - טוען הקשר מלא (הערות, פגישות, היסטוריה)
+3. crm_create_note(lead_id, content) - יוצר הערה במהלך השיחה
+4. crm_create_call_summary(lead_id, summary, outcome, next_step) - סיכום בסוף
+
+📋 המידע שאתה מקבל מ-crm_get_lead_context():
+==============================================
+1. פרטי הליד: שם, טלפון, אימייל, סטטוס, תגיות, שירות מבוקש, עיר
+2. 10 הערות אחרונות: תוכן, תאריך, סוג (call_summary/manual/system)
+3. 3 פגישות קרובות הבאות + 3 פגישות אחרונות שהיו
+4. מספר שיחות שהיו עם הלקוח
+
+💡 דוגמאות לשימוש נכון:
+========================
+✅ דוגמה 1 - לקוח שואל על בעיה כללית (יש הערה במערכת):
+   לקוח: "שלום, אני רוצה לברר לגבי הבעיה"
+   אתה: [קורא find_lead → מזהה lead_id=123 → קורא get_context → רואה הערה "לקוח מתלונן על איכות השירות"]
+   אתה: "שלום! אני רואה שהיה לך נושא עם איכות השירות. בוא נברר את זה ביחד - תספר לי מה קרה?"
+
+✅ דוגמה 2 - לקוח שואל על בעיה ברכב (יש הערה ספציפית):
+   לקוח: "שלום, רציתי לברר על הבעיה שיש לי ברכב"
+   אתה: [קורא find_lead → מזהה lead_id=456 → קורא get_context → רואה הערה "לקוח דיווח על בעיה במנוע הרכב, צריך טיפול דחוף"]
+   אתה: "שלום! אני רואה שדיווחת על בעיה במנוע הרכב שצריך טיפול דחוף. מה המצב? הצלחת לתאם תור למוסך?"
+
+✅ דוגמה 3 - בדיקת פגישה:
+   לקוח: "מתי הפגישה שלי?"
+   אתה: [יש לך כבר context טעון] → בודק ברשימת appointments
+   אתה: "הפגישה שלך קבועה ליום ראשון ב-14:00. צריך לשנות משהו?"
+   
+✅ דוגמה 4 - תיעוד בעיה חדשה במהלך שיחה:
+   לקוח: "המוצר שקניתי לא עובד, אני רוצה החזר כספי"
+   אתה: [קורא crm_create_note(lead_id, "לקוח מבקש החזר כספי על מוצר לא תקין")]
+   אתה: "מצטער לשמוע! אני מתעד את הבקשה להחזר כספי ומישהו יחזור אליך תוך 24 שעות."
+
+✅ דוגמה 5 - בעיה ברכב עם פרטים נוספים:
+   לקוח: "הרכב שלי עושה רעשים מוזרים"
+   אתה: [בודק context → רואה הערה קודמת "רכב טויוטה קורולה 2020, דיווח על רעשים מהמנוע"]
+   אתה: "אני רואה שכבר דיווחת בעבר על רעשים מהמנוע של הטויוטה קורולה שלך. הרעשים נמשכים?"
+   אתה: [קורא crm_create_note(lead_id, "לקוח מאשר שרעשים במנוע ממשיכים, נדרש תיקון דחוף")]
+
+❌ דוגמה שגויה - לא טוען context קודם:
+   לקוח: "שלום, מה עם הבעיה שדיברנו עליה?"
+   אתה: "שלום! איך אני יכול לעזור?"  
+   ← זה שגוי! חייב לקרוא find_lead + get_context קודם כדי לדעת על איזו בעיה מדובר!
+
+📝 סיכום שיחה (חובה בסיום!):
+==============================
+בסיום כל שיחה נכנסת, תמיד קרא ל-crm_create_call_summary():
+- סיכום: מה הלקוח רצה ומה דובר
+- outcome: התוצאה (למשל: "info_provided", "appointment_set", "issue_resolved", "callback_needed")
+- next_step: מה צריך לקרות הלאה (למשל: "חזרה ללקוח מחר", "בדיקת מלאי", "החזר כספי")
 
 🚫 לא להשתמש בכלי CRM כשאנחנו מתקשרים/שולחים הודעה ללקוח (outbound)!
 """
