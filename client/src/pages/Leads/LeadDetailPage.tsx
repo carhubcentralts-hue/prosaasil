@@ -2294,9 +2294,12 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       setLoading(true);
       const response = await http.get<{ success: boolean; notes: LeadNoteItem[] }>(`/api/leads/${lead.id}/notes`);
       if (response.success) {
-        // Filter to show only call_summary and system notes (AI-generated)
+        // Show call_summary, system notes, AND manual notes without attachments (for AI context)
+        // This allows businesses to add context notes that the AI will read during customer service calls
         const aiNotes = response.notes.filter(note => 
-          note.note_type === 'call_summary' || note.note_type === 'system'
+          note.note_type === 'call_summary' || 
+          note.note_type === 'system' ||
+          (note.note_type === 'manual' && (!note.attachments || note.attachments.length === 0))
         );
         setNotes(aiNotes);
       }
@@ -2370,23 +2373,29 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
 
   return (
     <Card className="p-4 sm:p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
-          <Phone className="w-5 h-5 text-blue-600" />
-          שירות לקוחות AI
-        </h3>
-        <div className="text-xs text-gray-500">
-          סיכומי שיחות אוטומטיים לשירות לקוחות
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+            <Phone className="w-5 h-5 text-blue-600" />
+            שירות לקוחות AI
+          </h3>
         </div>
+        <p className="text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
+          💡 <strong>הערות כאן גלויות ל-AI</strong> - סיכומי שיחות אוטומטיים + הערות שלך שה-AI ידע עליהן (ללא קבצים)
+        </p>
       </div>
 
       {/* New note input - Text only, no file uploads */}
-      <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+      <div className="mb-6 p-4 bg-gradient-to-br from-blue-50 to-green-50 rounded-lg border-2 border-blue-300">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm font-bold text-blue-900">✍️ הוסף הערה לשירות לקוחות</span>
+          <span className="text-xs text-blue-700 bg-blue-100 px-2 py-0.5 rounded">AI יראה את זה</span>
+        </div>
         <textarea
           value={newNoteContent}
           onChange={(e) => setNewNoteContent(e.target.value)}
-          placeholder="הוסף הערת שירות לקוחות (טקסט בלבד)..."
-          className="w-full h-24 p-3 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y text-right bg-white"
+          placeholder="לדוגמה: לקוח מעדיף פגישות בבוקר, VIP - טיפול מיוחד, אלרגיה לחתולים..."
+          className="w-full h-24 p-3 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y text-right bg-white"
           dir="rtl"
           data-testid="textarea-new-ai-note"
         />
@@ -2429,11 +2438,12 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
           {notes.map((note) => {
             const isCallSummary = note.note_type === 'call_summary';
             const isSystemNote = note.note_type === 'system';
+            const isManualNote = note.note_type === 'manual' || !note.note_type;
             const noteClasses = isCallSummary 
-              ? "p-4 bg-blue-50 border border-blue-200 rounded-lg" 
+              ? "p-4 bg-blue-50 border-2 border-blue-200 rounded-lg" 
               : isSystemNote 
-                ? "p-4 bg-gray-100 border border-gray-300 rounded-lg"
-                : "p-4 bg-white border border-gray-200 rounded-lg";
+                ? "p-4 bg-gray-100 border-2 border-gray-300 rounded-lg"
+                : "p-4 bg-green-50 border-2 border-green-300 rounded-lg";  // Manual notes in green
             
             return (
             <div 
@@ -2456,6 +2466,11 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
               {isSystemNote && (
                 <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-300">
                   <span className="text-xs font-medium text-gray-600 bg-gray-200 px-2 py-0.5 rounded">הערת מערכת</span>
+                </div>
+              )}
+              {isManualNote && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-green-300">
+                  <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">📝 הערה ידנית (גלויה ל-AI)</span>
                 </div>
               )}
               
@@ -2482,22 +2497,30 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => startEditing(note)}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                        title="ערוך"
-                        data-testid={`button-edit-ai-note-${note.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteNote(note.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="מחק"
-                        data-testid={`button-delete-ai-note-${note.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Only allow editing/deleting manual notes */}
+                      {isManualNote && (
+                        <>
+                          <button
+                            onClick={() => startEditing(note)}
+                            className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                            title="ערוך"
+                            data-testid={`button-edit-ai-note-${note.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteNote(note.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="מחק"
+                            data-testid={`button-delete-ai-note-${note.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                      {!isManualNote && (
+                        <span className="text-xs text-gray-400 italic">לא ניתן לערוך הערות AI</span>
+                      )}
                     </div>
                     <span className="text-xs text-gray-400">
                       {note.created_at ? formatDate(note.created_at) : ''}
