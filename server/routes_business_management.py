@@ -756,7 +756,9 @@ def get_current_business():
             "business_context": getattr(settings, 'business_context', None) if settings else None,
             # 🔥 BUILD 309: SIMPLE_MODE settings
             "call_goal": getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only',
-            "confirm_before_hangup": getattr(settings, 'confirm_before_hangup', True) if settings else True
+            "confirm_before_hangup": getattr(settings, 'confirm_before_hangup', True) if settings else True,
+            # CRM Context-Aware Support: Customer service mode toggle
+            "enable_customer_service": getattr(settings, 'enable_customer_service', False) if settings else False
         })
         
     except Exception as e:
@@ -929,6 +931,10 @@ def update_current_business_settings():
                 settings.call_goal = 'lead_only'  # Default fallback
         if 'confirm_before_hangup' in data:
             settings.confirm_before_hangup = bool(data['confirm_before_hangup'])
+        
+        # CRM Context-Aware Support: Customer service mode toggle
+        if 'enable_customer_service' in data:
+            settings.enable_customer_service = bool(data['enable_customer_service'])
             
         # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
         al_user = session.get('al_user') or {}

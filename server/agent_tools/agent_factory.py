@@ -21,6 +21,9 @@ from server.agent_tools.tools_whatsapp import whatsapp_send
 from server.agent_tools.tools_invoices import invoices_create, payments_link
 from server.agent_tools.tools_contracts import contracts_generate_and_send
 from server.agent_tools.tools_summarize import summarize_thread
+from server.agent_tools.tools_crm_context import (
+    find_lead_by_phone, get_lead_context, create_lead_note, update_lead_fields
+)
 import logging
 
 logger = logging.getLogger(__name__)
