@@ -31,7 +31,9 @@ export function RoleGuard({ roles, children }: RoleGuardProps) {
 
   // Check if user has required role (considering impersonation)
   if (!user || !effectiveRole || !roles.includes(effectiveRole)) {
-    // Redirect to appropriate home page based on actual role
+    // ✅ NEW: Redirect quietly to appropriate home page instead of showing forbidden
+    // System admin (not impersonating) goes to admin dashboard
+    // Business users or impersonating admin go to business dashboard
     const homeRoute = user?.role === 'system_admin' && !impersonating
       ? '/app/admin/overview'
       : '/app/business/overview';
