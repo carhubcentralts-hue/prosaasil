@@ -2685,12 +2685,12 @@ def apply_migrations():
                 checkpoint(f"  → Setting default pages for existing businesses: {len(DEFAULT_ENABLED_PAGES)} pages")
                 
                 # Update only rows that don't have pages set yet (NULL or empty array)
-                # Use COALESCE to handle NULL values and check array length
+                # 🔥 FIX: Use JSONB cast and proper comparison to avoid "operator does not exist: json = json" error
                 result = db.session.execute(text("""
                     UPDATE business 
                     SET enabled_pages = :pages
                     WHERE enabled_pages IS NULL 
-                       OR enabled_pages = '[]'::json
+                       OR CAST(enabled_pages AS TEXT) = '[]'
                        OR json_array_length(CAST(enabled_pages AS json)) = 0
                 """), {"pages": default_pages_json})
                 
