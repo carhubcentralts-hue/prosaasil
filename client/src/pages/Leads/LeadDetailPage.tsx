@@ -2645,7 +2645,10 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                     </span>
                   </div>
                   <p className="mt-2 text-gray-700 whitespace-pre-wrap text-right" dir="rtl">
-                    {isCallSummary ? extractCleanSummary(note.content) : note.content}
+                    {/* 🆕 CRITICAL: Show FULL content for call summaries, not filtered
+                        Per user requirement: Display the complete dynamic summary from call history
+                        in the AI Customer Service tab, including all conversation details */}
+                    {note.content}
                   </p>
                 </>
               )}

@@ -1233,15 +1233,19 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     
                     # 🔥 NEW: Create a customer-service optimized summary
                     # This summary is specifically for the NOTES and should be:
-                    # 1. Short and concise (for AI to read quickly)
+                    # 1. Complete and detailed (include FULL summary from call_log.summary)
                     # 2. Focused on key customer info, needs, and next steps
-                    # 3. Different from the call_log.summary (which is for display)
+                    # 3. Include all conversation context for AI customer service
+                    # 🆕 CRITICAL: Show FULL summary, not just first line - per user requirement
                     
                     # Build customer-service focused note content
                     cs_summary_parts = []
                     
-                    # Add the main summary (already concise from summarize_conversation)
+                    # Add the FULL summary (not just first line!)
+                    # 🆕 FIX: Use the COMPLETE summary that appears in call history
                     if summary:
+                        # 🔥 CRITICAL: Include the ENTIRE summary, not just metadata
+                        # The summary contains all the important details about the conversation
                         cs_summary_parts.append(f"💬 {summary}")
                     else:
                         # 🔥 FIX: If no summary generated, add a placeholder instead of showing transcription
