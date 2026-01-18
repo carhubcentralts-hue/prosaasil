@@ -127,7 +127,7 @@ def log_contract_event(
             business_id=business_id,
             contract_id=contract_id,
             event_type=event_type,
-            metadata=metadata or {},
+            event_metadata=metadata or {},
             created_by=user_id
         )
         db.session.add(event)
@@ -602,7 +602,7 @@ def get_contract_events(contract_id):
             events_data.append({
                 'id': event.id,
                 'event_type': event.event_type,
-                'metadata': event.metadata,
+                'metadata': event.event_metadata,
                 'created_at': event.created_at.isoformat(),
                 'created_by': event.created_by
             })

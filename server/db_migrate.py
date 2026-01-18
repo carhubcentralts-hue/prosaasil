@@ -3111,6 +3111,34 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ contract_files table already exists - skipping")
         
+        # Migration 78: Rename metadata to event_metadata in contract_sign_events (SQLAlchemy reserved word fix)
+        if check_table_exists('contract_sign_events') and check_column_exists('contract_sign_events', 'metadata'):
+            checkpoint("🔧 Running Migration 78: Rename metadata to event_metadata in contract_sign_events")
+            
+            try:
+                # Rename the column from metadata to event_metadata
+                db.session.execute(text("""
+                    ALTER TABLE contract_sign_events 
+                    RENAME COLUMN metadata TO event_metadata
+                """))
+                
+                migrations_applied.append('rename_contract_sign_events_metadata')
+                checkpoint("✅ Migration 78 completed - Renamed metadata to event_metadata in contract_sign_events")
+                checkpoint("  📋 Reason: 'metadata' is a reserved attribute in SQLAlchemy Declarative API")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 78 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            if check_table_exists('contract_sign_events'):
+                if check_column_exists('contract_sign_events', 'event_metadata'):
+                    checkpoint("  ℹ️ event_metadata column already exists - skipping")
+                else:
+                    checkpoint("  ℹ️ metadata column not found (may have been migrated already) - skipping")
+            else:
+                checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

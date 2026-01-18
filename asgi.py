@@ -44,22 +44,45 @@ flask_app = None
 flask_app_lock = threading.Lock()
 
 def get_flask_app():
-    """Lazy Flask app creation - only when needed (thread-safe singleton)"""
+    """
+    Lazy Flask app creation - only when needed (thread-safe singleton)
+    
+    🔥 FIX: Proper double-check locking pattern to prevent multiple app creations
+    This prevents "Business table already defined" errors
+    """
     global flask_app
-    if flask_app is None:
-        with flask_app_lock:
-            if flask_app is None:  # Double-check pattern
-                from server.app_factory import create_app
-                flask_app = create_app()
-    return flask_app
+    
+    # First check without lock (fast path)
+    if flask_app is not None:
+        return flask_app
+    
+    # Acquire lock for app creation
+    with flask_app_lock:
+        # Double-check after acquiring lock (prevents race condition)
+        if flask_app is None:
+            log.info("Creating Flask app (first time)...")
+            from server.app_factory import create_app
+            flask_app = create_app()
+            log.info("Flask app created successfully")
+        return flask_app
 
 # Background warmup
 def _warmup_flask():
+    """
+    Warm up Flask app in background
+    
+    🔥 FIX: Uses get_flask_app() which is now thread-safe
+    Will not create multiple app instances
+    """
     import time
     time.sleep(0.5)
-    _ = get_flask_app()
+    try:
+        _ = get_flask_app()
+        log.info("Flask app warmup complete")
+    except Exception as e:
+        log.error(f"Flask app warmup failed: {e}")
 
-warmup_thread = threading.Thread(target=_warmup_flask, daemon=True)
+warmup_thread = threading.Thread(target=_warmup_flask, daemon=True, name="FlaskWarmup")
 warmup_thread.start()
 
 async def ws_http_probe(request: Request):
