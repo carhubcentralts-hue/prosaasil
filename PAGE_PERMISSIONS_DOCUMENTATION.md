@@ -209,16 +209,6 @@ import { BusinessPagesManager } from '@/features/businesses/components/BusinessP
 4. יכול לחפש דפים, לבחור הכל, או לנקות הכל
 5. לוחץ "שמור שינויים" - הנתונים נשמרים ישירות
 6. השינויים משתקפים מיד במערכת
-import { BusinessPagesManager } from '@/features/businesses/components/BusinessPagesManager';
-
-<BusinessPagesManager 
-  businessId={businessId}
-  businessName={businessName}
-  onSave={() => {
-    // Refresh data
-  }}
-/>
-```
 
 ## Role Hierarchy
 
