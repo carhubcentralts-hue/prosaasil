@@ -41,6 +41,10 @@ _enqueue_lock = threading.Lock()
 # Cooldown period in seconds - don't enqueue same call_sid more than once per minute
 ENQUEUE_COOLDOWN_SECONDS = 60
 
+# 🔥 AI Customer Service: Minimum call duration (in seconds) to generate full summary
+# Calls shorter than this get a simple "not answered" message instead of attempting full summary
+MIN_CALL_DURATION_FOR_SUMMARY = 5
+
 
 def normalize_call_direction(twilio_direction):
     """
@@ -1234,7 +1238,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         cs_summary_parts.append(f"💬 {summary}")
                     else:
                         # 🔥 FIX: If no summary generated, add a placeholder instead of showing transcription
-                        if call_log.duration and call_log.duration < 5:
+                        if call_log.duration and call_log.duration < MIN_CALL_DURATION_FOR_SUMMARY:
                             cs_summary_parts.append(f"💬 שיחה קצרה מאוד - לא נענתה או נותקה מיד")
                         else:
                             cs_summary_parts.append(f"💬 סיכום לא זמין - שיחה של {call_log.duration or 0} שניות")
@@ -1271,11 +1275,12 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     
                     # 🔥 FIX: Check if temporary note exists from media_ws_ai.py and UPDATE it
                     # instead of creating a duplicate (which would fail due to unique constraint)
+                    # Order by created_at desc to get the most recent note if multiple exist
                     existing_note = LeadNote.query.filter_by(
                         lead_id=lead.id,
                         call_id=call_log.id,
                         note_type='call_summary'
-                    ).first()
+                    ).order_by(LeadNote.created_at.desc()).first()
                     
                     if existing_note:
                         # Update existing temporary note with proper AI summary
