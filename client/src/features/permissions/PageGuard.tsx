@@ -31,7 +31,12 @@ export function PageGuard({ pageKey, children, fallback }: PageGuardProps) {
     if (fallback) {
       return <>{fallback}</>;
     }
-    return <Navigate to="/app/forbidden" replace />;
+    // ✅ NEW: Redirect to home instead of showing forbidden page
+    // System admin goes to admin dashboard, business users to business dashboard
+    const homeRoute = context.user.role === 'system_admin' 
+      ? '/app/admin/overview' 
+      : '/app/business/overview';
+    return <Navigate to={homeRoute} replace />;
   }
 
   return <>{children}</>;

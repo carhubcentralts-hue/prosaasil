@@ -30,61 +30,78 @@ import { useNotifications } from '../../shared/contexts/NotificationContext';
 import { ImpersonationBanner } from '../../features/businesses/components/ImpersonationBanner';
 import { SearchModal } from '../../shared/components/ui/SearchModal';
 import { cn } from '../../shared/utils/cn';
+import { useUserContext } from '../../features/permissions/useUserContext';
 
 const menuItems = [
   { 
     icon: LayoutDashboard, 
     label: 'סקירה כללית', 
     to: '/app/admin/overview', 
-    roles: ['system_admin', 'owner', 'admin'] 
+    roles: ['system_admin', 'owner', 'admin'],
+    pageKey: 'admin_dashboard'  // System admin only
+  },
+  { 
+    icon: LayoutDashboard, 
+    label: 'סקירה כללית', 
+    to: '/app/business/overview', 
+    roles: ['owner', 'admin', 'agent'],
+    pageKey: 'dashboard'  // Business dashboard
   },
   { 
     icon: Users, 
     label: 'לידים',
     to: '/app/leads',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'crm_leads'
   },
   { 
     icon: MessageCircle, 
     label: 'WhatsApp',
     to: '/app/whatsapp',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'whatsapp_inbox'
   },
   { 
     icon: Send, 
     label: 'תפוצה WhatsApp',
     to: '/app/whatsapp-broadcast',
-    roles: ['system_admin', 'owner', 'admin']
+    roles: ['system_admin', 'owner', 'admin'],
+    pageKey: 'whatsapp_broadcast'
   },
   { 
     icon: Phone, 
     label: 'שיחות נכנסות',
     to: '/app/calls',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'calls_inbound'
   },
   { 
     icon: PhoneOutgoing, 
     label: 'שיחות יוצאות',
     to: '/app/outbound-calls',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'calls_outbound'
   },
   { 
     icon: Building2, 
     label: 'משימות',
     to: '/app/crm',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'crm_customers'
   },
   { 
     icon: Mail, 
     label: 'מיילים',
     to: '/app/emails',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'emails'
   },
   { 
     icon: BarChart3, 
     label: 'סטטיסטיקות',
     to: '/app/statistics',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'statistics'
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
   // { 
@@ -97,31 +114,37 @@ const menuItems = [
     icon: UserCog, 
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
-    roles: ['system_admin']  // ✅ BUILD 134: רק system_admin רואה רשימת כל העסקים
+    roles: ['system_admin'],  // ✅ BUILD 134: רק system_admin רואה רשימת כל העסקים
+    pageKey: 'admin_businesses'
   },
   { 
     icon: Clock, 
     label: 'ניהול דקות', 
     to: '/app/admin/business-minutes',
-    roles: ['system_admin']  // ✅ BUILD 180: רק system_admin רואה דקות שיחה לפי עסק
+    roles: ['system_admin'],  // ✅ BUILD 180: רק system_admin רואה דקות שיחה לפי עסק
+    pageKey: 'admin_business_minutes'
   },
   // ✅ AI Prompts moved to System Settings → AI tab (BUILD 130)
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
     to: '/app/users',
-    roles: ['system_admin', 'owner', 'admin']  // ✅ BUILD 134: owner/admin מנהלים משתמשים של העסק שלהם
+    roles: ['system_admin', 'owner', 'admin'],  // ✅ BUILD 134: owner/admin מנהלים משתמשים של העסק שלהם
+    pageKey: 'users'
   },
   { 
     icon: Settings, 
     label: 'הגדרות מערכת',
     to: '/app/settings',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'settings'
   },
   { 
     icon: Calendar, 
     label: 'לוח שנה',
-    to: '/app/calendar'
+    to: '/app/calendar',
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'calendar'
   },
 ];
 
@@ -193,6 +216,7 @@ export function MainLayout() {
   
   const { user, tenant, logout } = useAuth();
   const { isImpersonating } = useImpersonation(); // Use server-side impersonation state
+  const { context, loading: contextLoading, canAccessPage } = useUserContext(); // Get user context with permissions
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -205,7 +229,7 @@ export function MainLayout() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
-  // Filter menu items based on user role and impersonation state
+  // Filter menu items based on user role, enabled_pages, and impersonation state
   const filteredMenuItems = menuItems.filter(item => {
     // Check role permissions first
     if (item.roles && (!user || !item.roles.includes(user.role))) {
@@ -215,6 +239,15 @@ export function MainLayout() {
     // Hide "Business Management" during impersonation - only show business-specific items
     if (isImpersonating && item.label === 'ניהול עסקים') {
       return false;
+    }
+    
+    // ✅ NEW: Check enabled_pages permission
+    // If the item has a pageKey and context is loaded, check if user has access
+    if (item.pageKey && context) {
+      // Use canAccessPage to check both enabled_pages and role requirements
+      if (!canAccessPage(item.pageKey)) {
+        return false;
+      }
     }
     
     return true;
@@ -409,34 +442,44 @@ export function MainLayout() {
 
         {/* Navigation - scrollable with safe area padding */}
         <nav className="flex-1 py-6 overflow-y-auto min-h-0 pb-safe">
-          <div className="space-y-1">
-            {filteredMenuItems.map((item, index) => {
-              const isActive = !!(item.to && location.pathname === item.to);
-              return (
-                <SidebarItem
-                  key={index}
-                  icon={<item.icon className="h-5 w-5" />}
-                  label={item.label}
-                  to={item.to}
-                  active={isActive}
-                  onClick={() => {
-                    if (item.to) {
-                      navigate(item.to);
-                      // Always close sidebar after navigation (mobile AND desktop)
-                      setTimeout(() => setSidebarOpen(false), 100);
-                    }
+          {contextLoading ? (
+            // Loading skeleton while context loads
+            <div className="space-y-1 px-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {filteredMenuItems.map((item, index) => {
+                const isActive = !!(item.to && location.pathname === item.to);
+                return (
+                  <SidebarItem
+                    key={index}
+                    icon={<item.icon className="h-5 w-5" />}
+                    label={item.label}
+                    to={item.to}
+                    active={isActive}
+                    onClick={() => {
+                      if (item.to) {
+                        navigate(item.to);
+                        // Always close sidebar after navigation (mobile AND desktop)
+                        setTimeout(() => setSidebarOpen(false), 100);
+                      }
                   }}
                   navigate={navigate}
                 />
               );
             })}
           </div>
+          )}
           
           {/* Logout in navigation - more visible, with extra bottom padding for mobile */}
-          <div className="px-2 mt-4 pb-20 md:pb-4">
-            <button
-              className="w-full flex items-center px-4 py-3 text-red-600 rounded-xl hover:bg-red-50 transition-all duration-200 font-medium border border-red-200"
-              onClick={() => {
+          {!contextLoading && (
+            <div className="px-2 mt-4 pb-20 md:pb-4">
+              <button
+                className="w-full flex items-center px-4 py-3 text-red-600 rounded-xl hover:bg-red-50 transition-all duration-200 font-medium border border-red-200"
+                onClick={() => {
                 handleLogout();
                 setSidebarOpen(false);
               }}
@@ -446,6 +489,7 @@ export function MainLayout() {
               יציאה מהמערכת
             </button>
           </div>
+          )}
         </nav>
       </aside>
 
