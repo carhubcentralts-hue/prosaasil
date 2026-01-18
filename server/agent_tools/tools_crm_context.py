@@ -124,7 +124,7 @@ class CreateLeadNoteInput(BaseModel):
     """Input for creating a lead note"""
     business_id: int = Field(..., description="Business ID (tenant_id) - REQUIRED for multi-tenant security", ge=1)
     lead_id: int = Field(..., description="Lead ID to add note to", ge=1)
-    note_type: str = Field("call_summary", description="Type of note: 'manual', 'call_summary', or 'system'")
+    note_type: str = Field("call_summary", description="Type of note: 'manual' (free notes), 'customer_service_ai' (AI context), 'call_summary' (AI call summary), or 'system'")
     content: str = Field(..., description="Note content (sensitive data will be redacted)", max_length=10000)
     call_id: Optional[int] = Field(None, description="Optional call ID to link the note to")
     structured_data: Optional[Dict[str, Any]] = Field(
@@ -279,22 +279,16 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         
         # Get last 10 notes (most recent first) - sufficient context without overflow
         # 🎧 CRM Context-Aware Support: 10 notes with truncated content (300 chars each)
-        # 🔥 FILTER: Only get AI Customer Service notes (call_summary, system, and manual without attachments)
-        # Exclude Free Notes (manual notes with attachments) to avoid context pollution
+        # 🔥 FILTER: Only get AI Customer Service notes (call_summary, system, and customer_service_ai)
+        # Migration 75: Added 'customer_service_ai' type for notes visible to AI
+        # Exclude Free Notes (manual notes) to avoid context pollution
         notes_query = LeadNote.query.filter(
             LeadNote.lead_id == input.lead_id,
             LeadNote.tenant_id == input.business_id,
             db.or_(
                 LeadNote.note_type == 'call_summary',  # AI-generated call summaries
                 LeadNote.note_type == 'system',  # System notes
-                db.and_(
-                    db.or_(LeadNote.note_type == 'manual', LeadNote.note_type == None),  # Manual notes
-                    db.or_(
-                        LeadNote.attachments == None,  # Without attachments
-                        LeadNote.attachments == '[]',  # Or empty attachments
-                        db.cast(db.func.json_array_length(LeadNote.attachments), db.Integer) == 0  # Or zero-length JSON array
-                    )
-                )
+                LeadNote.note_type == 'customer_service_ai'  # Manual notes for AI customer service (visible to AI)
             )
         ).order_by(LeadNote.created_at.desc()).limit(10)
         
@@ -393,7 +387,8 @@ def create_lead_note(input: CreateLeadNoteInput) -> CreateLeadNoteOutput:
             )
         
         # Validate note_type
-        valid_note_types = {'manual', 'call_summary', 'system'}
+        # Migration 75: Added 'customer_service_ai' for AI customer service context notes
+        valid_note_types = {'manual', 'call_summary', 'system', 'customer_service_ai'}
         note_type = input.note_type if input.note_type in valid_note_types else 'manual'
         
         # Redact sensitive data from content

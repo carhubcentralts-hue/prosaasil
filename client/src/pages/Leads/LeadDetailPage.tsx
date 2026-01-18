@@ -2294,12 +2294,13 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       setLoading(true);
       const response = await http.get<{ success: boolean; notes: LeadNoteItem[] }>(`/api/leads/${lead.id}/notes`);
       if (response.success) {
-        // Show call_summary, system notes, AND manual notes without attachments (for AI context)
+        // Migration 75: Show call_summary, system notes, AND customer_service_ai notes (for AI context)
+        // customer_service_ai = manual notes added specifically for AI customer service visibility
         // This allows businesses to add context notes that the AI will read during customer service calls
         const aiNotes = response.notes.filter(note => 
           note.note_type === 'call_summary' || 
           note.note_type === 'system' ||
-          (note.note_type === 'manual' && (!note.attachments || note.attachments.length === 0))
+          note.note_type === 'customer_service_ai'
         );
         setNotes(aiNotes);
       }
@@ -2315,8 +2316,11 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
     
     setSaving(true);
     try {
+      // Migration 75: Use note_type='customer_service_ai' for notes in AI Customer Service tab
+      // This ensures they are visible to AI but separate from free notes
       const response = await http.post<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes`, {
-        content: newNoteContent.trim()
+        content: newNoteContent.trim(),
+        note_type: 'customer_service_ai'  // Mark as AI customer service note
       });
       
       if (response.success) {
@@ -2438,12 +2442,13 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
           {notes.map((note) => {
             const isCallSummary = note.note_type === 'call_summary';
             const isSystemNote = note.note_type === 'system';
+            const isCustomerServiceAI = note.note_type === 'customer_service_ai';
             const isManualNote = note.note_type === 'manual' || !note.note_type;
             const noteClasses = isCallSummary 
               ? "p-4 bg-blue-50 border-2 border-blue-200 rounded-lg" 
               : isSystemNote 
                 ? "p-4 bg-gray-100 border-2 border-gray-300 rounded-lg"
-                : "p-4 bg-green-50 border-2 border-green-300 rounded-lg";  // Manual notes in green
+                : "p-4 bg-green-50 border-2 border-green-300 rounded-lg";  // Customer service AI & manual notes in green
             
             return (
             <div 
@@ -2468,7 +2473,13 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                   <span className="text-xs font-medium text-gray-600 bg-gray-200 px-2 py-0.5 rounded">הערת מערכת</span>
                 </div>
               )}
-              {isManualNote && (
+              {isCustomerServiceAI && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-green-300">
+                  <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">📝 הערה ידנית (גלויה ל-AI)</span>
+                </div>
+              )}
+              {/* Legacy manual notes should not appear here after migration, but handle for safety */}
+              {isManualNote && !isCustomerServiceAI && (
                 <div className="flex items-center gap-2 mb-2 pb-2 border-b border-green-300">
                   <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">📝 הערה ידנית (גלויה ל-AI)</span>
                 </div>
@@ -2497,8 +2508,8 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      {/* Allow editing manual notes, but allow deleting all notes */}
-                      {isManualNote && (
+                      {/* Allow editing customer service AI notes (manual notes for AI context) */}
+                      {isCustomerServiceAI && (
                         <button
                           onClick={() => startEditing(note)}
                           className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
@@ -2562,7 +2573,7 @@ interface NoteAttachment {
 interface LeadNoteItem {
   id: number;
   content: string;
-  note_type?: 'manual' | 'call_summary' | 'system';  // CRM Context-Aware Support
+  note_type?: 'manual' | 'call_summary' | 'system' | 'customer_service_ai';  // Migration 75: Added customer_service_ai
   call_id?: number;  // Link to call for call_summary notes
   structured_data?: {
     sentiment?: string;

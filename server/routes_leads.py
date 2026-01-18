@@ -1942,12 +1942,19 @@ def create_lead_note(lead_id):
         # 🔥 FIX: content is NOT NULL, so use placeholder for file-only notes
         content = '📎 קבצים מצורפים'
     
+    # Migration 75: Support note_type field for separating AI customer service notes from free notes
+    note_type = data.get('note_type', 'manual')
+    valid_note_types = {'manual', 'call_summary', 'system', 'customer_service_ai'}
+    if note_type not in valid_note_types:
+        note_type = 'manual'
+    
     user = get_current_user()
     
     note = LeadNote()
     note.lead_id = lead_id
     note.tenant_id = tenant_id
     note.content = content
+    note.note_type = note_type  # Migration 75: Set note type
     note.attachments = data.get('attachments', [])
     note.created_by = user.get('id') if user else None
     
@@ -1969,6 +1976,7 @@ def create_lead_note(lead_id):
         "note": {
             "id": note.id,
             "content": note.content,
+            "note_type": note.note_type,  # Migration 75: Include note_type in response
             "attachments": note.attachments or [],
             "created_at": note.created_at.isoformat() if note.created_at else None,
             "updated_at": note.updated_at.isoformat() if note.updated_at else None
@@ -2016,6 +2024,7 @@ def update_lead_note(lead_id, note_id):
         "note": {
             "id": note.id,
             "content": note.content,
+            "note_type": note.note_type,  # Migration 75: Include note_type in response
             "attachments": note.attachments or [],
             "created_at": note.created_at.isoformat() if note.created_at else None,
             "updated_at": note.updated_at.isoformat() if note.updated_at else None
