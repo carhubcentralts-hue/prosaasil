@@ -2546,7 +2546,8 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
             const isCustomerServiceAI = note.note_type === 'customer_service_ai';
             const isManualNote = note.note_type === 'manual' || !note.note_type;
             // 🆕 Check if this is the latest note (most accurate source of truth)
-            const isLatestNote = note.structured_data?.is_latest === true || index === 0;
+            // Rely solely on is_latest flag from structured_data for consistency
+            const isLatestNote = note.structured_data?.is_latest === true;
             
             const noteClasses = isCallSummary 
               ? "p-4 bg-blue-50 border-2 border-blue-200 rounded-lg" 

@@ -1327,11 +1327,21 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     # 🆕 CRITICAL: Mark all previous call_summary notes as NOT latest
                     # This ensures the AI always prioritizes the most recent note
                     try:
-                        old_notes = LeadNote.query.filter(
-                            LeadNote.lead_id == lead.id,
-                            LeadNote.note_type == 'call_summary',
-                            LeadNote.id != (existing_note.id if existing_note else -1)
-                        ).all()
+                        # Build filter to exclude the current note (whether existing or new)
+                        if existing_note:
+                            # Exclude by ID if we're updating an existing note
+                            old_notes = LeadNote.query.filter(
+                                LeadNote.lead_id == lead.id,
+                                LeadNote.note_type == 'call_summary',
+                                LeadNote.id != existing_note.id
+                            ).all()
+                        else:
+                            # If creating a new note, we don't have an ID yet, so get all call_summary notes
+                            # After commit, the new note will be the only one with is_latest=True
+                            old_notes = LeadNote.query.filter(
+                                LeadNote.lead_id == lead.id,
+                                LeadNote.note_type == 'call_summary'
+                            ).all()
                         
                         for old_note in old_notes:
                             if old_note.structured_data is None:
@@ -1342,8 +1352,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         if old_notes:
                             log.info(f"[CustomerService] 🔄 Marked {len(old_notes)} previous notes as NOT latest for lead {lead.id}")
                     except Exception as mark_err:
-                        log.warning(f"[CustomerService] ⚠️ Failed to mark old notes: {mark_err}")
-                        # Non-critical - the new note is still saved
+                        log.warning(f"[CustomerService] ⚠️ Failed to mark old notes as not latest: {mark_err}")
+                        # Non-critical - the new note is still saved with is_latest=True
                     
                     # 🆕 CRITICAL: Commit immediately to ensure note is saved
                     # This prevents the note from being lost if later processing fails
@@ -1359,8 +1369,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     try:
                         db.session.rollback()
                         log.info(f"[CustomerService] Rolled back transaction after note creation failure")
-                    except Exception:
-                        pass
+                    except Exception as rollback_err:
+                        # Rollback itself failed - this is very rare but possible if connection is lost
+                        # Log the error but don't propagate - we want to continue processing
+                        log.error(f"[CustomerService] Rollback also failed: {rollback_err}")
                     # Non-critical - continue with other processing
                 
                 # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש
