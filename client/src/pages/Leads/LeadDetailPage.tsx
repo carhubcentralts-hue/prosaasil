@@ -2285,6 +2285,80 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
 
+  /**
+   * Extracts the clean summary text from a formatted call_summary note.
+   * 
+   * The backend saves call_summary notes with format:
+   * ```
+   * 📞 סיכום לשירות לקוחות - DD/MM/YYYY HH:MM
+   *
+   * 💬 [actual summary text]
+   * 🎯 [optional intent]
+   * 📋 המשך: [optional next action]
+   * 😊 סנטימנט: [optional sentiment]
+   *
+   * ⏱️ X שניות
+   * ```
+   * 
+   * This function extracts only the line(s) starting with 💬, which contains
+   * the actual summary text, removing all metadata and formatting.
+   * 
+   * @param content - The formatted call_summary note content
+   * @returns The clean summary text without formatting. If no summary marker (💬) is found,
+   *          returns the original content unchanged for backward compatibility with legacy data.
+   * 
+   * @example
+   * // Input:
+   * "📞 סיכום לשירות לקוחות - 18/01/2026 17:30\n\n💬 הלקוח ביקש פגישה למחר בשעה 10\n🎯 רוצה לקבוע פגישה\n\n⏱️ 120 שניות"
+   * 
+   * // Output:
+   * "הלקוח ביקש פגישה למחר בשעה 10"
+   */
+  const extractCleanSummary = (content: string): string => {
+    // Define metadata emoji prefixes used in the format
+    const METADATA_EMOJIS = ['🎯', '📋', '😊', '😟', '⏱️', '📞'];
+    
+    // Split into lines and process
+    const lines = content.split('\n');
+    const summaryLines: string[] = [];
+    let inSummaryBlock = false;
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      
+      // Start of summary block (line starts with 💬)
+      if (trimmed.startsWith('💬 ')) {
+        summaryLines.push(trimmed.substring(2).trim()); // Remove "💬 " prefix
+        inSummaryBlock = true;
+        continue;
+      }
+      
+      // If we're in a summary block, continue adding lines until we hit another emoji prefix
+      if (inSummaryBlock) {
+        // Check if this line starts with a metadata emoji
+        const startsWithMetadataEmoji = METADATA_EMOJIS.some(emoji => trimmed.startsWith(emoji));
+        
+        // Empty line or metadata line ends the summary block
+        if (!trimmed || startsWithMetadataEmoji) {
+          inSummaryBlock = false;
+          break;
+        }
+        
+        // Otherwise, it's a continuation of the summary
+        summaryLines.push(trimmed);
+      }
+    }
+    
+    // If we found a summary, return it (join multi-line summaries with newlines)
+    if (summaryLines.length > 0) {
+      return summaryLines.join('\n');
+    }
+    
+    // Fallback: if no 💬 prefix found, return content as-is
+    // This handles legacy data or different formats for backward compatibility
+    return content;
+  };
+
   useEffect(() => {
     fetchAINotes();
   }, [lead.id]);
@@ -2534,7 +2608,7 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                     </span>
                   </div>
                   <p className="mt-2 text-gray-700 whitespace-pre-wrap text-right" dir="rtl">
-                    {note.content}
+                    {isCallSummary ? extractCleanSummary(note.content) : note.content}
                   </p>
                 </>
               )}
@@ -2545,7 +2619,7 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       )}
 
       <p className="mt-4 text-xs text-gray-400 text-center">
-        הערות אלו נוצרות אוטומטית לאחר שיחות ומיועדות לשירות לקוחות
+        סיכומי שיחות נוצרים אוטומטית ומיועדים לשירות לקוחות מהיר ומדויק
       </p>
     </Card>
   );
