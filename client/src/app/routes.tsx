@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGuard } from './layout/AuthGuard';
 import { RoleGuard } from './layout/RoleGuard';
+import { PageGuard } from '../features/permissions/PageGuard';
 import { MainLayout } from './layout/MainLayout';
 import { useAuth } from '../features/auth/hooks';
 
@@ -162,7 +163,9 @@ export function AppRoutes() {
           path="business/overview"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <BusinessHomePage />
+              <PageGuard pageKey="dashboard">
+                <BusinessHomePage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -170,7 +173,11 @@ export function AppRoutes() {
         {/* Calendar Routes */}
         <Route
           path="calendar"
-          element={<CalendarPage />}
+          element={
+            <PageGuard pageKey="calendar">
+              <CalendarPage />
+            </PageGuard>
+          }
         />
 
         {/* Leads Routes */}
@@ -178,7 +185,9 @@ export function AppRoutes() {
           path="leads"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <LeadsPage />
+              <PageGuard pageKey="crm_leads">
+                <LeadsPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -186,7 +195,9 @@ export function AppRoutes() {
           path="leads/:id"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <LeadDetailPage />
+              <PageGuard pageKey="crm_leads">
+                <LeadDetailPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -196,7 +207,9 @@ export function AppRoutes() {
           path="whatsapp"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <WhatsAppPage />
+              <PageGuard pageKey="whatsapp_inbox">
+                <WhatsAppPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -204,9 +217,11 @@ export function AppRoutes() {
           path="whatsapp-broadcast"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin']}>
-              <Suspense fallback={<PageLoader />}>
-                <WhatsAppBroadcastPage />
-              </Suspense>
+              <PageGuard pageKey="whatsapp_broadcast">
+                <Suspense fallback={<PageLoader />}>
+                  <WhatsAppBroadcastPage />
+                </Suspense>
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -216,7 +231,9 @@ export function AppRoutes() {
           path="calls"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <InboundCallsPage />
+              <PageGuard pageKey="calls_inbound">
+                <InboundCallsPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -226,7 +243,9 @@ export function AppRoutes() {
           path="outbound-calls"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <OutboundCallsPage />
+              <PageGuard pageKey="calls_outbound">
+                <OutboundCallsPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -236,7 +255,9 @@ export function AppRoutes() {
           path="crm"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <CrmPage />
+              <PageGuard pageKey="crm_customers">
+                <CrmPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -246,7 +267,9 @@ export function AppRoutes() {
           path="emails"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <EmailsPage />
+              <PageGuard pageKey="emails">
+                <EmailsPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -256,7 +279,9 @@ export function AppRoutes() {
           path="statistics"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <StatisticsPage />
+              <PageGuard pageKey="statistics">
+                <StatisticsPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -276,7 +301,9 @@ export function AppRoutes() {
           path="users"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin']}>
-              <UsersPage />
+              <PageGuard pageKey="users">
+                <UsersPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
@@ -286,7 +313,9 @@ export function AppRoutes() {
           path="settings"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <SettingsPage />
+              <PageGuard pageKey="settings">
+                <SettingsPage />
+              </PageGuard>
             </RoleGuard>
           }
         />
