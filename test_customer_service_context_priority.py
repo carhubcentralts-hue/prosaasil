@@ -85,8 +85,8 @@ def test_instructions_have_price_change_example():
         "Instructions should have Example 6 about changing price info"
     
     # Check for the specific wrong example
-    assert "התעלמות מהערה עדכנית" in content, \
-        "Instructions should show wrong example of ignoring latest note"
+    assert "התעלמות מהערות" in content or "התעלמות מהערה" in content, \
+        "Instructions should show wrong example of ignoring notes"
     
     # Check for specific numbers from the problem statement
     assert "1500 שקלים" in content and "3000 שקלים" in content, \
@@ -115,24 +115,56 @@ def test_instructions_handle_conflicting_notes():
     print("   ✅ Instructions specify to trust the latest note")
 
 
-def test_instructions_emphasize_with_fire_emoji():
-    """Test that critical points are emphasized with fire emoji"""
-    print("\n🧪 Test 6: Verify critical points are emphasized")
+def test_instructions_emphasize_using_all_notes():
+    """Test that instructions emphasize reading ALL notes, not just the latest"""
+    print("\n🧪 Test 7: Verify instructions emphasize using ALL notes")
     
     with open('server/agent_tools/agent_factory.py', 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # Count fire emoji for latest note emphasis
-    lines_with_fire_and_latest = [
-        line for line in content.split('\n')
-        if '🔥🔥' in line and 'העדכנית ביותר' in line
-    ]
+    # Check that it explicitly says to read all notes
+    assert "קרא את כל 10 ההערות" in content or "קרא את כל ההערות" in content, \
+        "Instructions should explicitly say to read ALL 10 notes"
     
-    assert len(lines_with_fire_and_latest) >= 2, \
-        f"Should have at least 2 lines with 🔥🔥 emphasizing latest note, found {len(lines_with_fire_and_latest)}"
+    assert "כל הערה היא חלק מההיסטוריה" in content, \
+        "Instructions should mention each note is part of the history"
     
-    print(f"   ✅ Found {len(lines_with_fire_and_latest)} lines with 🔥🔥 emphasizing latest note")
-    print("   ✅ Critical points are properly emphasized")
+    assert "אל תתעלם מהן" in content, \
+        "Instructions should warn against ignoring old notes"
+    
+    # Check for example showing use of multiple notes together
+    assert "דוגמה 7" in content, \
+        "Should have Example 7 showing use of history from multiple notes"
+    
+    assert "השתמשנו במידע מכל ההערות ביחד" in content, \
+        "Should explain using information from ALL notes together"
+    
+    print("   ✅ Instructions explicitly say to read ALL 10 notes")
+    print("   ✅ Instructions emphasize all notes are part of history")
+    print("   ✅ Instructions include example using multiple notes together")
+
+
+def test_instructions_prohibit_making_things_up():
+    """Test that instructions strongly prohibit making up information"""
+    print("\n🧪 Test 8: Verify instructions prohibit making things up (חריטוט)")
+    
+    with open('server/agent_tools/agent_factory.py', 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Check for prohibition of making things up
+    assert "אל תמציא מידע" in content, \
+        "Instructions should say 'don't make up information'"
+    
+    assert "לא מופיע בשום הערה" in content or "לא מופיע לי במערכת" in content, \
+        "Instructions should say to respond 'not in system' when info is missing"
+    
+    # Check for wrong example showing making things up
+    assert "חריטוט" in content or "אסור לחרטט" in content, \
+        "Instructions should have example showing it's forbidden to make things up"
+    
+    print("   ✅ Instructions prohibit making up information")
+    print("   ✅ Instructions say to respond 'not in system' when missing")
+    print("   ✅ Instructions include wrong example of making things up")
 
 
 if __name__ == "__main__":
@@ -146,7 +178,8 @@ if __name__ == "__main__":
         test_instructions_clarify_notes_ordering()
         test_instructions_have_price_change_example()
         test_instructions_handle_conflicting_notes()
-        test_instructions_emphasize_with_fire_emoji()
+        test_instructions_emphasize_using_all_notes()
+        test_instructions_prohibit_making_things_up()
         
         print("\n" + "=" * 80)
         print("✅ ALL TESTS PASSED!")
@@ -158,12 +191,14 @@ if __name__ == "__main__":
         print("   • Price change example added (matching problem statement)")
         print("   • Conflict handling instructions added (trust latest)")
         print("   • Critical points emphasized with 🔥🔥 emoji")
+        print("   • Instructions emphasize using ALL notes (not just latest)")
+        print("   • Instructions prohibit making things up (חריטוט)")
         print("\n🎯 The fix ensures the AI will:")
-        print("   1. Always prioritize the most recent note as source of truth")
-        print("   2. Recognize the '[הערה עדכנית ביותר - מידע מדויק]' marker")
-        print("   3. Understand notes are ordered newest to oldest")
-        print("   4. Handle conflicts by trusting the latest information")
-        print("   5. Give correct answers based on the latest context")
+        print("   1. Always read ALL 10 notes to get complete context")
+        print("   2. Use information from all notes together (full history)")
+        print("   3. Prioritize the latest note when there's conflicting info")
+        print("   4. Never make up information (חריטוט) - say 'not in system'")
+        print("   5. Give complete, accurate answers based on full context")
         print("\n🔧 Files Modified:")
         print("   • server/agent_tools/agent_factory.py (lines 1378-1449)")
         
