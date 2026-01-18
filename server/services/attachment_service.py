@@ -5,24 +5,29 @@ Features:
 - Multi-tenant file storage with business isolation
 - Secure file validation (mime type, size, dangerous files)
 - Signed URL generation with TTL
-- Local storage with path structure: /storage/attachments/{business_id}/{yyyy}/{mm}/{attachment_id}.ext
+- Storage abstraction layer (supports local filesystem and Cloudflare R2)
 - Channel compatibility checking (WhatsApp has size/mime restrictions)
 
 Security:
-- No direct filesystem access
+- No direct filesystem access (abstracted through storage providers)
 - All access through authenticated endpoints
 - Business isolation enforced
 - Dangerous file types blocked
+
+Storage Providers:
+- Local: /storage/attachments/{business_id}/{yyyy}/{mm}/{attachment_id}.ext
+- R2: Cloudflare R2 bucket with presigned URLs
+
+Configuration via environment variables - see storage/base.py
 """
 
 import os
-import hashlib
 import logging
 import mimetypes
-from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
+from server.services.storage import get_attachment_storage
 
 logger = logging.getLogger(__name__)
 
@@ -72,21 +77,17 @@ WHATSAPP_MIME_TYPES = {
 
 
 class AttachmentService:
-    """Service for managing file attachments"""
+    """Service for managing file attachments with storage abstraction"""
     
-    def __init__(self, storage_root: Optional[str] = None):
+    def __init__(self):
         """
-        Initialize attachment service
+        Initialize attachment service with storage provider
         
-        Args:
-            storage_root: Root directory for file storage (defaults to ./storage/attachments)
+        Storage provider is selected based on ATTACHMENT_STORAGE_DRIVER environment variable.
+        See server/services/storage/base.py for configuration details.
         """
-        if storage_root is None:
-            storage_root = os.path.join(os.getcwd(), 'storage', 'attachments')
-        
-        self.storage_root = storage_root
-        os.makedirs(self.storage_root, exist_ok=True)
-        logger.info(f"Attachment service initialized with storage root: {self.storage_root}")
+        self.storage = get_attachment_storage()
+        logger.info(f"Attachment service initialized with storage provider: {type(self.storage).__name__}")
     
     def validate_file(self, file: FileStorage, channel: str = 'email') -> Tuple[bool, Optional[str]]:
         """
@@ -164,39 +165,9 @@ class AttachmentService:
         
         return compatibility
     
-    def get_storage_path(self, business_id: int, attachment_id: int, filename: str) -> str:
-        """
-        Generate storage path for attachment
-        
-        Format: {business_id}/{yyyy}/{mm}/{attachment_id}_{secure_filename}
-        
-        Args:
-            business_id: Business ID for tenant isolation
-            attachment_id: Attachment ID
-            filename: Original filename
-            
-        Returns:
-            Relative storage path
-        """
-        now = datetime.utcnow()
-        year = now.strftime('%Y')
-        month = now.strftime('%m')
-        
-        # Secure filename and preserve extension
-        secure_name = secure_filename(filename)
-        ext = secure_name.rsplit('.', 1)[-1] if '.' in secure_name else ''
-        
-        # Build path: business_id/year/month/attachment_id.ext
-        if ext:
-            storage_filename = f"{attachment_id}.{ext}"
-        else:
-            storage_filename = str(attachment_id)
-        
-        return os.path.join(str(business_id), year, month, storage_filename)
-    
     def save_file(self, file: FileStorage, business_id: int, attachment_id: int) -> Tuple[str, int]:
         """
-        Save file to storage
+        Save file to storage (using configured storage provider)
         
         Args:
             file: Werkzeug FileStorage object
@@ -204,116 +175,113 @@ class AttachmentService:
             attachment_id: Attachment ID for path generation
             
         Returns:
-            (storage_path, file_size)
+            (storage_key, file_size)
         """
-        # Generate storage path
-        rel_path = self.get_storage_path(business_id, attachment_id, file.filename)
-        abs_path = os.path.join(self.storage_root, rel_path)
+        # Get mime type and filename
+        mime_type = file.content_type or 'application/octet-stream'
+        filename = secure_filename(file.filename)
         
-        # Create directory structure
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        # Upload via storage provider
+        result = self.storage.upload(
+            business_id=business_id,
+            attachment_id=attachment_id,
+            file=file,
+            mime_type=mime_type,
+            filename=filename
+        )
         
-        # Save file
-        file.save(abs_path)
+        logger.info(f"Saved attachment {attachment_id} via {result.provider} ({result.size} bytes)")
         
-        # Get file size
-        file_size = os.path.getsize(abs_path)
-        
-        logger.info(f"Saved attachment {attachment_id} to {rel_path} ({file_size} bytes)")
-        
-        return rel_path, file_size
+        return result.storage_key, result.size
     
-    def get_file_path(self, storage_path: str) -> str:
+    def get_file_path(self, storage_key: str) -> str:
         """
-        Get absolute file path from storage path
+        Get file path from storage key (LOCAL STORAGE ONLY)
+        
+        This method is ONLY for local storage provider.
+        For R2 or other providers, use generate_signed_url instead.
         
         Args:
-            storage_path: Relative storage path
+            storage_key: Storage key
             
         Returns:
-            Absolute file path
+            Absolute file path (local storage only)
         """
-        return os.path.join(self.storage_root, storage_path)
+        # Check if we're using local storage
+        from server.services.storage.local_provider import LocalStorageProvider
+        
+        if isinstance(self.storage, LocalStorageProvider):
+            return self.storage.get_file_path(storage_key)
+        else:
+            # For R2 or other providers, this method doesn't make sense
+            logger.warning(f"get_file_path called on non-local storage provider: {type(self.storage).__name__}")
+            raise NotImplementedError("get_file_path is only supported for local storage. Use generate_signed_url instead.")
     
-    def file_exists(self, storage_path: str) -> bool:
+    def file_exists(self, storage_key: str) -> bool:
         """
         Check if file exists in storage
         
         Args:
-            storage_path: Relative storage path
+            storage_key: Storage key
             
         Returns:
             True if file exists
         """
-        abs_path = self.get_file_path(storage_path)
-        return os.path.isfile(abs_path)
+        return self.storage.file_exists(storage_key)
     
-    def delete_file(self, storage_path: str) -> bool:
+    def delete_file(self, storage_key: str) -> bool:
         """
         Delete file from storage (physical delete)
         
         Args:
-            storage_path: Relative storage path
+            storage_key: Storage key
             
         Returns:
             True if deleted successfully
         """
-        abs_path = self.get_file_path(storage_path)
-        
-        try:
-            if os.path.isfile(abs_path):
-                os.remove(abs_path)
-                logger.info(f"Deleted file: {storage_path}")
-                return True
-            else:
-                logger.warning(f"File not found for deletion: {storage_path}")
-                return False
-        except Exception as e:
-            logger.error(f"Error deleting file {storage_path}: {e}")
-            return False
+        return self.storage.delete(storage_key)
     
-    def generate_signed_url(self, attachment_id: int, storage_path: str, ttl_minutes: int = 60) -> str:
+    def generate_signed_url(self, attachment_id: int, storage_key: str, ttl_minutes: int = 60) -> str:
         """
         Generate signed URL with TTL
         
-        For production: Implement actual signed URL with HMAC or JWT
-        For now: Returns a token-based URL that will be validated by the endpoint
+        Uses storage provider's signed URL generation (presigned for R2, internal token for local)
         
         Args:
-            attachment_id: Attachment ID
-            storage_path: Storage path
+            attachment_id: Attachment ID (for local storage URL generation)
+            storage_key: Storage key
             ttl_minutes: Time-to-live in minutes (default: 60)
             
         Returns:
-            Signed URL with expiration
+            Signed URL
         """
-        # Generate expiration timestamp
-        expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
-        expires_ts = int(expires_at.timestamp())
-        
-        # Create signature using HMAC
-        # In production, use a secret key from environment
-        secret = os.getenv('ATTACHMENT_SECRET', 'change-me-in-production')
-        message = f"{attachment_id}:{expires_ts}:{storage_path}"
-        signature = hashlib.sha256(f"{secret}:{message}".encode()).hexdigest()[:16]
-        
-        # Build signed URL
-        # Format: /api/attachments/{id}/download?expires={ts}&sig={signature}
-        return f"/api/attachments/{attachment_id}/download?expires={expires_ts}&sig={signature}"
+        ttl_seconds = ttl_minutes * 60
+        return self.storage.generate_signed_url(storage_key, ttl_seconds)
     
-    def verify_signed_url(self, attachment_id: int, storage_path: str, expires_ts: int, signature: str) -> Tuple[bool, Optional[str]]:
+    def verify_signed_url(self, attachment_id: int, storage_key: str, expires_ts: int, signature: str) -> Tuple[bool, Optional[str]]:
         """
-        Verify signed URL
+        Verify signed URL (LOCAL STORAGE ONLY)
+        
+        For R2, presigned URLs are verified by the S3 service itself.
+        This method is only used for local storage internal URLs.
         
         Args:
             attachment_id: Attachment ID
-            storage_path: Storage path
+            storage_key: Storage key
             expires_ts: Expiration timestamp
             signature: URL signature
             
         Returns:
             (is_valid, error_message)
         """
+        from server.services.storage.local_provider import LocalStorageProvider
+        from datetime import datetime
+        import hashlib
+        
+        # This verification is only for local storage
+        if not isinstance(self.storage, LocalStorageProvider):
+            return True, None  # R2 handles verification itself
+        
         # Check expiration
         now_ts = int(datetime.utcnow().timestamp())
         if now_ts > expires_ts:
@@ -321,7 +289,7 @@ class AttachmentService:
         
         # Verify signature
         secret = os.getenv('ATTACHMENT_SECRET', 'change-me-in-production')
-        message = f"{attachment_id}:{expires_ts}:{storage_path}"
+        message = f"{attachment_id}:{expires_ts}:{storage_key}"
         expected_sig = hashlib.sha256(f"{secret}:{message}".encode()).hexdigest()[:16]
         
         if signature != expected_sig:
