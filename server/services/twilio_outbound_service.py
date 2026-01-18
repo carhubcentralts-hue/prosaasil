@@ -7,6 +7,7 @@ Twilio Call Creation Service - Single Source of Truth
 import logging
 import hashlib
 import time
+import uuid
 from typing import Dict, Any, Optional
 from sqlalchemy import text
 
@@ -186,16 +187,12 @@ def create_outbound_call(
     #    DO NOT use record=True here to avoid duplicate recording charges!
     
     # 🔥 TRACE LOGGING: Generate unique request ID for tracking
-    import uuid
     req_uuid = str(uuid.uuid4())[:8]
     log.info(f"[OUTBOUND][REQ={req_uuid}] tenant={business_id} lead_id={lead_id} to={to_phone} from={from_phone}")
-    print(f"[OUTBOUND][REQ={req_uuid}] tenant={business_id} to={to_phone} from={from_phone}")
-    
     log.info(f"[TWILIO_CALL] Creating outbound call: to={to_phone}, from={from_phone}, business_id={business_id}, lead_id={lead_id}, recording_mode=OFF")
     
     try:
         log.info(f"[OUTBOUND][REQ={req_uuid}] calling twilio...")
-        print(f"[OUTBOUND][REQ={req_uuid}] calling twilio...")
         
         twilio_call = client.calls.create(
             to=to_phone,
@@ -219,8 +216,6 @@ def create_outbound_call(
         
         # 🔥 TRACE LOGGING: Log success
         log.info(f"[OUTBOUND][REQ={req_uuid}] twilio_ok call_sid={call_sid}")
-        print(f"[OUTBOUND][REQ={req_uuid}] twilio_ok call_sid={call_sid}")
-        
         log.info(f"[TWILIO_CALL] ✅ Call created: call_sid={call_sid}, dedup_key={dedup_key}, recording_mode=OFF (will be set to RECORDING_API when recording starts)")
         
         return {
@@ -233,8 +228,6 @@ def create_outbound_call(
     except Exception as e:
         # 🔥 TRACE LOGGING: Log failure
         log.error(f"[OUTBOUND][REQ={req_uuid}] twilio_failed err={str(e)}")
-        print(f"[OUTBOUND][REQ={req_uuid}] twilio_failed err={str(e)}")
-        
         log.error(f"[TWILIO_CALL] ❌ Failed to create call: {e}")
         raise
 

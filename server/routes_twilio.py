@@ -455,7 +455,6 @@ def incoming_call():
     # 🔥 TRACE LOGGING: Log all incoming calls immediately
     x_twilio_signature = request.headers.get('X-Twilio-Signature', '')
     logger.info(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} from={from_number} to={to_number} direction={twilio_direction} signature_present={bool(x_twilio_signature)}")
-    print(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} from={from_number} to={to_number}")
     
     # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
     from server.models_sql import Business
@@ -705,7 +704,6 @@ def outbound_call():
     # 🔥 TRACE LOGGING: Log all outbound calls immediately
     x_twilio_signature = request.headers.get('X-Twilio-Signature', '')
     logger.info(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} from={from_number} to={to_number} lead_id={lead_id} business_id={business_id} signature_present={bool(x_twilio_signature)}")
-    print(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} from={from_number} to={to_number}")
     
     logger.info(f"📞 OUTBOUND_CALL webhook: call_sid={call_sid}, lead={lead_name}, template={template_id}")
     
