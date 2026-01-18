@@ -24,7 +24,6 @@ class Business(db.Model):
     crm_enabled = db.Column(db.Boolean, default=True)
     payments_enabled = db.Column(db.Boolean, default=False)      # Payment enablement per business
     default_provider = db.Column(db.String(20), default="paypal")  # 'paypal'|'tranzila'
-    webhook_secret = db.Column(db.String(255), nullable=True, unique=True, index=True)  # Unique webhook secret for n8n integration
     # Support settings for admin tenant management
     working_hours = db.Column(db.String(50), default="08:00-18:00")  # Support working hours
     voice_message = db.Column(db.Text)  # Custom voice message for support calls
