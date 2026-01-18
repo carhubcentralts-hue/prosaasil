@@ -35,7 +35,10 @@ class Business(db.Model):
     # Company registration info
     company_id = db.Column(db.String(50), nullable=True)  # Israeli company registration number (ח.פ)
     # Page-level permissions - which pages/modules are enabled for this business
-    enabled_pages = db.Column(db.JSON, nullable=False, default=list)  # List of page_keys from page_registry
+    # 🔥 HOTFIX: Made nullable=True temporarily to handle migration transition period
+    # During deployment, column may not exist yet, so queries would fail with nullable=False
+    # After migration 71 completes, this can be changed back to nullable=False
+    enabled_pages = db.Column(db.JSON, nullable=True, default=list)  # List of page_keys from page_registry
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
