@@ -6,7 +6,7 @@ Handles contract generation and signature collection
 from agents import function_tool
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime
 import logging
 
