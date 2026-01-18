@@ -42,6 +42,8 @@ const UsersPage = lazy(() => import('../pages/users/UsersPage').then(m => ({ def
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const EmailsPage = lazy(() => import('../pages/emails/EmailsPage').then(m => ({ default: m.EmailsPage })));
 const StatisticsPage = lazy(() => import('../pages/statistics/StatisticsPage').then(m => ({ default: m.StatisticsPage })));
+const ContractsPage = lazy(() => import('../pages/contracts/ContractsPage').then(m => ({ default: m.ContractsPage })));
+const PublicSigningPage = lazy(() => import('../pages/contracts/PublicSigningPage').then(m => ({ default: m.PublicSigningPage })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -79,6 +81,9 @@ export function AppRoutes() {
       {/* Legal Pages - Public (required for App Store/Play Store compliance) */}
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/terms" element={<TermsOfServicePage />} />
+
+      {/* Public Contract Signing - NO AUTH */}
+      <Route path="/contracts/sign/:token" element={<Suspense fallback={<PageLoader />}><PublicSigningPage /></Suspense>} />
 
       {/* Protected Routes */}
       <Route
@@ -281,6 +286,20 @@ export function AppRoutes() {
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <PageGuard pageKey="statistics">
                 <StatisticsPage />
+              </PageGuard>
+            </RoleGuard>
+          }
+        />
+
+        {/* Contracts Routes */}
+        <Route
+          path="contracts"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
+              <PageGuard pageKey="contracts">
+                <Suspense fallback={<PageLoader />}>
+                  <ContractsPage />
+                </Suspense>
               </PageGuard>
             </RoleGuard>
           }

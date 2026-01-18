@@ -701,28 +701,121 @@ class InvoiceItem(db.Model):
     total = db.Column(db.Numeric(10, 2), nullable=False)
 
 class Contract(db.Model):
+    """
+    Contracts - Digital contract management with signatures
+    
+    Status flow: draft -> sent -> signed (or cancelled)
+    Files stored via attachments table (R2)
+    """
     __tablename__ = "contract"
     id = db.Column(db.Integer, primary_key=True)
-    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)  # nullable for direct contracts
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
+    
+    # Legacy fields (kept for backwards compatibility)
+    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=True, index=True)
+    
+    # Core fields
+    title = db.Column(db.String(255))
+    status = db.Column(db.String(32), default="draft")  # draft|sent|signed|cancelled (CHECK constraint in migration)
+    
+    # Signer information
+    signer_name = db.Column(db.String(255))
+    signer_phone = db.Column(db.String(255))
+    signer_email = db.Column(db.String(255))
+    
+    # Template and content (legacy)
     template_name = db.Column(db.String(80))
-    template_id = db.Column(db.String(80))  # AgentKit: template identifier
+    template_id = db.Column(db.String(80))
     version = db.Column(db.String(20), default='v1')
+    content = db.Column(db.Text)  # Contract content (filled template)
+    variables = db.Column(db.JSON)  # Template variables as JSON
+    customer_name = db.Column(db.String(255))
+    
+    # Legacy file paths (deprecated - use contract_files → attachments)
     html_path = db.Column(db.String(260))
     pdf_path = db.Column(db.String(260))
+    
+    # Signature data (legacy)
     signed_name = db.Column(db.String(160))
     signed_at = db.Column(db.DateTime)
     signed_ip = db.Column(db.String(64))
     signature_data = db.Column(db.Text)  # Base64 encoded signature image
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # AgentKit additions
-    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
-    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=True, index=True)
-    customer_name = db.Column(db.String(255))
-    content = db.Column(db.Text)  # Contract content (filled template)
-    status = db.Column(db.String(32), default="pending_signature")  # pending_signature/signed/cancelled
-    variables = db.Column(db.JSON)  # Template variables as JSON
+    # Audit fields
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ContractFile(db.Model):
+    """
+    Contract Files - Links contracts to attachments (R2 storage)
+    
+    Reuses attachments table for actual file storage
+    purpose: original|signed|extra_doc|template
+    """
+    __tablename__ = "contract_files"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey("contract.id"), nullable=False, index=True)
+    attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id"), nullable=False, index=True)
+    
+    # File purpose/role
+    purpose = db.Column(db.String(32), nullable=False)  # original|signed|extra_doc|template (CHECK constraint)
+    
+    # Audit fields
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)  # Soft delete
+
+
+class ContractSignToken(db.Model):
+    """
+    Contract Sign Tokens - DB-based secure tokens for signing (NOT JWT)
+    
+    Stores hashed random tokens with expiration
+    Can be revoked/checked in DB
+    """
+    __tablename__ = "contract_sign_tokens"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey("contract.id"), nullable=False, index=True)
+    
+    # Token data (hashed for security)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    scope = db.Column(db.String(32), nullable=False, default='sign')
+    
+    # Expiration and usage tracking
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    
+    # Audit fields
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+
+class ContractSignEvent(db.Model):
+    """
+    Contract Sign Events - Audit trail for contract operations
+    
+    event_type: created|file_uploaded|sent_for_signature|viewed|signed_completed|cancelled
+    metadata: JSON with event-specific data
+    """
+    __tablename__ = "contract_sign_events"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey("contract.id"), nullable=False, index=True)
+    
+    # Event data
+    event_type = db.Column(db.String(32), nullable=False)  # created|file_uploaded|... (CHECK constraint)
+    metadata = db.Column(db.JSON)  # Event-specific data (IP, user agent, etc.)
+    
+    # Audit fields
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
 # === CALENDAR & APPOINTMENTS ===
 

@@ -21,7 +21,8 @@ import {
   Clock,
   Send,
   Mail,
-  BarChart3
+  BarChart3,
+  FileText
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -102,6 +103,13 @@ const menuItems = [
     to: '/app/statistics',
     roles: ['system_admin', 'owner', 'admin', 'agent'],
     pageKey: 'statistics'
+  },
+  { 
+    icon: FileText, 
+    label: 'חוזים',
+    to: '/app/contracts',
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'contracts'
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
   // { 
