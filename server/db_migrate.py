@@ -2659,6 +2659,53 @@ def apply_migrations():
         elif check_table_exists('security_events'):
             checkpoint("Migration 70: Column security_events.metadata does not exist (already event_metadata or new table) - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 71: Page-level permissions for businesses (enabled_pages)
+        # 🔐 PURPOSE: Implement full page access control system
+        # Adds enabled_pages JSONB column to business table
+        # Sets default to ALL pages for existing businesses (backward compatibility)
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 71: Adding enabled_pages column to business table")
+        if check_table_exists('business') and not check_column_exists('business', 'enabled_pages'):
+            try:
+                from sqlalchemy import text
+                from server.security.page_registry import DEFAULT_ENABLED_PAGES
+                import json
+                
+                checkpoint("  → Adding enabled_pages column...")
+                # Add column with default empty list
+                db.session.execute(text("""
+                    ALTER TABLE business 
+                    ADD COLUMN enabled_pages JSON NOT NULL DEFAULT '[]'
+                """))
+                checkpoint("  ✅ enabled_pages column added")
+                
+                # Set all existing businesses to have all pages enabled (backward compatibility)
+                default_pages_json = json.dumps(DEFAULT_ENABLED_PAGES)
+                checkpoint(f"  → Setting default pages for existing businesses: {len(DEFAULT_ENABLED_PAGES)} pages")
+                
+                # Update only rows that don't have pages set yet (NULL or empty array)
+                # Use COALESCE to handle NULL values and check array length
+                result = db.session.execute(text("""
+                    UPDATE business 
+                    SET enabled_pages = :pages
+                    WHERE enabled_pages IS NULL 
+                       OR enabled_pages = '[]'::json
+                       OR json_array_length(CAST(enabled_pages AS json)) = 0
+                """), {"pages": default_pages_json})
+                
+                updated_count = result.rowcount
+                checkpoint(f"  ✅ Updated {updated_count} existing businesses with all pages enabled")
+                
+                migrations_applied.append('add_business_enabled_pages')
+                checkpoint("✅ Applied migration 71: add_business_enabled_pages - Page-level permissions system")
+            except Exception as e:
+                log.error(f"❌ Migration 71 failed: {e}")
+                db.session.rollback()
+                raise
+        elif check_table_exists('business'):
+            checkpoint("Migration 71: enabled_pages column already exists - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

@@ -1153,3 +1153,164 @@ def delete_faq(faq_id):
         db.session.rollback()
         return jsonify({'error': 'Internal server error'}), 500
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Page Permissions Management - הנחיית-על
+# Manage which pages/modules are enabled for each business
+# ═══════════════════════════════════════════════════════════════════════
+
+@biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/pages', methods=['GET'])
+@require_api_auth(['system_admin'])
+def get_business_pages(business_id):
+    """
+    GET /api/admin/businesses/:id/pages
+    Get enabled pages for a business
+    """
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'error': 'Business not found'}), 404
+        
+        from server.security.page_registry import PAGE_REGISTRY, get_all_page_keys
+        
+        enabled_pages = business.enabled_pages or []
+        all_pages = get_all_page_keys(include_system_admin=False)
+        
+        # Return pages grouped by category
+        pages_by_category = {}
+        for page_key in all_pages:
+            config = PAGE_REGISTRY.get(page_key)
+            if config and not config.is_system_admin_only:
+                if config.category not in pages_by_category:
+                    pages_by_category[config.category] = []
+                pages_by_category[config.category].append({
+                    'key': page_key,
+                    'title': config.title_he,
+                    'enabled': page_key in enabled_pages,
+                    'min_role': config.min_role,
+                    'icon': config.icon,
+                    'description': config.description
+                })
+        
+        return jsonify({
+            'business_id': business_id,
+            'business_name': business.name,
+            'enabled_pages': enabled_pages,
+            'pages_by_category': pages_by_category,
+            'all_pages': all_pages
+        })
+    except Exception as e:
+        logger.error(f"Error getting business pages: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/pages', methods=['PATCH'])
+@csrf.exempt  # API endpoint
+@require_api_auth(['system_admin'])
+def update_business_pages(business_id):
+    """
+    PATCH /api/admin/businesses/:id/pages
+    Update enabled pages for a business
+    
+    Body:
+    {
+        "enabled_pages": ["dashboard", "crm_leads", ...]
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or 'enabled_pages' not in data:
+            return jsonify({'error': 'enabled_pages is required'}), 400
+        
+        new_pages = data['enabled_pages']
+        if not isinstance(new_pages, list):
+            return jsonify({'error': 'enabled_pages must be a list'}), 400
+        
+        # Validate page keys
+        from server.security.page_registry import validate_page_keys, get_all_page_keys
+        
+        is_valid, invalid_keys = validate_page_keys(new_pages)
+        if not is_valid:
+            return jsonify({
+                'error': 'Invalid page keys',
+                'invalid_keys': invalid_keys
+            }), 400
+        
+        # Get business
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'error': 'Business not found'}), 404
+        
+        # Store old value for audit
+        old_pages = business.enabled_pages or []
+        
+        # Update enabled pages
+        business.enabled_pages = new_pages
+        business.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        # Create audit log
+        try:
+            from server.models_sql import SecurityEvent
+            admin_user = session.get('user')
+            
+            event = SecurityEvent(
+                business_id=business_id,
+                event_type='business_pages_updated',
+                severity='medium',
+                description=f'Business pages updated by admin',
+                user_id=admin_user.get('id') if admin_user else None,
+                user_email=admin_user.get('email') if admin_user else None,
+                event_metadata={
+                    'business_id': business_id,
+                    'business_name': business.name,
+                    'old_pages': old_pages,
+                    'new_pages': new_pages,
+                    'added': list(set(new_pages) - set(old_pages)),
+                    'removed': list(set(old_pages) - set(new_pages))
+                },
+                status='completed'
+            )
+            db.session.add(event)
+            db.session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to create audit log: {e}")
+        
+        logger.info(f"Business {business_id} pages updated by admin {admin_user.get('email') if admin_user else 'unknown'}")
+        
+        return jsonify({
+            'success': True,
+            'business_id': business_id,
+            'enabled_pages': new_pages
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating business pages: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@biz_mgmt_bp.route('/api/admin/page-registry', methods=['GET'])
+@require_api_auth(['system_admin'])
+def get_page_registry():
+    """
+    GET /api/admin/page-registry
+    Get the complete page registry for admin UI
+    """
+    try:
+        from server.security.page_registry import PAGE_REGISTRY, get_all_categories
+        
+        # Return non-system-admin pages only
+        pages = {
+            key: config.to_dict()
+            for key, config in PAGE_REGISTRY.items()
+            if not config.is_system_admin_only
+        }
+        
+        categories = get_all_categories()
+        
+        return jsonify({
+            'pages': pages,
+            'categories': [cat for cat in categories if cat != 'admin']
+        })
+    except Exception as e:
+        logger.error(f"Error getting page registry: {e}")
+        return jsonify({'error': str(e)}), 500
