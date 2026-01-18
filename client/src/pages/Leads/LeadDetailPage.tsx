@@ -2304,7 +2304,8 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
    * the actual summary text, removing all metadata and formatting.
    * 
    * @param content - The formatted call_summary note content
-   * @returns The clean summary text without formatting, or the original content if no summary marker found
+   * @returns The clean summary text without formatting. If no summary marker (💬) is found,
+   *          returns the original content unchanged for backward compatibility with legacy data.
    * 
    * @example
    * // Input:
@@ -2314,6 +2315,9 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
    * "הלקוח ביקש פגישה למחר בשעה 10"
    */
   const extractCleanSummary = (content: string): string => {
+    // Define metadata emoji prefixes used in the format
+    const METADATA_EMOJIS = ['🎯', '📋', '😊', '😟', '⏱️', '📞'];
+    
     // Split into lines and process
     const lines = content.split('\n');
     const summaryLines: string[] = [];
@@ -2331,8 +2335,8 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       
       // If we're in a summary block, continue adding lines until we hit another emoji prefix
       if (inSummaryBlock) {
-        // Check if this line starts with another metadata emoji (🎯, 📋, 😊, ⏱️, etc.)
-        const startsWithMetadataEmoji = /^[🎯📋😊😟⏱️📞]/.test(trimmed);
+        // Check if this line starts with a metadata emoji
+        const startsWithMetadataEmoji = METADATA_EMOJIS.some(emoji => trimmed.startsWith(emoji));
         
         // Empty line or metadata line ends the summary block
         if (!trimmed || startsWithMetadataEmoji) {
@@ -2351,7 +2355,7 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
     }
     
     // Fallback: if no 💬 prefix found, return content as-is
-    // This handles legacy data or different formats
+    // This handles legacy data or different formats for backward compatibility
     return content;
   };
 
