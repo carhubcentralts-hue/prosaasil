@@ -1406,7 +1406,9 @@ class Attachment(db.Model):
     channel_compatibility = db.Column(db.JSON, default={"email": True, "whatsapp": True, "broadcast": True})
     
     # Additional metadata (dimensions for images, duration for videos, etc.)
-    metadata = db.Column(db.JSON, nullable=True)
+    # ⚠️ IMPORTANT: Named 'meta_json' to avoid SQLAlchemy reserved word 'metadata'
+    # DB column is still named 'metadata' for backward compatibility
+    meta_json = db.Column('metadata', db.JSON, nullable=True)
     
     # Soft delete
     is_deleted = db.Column(db.Boolean, default=False, index=True)

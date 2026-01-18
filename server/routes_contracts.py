@@ -81,7 +81,7 @@ def create_attachment_from_file(
         mime_type=mime_type,
         file_size=file_size,
         storage_path='',
-        metadata={}
+        meta_json={}
     )
     
     db.session.add(attachment)
