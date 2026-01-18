@@ -9,6 +9,7 @@ import logging
 import queue
 import wave
 import contextlib
+import traceback
 from threading import Thread
 import threading
 from datetime import datetime
@@ -1231,24 +1232,18 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     from server.models_sql import LeadNote
                     from datetime import datetime as dt
                     
-                    # 🔥 NEW: Create a customer-service optimized summary
-                    # This summary is specifically for the NOTES and should be:
-                    # 1. Complete and detailed (include FULL summary from call_log.summary)
-                    # 2. Focused on key customer info, needs, and next steps
-                    # 3. Include all conversation context for AI customer service
-                    # 🆕 CRITICAL: Show FULL summary, not just first line - per user requirement
+                    # 🆕 CRITICAL: Create complete customer-service summary for AI context
+                    # Include FULL summary that appears in call history, not just first line
+                    # This ensures AI has all conversation details for intelligent customer service
                     
                     # Build customer-service focused note content
                     cs_summary_parts = []
                     
-                    # Add the FULL summary (not just first line!)
-                    # 🆕 FIX: Use the COMPLETE summary that appears in call history
+                    # Add the FULL summary with all conversation details
                     if summary:
-                        # 🔥 CRITICAL: Include the ENTIRE summary, not just metadata
-                        # The summary contains all the important details about the conversation
                         cs_summary_parts.append(f"💬 {summary}")
                     else:
-                        # 🔥 FIX: If no summary generated, add a placeholder instead of showing transcription
+                        # Placeholder if no summary was generated
                         if call_log.duration and call_log.duration < MIN_CALL_DURATION_FOR_SUMMARY:
                             cs_summary_parts.append(f"💬 שיחה קצרה מאוד - לא נענתה או נותקה מיד")
                         else:
@@ -1359,17 +1354,18 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         log.warning(f"[CustomerService] ⚠️ Failed to mark old notes as not latest: {mark_err}")
                         # Non-critical - the new note is still saved with is_latest=True
                     
-                    # 🆕 CRITICAL: Commit immediately to ensure note is saved
-                    # This prevents the note from being lost if later processing fails
+                    # 🆕 CRITICAL: Commit note immediately to prevent data loss
+                    # Note: This commits within the larger transaction context.
+                    # If this function is called within another transaction and fails,
+                    # the parent transaction should handle the rollback appropriately.
                     db.session.commit()
                     log.info(f"[CustomerService] ✅ Call summary note committed successfully for lead {lead.id}")
                     
                 except Exception as cs_err:
                     log.error(f"[CustomerService] ❌ CRITICAL: Failed to auto-save call summary: {cs_err}")
-                    # 🆕 Log full traceback for debugging
-                    import traceback
+                    # Log full traceback for debugging
                     log.error(f"[CustomerService] Traceback: {traceback.format_exc()}")
-                    # 🆕 Try to rollback and continue
+                    # Try to rollback and continue
                     try:
                         db.session.rollback()
                         log.info(f"[CustomerService] Rolled back transaction after note creation failure")

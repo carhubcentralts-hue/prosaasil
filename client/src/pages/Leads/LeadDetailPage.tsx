@@ -2285,93 +2285,31 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
 
-  /**
-   * Extracts the clean summary text from a formatted call_summary note.
-   * 
-   * The backend saves call_summary notes with format:
-   * ```
-   * 📞 סיכום לשירות לקוחות - DD/MM/YYYY HH:MM
-   *
-   * 💬 [actual summary text]
-   * 🎯 [optional intent]
-   * 📋 המשך: [optional next action]
-   * 😊 סנטימנט: [optional sentiment]
-   *
-   * ⏱️ X שניות
-   * ```
-   * 
-   * This function extracts only the line(s) starting with 💬, which contains
-   * the actual summary text, removing all metadata and formatting.
-   * 
-   * @param content - The formatted call_summary note content
-   * @returns The clean summary text without formatting. If no summary marker (💬) is found,
-   *          returns the original content unchanged for backward compatibility with legacy data.
-   * 
-   * @example
-   * // Input:
-   * "📞 סיכום לשירות לקוחות - 18/01/2026 17:30\n\n💬 הלקוח ביקש פגישה למחר בשעה 10\n🎯 רוצה לקבוע פגישה\n\n⏱️ 120 שניות"
-   * 
-   * // Output:
-   * "הלקוח ביקש פגישה למחר בשעה 10"
-   */
-  const extractCleanSummary = (content: string): string => {
-    // Define metadata emoji prefixes used in the format
-    const METADATA_EMOJIS = ['🎯', '📋', '😊', '😟', '⏱️', '📞'];
-    
-    // 🔥 FIX: Also exclude "תמלול:" lines (transcript snippets from old summaries)
-    const TRANSCRIPT_PREFIX = 'תמלול:';
-    
-    // Split into lines and process
-    const lines = content.split('\n');
-    const summaryLines: string[] = [];
-    let inSummaryBlock = false;
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      
-      // Start of summary block (line starts with 💬)
-      if (trimmed.startsWith('💬 ')) {
-        summaryLines.push(trimmed.substring(2).trim()); // Remove "💬 " prefix
-        inSummaryBlock = true;
-        continue;
-      }
-      
-      // If we're in a summary block, continue adding lines until we hit another emoji prefix
-      if (inSummaryBlock) {
-        // 🔥 FIX: Skip lines starting with "תמלול:" (transcript snippets)
-        // but continue processing remaining lines (don't break the loop)
-        if (trimmed.startsWith(TRANSCRIPT_PREFIX)) {
-          // Skip this line but continue to next line - there might be more summary content
-          continue;
-        }
-        
-        // Check if this line starts with a metadata emoji
-        const startsWithMetadataEmoji = METADATA_EMOJIS.some(emoji => trimmed.startsWith(emoji));
-        
-        // Empty line or metadata line ends the summary block
-        if (!trimmed || startsWithMetadataEmoji) {
-          inSummaryBlock = false;
-          break;
-        }
-        
-        // Otherwise, it's a continuation of the summary
-        summaryLines.push(trimmed);
-      }
-    }
-    
-    // If we found a summary, return it (join multi-line summaries with newlines)
-    if (summaryLines.length > 0) {
-      return summaryLines.join('\n');
-    }
-    
-    // Fallback: if no 💬 prefix found, return content as-is
-    // This handles legacy data or different formats for backward compatibility
-    return content;
-  };
-
   useEffect(() => {
     fetchAINotes();
   }, [lead.id]);
+
+  /**
+   * Sort notes to show latest first (newest at top).
+   * Per requirements: Always treat the last note as the most accurate "piece of truth"
+   * 
+   * @param notes - Array of notes to sort
+   * @returns Sorted notes with latest first
+   */
+  const sortNotesByLatestFirst = (notes: LeadNoteItem[]): LeadNoteItem[] => {
+    return [...notes].sort((a, b) => {
+      // First priority: notes marked as is_latest in structured_data
+      const aIsLatest = a.structured_data?.is_latest === true;
+      const bIsLatest = b.structured_data?.is_latest === true;
+      if (aIsLatest && !bIsLatest) return -1;
+      if (!aIsLatest && bIsLatest) return 1;
+      
+      // Second priority: sort by created_at timestamp (newest first)
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bTime - aTime;
+    });
+  };
 
   const fetchAINotes = async () => {
     try {
@@ -2387,22 +2325,8 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
           note.note_type === 'customer_service_ai'
         );
         
-        // 🆕 CRITICAL: Sort notes to always show latest first (newest at top)
-        // This ensures the most recent/accurate information is prioritized as requested
-        // Per requirements: "תתייחס להערה האחרונה שנרשמה כפיסת אמת הכי נכונה"
-        const sortedNotes = aiNotes.sort((a, b) => {
-          // First priority: notes marked as is_latest in structured_data
-          const aIsLatest = a.structured_data?.is_latest === true;
-          const bIsLatest = b.structured_data?.is_latest === true;
-          if (aIsLatest && !bIsLatest) return -1;
-          if (!aIsLatest && bIsLatest) return 1;
-          
-          // Second priority: sort by created_at timestamp (newest first)
-          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return bTime - aTime;
-        });
-        
+        // Sort notes to prioritize latest information
+        const sortedNotes = sortNotesByLatestFirst(aiNotes);
         setNotes(sortedNotes);
       }
     } catch (error) {
