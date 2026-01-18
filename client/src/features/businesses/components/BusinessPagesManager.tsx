@@ -136,10 +136,12 @@ export function BusinessPagesManager({
   const filterPages = (pages: PageInfo[]) => {
     if (!searchQuery.trim()) return pages;
     
-    const query = searchQuery.toLowerCase();
+    const query = searchQuery.trim();
     return pages.filter(page => 
       page.title.includes(query) ||
-      (page.description && page.description.includes(query))
+      (page.description && page.description.includes(query)) ||
+      // Also search in English for flexibility
+      page.key.toLowerCase().includes(query.toLowerCase())
     );
   };
 

@@ -73,6 +73,8 @@ export function useUserContext() {
   const hasRoleAccess = useCallback((minRole: string): boolean => {
     if (!context) return false;
 
+    // Role hierarchy matches backend ROLE_HIERARCHY in server/security/page_registry.py
+    // TODO: Consider fetching this from API to avoid drift
     const roleHierarchy: Record<string, number> = {
       agent: 0,
       manager: 1,

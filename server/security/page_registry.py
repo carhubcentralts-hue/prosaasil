@@ -8,6 +8,15 @@ from typing import Dict, List, Optional, Literal
 # Role types
 RoleType = Literal["agent", "manager", "admin", "owner", "system_admin"]
 
+# Role hierarchy - used for permission checks (higher number = more permissions)
+ROLE_HIERARCHY: Dict[str, int] = {
+    "agent": 0,
+    "manager": 1,
+    "admin": 2,
+    "owner": 3,
+    "system_admin": 4
+}
+
 class PageConfig:
     """Configuration for a single page/module"""
     def __init__(
@@ -286,20 +295,12 @@ def get_pages_for_role(role: RoleType, include_system_admin: bool = False) -> Li
     Returns:
         List of page keys accessible for this role
     """
-    role_hierarchy = {
-        "agent": 0,
-        "manager": 1,
-        "admin": 2,
-        "owner": 3,
-        "system_admin": 4
-    }
-    
-    user_level = role_hierarchy.get(role, 0)
+    user_level = ROLE_HIERARCHY.get(role, 0)
     
     return [
         key for key, config in PAGE_REGISTRY.items()
         if (include_system_admin or not config.is_system_admin_only)
-        and role_hierarchy.get(config.min_role, 0) <= user_level
+        and ROLE_HIERARCHY.get(config.min_role, 0) <= user_level
     ]
 
 def validate_page_keys(page_keys: List[str]) -> tuple[bool, List[str]]:

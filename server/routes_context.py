@@ -4,7 +4,7 @@ User context API - Provides user permissions and page access information
 from flask import Blueprint, jsonify, session, g
 from server.auth_api import require_api_auth
 from server.models_sql import Business
-from server.security.page_registry import PAGE_REGISTRY, get_all_page_keys, get_page_config
+from server.security.page_registry import PAGE_REGISTRY, get_all_page_keys, get_page_config, ROLE_HIERARCHY
 from server.db import db
 import logging
 
@@ -82,14 +82,7 @@ def get_user_context():
         enabled_pages = business.enabled_pages or []
         
         # Filter pages by role permissions
-        role_hierarchy = {
-            "agent": 0,
-            "manager": 1,
-            "admin": 2,
-            "owner": 3,
-            "system_admin": 4
-        }
-        user_level = role_hierarchy.get(user_role, 0)
+        user_level = ROLE_HIERARCHY.get(user_role, 0)
         
         # Get accessible pages (enabled + role-appropriate)
         accessible_pages = []
@@ -98,7 +91,7 @@ def get_user_context():
         for page_key in enabled_pages:
             page_config = get_page_config(page_key)
             if page_config:
-                required_level = role_hierarchy.get(page_config.min_role, 0)
+                required_level = ROLE_HIERARCHY.get(page_config.min_role, 0)
                 if user_level >= required_level:
                     accessible_pages.append(page_key)
                     page_registry_subset[page_key] = page_config.to_dict()

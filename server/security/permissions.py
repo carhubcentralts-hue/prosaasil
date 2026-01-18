@@ -6,7 +6,7 @@ from functools import wraps
 from flask import session, jsonify, g
 from server.models_sql import Business
 from server.db import db
-from server.security.page_registry import PAGE_REGISTRY, get_page_config
+from server.security.page_registry import PAGE_REGISTRY, get_page_config, ROLE_HIERARCHY
 import logging
 
 logger = logging.getLogger(__name__)
@@ -109,16 +109,8 @@ def require_page_access(page_key: str):
                     }), 403
             
             # 6. Check role permissions
-            role_hierarchy = {
-                "agent": 0,
-                "manager": 1,
-                "admin": 2,
-                "owner": 3,
-                "system_admin": 4
-            }
-            
-            user_level = role_hierarchy.get(user_role, 0)
-            required_level = role_hierarchy.get(page_config.min_role, 0)
+            user_level = ROLE_HIERARCHY.get(user_role, 0)
+            required_level = ROLE_HIERARCHY.get(page_config.min_role, 0)
             
             if user_level < required_level:
                 logger.warning(f"User role '{user_role}' insufficient for page '{page_key}' (requires '{page_config.min_role}')")
@@ -190,15 +182,8 @@ def check_api_endpoint_permission(request_path: str, user_role: str, business_id
             # Check role permissions
             page_config = get_page_config(page_key)
             if page_config:
-                role_hierarchy = {
-                    "agent": 0,
-                    "manager": 1,
-                    "admin": 2,
-                    "owner": 3,
-                    "system_admin": 4
-                }
-                user_level = role_hierarchy.get(user_role, 0)
-                required_level = role_hierarchy.get(page_config.min_role, 0)
+                user_level = ROLE_HIERARCHY.get(user_role, 0)
+                required_level = ROLE_HIERARCHY.get(page_config.min_role, 0)
                 
                 if user_level < required_level:
                     return False, f"insufficient_role:{page_config.min_role}"

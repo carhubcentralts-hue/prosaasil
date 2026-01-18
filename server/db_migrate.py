@@ -2684,10 +2684,14 @@ def apply_migrations():
                 default_pages_json = json.dumps(DEFAULT_ENABLED_PAGES)
                 checkpoint(f"  → Setting default pages for existing businesses: {len(DEFAULT_ENABLED_PAGES)} pages")
                 
+                # Update only rows that don't have pages set yet (NULL or empty array)
+                # Use COALESCE to handle NULL values and check array length
                 result = db.session.execute(text("""
                     UPDATE business 
                     SET enabled_pages = :pages
-                    WHERE enabled_pages = '[]' OR enabled_pages IS NULL
+                    WHERE enabled_pages IS NULL 
+                       OR enabled_pages = '[]'::json
+                       OR json_array_length(CAST(enabled_pages AS json)) = 0
                 """), {"pages": default_pages_json})
                 
                 updated_count = result.rowcount

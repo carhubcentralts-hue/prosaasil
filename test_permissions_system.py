@@ -123,13 +123,16 @@ def test_role_hierarchy():
     agent_pages = get_pages_for_role("agent")
     for page_key in agent_pages:
         config = PAGE_REGISTRY[page_key]
-        assert config.min_role in ["agent"]
+        # Agent should only see pages that require agent or no higher role
+        assert config.min_role == "agent", f"Agent page {page_key} should require 'agent' role, got '{config.min_role}'"
     
     # Admin can access admin and lower pages
     admin_pages = get_pages_for_role("admin")
+    allowed_roles_for_admin = ["agent", "manager", "admin"]
     for page_key in admin_pages:
         config = PAGE_REGISTRY[page_key]
-        assert config.min_role in ["agent", "manager", "admin"]
+        assert config.min_role in allowed_roles_for_admin, \
+            f"Admin accessible page {page_key} has invalid min_role: {config.min_role}"
 
 def test_critical_pages_exist():
     """Test that critical pages are registered"""
