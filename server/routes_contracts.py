@@ -20,8 +20,11 @@ Endpoints:
 - GET /api/contracts/{id}/events - Get audit trail
 """
 
+from __future__ import annotations
+
 from flask import Blueprint, jsonify, request, g
 from werkzeug.utils import secure_filename
+from werkzeug.datastructures import FileStorage
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import Contract, ContractFile, ContractSignToken, ContractSignEvent, Attachment, Lead, User, db
