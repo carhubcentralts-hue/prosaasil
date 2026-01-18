@@ -559,20 +559,24 @@ def _is_likely_a_name_ai_validate(candidate_name: str, context: str) -> bool:
 
 
 
-def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None) -> str:
+def build_name_anchor_message(customer_name: Optional[str], use_name_policy: bool, customer_gender: Optional[str] = None, lead_notes: Optional[str] = None) -> str:
     """
     Build CRM Context message - human-natural format (not technical).
     
     CRITICAL: Must be human-readable, not data-dump format.
     Never include email:, phone:, lead_id, or technical fields.
     
+    🔥 NEW: Includes lead notes/comments from previous interactions
+    This provides essential context about the customer's history, preferences, and past issues.
+    
     Args:
         customer_name: The customer's name (None if not available)
         use_name_policy: Whether business prompt requests name usage
         customer_gender: The customer's detected gender
+        lead_notes: Recent notes/comments about this customer (max 500 chars)
     
     Returns:
-        Natural language CRM context
+        Natural language CRM context with customer info and history
     """
     parts = []
     
@@ -585,6 +589,15 @@ def build_name_anchor_message(customer_name: Optional[str], use_name_policy: boo
     elif use_name_policy and not customer_name:
         # Policy wants name but none provided
         parts.append("Customer name not available.")
+    
+    # 🔥 NEW: Include lead notes if available (critical for context)
+    # Notes provide history of previous interactions, issues, preferences
+    if lead_notes and lead_notes.strip():
+        # Truncate if too long (keep first 500 chars for token efficiency)
+        notes_text = lead_notes.strip()[:500]
+        if len(lead_notes.strip()) > 500:
+            notes_text += "..."
+        parts.append(f"Previous notes: {notes_text}")
     
     return " ".join(parts) if parts else ""
 
