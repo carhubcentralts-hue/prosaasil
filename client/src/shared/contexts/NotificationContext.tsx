@@ -270,7 +270,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length;
   
-  // Compute urgent notifications - only show when time has arrived or is imminent (within 15 minutes)
+  // Compute urgent notifications - only show when time has arrived or is imminent (within 30 minutes)
   const urgentNotifications = notifications.filter(n => {
     // Skip if already dismissed
     if (dismissedUrgent.has(n.id)) return false;
@@ -282,12 +282,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     if (n.metadata?.dueAt) {
       const dueDate = new Date(n.metadata.dueAt);
       const now = new Date();
-      const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+      const thirtyMinutesFromNow = new Date(now.getTime() + 30 * 60 * 1000);
       
       // 🔥 FIX: Only show urgent popup if:
       // 1. Overdue (past due date), OR
-      // 2. Due within the next 15 minutes
-      if (dueDate <= fifteenMinutesFromNow) {
+      // 2. Due within the next 30 minutes (covers 30, 15, and 5 minute warnings)
+      if (dueDate <= thirtyMinutesFromNow) {
         // It's time or almost time - show the popup
         return n.metadata?.priority === 'urgent' || n.metadata?.priority === 'high';
       }

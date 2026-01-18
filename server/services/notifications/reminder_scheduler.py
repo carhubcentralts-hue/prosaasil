@@ -130,6 +130,7 @@ def check_and_send_reminder_notifications(app):
     Sends notifications at:
     - 30 minutes before
     - 15 minutes before
+    - 5 minutes before
     
     Uses DB-backed deduplication to prevent duplicate sends across workers.
     
@@ -151,6 +152,8 @@ def check_and_send_reminder_notifications(app):
             window_30_end = now + timedelta(minutes=31)
             window_15_start = now + timedelta(minutes=14)
             window_15_end = now + timedelta(minutes=16)
+            window_5_start = now + timedelta(minutes=4)
+            window_5_end = now + timedelta(minutes=6)
             
             # Query reminders that are due soon (within next 35 minutes)
             # and haven't been completed - limited scope for efficiency
@@ -180,6 +183,12 @@ def check_and_send_reminder_notifications(app):
                     # DB-backed deduplication with retry on failure
                     if _try_send_with_dedupe(db, reminder, lead, 15):
                         notifications_sent += 1
+                
+                # Check if due in ~5 minutes
+                elif window_5_start <= reminder.due_at <= window_5_end:
+                    # DB-backed deduplication with retry on failure
+                    if _try_send_with_dedupe(db, reminder, lead, 5):
+                        notifications_sent += 1
             
             if notifications_sent > 0:
                 log.info(f"🔔 Sent {notifications_sent} reminder push notification(s)")
@@ -205,9 +214,15 @@ def _send_reminder_push(reminder, lead, minutes_before: int):
         if minutes_before == 30:
             title = "⏰ תזכורת בעוד חצי שעה"
             time_text = "30 דקות"
-        else:
+        elif minutes_before == 15:
             title = "⏰ תזכורת בעוד רבע שעה!"
             time_text = "15 דקות"
+        elif minutes_before == 5:
+            title = "🔔 תזכורת בעוד 5 דקות!"
+            time_text = "5 דקות"
+        else:
+            title = f"⏰ תזכורת בעוד {minutes_before} דקות"
+            time_text = f"{minutes_before} דקות"
         
         # Build body with lead name if available
         if lead and lead.full_name:
