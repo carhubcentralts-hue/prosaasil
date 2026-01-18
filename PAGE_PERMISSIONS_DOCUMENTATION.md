@@ -118,6 +118,30 @@ def list_leads():
 
 Creates audit log in security_events table.
 
+#### POST /api/admin/business
+יצירת עסק חדש עם הגדרות הרשאות (system_admin בלבד):
+```json
+{
+  "name": "My Business",
+  "phone_e164": "+972501234567",
+  "owner_email": "owner@example.com",
+  "owner_password": "password123",
+  "owner_name": "Business Owner",
+  "enabled_pages": ["dashboard", "crm_leads", "calls_inbound"]
+}
+```
+
+אם `enabled_pages` לא מסופק, ברירת המחדל היא כל הדפים הזמינים (DEFAULT_ENABLED_PAGES).
+
+#### PUT /api/admin/business/:id
+עדכון עסק קיים כולל הרשאות דפים (system_admin בלבד):
+```json
+{
+  "name": "Updated Business Name",
+  "enabled_pages": ["dashboard", "crm_leads"]
+}
+```
+
 ## Frontend Components
 
 ### 1. useUserContext Hook
@@ -148,17 +172,43 @@ import { PageGuard } from '@/features/permissions/PageGuard';
 ```
 
 ### 3. BusinessPagesManager Component
+מרכיב ניהול הרשאות דפים מלא עבור עסק:
 ```typescript
 import { BusinessPagesManager } from '@/features/businesses/components/BusinessPagesManager';
 
 <BusinessPagesManager 
   businessId={businessId}
   businessName={businessName}
+  onClose={() => setPagesModalOpen(false)}
   onSave={() => {
     // Refresh data
+    fetchBusinesses();
   }}
 />
 ```
+
+**שימוש בעמוד ניהול עסקים:**
+- בעמוד `/app/admin/businesses` יש כפתור Shield (🛡️) בכל שורת עסק
+- לחיצה על הכפתור פותחת מודל ניהול הרשאות
+- ניתן לבחור/לבטל בחירה של דפים לפי קטגוריות
+- השינויים נשמרים ישירות לדאטהבייס
+- מתבצע audit log אוטומטי בטבלת security_events
+
+### 4. Business Create/Edit Workflow
+**תהליך יצירת עסק חדש:**
+1. System admin לוחץ על "עסק חדש" בעמוד ניהול עסקים
+2. ממלא פרטי עסק (שם, טלפון, וכו')
+3. (אופציונלי) יכול לשנות את enabled_pages בבקשה
+4. אם לא מסופק, מוגדרים כל הדפים כברירת מחדל
+5. העסק נוצר עם ההרשאות המבוקשות
+
+**תהליך עריכת הרשאות:**
+1. System admin לוחץ על כפתור Shield בשורת העסק
+2. נפתח מודל BusinessPagesManager
+3. רואה את כל הדפים לפי קטגוריות עם סטטוס enabled/disabled
+4. יכול לחפש דפים, לבחור הכל, או לנקות הכל
+5. לוחץ "שמור שינויים" - הנתונים נשמרים ישירות
+6. השינויים משתקפים מיד במערכת
 
 ## Role Hierarchy
 

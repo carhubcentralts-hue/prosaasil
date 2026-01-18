@@ -81,6 +81,7 @@ def get_business(business_id):
             "whatsapp_enabled": business.whatsapp_enabled,
             "payments_enabled": business.payments_enabled,
             "default_provider": business.default_provider or "paypal",
+            "enabled_pages": business.enabled_pages or [],
             "email": f"office@{business.name.lower().replace(' ', '-')}.co.il",
             "address": "",
             "status": "active" if business.is_active else "inactive",
@@ -153,6 +154,27 @@ def create_business():
             business.payments_enabled = False
             business.default_provider = "paypal"
             
+            # 🔥 Page permissions: Use provided or default to all pages
+            from server.security.page_registry import DEFAULT_ENABLED_PAGES, validate_page_keys
+            
+            enabled_pages = data.get('enabled_pages')
+            if enabled_pages is not None:
+                # Validate provided pages
+                if not isinstance(enabled_pages, list):
+                    return jsonify({"error": "enabled_pages must be a list"}), 400
+                
+                is_valid, invalid_keys = validate_page_keys(enabled_pages)
+                if not is_valid:
+                    return jsonify({
+                        "error": "Invalid page keys",
+                        "invalid_keys": invalid_keys
+                    }), 400
+                
+                business.enabled_pages = enabled_pages
+            else:
+                # Default: enable all pages for new business
+                business.enabled_pages = DEFAULT_ENABLED_PAGES
+            
             db.session.add(business)
             db.session.flush()  # Get business.id WITHOUT committing yet
             
@@ -221,6 +243,7 @@ def create_business():
             "default_provider": business.default_provider or "paypal",
             "business_type": business.business_type,
             "is_active": business.is_active,
+            "enabled_pages": business.enabled_pages or [],
             "status": "active" if business.is_active else "inactive",
             "call_status": "ready",
             "whatsapp_status": "connected",
@@ -317,6 +340,23 @@ def update_business(business_id):
         if 'default_provider' in data:
             business.default_provider = data['default_provider']
         
+        # Update enabled pages if provided
+        if 'enabled_pages' in data:
+            from server.security.page_registry import validate_page_keys
+            
+            enabled_pages = data['enabled_pages']
+            if not isinstance(enabled_pages, list):
+                return jsonify({"error": "enabled_pages must be a list"}), 400
+            
+            is_valid, invalid_keys = validate_page_keys(enabled_pages)
+            if not is_valid:
+                return jsonify({
+                    "error": "Invalid page keys",
+                    "invalid_keys": invalid_keys
+                }), 400
+            
+            business.enabled_pages = enabled_pages
+        
         business.updated_at = datetime.utcnow()
         db.session.commit()
         
@@ -341,6 +381,7 @@ def update_business(business_id):
             "default_provider": business.default_provider or "paypal",
             "business_type": business.business_type,
             "is_active": business.is_active,
+            "enabled_pages": business.enabled_pages or [],
             "status": "active" if business.is_active else "inactive",
             "call_status": "ready",
             "whatsapp_status": "connected",
