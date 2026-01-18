@@ -1013,7 +1013,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 note_type: Type of note - "manual" (default) or "system"
                 
             Returns:
-                Success/failure and note ID
+                dict: {success: bool, note_id: int, message: str}
             """
             from server.agent_tools.tools_crm_context import CreateLeadNoteInput, create_lead_note
             result = create_lead_note(CreateLeadNoteInput(
@@ -1036,7 +1036,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 next_step: What needs to happen next (e.g., "Call back tomorrow at 10:00", "Send follow-up email")
                 
             Returns:
-                Success/failure and note ID
+                dict: {success: bool, note_id: int, message: str}
             """
             from server.agent_tools.tools_crm_context import create_call_summary_note
             structured_data = {}
