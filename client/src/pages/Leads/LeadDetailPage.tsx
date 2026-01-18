@@ -2339,9 +2339,10 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       // If we're in a summary block, continue adding lines until we hit another emoji prefix
       if (inSummaryBlock) {
         // 🔥 FIX: Skip lines starting with "תמלול:" (transcript snippets)
+        // but continue processing remaining lines (don't break the loop)
         if (trimmed.startsWith(TRANSCRIPT_PREFIX)) {
-          inSummaryBlock = false;
-          break;
+          // Skip this line but continue to next line - there might be more summary content
+          continue;
         }
         
         // Check if this line starts with a metadata emoji

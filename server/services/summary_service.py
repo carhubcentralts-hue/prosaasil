@@ -280,7 +280,7 @@ def _fallback_summary(transcription: str) -> str:
     else:
         summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה קצרה")
     
-    summary_parts.append("\n\n**הערה**: התמליל המלא זמין בכרטיסייה 'שיחות טלפון'")
+    summary_parts.append("\n\n**הערה**: התמליל המלא זמין בהיסטוריית שיחות")
     summary_parts.append("\n\n(סיכום זה נוצר אוטומטית - שירות AI זמנית לא זמין)")
     
     fallback = "\n".join(summary_parts)
