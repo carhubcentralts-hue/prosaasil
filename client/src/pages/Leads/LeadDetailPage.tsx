@@ -25,7 +25,8 @@ const TABS = [
   { key: 'email', label: 'מייל', icon: Mail },
   { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
-  { key: 'notes', label: 'הערות', icon: FileText },  // ✅ BUILD 170: Free-text notes tab
+  { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone },  // AI-generated call summaries for customer service
+  { key: 'notes', label: 'הערות חופשיות', icon: FileText },  // Manual free-text notes
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -485,6 +486,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'email' && <EmailTab lead={lead} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
+        {activeTab === 'ai_notes' && <AINotesTab lead={lead} onUpdate={fetchLead} />}
         {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
       </div>
 
@@ -2269,6 +2271,275 @@ function ActivityTab({ activities }: { activities: LeadActivity[] }) {
   );
 }
 
+// ✅ AI Customer Service Notes Tab - Shows AI-generated call summaries only (no file uploads)
+interface AINotesTabProps {
+  lead: Lead;
+  onUpdate: () => void;
+}
+
+function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
+  const [notes, setNotes] = useState<LeadNoteItem[]>([]);
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
+
+  useEffect(() => {
+    fetchAINotes();
+  }, [lead.id]);
+
+  const fetchAINotes = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get<{ success: boolean; notes: LeadNoteItem[] }>(`/api/leads/${lead.id}/notes`);
+      if (response.success) {
+        // Show call_summary, system notes, AND manual notes without attachments (for AI context)
+        // This allows businesses to add context notes that the AI will read during customer service calls
+        const aiNotes = response.notes.filter(note => 
+          note.note_type === 'call_summary' || 
+          note.note_type === 'system' ||
+          (note.note_type === 'manual' && (!note.attachments || note.attachments.length === 0))
+        );
+        setNotes(aiNotes);
+      }
+    } catch (error) {
+      console.error('Failed to fetch AI notes:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveNewNote = async () => {
+    if (!newNoteContent.trim()) return;
+    
+    setSaving(true);
+    try {
+      const response = await http.post<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes`, {
+        content: newNoteContent.trim()
+      });
+      
+      if (response.success) {
+        await fetchAINotes();  // Refresh to get updated list
+        setNewNoteContent('');
+      }
+    } catch (error) {
+      console.error('Failed to save note:', error);
+      alert('שגיאה בשמירת ההערה');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateNote = async (noteId: number) => {
+    if (!editContent.trim()) return;
+    
+    try {
+      const response = await http.patch<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes/${noteId}`, {
+        content: editContent.trim()
+      });
+      if (response.success) {
+        setNotes(notes.map(n => n.id === noteId ? response.note : n));
+        setEditingId(null);
+        setEditContent('');
+      }
+    } catch (error) {
+      console.error('Failed to update note:', error);
+      alert('שגיאה בעדכון ההערה');
+    }
+  };
+
+  const handleDeleteNote = async (noteId: number) => {
+    if (!confirm('האם למחוק את ההערה?')) return;
+    
+    try {
+      await http.delete(`/api/leads/${lead.id}/notes/${noteId}`);
+      setNotes(notes.filter(n => n.id !== noteId));
+    } catch (error) {
+      console.error('Failed to delete note:', error);
+      alert('שגיאה במחיקת ההערה');
+    }
+  };
+
+  const startEditing = (note: LeadNoteItem) => {
+    setEditingId(note.id);
+    setEditContent(note.content);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditContent('');
+  };
+
+  return (
+    <Card className="p-4 sm:p-6">
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+            <Phone className="w-5 h-5 text-blue-600" />
+            שירות לקוחות AI
+          </h3>
+        </div>
+        <p className="text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
+          💡 <strong>הערות כאן גלויות ל-AI</strong> - סיכומי שיחות אוטומטיים + הערות שלך שה-AI ידע עליהן (ללא קבצים)
+        </p>
+      </div>
+
+      {/* New note input - Text only, no file uploads */}
+      <div className="mb-6 p-4 bg-gradient-to-br from-blue-50 to-green-50 rounded-lg border-2 border-blue-300">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm font-bold text-blue-900">✍️ הוסף הערה לשירות לקוחות</span>
+          <span className="text-xs text-blue-700 bg-blue-100 px-2 py-0.5 rounded">AI יראה את זה</span>
+        </div>
+        <textarea
+          value={newNoteContent}
+          onChange={(e) => setNewNoteContent(e.target.value)}
+          placeholder="לדוגמה: לקוח מעדיף פגישות בבוקר, VIP - טיפול מיוחד, אלרגיה לחתולים..."
+          className="w-full h-24 p-3 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y text-right bg-white"
+          dir="rtl"
+          data-testid="textarea-new-ai-note"
+        />
+        
+        <div className="flex items-center justify-end mt-3">
+          <Button
+            onClick={handleSaveNewNote}
+            disabled={saving || !newNoteContent.trim()}
+            size="sm"
+            data-testid="button-save-new-ai-note"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                שומר...
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4 ml-2" />
+                הוסף הערה
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Notes list */}
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
+      ) : notes.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <Phone className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+          <p>אין סיכומי שיחות עדיין</p>
+          <p className="text-xs mt-2">סיכומים נוצרים אוטומטית אחרי כל שיחה</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {notes.map((note) => {
+            const isCallSummary = note.note_type === 'call_summary';
+            const isSystemNote = note.note_type === 'system';
+            const isManualNote = note.note_type === 'manual' || !note.note_type;
+            const noteClasses = isCallSummary 
+              ? "p-4 bg-blue-50 border-2 border-blue-200 rounded-lg" 
+              : isSystemNote 
+                ? "p-4 bg-gray-100 border-2 border-gray-300 rounded-lg"
+                : "p-4 bg-green-50 border-2 border-green-300 rounded-lg";  // Manual notes in green
+            
+            return (
+            <div 
+              key={note.id} 
+              className={noteClasses}
+              data-testid={`ai-note-${note.id}`}
+            >
+              {/* Note type badge */}
+              {isCallSummary && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-blue-200">
+                  <Phone className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded">סיכום שיחה (AI)</span>
+                  {note.structured_data?.outcome && (
+                    <span className="text-xs text-blue-600">
+                      תוצאה: {note.structured_data.outcome}
+                    </span>
+                  )}
+                </div>
+              )}
+              {isSystemNote && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-300">
+                  <span className="text-xs font-medium text-gray-600 bg-gray-200 px-2 py-0.5 rounded">הערת מערכת</span>
+                </div>
+              )}
+              {isManualNote && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-green-300">
+                  <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">📝 הערה ידנית (גלויה ל-AI)</span>
+                </div>
+              )}
+              
+              {editingId === note.id ? (
+                <div>
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full h-24 p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 resize-y text-right"
+                    dir="rtl"
+                    data-testid={`textarea-edit-ai-note-${note.id}`}
+                  />
+                  <div className="flex items-center gap-2 mt-2 justify-end">
+                    <Button size="sm" variant="secondary" onClick={cancelEditing}>
+                      ביטול
+                    </Button>
+                    <Button size="sm" onClick={() => handleUpdateNote(note.id)}>
+                      <Save className="w-4 h-4 ml-2" />
+                      שמור
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {/* Allow editing manual notes, but allow deleting all notes */}
+                      {isManualNote && (
+                        <button
+                          onClick={() => startEditing(note)}
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                          title="ערוך"
+                          data-testid={`button-edit-ai-note-${note.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      {/* All notes can be deleted - including AI-generated */}
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="מחק"
+                        data-testid={`button-delete-ai-note-${note.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <span className="text-xs text-gray-400">
+                      {note.created_at ? formatDate(note.created_at) : ''}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-gray-700 whitespace-pre-wrap text-right" dir="rtl">
+                    {note.content}
+                  </p>
+                </>
+              )}
+            </div>
+          );
+          })}
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-gray-400 text-center">
+        הערות אלו נוצרות אוטומטית לאחר שיחות ומיועדות לשירות לקוחות
+      </p>
+    </Card>
+  );
+}
+
 // ✅ BUILD 172: Notes Tab - Permanent notes with edit/delete and file attachments
 interface NotesTabProps {
   lead: Lead;
@@ -2324,7 +2595,11 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       setLoading(true);
       const response = await http.get<{ success: boolean; notes: LeadNoteItem[] }>(`/api/leads/${lead.id}/notes`);
       if (response.success) {
-        setNotes(response.notes);
+        // Filter to show only manual notes (user-created)
+        const manualNotes = response.notes.filter(note => 
+          !note.note_type || note.note_type === 'manual'
+        );
+        setNotes(manualNotes);
       }
     } catch (error) {
       console.error('Failed to fetch notes:', error);
@@ -2644,39 +2919,13 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       ) : (
         <div className="space-y-4">
           {notes.map((note) => {
-            // Determine note styling based on type
-            const isCallSummary = note.note_type === 'call_summary';
-            const isSystemNote = note.note_type === 'system';
-            const noteClasses = isCallSummary 
-              ? "p-4 bg-blue-50 border border-blue-200 rounded-lg" 
-              : isSystemNote 
-                ? "p-4 bg-gray-100 border border-gray-300 rounded-lg"
-                : "p-4 bg-white border border-gray-200 rounded-lg";
-            
+            // All notes in this tab are manual notes (with attachments allowed)
             return (
             <div 
               key={note.id} 
-              className={noteClasses}
+              className="p-4 bg-white border border-gray-200 rounded-lg"
               data-testid={`note-${note.id}`}
             >
-              {/* Note type badge */}
-              {isCallSummary && (
-                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-blue-200">
-                  <Phone className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded">סיכום שיחה (AI)</span>
-                  {note.structured_data?.outcome && (
-                    <span className="text-xs text-blue-600">
-                      תוצאה: {note.structured_data.outcome}
-                    </span>
-                  )}
-                </div>
-              )}
-              {isSystemNote && (
-                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-300">
-                  <span className="text-xs font-medium text-gray-600 bg-gray-200 px-2 py-0.5 rounded">הערת מערכת</span>
-                </div>
-              )}
-              
               {editingId === note.id ? (
                 <div>
                   <textarea
@@ -2700,27 +2949,23 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      {/* Don't show edit/delete for AI-generated notes */}
-                      {!isCallSummary && !isSystemNote && (
-                        <>
-                          <button
-                            onClick={() => startEditing(note)}
-                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="ערוך"
-                            data-testid={`button-edit-note-${note.id}`}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteNote(note.id)}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="מחק"
-                            data-testid={`button-delete-note-${note.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
+                      {/* All notes in Free Notes tab can be edited/deleted */}
+                      <button
+                        onClick={() => startEditing(note)}
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="ערוך"
+                        data-testid={`button-edit-note-${note.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="מחק"
+                        data-testid={`button-delete-note-${note.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                     <span className="text-xs text-gray-400">
                       {note.created_at ? formatDate(note.created_at) : ''}
@@ -2905,7 +3150,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       )}
 
       <p className="mt-4 text-xs text-gray-400 text-center">
-        הערות נשמרות לצמיתות על הליד
+        הערות חופשיות נשמרות לצמיתות על הליד ויכולות לכלול קבצים מצורפים
       </p>
     </Card>
   );

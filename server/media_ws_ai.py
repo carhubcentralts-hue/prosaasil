@@ -15808,10 +15808,21 @@ class MediaStreamHandler:
                                 from server.models_sql import LeadNote
                                 from datetime import datetime
                                 
-                                # Create a concise summary for the note (first 500 chars of conversation)
-                                note_content = full_conversation[:500]
-                                if len(full_conversation) > 500:
-                                    note_content += "... (תמלול מלא זמין בפרטי השיחה)"
+                                # 🔥 NEW: Create a temporary customer-service summary
+                                # NOTE: This is a quick summary during the call. The offline worker
+                                # will create a better, AI-analyzed summary later.
+                                
+                                # Try to extract key points from conversation
+                                summary_lines = []
+                                
+                                # Get first 300 chars as quick context
+                                quick_summary = full_conversation[:300].strip()
+                                if quick_summary:
+                                    summary_lines.append(f"💬 {quick_summary}")
+                                    if len(full_conversation) > 300:
+                                        summary_lines.append("\n📝 (סיכום מפורט יתווסף אוטומטית)")
+                                
+                                note_content = "\n".join(summary_lines)
                                 
                                 # Check if note already exists for this call to avoid duplicates
                                 existing_note = LeadNote.query.filter_by(
@@ -15831,7 +15842,7 @@ class MediaStreamHandler:
                                     )
                                     db.session.add(lead_note)
                                     db.session.commit()
-                                    force_print(f"✅ [FINALIZE] Created lead note for lead_id={call_log.lead_id} from call {self.call_sid}")
+                                    force_print(f"✅ [FINALIZE] Created quick call summary note for lead_id={call_log.lead_id}")
                                 else:
                                     force_print(f"ℹ️ [FINALIZE] Lead note already exists for this call, skipping duplicate")
                             except Exception as note_err:

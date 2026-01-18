@@ -1225,12 +1225,48 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                             # Create call summary note automatically
                             from datetime import datetime as dt
                             
-                            # Build structured note content
-                            note_content = f"""📞 סיכום שיחה נכנסת - {dt.now().strftime('%d/%m/%Y %H:%M')}
+                            # 🔥 NEW: Create a customer-service optimized summary
+                            # This summary is specifically for the NOTES and should be:
+                            # 1. Short and concise (for AI to read quickly)
+                            # 2. Focused on key customer info, needs, and next steps
+                            # 3. Different from the call_log.summary (which is for display)
                             
-{summary}
+                            # Build customer-service focused note content
+                            cs_summary_parts = []
+                            
+                            # Add the main summary (already concise from summarize_conversation)
+                            if summary:
+                                cs_summary_parts.append(f"💬 {summary}")
+                            
+                            # Add structured insights if available from conversation analysis
+                            if conversation_summary:
+                                if conversation_summary.get('intent'):
+                                    intent_he = {
+                                        'meeting_request': '🎯 רוצה לקבוע פגישה',
+                                        'interested': '✅ מעוניין',
+                                        'not_interested': '❌ לא מעוניין',
+                                        'information_request': 'ℹ️ ביקש מידע',
+                                        'general_inquiry': '❓ שאלה כללית'
+                                    }.get(conversation_summary.get('intent'), '')
+                                    if intent_he:
+                                        cs_summary_parts.append(intent_he)
+                                
+                                # Add next action suggestion
+                                if conversation_summary.get('next_action'):
+                                    cs_summary_parts.append(f"📋 המשך: {conversation_summary.get('next_action')}")
+                                
+                                # Add sentiment if not neutral
+                                sentiment = conversation_summary.get('sentiment', 'neutral')
+                                if sentiment != 'neutral':
+                                    sentiment_emoji = '😊' if sentiment == 'positive' else '😟'
+                                    cs_summary_parts.append(f"{sentiment_emoji} סנטימנט: {sentiment}")
+                            
+                            # Build final note content - SHORT and ACTIONABLE for AI
+                            note_content = f"""📞 סיכום לשירות לקוחות - {dt.now().strftime('%d/%m/%Y %H:%M')}
 
-משך שיחה: {call_log.duration or 0} שניות"""
+{chr(10).join(cs_summary_parts)}
+
+⏱️ {call_log.duration or 0} שניות"""
                             
                             # Create the note
                             call_note = LeadNote()
@@ -1242,12 +1278,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                             call_note.structured_data = {
                                 'call_duration': call_log.duration,
                                 'call_direction': call_log.direction,
-                                'call_sid': call_sid
+                                'call_sid': call_sid,
+                                'intent': conversation_summary.get('intent') if conversation_summary else None,
+                                'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
+                                'next_action': conversation_summary.get('next_action') if conversation_summary else None
                             }
                             call_note.created_at = dt.utcnow()
                             
                             db.session.add(call_note)
-                            log.info(f"[CustomerService] 🎧 Auto-saved call summary to lead {lead.id} notes (customer service mode)")
+                            log.info(f"[CustomerService] 🎧 Auto-saved customer-service optimized call summary to lead {lead.id} notes")
                     except Exception as cs_err:
                         log.warning(f"[CustomerService] ⚠️ Failed to auto-save call summary: {cs_err}")
                         # Non-critical - continue with other processing
