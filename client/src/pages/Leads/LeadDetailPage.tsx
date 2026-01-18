@@ -2285,6 +2285,40 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
 
+  // Helper function to extract clean summary from formatted call_summary content
+  const extractCleanSummary = (content: string): string => {
+    // The backend saves call_summary notes with format:
+    // "📞 סיכום לשירות לקוחות - DD/MM/YYYY HH:MM
+    //
+    // 💬 [actual summary text]
+    // 🎯 [optional intent]
+    // 📋 המשך: [optional next action]
+    // 😊 סנטימנט: [optional sentiment]
+    //
+    // ⏱️ X שניות"
+    
+    // Extract just the summary part (the line starting with 💬)
+    const lines = content.split('\n');
+    const summaryLines: string[] = [];
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Look for the main summary line (starts with 💬)
+      if (trimmed.startsWith('💬 ')) {
+        summaryLines.push(trimmed.substring(2).trim()); // Remove "💬 " prefix
+      }
+    }
+    
+    // If we found a clean summary, return it
+    if (summaryLines.length > 0) {
+      return summaryLines.join('\n');
+    }
+    
+    // Fallback: if no 💬 prefix found, return content as-is
+    // This handles legacy data or different formats
+    return content;
+  };
+
   useEffect(() => {
     fetchAINotes();
   }, [lead.id]);
@@ -2534,7 +2568,7 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                     </span>
                   </div>
                   <p className="mt-2 text-gray-700 whitespace-pre-wrap text-right" dir="rtl">
-                    {note.content}
+                    {isCallSummary ? extractCleanSummary(note.content) : note.content}
                   </p>
                 </>
               )}
@@ -2545,7 +2579,7 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
       )}
 
       <p className="mt-4 text-xs text-gray-400 text-center">
-        הערות אלו נוצרות אוטומטית לאחר שיחות ומיועדות לשירות לקוחות
+        סיכומי שיחות נוצרים אוטומטית ומיועדים לשירות לקוחות מהיר ומדויק
       </p>
     </Card>
   );
