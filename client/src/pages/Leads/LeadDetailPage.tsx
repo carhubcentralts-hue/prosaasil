@@ -2285,31 +2285,67 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
 
-  // Helper function to extract clean summary from formatted call_summary content
+  /**
+   * Extracts the clean summary text from a formatted call_summary note.
+   * 
+   * The backend saves call_summary notes with format:
+   * ```
+   * 📞 סיכום לשירות לקוחות - DD/MM/YYYY HH:MM
+   *
+   * 💬 [actual summary text]
+   * 🎯 [optional intent]
+   * 📋 המשך: [optional next action]
+   * 😊 סנטימנט: [optional sentiment]
+   *
+   * ⏱️ X שניות
+   * ```
+   * 
+   * This function extracts only the line(s) starting with 💬, which contains
+   * the actual summary text, removing all metadata and formatting.
+   * 
+   * @param content - The formatted call_summary note content
+   * @returns The clean summary text without formatting, or the original content if no summary marker found
+   * 
+   * @example
+   * // Input:
+   * "📞 סיכום לשירות לקוחות - 18/01/2026 17:30\n\n💬 הלקוח ביקש פגישה למחר בשעה 10\n🎯 רוצה לקבוע פגישה\n\n⏱️ 120 שניות"
+   * 
+   * // Output:
+   * "הלקוח ביקש פגישה למחר בשעה 10"
+   */
   const extractCleanSummary = (content: string): string => {
-    // The backend saves call_summary notes with format:
-    // "📞 סיכום לשירות לקוחות - DD/MM/YYYY HH:MM
-    //
-    // 💬 [actual summary text]
-    // 🎯 [optional intent]
-    // 📋 המשך: [optional next action]
-    // 😊 סנטימנט: [optional sentiment]
-    //
-    // ⏱️ X שניות"
-    
-    // Extract just the summary part (the line starting with 💬)
+    // Split into lines and process
     const lines = content.split('\n');
     const summaryLines: string[] = [];
+    let inSummaryBlock = false;
     
     for (const line of lines) {
       const trimmed = line.trim();
-      // Look for the main summary line (starts with 💬)
+      
+      // Start of summary block (line starts with 💬)
       if (trimmed.startsWith('💬 ')) {
         summaryLines.push(trimmed.substring(2).trim()); // Remove "💬 " prefix
+        inSummaryBlock = true;
+        continue;
+      }
+      
+      // If we're in a summary block, continue adding lines until we hit another emoji prefix
+      if (inSummaryBlock) {
+        // Check if this line starts with another metadata emoji (🎯, 📋, 😊, ⏱️, etc.)
+        const startsWithMetadataEmoji = /^[🎯📋😊😟⏱️📞]/.test(trimmed);
+        
+        // Empty line or metadata line ends the summary block
+        if (!trimmed || startsWithMetadataEmoji) {
+          inSummaryBlock = false;
+          break;
+        }
+        
+        // Otherwise, it's a continuation of the summary
+        summaryLines.push(trimmed);
       }
     }
     
-    // If we found a clean summary, return it
+    // If we found a summary, return it (join multi-line summaries with newlines)
     if (summaryLines.length > 0) {
       return summaryLines.join('\n');
     }
