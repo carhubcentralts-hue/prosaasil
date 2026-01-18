@@ -2963,9 +2963,9 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ attachments table already exists - skipping")
         
-        # Migration 77: Upgrade contracts system with R2 storage
+        # Migration 77: Upgrade contracts system - reuse attachments for R2 storage
         if not check_table_exists('contract_files'):
-            checkpoint("🔧 Running Migration 77: Upgrade contracts system with R2 storage")
+            checkpoint("🔧 Running Migration 77: Upgrade contracts system with attachment integration")
             
             try:
                 # Add missing columns to existing contract table if it exists
@@ -2998,7 +2998,7 @@ def apply_migrations():
                         db.session.execute(text("""
                             ALTER TABLE contract 
                             ADD CONSTRAINT contract_status_check 
-                            CHECK (status IN ('draft', 'sent', 'signed', 'cancelled', 'expired'))
+                            CHECK (status IN ('draft', 'sent', 'signed', 'cancelled'))
                         """))
                         checkpoint("    ✅ Updated status CHECK constraint")
                     
@@ -3032,21 +3032,17 @@ def apply_migrations():
                     db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_business_status ON contract(business_id, status)"))
                     checkpoint("    ✅ Created performance indexes")
                 
-                # Create contract_files table (NEW)
-                checkpoint("  → Creating contract_files table...")
+                # Create contract_files table - links contracts to attachments
+                checkpoint("  → Creating contract_files table (attachment-based)...")
                 db.session.execute(text("""
                     CREATE TABLE contract_files (
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
                         contract_id INTEGER NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
-                        file_type VARCHAR(32) NOT NULL CHECK (file_type IN ('uploaded', 'generated_pdf', 'signed_pdf', 'template')),
-                        storage_key TEXT NOT NULL,
-                        original_filename VARCHAR(255),
-                        mime_type VARCHAR(128),
-                        size_bytes BIGINT,
-                        checksum_sha256 VARCHAR(64),
+                        attachment_id INTEGER NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+                        purpose VARCHAR(32) NOT NULL CHECK (purpose IN ('original', 'signed', 'extra_doc', 'template')),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        uploaded_by INTEGER REFERENCES users(id),
+                        created_by INTEGER REFERENCES users(id),
                         deleted_at TIMESTAMP
                     )
                 """))
@@ -3054,7 +3050,30 @@ def apply_migrations():
                 # Create indexes for contract_files
                 db.session.execute(text("CREATE INDEX idx_contract_files_contract ON contract_files(contract_id, created_at DESC)"))
                 db.session.execute(text("CREATE INDEX idx_contract_files_business ON contract_files(business_id)"))
-                checkpoint("    ✅ contract_files table created")
+                db.session.execute(text("CREATE INDEX idx_contract_files_attachment ON contract_files(attachment_id)"))
+                checkpoint("    ✅ contract_files table created (attachment-based)")
+                
+                # Create contract_sign_tokens table - DB-based tokens (NOT JWT)
+                checkpoint("  → Creating contract_sign_tokens table...")
+                db.session.execute(text("""
+                    CREATE TABLE contract_sign_tokens (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        contract_id INTEGER NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
+                        token_hash VARCHAR(64) NOT NULL UNIQUE,
+                        scope VARCHAR(32) NOT NULL DEFAULT 'sign',
+                        expires_at TIMESTAMP NOT NULL,
+                        used_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_by INTEGER REFERENCES users(id)
+                    )
+                """))
+                
+                # Create indexes for contract_sign_tokens
+                db.session.execute(text("CREATE INDEX idx_contract_tokens_hash ON contract_sign_tokens(token_hash)"))
+                db.session.execute(text("CREATE INDEX idx_contract_tokens_contract ON contract_sign_tokens(contract_id)"))
+                db.session.execute(text("CREATE INDEX idx_contract_tokens_expires ON contract_sign_tokens(expires_at)"))
+                checkpoint("    ✅ contract_sign_tokens table created (secure DB-based tokens)")
                 
                 # Create contract_sign_events table (Audit Trail)
                 checkpoint("  → Creating contract_sign_events table...")
@@ -3063,7 +3082,10 @@ def apply_migrations():
                         id SERIAL PRIMARY KEY,
                         business_id INTEGER NOT NULL REFERENCES business(id),
                         contract_id INTEGER NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
-                        event_type VARCHAR(32) NOT NULL CHECK (event_type IN ('created', 'sent', 'viewed', 'otp_sent', 'otp_verified', 'signed', 'cancelled', 'downloaded')),
+                        event_type VARCHAR(32) NOT NULL CHECK (event_type IN (
+                            'created', 'file_uploaded', 'sent_for_signature', 
+                            'viewed', 'signed_completed', 'cancelled'
+                        )),
                         metadata JSONB,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         created_by INTEGER REFERENCES users(id)
@@ -3075,8 +3097,12 @@ def apply_migrations():
                 db.session.execute(text("CREATE INDEX idx_contract_events_business ON contract_sign_events(business_id)"))
                 checkpoint("    ✅ contract_sign_events table created")
                 
-                migrations_applied.append('upgrade_contracts_system_r2')
-                checkpoint("✅ Migration 77 completed - Contracts system upgraded with R2 storage")
+                migrations_applied.append('upgrade_contracts_system_attachment_based')
+                checkpoint("✅ Migration 77 completed - Contracts system with attachment integration")
+                checkpoint("  📋 Summary:")
+                checkpoint("     • contract_files → attachment_id (reuses R2 storage)")
+                checkpoint("     • contract_sign_tokens → DB-based (NOT JWT)")
+                checkpoint("     • contract_sign_events → full audit trail")
                 
             except Exception as e:
                 log.error(f"❌ Migration 77 failed: {e}")

@@ -704,8 +704,8 @@ class Contract(db.Model):
     """
     Contracts - Digital contract management with signatures
     
-    Status flow: draft -> sent -> signed (or cancelled/expired)
-    Files stored in R2 via contract_files table
+    Status flow: draft -> sent -> signed (or cancelled)
+    Files stored via attachments table (R2)
     """
     __tablename__ = "contract"
     id = db.Column(db.Integer, primary_key=True)
@@ -719,7 +719,7 @@ class Contract(db.Model):
     
     # Core fields
     title = db.Column(db.String(255))
-    status = db.Column(db.String(32), default="draft")  # draft|sent|signed|cancelled|expired (CHECK constraint in migration)
+    status = db.Column(db.String(32), default="draft")  # draft|sent|signed|cancelled (CHECK constraint in migration)
     
     # Signer information
     signer_name = db.Column(db.String(255))
@@ -734,7 +734,7 @@ class Contract(db.Model):
     variables = db.Column(db.JSON)  # Template variables as JSON
     customer_name = db.Column(db.String(255))
     
-    # Legacy file paths (deprecated - use contract_files table)
+    # Legacy file paths (deprecated - use contract_files → attachments)
     html_path = db.Column(db.String(260))
     pdf_path = db.Column(db.String(260))
     
@@ -752,35 +752,56 @@ class Contract(db.Model):
 
 class ContractFile(db.Model):
     """
-    Contract Files - Files associated with contracts (stored in R2)
+    Contract Files - Links contracts to attachments (R2 storage)
     
-    file_type: uploaded|generated_pdf|signed_pdf|template
-    storage_key: R2 key path (business/{business_id}/contracts/{contract_id}/{file_id})
+    Reuses attachments table for actual file storage
+    purpose: original|signed|extra_doc|template
     """
     __tablename__ = "contract_files"
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     contract_id = db.Column(db.Integer, db.ForeignKey("contract.id"), nullable=False, index=True)
+    attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id"), nullable=False, index=True)
     
-    # File metadata
-    file_type = db.Column(db.String(32), nullable=False)  # uploaded|generated_pdf|signed_pdf|template (CHECK constraint)
-    storage_key = db.Column(db.Text, nullable=False)  # R2 storage key
-    original_filename = db.Column(db.String(255))
-    mime_type = db.Column(db.String(128))
-    size_bytes = db.Column(db.BigInteger)
-    checksum_sha256 = db.Column(db.String(64))
+    # File purpose/role
+    purpose = db.Column(db.String(32), nullable=False)  # original|signed|extra_doc|template (CHECK constraint)
     
     # Audit fields
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    uploaded_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     deleted_at = db.Column(db.DateTime, nullable=True)  # Soft delete
+
+
+class ContractSignToken(db.Model):
+    """
+    Contract Sign Tokens - DB-based secure tokens for signing (NOT JWT)
+    
+    Stores hashed random tokens with expiration
+    Can be revoked/checked in DB
+    """
+    __tablename__ = "contract_sign_tokens"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey("contract.id"), nullable=False, index=True)
+    
+    # Token data (hashed for security)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    scope = db.Column(db.String(32), nullable=False, default='sign')
+    
+    # Expiration and usage tracking
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    used_at = db.Column(db.DateTime, nullable=True)
+    
+    # Audit fields
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
 
 class ContractSignEvent(db.Model):
     """
     Contract Sign Events - Audit trail for contract operations
     
-    event_type: created|sent|viewed|otp_sent|otp_verified|signed|cancelled|downloaded
+    event_type: created|file_uploaded|sent_for_signature|viewed|signed_completed|cancelled
     metadata: JSON with event-specific data
     """
     __tablename__ = "contract_sign_events"
@@ -789,7 +810,7 @@ class ContractSignEvent(db.Model):
     contract_id = db.Column(db.Integer, db.ForeignKey("contract.id"), nullable=False, index=True)
     
     # Event data
-    event_type = db.Column(db.String(32), nullable=False)  # created|sent|viewed|otp_sent|... (CHECK constraint)
+    event_type = db.Column(db.String(32), nullable=False)  # created|file_uploaded|... (CHECK constraint)
     metadata = db.Column(db.JSON)  # Event-specific data (IP, user agent, etc.)
     
     # Audit fields
