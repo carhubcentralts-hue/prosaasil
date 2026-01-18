@@ -1198,6 +1198,10 @@ def send_manual_message():
     if not to_number or (not message and not attachment_id):
         return {"ok": False, "error": "missing_required_fields"}, 400
     
+    # Ensure we have either message text or attachment, but warn if caption is missing for media
+    if attachment_id and not message:
+        log.warning(f"[WA-SEND] Sending media without caption to {to_number}")
+    
     try:
         # שליחת הודעה דרך WhatsApp provider
         from server.whatsapp_provider import get_whatsapp_service
@@ -2962,14 +2966,18 @@ def create_broadcast():
         broadcast.template_id = template_id
         broadcast.template_name = template_name
         broadcast.message_text = message_text
-        # Store media URL if attachment provided
+        
+        # Build audience_filter with media info and raw request
+        audience_filter_data = {
+            'raw_request': dict(payload_dict) if payload_dict else {}
+        }
+        
+        # Add media info if attachment provided
         if media_url:
-            if not broadcast.audience_filter:
-                broadcast.audience_filter = {}
-            broadcast.audience_filter['media_url'] = media_url
-            broadcast.audience_filter['attachment_id'] = attachment_id
-        # 🔥 SIMPLIFIED: Store raw payload for debugging
-        broadcast.audience_filter = {'raw_request': dict(payload_dict), 'media_url': media_url, 'attachment_id': attachment_id} if payload_dict or media_url else {}
+            audience_filter_data['media_url'] = media_url
+            audience_filter_data['attachment_id'] = attachment_id
+        
+        broadcast.audience_filter = audience_filter_data
         broadcast.total_recipients = len(normalized_recipients)
         broadcast.created_by = user_id
         broadcast.status = 'pending'

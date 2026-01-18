@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # File type configurations
 ALLOWED_MIME_TYPES = {
     # Images
-    'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif',
     # Videos
     'video/mp4', 'video/mpeg', 'video/quicktime',
     # Documents
@@ -39,7 +39,7 @@ ALLOWED_MIME_TYPES = {
     'application/vnd.ms-excel',  # .xls
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
     # Audio (optional)
-    'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg',
+    'audio/mpeg', 'audio/wav', 'audio/ogg',
 }
 
 # Dangerous file extensions that should never be uploaded
