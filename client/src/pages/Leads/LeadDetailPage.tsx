@@ -2386,7 +2386,24 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
           note.note_type === 'system' ||
           note.note_type === 'customer_service_ai'
         );
-        setNotes(aiNotes);
+        
+        // 🆕 CRITICAL: Sort notes to always show latest first (newest at top)
+        // This ensures the most recent/accurate information is prioritized as requested
+        // Per requirements: "תתייחס להערה האחרונה שנרשמה כפיסת אמת הכי נכונה"
+        const sortedNotes = aiNotes.sort((a, b) => {
+          // First priority: notes marked as is_latest in structured_data
+          const aIsLatest = a.structured_data?.is_latest === true;
+          const bIsLatest = b.structured_data?.is_latest === true;
+          if (aIsLatest && !bIsLatest) return -1;
+          if (!aIsLatest && bIsLatest) return 1;
+          
+          // Second priority: sort by created_at timestamp (newest first)
+          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return bTime - aTime;
+        });
+        
+        setNotes(sortedNotes);
       }
     } catch (error) {
       console.error('Failed to fetch AI notes:', error);
@@ -2523,11 +2540,14 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
         </div>
       ) : (
         <div className="space-y-4">
-          {notes.map((note) => {
+          {notes.map((note, index) => {
             const isCallSummary = note.note_type === 'call_summary';
             const isSystemNote = note.note_type === 'system';
             const isCustomerServiceAI = note.note_type === 'customer_service_ai';
             const isManualNote = note.note_type === 'manual' || !note.note_type;
+            // 🆕 Check if this is the latest note (most accurate source of truth)
+            const isLatestNote = note.structured_data?.is_latest === true || index === 0;
+            
             const noteClasses = isCallSummary 
               ? "p-4 bg-blue-50 border-2 border-blue-200 rounded-lg" 
               : isSystemNote 
@@ -2545,6 +2565,12 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                 <div className="flex items-center gap-2 mb-2 pb-2 border-b border-blue-200">
                   <Phone className="w-4 h-4 text-blue-600" />
                   <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded">סיכום שיחה (AI)</span>
+                  {/* 🆕 Show "Latest" badge for the most recent note */}
+                  {isLatestNote && (
+                    <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">
+                      ⭐ אחרון
+                    </span>
+                  )}
                   {note.structured_data?.outcome && (
                     <span className="text-xs text-blue-600">
                       תוצאה: {note.structured_data.outcome}

@@ -1226,6 +1226,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # - Outbound calls: AI agent does NOT answer, but we still save summary for future reference
                 # 
                 # 🔥 FIX: ALWAYS update/create call summary to replace temporary transcription from media_ws_ai.py
+                # 🆕 CRITICAL: Always create note even if conversation_summary fails
                 try:
                     from server.models_sql import LeadNote
                     from datetime import datetime as dt
@@ -1288,18 +1289,26 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         note_type='call_summary'
                     ).order_by(LeadNote.created_at.desc()).first()
                     
+                    # 🆕 CRITICAL: Build structured_data safely even if conversation_summary is None/empty
+                    structured_data = {
+                        'call_duration': call_log.duration,
+                        'call_direction': call_log.direction,
+                        'call_sid': call_sid,
+                        'intent': conversation_summary.get('intent') if conversation_summary else None,
+                        'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
+                        'next_action': conversation_summary.get('next_action') if conversation_summary else None,
+                        'created_at': dt.utcnow().isoformat(),  # 🆕 Track when note was created/updated
+                        'is_latest': True  # 🆕 Mark this as the latest/most accurate note
+                    }
+                    
                     if existing_note:
                         # Update existing temporary note with proper AI summary
                         existing_note.content = note_content
-                        existing_note.structured_data = {
-                            'call_duration': call_log.duration,
-                            'call_direction': call_log.direction,
-                            'call_sid': call_sid,
-                            'intent': conversation_summary.get('intent') if conversation_summary else None,
-                            'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
-                            'next_action': conversation_summary.get('next_action') if conversation_summary else None
-                        }
+                        existing_note.structured_data = structured_data
+                        # 🆕 Update the timestamp to reflect this is the most recent/accurate version
+                        existing_note.created_at = dt.utcnow()
                         log.info(f"[CustomerService] 🔄 Updated existing call summary note for lead {lead.id} with AI-generated summary")
+                        log.info(f"[CustomerService] ✅ Note ID {existing_note.id} marked as latest (is_latest=True)")
                     else:
                         # Create new note if none exists
                         call_note = LeadNote()
@@ -1308,20 +1317,50 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         call_note.note_type = 'call_summary'
                         call_note.content = note_content
                         call_note.call_id = call_log.id
-                        call_note.structured_data = {
-                            'call_duration': call_log.duration,
-                            'call_direction': call_log.direction,
-                            'call_sid': call_sid,
-                            'intent': conversation_summary.get('intent') if conversation_summary else None,
-                            'sentiment': conversation_summary.get('sentiment') if conversation_summary else None,
-                            'next_action': conversation_summary.get('next_action') if conversation_summary else None
-                        }
+                        call_note.structured_data = structured_data
                         call_note.created_at = dt.utcnow()
                         
                         db.session.add(call_note)
                         log.info(f"[CustomerService] 🎧 Created new customer-service optimized call summary for lead {lead.id}")
+                        log.info(f"[CustomerService] ✅ Note marked as latest (is_latest=True)")
+                    
+                    # 🆕 CRITICAL: Mark all previous call_summary notes as NOT latest
+                    # This ensures the AI always prioritizes the most recent note
+                    try:
+                        old_notes = LeadNote.query.filter(
+                            LeadNote.lead_id == lead.id,
+                            LeadNote.note_type == 'call_summary',
+                            LeadNote.id != (existing_note.id if existing_note else -1)
+                        ).all()
+                        
+                        for old_note in old_notes:
+                            if old_note.structured_data is None:
+                                old_note.structured_data = {}
+                            if isinstance(old_note.structured_data, dict):
+                                old_note.structured_data['is_latest'] = False
+                        
+                        if old_notes:
+                            log.info(f"[CustomerService] 🔄 Marked {len(old_notes)} previous notes as NOT latest for lead {lead.id}")
+                    except Exception as mark_err:
+                        log.warning(f"[CustomerService] ⚠️ Failed to mark old notes: {mark_err}")
+                        # Non-critical - the new note is still saved
+                    
+                    # 🆕 CRITICAL: Commit immediately to ensure note is saved
+                    # This prevents the note from being lost if later processing fails
+                    db.session.commit()
+                    log.info(f"[CustomerService] ✅ Call summary note committed successfully for lead {lead.id}")
+                    
                 except Exception as cs_err:
-                    log.warning(f"[CustomerService] ⚠️ Failed to auto-save call summary: {cs_err}")
+                    log.error(f"[CustomerService] ❌ CRITICAL: Failed to auto-save call summary: {cs_err}")
+                    # 🆕 Log full traceback for debugging
+                    import traceback
+                    log.error(f"[CustomerService] Traceback: {traceback.format_exc()}")
+                    # 🆕 Try to rollback and continue
+                    try:
+                        db.session.rollback()
+                        log.info(f"[CustomerService] Rolled back transaction after note creation failure")
+                    except Exception:
+                        pass
                     # Non-critical - continue with other processing
                 
                 # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש

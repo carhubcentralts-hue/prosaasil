@@ -283,6 +283,8 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         # 🔥 FILTER: Only get AI Customer Service notes (call_summary, system, and customer_service_ai)
         # Migration 75: Added 'customer_service_ai' type for notes visible to AI
         # Exclude Free Notes (manual notes) to avoid context pollution
+        # 🆕 CRITICAL: Notes are ordered by created_at DESC - FIRST note is the LATEST/MOST ACCURATE
+        # Per requirements: Always treat the last note recorded as the most accurate "piece of truth"
         notes_query = LeadNote.query.filter(
             LeadNote.lead_id == input.lead_id,
             LeadNote.tenant_id == input.business_id,
@@ -294,11 +296,19 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         ).order_by(LeadNote.created_at.desc()).limit(10)
         
         notes_list = []
-        for note in notes_query:
+        for idx, note in enumerate(notes_query):
+            # 🆕 Mark if this is the latest note (first in the list)
+            is_latest = (idx == 0)
+            note_content = note.content if note.content else ""
+            
+            # 🆕 Add context marker for the latest note to help AI prioritize it
+            if is_latest and note_content:
+                note_content = f"[הערה עדכנית ביותר - מידע מדויק] {note_content}"
+            
             notes_list.append(LeadContextNote(
                 id=note.id,
                 note_type=getattr(note, 'note_type', 'manual') or 'manual',
-                content=note.content if note.content else "",  # 🔥 FIX: Use full content, no truncation!
+                content=note_content,  # 🔥 FIX: Use full content, no truncation!
                 created_at=note.created_at.isoformat() if note.created_at else "",
                 created_by='ai' if note.created_by is None else str(note.created_by)
             ))
