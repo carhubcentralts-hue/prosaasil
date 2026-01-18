@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil, Save, Edit2, Trash2, FileText } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
+import { AttachmentPicker } from '../../shared/components/AttachmentPicker';
 
 // Email validation constants
 const MIN_HTML_LENGTH_FRONTEND = 200; // Minimum HTML length for frontend validation (chars)
@@ -117,6 +118,9 @@ export function EmailsPage() {
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
   const [leadSearchResults, setLeadSearchResults] = useState<Lead[]>([]);
   const [leadSearchLoading, setLeadSearchLoading] = useState(false);
+  
+  // Attachments state
+  const [attachmentIds, setAttachmentIds] = useState<number[]>([]);
   
   // 🎨 Luxury Theme Templates State
   const [availableThemes, setAvailableThemes] = useState<any[]>([]);
@@ -909,7 +913,8 @@ export function EmailsPage() {
             html: rendered.html,
             body_html: rendered.html,
             text: rendered.text,
-            body_text: rendered.text
+            body_text: rendered.text,
+            attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined
           });
           
           successCount++;
@@ -944,6 +949,7 @@ export function EmailsPage() {
     setSelectedLead(null);
     setLeadSearchQuery('');
     setLeadSearchResults([]);
+    setAttachmentIds([]);  // Reset attachments
     // Reset theme fields to default
     if (availableThemes.length > 0) {
       const defaultTheme = availableThemes.find(t => t.id === selectedThemeId);
@@ -2789,6 +2795,32 @@ export function EmailsPage() {
                     className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border-2 border-yellow-400 rounded-lg focus:ring-4 focus:ring-yellow-200 focus:border-yellow-500 text-xs sm:text-sm transition-all shadow-sm resize-none"
                     required
                   />
+                </div>
+                
+                {/* Attachments */}
+                <div className="border-2 border-gray-200 rounded-xl p-4">
+                  <AttachmentPicker
+                    channel="email"
+                    mode="multi"
+                    onAttachmentSelect={(ids) => {
+                      if (Array.isArray(ids)) {
+                        setAttachmentIds(ids);
+                      } else if (ids === null) {
+                        setAttachmentIds([]);
+                      } else {
+                        // Single ID - add to array
+                        setAttachmentIds([ids]);
+                      }
+                    }}
+                    selectedAttachmentId={null}
+                  />
+                  
+                  {/* Show selected attachments */}
+                  {attachmentIds.length > 0 && (
+                    <div className="mt-3 text-sm text-gray-600">
+                      ✅ {attachmentIds.length} קבצים מצורפים
+                    </div>
+                  )}
                 </div>
                 
                 {/* Info Box */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Send, Users, MessageSquare, Filter, Upload, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Plus, Edit2, Trash2, FileText, X } from 'lucide-react';
 import { http } from '../../services/http';
+import { AttachmentPicker } from '../../shared/components/AttachmentPicker';
 
 // UI Components
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
@@ -152,6 +153,10 @@ export function WhatsAppBroadcastPage() {
   const [leads, setLeads] = useState<Array<{id: number; name: string; phone: string; status: string}>>([]);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [recipientCount, setRecipientCount] = useState(0);
+  
+  // Attachment state
+  const [attachmentId, setAttachmentId] = useState<number | null>(null);
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
   
   // Campaign history
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
@@ -503,6 +508,12 @@ export function WhatsAppBroadcastPage() {
         formData.append('message_text', messageText);
       }
       
+      // NEW: Add attachment if selected
+      if (attachmentId) {
+        formData.append('attachment_id', String(attachmentId));
+        console.log('📎 Adding attachment_id:', attachmentId);
+      }
+      
       // NEW: Add audience data based on source
       if (audienceSource === 'leads') {
         console.log('📋 Adding lead_ids to FormData:', selectedLeadIds);
@@ -531,6 +542,7 @@ export function WhatsAppBroadcastPage() {
         lead_ids_count: selectedLeadIds.length,
         selected_statuses: selectedStatuses,
         has_csv: !!csvFile,
+        has_attachment: !!attachmentId,
         recipient_count: recipientCount
       };
       console.log('📤 Sending broadcast:', payloadDebug);
@@ -849,6 +861,43 @@ export function WhatsAppBroadcastPage() {
                       placeholder="כתוב את תוכן ההודעה..."
                       dir="rtl"
                     />
+                  </div>
+                  
+                  {/* Attachment Picker */}
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowAttachmentPicker(!showAttachmentPicker)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      {attachmentId ? 'שנה קובץ מצורף' : 'צרף קובץ'}
+                    </button>
+                    
+                    {showAttachmentPicker && (
+                      <div className="mt-3 p-4 border border-slate-200 rounded-lg bg-slate-50">
+                        <AttachmentPicker
+                          channel="broadcast"
+                          mode="single"
+                          onAttachmentSelect={(id) => {
+                            if (typeof id === 'number') {
+                              setAttachmentId(id);
+                            } else {
+                              setAttachmentId(null);
+                            }
+                          }}
+                          selectedAttachmentId={attachmentId}
+                        />
+                      </div>
+                    )}
+                    
+                    {attachmentId && (
+                      <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                        <p className="text-sm text-green-800">
+                          ✅ קובץ מצורף - יישלח לכל הנמענים
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -1,378 +1,339 @@
-# 🚀 Quick Start Guide - Reverse Proxy Deployment
+# 🚀 Deployment Guide - Unified Attachments with R2 Storage
 
-## תיאור בעברית
+## Pre-Deployment Checklist
 
-הפרויקט עבר לארכיטקטורה חדשה עם Reverse Proxy ייעודי. כל התעבורה החיצונית עוברת דרך קונטיינר Nginx אחד, מה שמונע קונפליקטים בפורטים ומבטיח יציבות.
+### 1. Cloudflare R2 Setup ✅
+- [ ] Cloudflare account created
+- [ ] R2 enabled on account
+- [ ] Bucket created (suggested name: `prosaasil-attachments` or `{company}-attachments`)
+- [ ] R2 API Token created with permissions:
+  - Object Read
+  - Object Write
+  - List (optional but recommended)
+- [ ] Credentials saved securely
 
-**שינויים עיקריים:**
-- ✅ Nginx אחד מאזין לפורטים 80/443
-- ✅ כל השירותים האחרים פנימיים בלבד (ללא חשיפה חיצונית)
-- ✅ תמיכה מלאה ב-WebSocket עבור n8n
-- ✅ מדיניות restart אוטומטית
-- ✅ Healthchecks לכל השירותים
+### 2. Dependencies ✅
+```bash
+# Install boto3 for R2 support
+pip install boto3
+# or with poetry
+poetry add boto3
+```
 
-## English Description
+### 3. Environment Configuration ✅
+```bash
+# Copy template
+cp .env.r2.example .env
 
-The project has been migrated to a new architecture with a dedicated Reverse Proxy. All external traffic goes through a single Nginx container, preventing port conflicts and ensuring stability.
+# Edit .env with your actual values
+nano .env
 
-**Key Changes:**
-- ✅ Single Nginx listening on ports 80/443
-- ✅ All other services are internal-only (no external exposure)
-- ✅ Full WebSocket support for n8n
-- ✅ Automatic restart policy
-- ✅ Healthchecks for all services
+# Generate secure ATTACHMENT_SECRET
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
----
+### 4. Database Migration ✅
+```bash
+# Run migration 76 to create attachments table
+python -m server.db_migrate
 
-## Prerequisites
+# Verify output:
+# ✅ attachments table created
+# ✅ Index created: idx_attachments_business
+# ✅ Index created: idx_attachments_uploader
+```
 
-- Docker installed
-- Docker Compose v2+
-- Ports 80 and 443 available
+## Step-by-Step Deployment
 
-## Quick Deploy
+### Step 1: Get Cloudflare R2 Credentials
 
-### Development (HTTP)
+#### A. Create R2 Bucket
+1. Log in to Cloudflare Dashboard: https://dash.cloudflare.com
+2. Navigate to **R2 Object Storage** in sidebar
+3. Click **Create bucket**
+4. Bucket name: `prosaasil-attachments` (or your choice)
+5. Location: Choose closest to your users (or **Automatic**)
+6. Click **Create bucket**
+
+#### B. Create API Token
+1. In R2, click **Manage R2 API Tokens**
+2. Click **Create API Token**
+3. Token name: `prosaasil-attachments-api`
+4. Permissions:
+   - ✅ Object Read & Write
+5. Specify bucket:
+   - Select your bucket: `prosaasil-attachments`
+6. TTL: No expiration (or set as per policy)
+7. Click **Create API Token**
+8. **IMPORTANT**: Copy credentials immediately:
+   - Access Key ID: `abc123...`
+   - Secret Access Key: `xyz789...` (shown only once!)
+9. Note your **Account ID** from R2 overview page
+
+### Step 2: Configure Environment Variables
+
+Create or edit `.env` file:
 
 ```bash
-# 1. Validate configuration
-./validate_nginx_config.sh
+# Production mode
+PRODUCTION=1
 
-# 2. Start services
-docker compose up -d
+# Security - CHANGE THIS!
+ATTACHMENT_SECRET=YOUR_GENERATED_SECRET_HERE
 
-# 3. Check status
-docker compose ps
+# Storage: R2 (not local!)
+ATTACHMENT_STORAGE_DRIVER=r2
 
-# 4. View logs
-docker compose logs -f nginx
+# Cloudflare R2
+R2_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your-access-key-id
+R2_SECRET_ACCESS_KEY=your-secret-key
+R2_BUCKET_NAME=prosaasil-attachments
 ```
 
-**Access:**
-- Main app: http://prosaas.pro
-- n8n: http://n8n.prosaas.pro
-
-### Production (HTTPS)
+### Step 3: Install Dependencies
 
 ```bash
-# 1. Place SSL certificates on server
-# Certificates should be located at:
-# /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt
-# /opt/prosaasil/docker/nginx/ssl/prosaas-origin.key
+# Required for R2
+pip install boto3
 
-# 2. Validate configuration
-./validate_nginx_config.sh
-
-# 3. Start services with production config
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# 4. Verify HTTPS
-curl -I https://prosaas.pro
-curl -I https://n8n.prosaas.pro
+# Verify installation
+python3 -c "import boto3; print(f'boto3 version: {boto3.__version__}')"
 ```
 
-**Access:**
-- Main app: https://prosaas.pro
-- n8n: https://n8n.prosaas.pro
+### Step 4: Run Database Migration
 
----
+```bash
+# Run migration
+python -m server.db_migrate
 
-## Architecture Overview
-
+# Expected output:
+🔧 MIGRATION CHECKPOINT: Running Migration 76: Create attachments table
+✅ attachments table created
+✅ Index created: idx_attachments_business
+✅ Index created: idx_attachments_uploader
+✅ Storage directory ensured: /storage/attachments
+✅ Migration 76 completed successfully
 ```
-Internet → Nginx Reverse Proxy → {
-    prosaas.pro → Frontend + Backend API
-    n8n.prosaas.pro → n8n (with WebSocket)
+
+### Step 5: Test R2 Connection
+
+```bash
+# Start server
+python -m server.app
+
+# Check startup logs for:
+✅ Using R2 (Cloudflare) storage provider
+[R2_STORAGE] Initialized with bucket: prosaasil-attachments
+[R2_STORAGE] Endpoint: https://your-account-id.r2.cloudflarestorage.com
+[R2_STORAGE] ✅ Bucket access verified
+```
+
+**If you see errors:**
+```
+❌ R2 storage selected but missing environment variables: ...
+⚠️ Falling back to local storage
+```
+→ Check your `.env` file - variables not loaded correctly
+
+### Step 6: Test Upload
+
+```bash
+# Test upload via API
+curl -X POST http://localhost:5000/api/attachments/upload \
+  -H "Authorization: Bearer YOUR_AUTH_TOKEN" \
+  -F "file=@test-image.jpg" \
+  -F "channel=email"
+
+# Expected response:
+{
+  "id": 1,
+  "filename": "test-image.jpg",
+  "mime_type": "image/jpeg",
+  "file_size": 102400,
+  "channel_compatibility": {
+    "email": true,
+    "whatsapp": true,
+    "broadcast": true
+  },
+  "preview_url": "https://your-account-id.r2.cloudflarestorage.com/...?X-Amz-...",
+  "created_at": "2026-01-18T21:00:00Z"
 }
 ```
 
-### Exposed Ports (External)
-- **Nginx**: 80, 443
+### Step 7: Verify in Cloudflare
 
-### Internal Ports (Docker Network)
-- **Frontend**: 80
-- **Backend**: 5000
-- **n8n**: 5678
-- **Baileys**: 3300 (optional debug)
+1. Go to R2 Dashboard
+2. Open your bucket
+3. Navigate to: `attachments/{business_id}/2026/01/`
+4. You should see your uploaded file: `1.jpg`
 
----
+## Verification Checklist
 
-## Common Commands
+After deployment, verify:
 
-### Start/Stop
-```bash
-# Start all services
-docker compose up -d
-
-# Stop all services
-docker compose down
-
-# Restart specific service
-docker compose restart nginx
-```
-
-### Logs
-```bash
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f nginx
-docker compose logs -f backend
-docker compose logs -f n8n
-```
-
-### Status Check
-```bash
-# Service status
-docker compose ps
-
-# Health check
-curl http://localhost/health
-
-# Nginx config test
-docker compose exec nginx nginx -t
-```
-
-### Updates
-```bash
-# Pull latest images
-docker compose pull
-
-# Rebuild and restart
-docker compose up -d --build
-```
-
----
+- [ ] Server starts without errors
+- [ ] Logs show: "✅ Using R2 (Cloudflare) storage provider"
+- [ ] Logs show: "[R2_STORAGE] ✅ Bucket access verified"
+- [ ] Can upload file via UI (Email/WhatsApp/Broadcast pages)
+- [ ] File appears in Cloudflare R2 bucket
+- [ ] Can list attachments via API
+- [ ] Can download attachment (presigned URL works)
+- [ ] Multi-tenant isolation works (business A can't see business B's files)
+- [ ] Signed URLs expire after TTL
 
 ## Troubleshooting
 
-### Port 80 Already in Use
+### Error: "boto3 not installed"
 ```bash
-# Check what's using the port
-sudo lsof -i :80
-
-# Stop conflicting service
-sudo systemctl stop nginx  # if system nginx
+pip install boto3
+# Verify
+python3 -c "import boto3"
 ```
 
-### Container Not Starting
+### Error: "Missing required environment variables"
+Check `.env` file has all 4 R2 variables:
 ```bash
-# Check logs
-docker compose logs [service-name]
-
-# Remove and recreate
-docker compose down
-docker compose up -d
+grep R2_ .env
+# Should show 4 lines
 ```
 
-### WebSocket Issues (n8n)
+### Error: "Cannot access R2 bucket"
+1. Verify bucket name is exact (case-sensitive)
+2. Verify API token has correct permissions
+3. Verify Account ID is correct
+4. Try creating new API token
+
+### Error: "ATTACHMENT_SECRET not set in production"
 ```bash
-# Check nginx logs
-docker compose logs nginx
+# Generate new secret
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
-# Verify nginx config
-docker compose exec nginx nginx -t
-
-# Restart nginx
-docker compose restart nginx
+# Add to .env
+echo "ATTACHMENT_SECRET=<generated-secret>" >> .env
 ```
 
-### SSL Certificate Issues
+### Attachments still using local storage
+Check startup logs:
 ```bash
-# Verify certificates exist on server
-ls -la /opt/prosaasil/docker/nginx/ssl/
+# If you see:
+⚠️ Falling back to local storage
 
-# Check certificate validity
-openssl x509 -in /opt/prosaasil/docker/nginx/ssl/prosaas-origin.crt -text -noout
-
-# Check permissions
-chmod 644 /opt/prosaasil/docker/nginx/ssl/*.{crt,key}
+# Then check:
+echo $ATTACHMENT_STORAGE_DRIVER  # Should be: r2
+# or
+grep ATTACHMENT_STORAGE_DRIVER .env  # Should show: r2
 ```
 
----
+### Files not appearing in R2 bucket
+1. Check server logs for upload errors
+2. Verify bucket permissions (not public, but API token has write access)
+3. Check Cloudflare R2 console for any bucket-level restrictions
 
-## Configuration Files
+## Rollback Plan
 
-### Core Files
-- **docker-compose.yml** - Base configuration (all services)
-- **docker-compose.prod.yml** - Production overrides (SSL)
-- **Dockerfile.nginx** - Nginx reverse proxy container
-- **Dockerfile.frontend** - Frontend static files container
+If R2 has issues, instantly fallback to local storage:
 
-### Nginx Configuration
-- **docker/nginx/nginx.conf** - Main nginx config
-- **docker/nginx/conf.d/prosaas.conf** - HTTP routing
-- **docker/nginx/conf.d/prosaas-ssl.conf** - HTTPS routing
-- **docker/nginx/frontend-static.conf** - Frontend static serving
+```bash
+# Option 1: Change ENV
+export ATTACHMENT_STORAGE_DRIVER=local
+# Restart server
 
-### Validation & Documentation
-- **validate_nginx_config.sh** - Configuration validator
-- **NGINX_REVERSE_PROXY_GUIDE.md** - Detailed guide
-- **REVERSE_PROXY_IMPLEMENTATION_SUMMARY.md** - Implementation details
-- **ARCHITECTURE_DIAGRAM.md** - Visual architecture
+# Option 2: Remove R2 config (will auto-fallback)
+unset R2_ACCOUNT_ID
+# Restart server
+```
 
----
-
-## Cloudflare Configuration
-
-### Option 1: Full (Strict) - Recommended
-1. Set SSL mode: **Full (strict)**
-2. Generate Origin Certificate in Cloudflare
-3. Place certificates on server at `/opt/prosaasil/docker/nginx/ssl/`
-4. Use production compose: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
-
-### Option 2: Full - Simpler
-1. Set SSL mode: **Full**
-2. No certificates needed in containers
-3. Use base compose: `docker compose up -d`
-4. Cloudflare handles SSL, origin uses HTTP
-
----
-
-## Security Checklist
-
-- [ ] Never commit `.env` files
-- [ ] Never commit SSL certificates
-- [ ] Keep `.gitignore` updated
-- [ ] Use strong passwords in `.env`
-- [ ] Regularly update Docker images
-- [ ] Monitor container logs
-- [ ] Set up log rotation
-- [ ] Enable Cloudflare firewall rules
-
----
+System will automatically use local storage. Existing R2 files remain accessible via their signed URLs until they expire.
 
 ## Monitoring
 
-### Health Checks
-```bash
-# Quick status
-docker compose ps
+### Key Metrics to Track
+1. **Upload success rate**: Should be >99%
+2. **Signed URL generation time**: Should be <100ms
+3. **R2 API errors**: Should be 0
+4. **Storage costs**: Track via Cloudflare dashboard
 
-# Detailed health
-docker inspect prosaas-nginx | grep Health -A 10
-docker inspect prosaas-backend | grep Health -A 10
-docker inspect prosaas-frontend | grep Health -A 10
+### Logs to Monitor
+```bash
+# Upload success
+[R2_STORAGE] Uploaded: attachments/5/2026/01/123.jpg (102400 bytes)
+
+# Signed URL generation
+[R2_STORAGE] Generated presigned URL for ... (TTL: 900s)
+
+# Errors (investigate immediately)
+❌ [R2_STORAGE] Upload failed: ...
+❌ [R2_STORAGE] Failed to generate presigned URL: ...
 ```
 
-### Resource Usage
-```bash
-# Container stats
-docker stats
+## Security Best Practices
 
-# Disk usage
-docker system df
-```
+1. **Never commit .env** - Already in .gitignore
+2. **Rotate R2 API tokens** - Every 90 days recommended
+3. **Use minimal permissions** - Only Object Read & Write needed
+4. **Monitor usage** - Set up Cloudflare alerts for unusual activity
+5. **Backup strategy** - R2 is durable, but consider backup policy
+6. **ATTACHMENT_SECRET** - Must be 32+ random characters
+7. **PRODUCTION=1** - Only set in actual production environment
 
-### Logs
-```bash
-# Live tail all services
-docker compose logs -f --tail=100
+## Cost Optimization
 
-# Export logs
-docker compose logs > logs.txt
-```
+### R2 Pricing (2024)
+- Storage: $0.015/GB/month
+- Class A (writes): $4.50/million
+- Class B (reads): $0.36/million  
+- Egress: **FREE** 🎉
+
+### Estimated Costs (Example)
+- 10GB storage: $0.15/month
+- 10,000 uploads/month: $0.045
+- 100,000 downloads/month: $0.036
+**Total: ~$0.23/month** for 10GB + 110K operations
+
+### Tips
+1. Use TTL to automatically expire old signed URLs
+2. Clean up orphaned attachments periodically (soft-deleted records)
+3. Compress images before upload (client-side if possible)
+4. Set lifecycle policies in R2 for auto-archival (if needed)
+
+## Support
+
+If issues persist:
+1. Check this deployment guide
+2. Review R2_STORAGE_SETUP.md for technical details
+3. Check Cloudflare R2 status page
+4. Review server logs: `tail -f logs/app.log | grep R2_STORAGE`
+
+## Post-Deployment
+
+After successful deployment:
+- [ ] Document actual bucket name in team wiki
+- [ ] Store R2 credentials in secure vault (1Password, etc.)
+- [ ] Set up monitoring/alerts
+- [ ] Test from production URL
+- [ ] Inform team that attachments are live
+- [ ] Monitor costs in Cloudflare dashboard for first week
 
 ---
 
-## Backup & Restore
-
-### Backup
-```bash
-# Backup volumes
-docker run --rm -v prosaasil_n8n_data:/data -v $(pwd)/backup:/backup alpine tar czf /backup/n8n_data.tar.gz /data
-docker run --rm -v prosaasil_recordings_data:/data -v $(pwd)/backup:/backup alpine tar czf /backup/recordings_data.tar.gz /data
-
-# Backup environment
-cp .env .env.backup
-```
-
-### Restore
-```bash
-# Restore volumes
-docker run --rm -v prosaasil_n8n_data:/data -v $(pwd)/backup:/backup alpine tar xzf /backup/n8n_data.tar.gz -C /
-
-# Restore environment
-cp .env.backup .env
-```
-
----
-
-## Performance Tuning
-
-### Nginx
-- Worker processes: Auto-tuned to CPU count
-- Keepalive connections: Enabled
-- Gzip compression: Enabled
-- HTTP/2: Enabled (main site)
-
-### Backend
-- Timeouts: 300s for downloads, 3600s for WebSocket
-- Buffering: Disabled for streaming
-- Connection pooling: Enabled
-
-### Resource Limits (Production)
-- **Nginx**: 0.5 CPU, 256MB RAM
-- **Backend**: 2 CPU, 2GB RAM
-- **Frontend**: 0.5 CPU, 256MB RAM
-- **Baileys**: 1 CPU, 1GB RAM
-
----
-
-## Support & Documentation
-
-### Read First
-1. **NGINX_REVERSE_PROXY_GUIDE.md** - Complete guide
-2. **ARCHITECTURE_DIAGRAM.md** - Visual diagrams
-3. **REVERSE_PROXY_IMPLEMENTATION_SUMMARY.md** - Technical details
-
-### Getting Help
-1. Run validation: `./validate_nginx_config.sh`
-2. Check logs: `docker compose logs [service]`
-3. Test nginx: `docker compose exec nginx nginx -t`
-4. Review documentation above
-
----
-
-## Migration from Old Setup
-
-If upgrading:
+## Quick Reference
 
 ```bash
-# 1. Backup
-docker compose down
-docker run --rm -v prosaasil_n8n_data:/data -v $(pwd)/backup:/backup alpine tar czf /backup/n8n_data.tar.gz /data
+# Check storage provider
+grep "Using.*storage provider" logs/app.log
 
-# 2. Pull new configuration
-git pull
+# Test upload
+curl -X POST https://your-domain.com/api/attachments/upload \
+  -H "Authorization: Bearer TOKEN" \
+  -F "file=@test.jpg" \
+  -F "channel=email"
 
-# 3. Start with new architecture
-docker compose up -d
+# Check R2 bucket
+# Go to: https://dash.cloudflare.com → R2 → your-bucket
 
-# 4. Verify
-docker compose ps
-curl http://localhost/health
+# Fallback to local
+export ATTACHMENT_STORAGE_DRIVER=local && restart
 ```
 
----
-
-## Status
-
-✅ **Implementation Complete**  
-✅ **Configuration Validated**  
-✅ **Documentation Complete**  
-✅ **Ready for Deployment**
-
-**Version**: 2.0  
-**Last Updated**: 2026-01-08  
-**Architecture**: Dedicated Reverse Proxy
-
----
-
-## Quick Links
-
-- [Detailed Guide](NGINX_REVERSE_PROXY_GUIDE.md)
-- [Architecture Diagrams](ARCHITECTURE_DIAGRAM.md)
-- [Implementation Summary](REVERSE_PROXY_IMPLEMENTATION_SUMMARY.md)
-- [Validation Script](validate_nginx_config.sh)
+**System is production-ready! 🚀**

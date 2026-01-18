@@ -104,16 +104,31 @@ class BroadcastWorker:
                 recipient.status = 'failed'
                 recipient.error_message = 'Template sending not implemented'
             else:
-                # Free text (Baileys)
+                # Free text or media (Baileys)
                 text = self.broadcast.message_text
                 formatted_number = f"{recipient.phone}@s.whatsapp.net" if '@' not in recipient.phone else recipient.phone
+                
+                # Check if broadcast has media attachment
+                media_url = None
+                if self.broadcast.audience_filter and isinstance(self.broadcast.audience_filter, dict):
+                    media_url = self.broadcast.audience_filter.get('media_url')
                 
                 # ✅ FIX: Send with retries and exponential backoff (1s, 3s, 10s)
                 backoff_delays = [1, 3, 10]  # seconds
                 for attempt in range(self.max_retries):
                     try:
                         # ✅ FIX: Add timeout to prevent bottlenecks (8-12 seconds)
-                        result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
+                        if media_url:
+                            # Send media message with optional caption
+                            result = wa_service.send_media(
+                                formatted_number,
+                                media_url,
+                                caption=text or '',
+                                tenant_id=tenant_id
+                            )
+                        else:
+                            # Send text message
+                            result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
                         
                         if result and result.get('status') in ['sent', 'queued', 'accepted']:
                             recipient.status = 'sent'
