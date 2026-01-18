@@ -2833,6 +2833,78 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ email_text_templates table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 75: Separate Customer Service AI Notes from Free Notes
+        # 🎯 PURPOSE: Fix overlap between AI customer service notes and free notes
+        # Problem: Manual notes in AI tab used note_type='manual', causing them to appear in both tabs
+        # Solution: Introduce new note_type='customer_service_ai' for AI customer service context
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 75: Separating Customer Service AI notes from Free Notes")
+        
+        if check_table_exists('lead_notes'):
+            try:
+                from sqlalchemy import text
+                
+                # Step 1: Update existing manual notes without attachments to be customer_service_ai
+                # These are the notes that were added in the AI Customer Service tab
+                # We identify them as manual notes with no attachments and no created_by user
+                # (created_by=NULL typically means AI-created or system-created)
+                checkpoint("  → Migrating existing AI customer service notes...")
+                
+                # Count notes that will be migrated
+                count_query = text("""
+                    SELECT COUNT(*) FROM lead_notes
+                    WHERE note_type = 'manual'
+                      AND (attachments IS NULL OR attachments = '[]' OR json_array_length(CAST(attachments AS json)) = 0)
+                      AND created_by IS NULL
+                """)
+                notes_to_migrate = db.session.execute(count_query).scalar() or 0
+                checkpoint(f"  Found {notes_to_migrate} manual notes without attachments and without user (AI/system notes)")
+                
+                if notes_to_migrate > 0:
+                    # Update note_type for these notes
+                    # Note: We keep created_by=NULL to preserve that these were AI/system generated
+                    update_query = text("""
+                        UPDATE lead_notes 
+                        SET note_type = 'customer_service_ai'
+                        WHERE note_type = 'manual'
+                          AND (attachments IS NULL OR attachments = '[]' OR json_array_length(CAST(attachments AS json)) = 0)
+                          AND created_by IS NULL
+                    """)
+                    db.session.execute(update_query)
+                    checkpoint(f"  ✅ Migrated {notes_to_migrate} notes to customer_service_ai type")
+                else:
+                    checkpoint("  ✅ No notes to migrate")
+                
+                # Step 2: Add index for faster filtering by note_type
+                if not check_index_exists('idx_lead_notes_type_tenant'):
+                    checkpoint("  → Creating index on note_type and tenant_id...")
+                    db.session.execute(text("""
+                        CREATE INDEX idx_lead_notes_type_tenant 
+                        ON lead_notes(tenant_id, note_type, created_at DESC)
+                    """))
+                    checkpoint("  ✅ Index created for efficient note filtering")
+                
+                migrations_applied.append('separate_customer_service_ai_notes')
+                checkpoint("✅ Migration 75 completed - Customer Service AI notes now separate from Free Notes")
+                
+                # Log summary
+                checkpoint("""
+                  📋 Migration 75 Summary:
+                  - Created new note_type 'customer_service_ai' for AI customer service context
+                  - Migrated existing manual notes (without attachments, without user) to new type
+                  - Added index for efficient filtering
+                  - AI will now only see: call_summary, system, and customer_service_ai notes
+                  - Free Notes tab will only show: manual notes (with or without attachments)
+                """)
+                
+            except Exception as e:
+                log.error(f"❌ Migration 75 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ lead_notes table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
