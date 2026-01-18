@@ -22,11 +22,13 @@ import {
   XCircle,
   Clock,
   UserX,
-  Bot
+  Bot,
+  Shield
 } from 'lucide-react';
 import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { BusinessUsersModal } from '../../features/businesses/components/BusinessUsersModal';
+import { BusinessPagesManager } from '../../features/businesses/components/BusinessPagesManager';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useBusinessActions } from '../../features/businesses/useBusinessActions';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
@@ -187,6 +189,17 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                       data-testid={`button-edit-${business.id}`}
                     >
                       <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onActionClick('pages', business);
+                      }}
+                      className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                      title="ניהול הרשאות דפים"
+                      data-testid={`button-pages-${business.id}`}
+                    >
+                      <Shield className="h-4 w-4" />
                     </button>
                     <button
                       onClick={(e) => {
@@ -383,6 +396,7 @@ export function BusinessManagerPage() {
   const [error, setError] = useState<string | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [usersModalOpen, setUsersModalOpen] = useState(false);
+  const [pagesModalOpen, setPagesModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -492,6 +506,10 @@ export function BusinessManagerPage() {
         setSelectedBusiness(business);
         setEditModalOpen(true);
         break;
+      case 'pages':
+        setSelectedBusiness(business);
+        setPagesModalOpen(true);
+        break;
       case 'users':
         setSelectedBusiness(business);
         setUsersModalOpen(true);
@@ -513,7 +531,7 @@ export function BusinessManagerPage() {
         break;
       case 'more':
         // Show action menu for mobile
-        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. צפייה במשתמשים\n2. התחזות לעסק\n3. ${business.status === 'active' ? 'השעה' : 'הפעל'} עסק\n4. מחק עסק\n5. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-5):`);
+        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. צפייה במשתמשים\n2. ניהול הרשאות דפים\n3. התחזות לעסק\n4. ${business.status === 'active' ? 'השעה' : 'הפעל'} עסק\n5. מחק עסק\n6. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-6):`);
         
         switch (actionChoice) {
           case '1':
@@ -521,15 +539,19 @@ export function BusinessManagerPage() {
             setUsersModalOpen(true);
             break;
           case '2':
-            businessActions.impersonate(business);
+            setSelectedBusiness(business);
+            setPagesModalOpen(true);
             break;
           case '3':
-            business.status === 'active' ? businessActions.suspend(business) : businessActions.resume(business);
+            businessActions.impersonate(business);
             break;
           case '4':
-            businessActions.softDelete(business);
+            business.status === 'active' ? businessActions.suspend(business) : businessActions.resume(business);
             break;
           case '5':
+            businessActions.softDelete(business);
+            break;
+          case '6':
             businessActions.resetPassword(business);
             break;
           default:
@@ -738,6 +760,28 @@ export function BusinessManagerPage() {
           businessId={selectedBusiness.id}
           businessName={selectedBusiness.name}
         />
+      )}
+
+      {/* Pages Management Modal */}
+      {pagesModalOpen && selectedBusiness && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <div className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <BusinessPagesManager
+              businessId={selectedBusiness.id}
+              businessName={selectedBusiness.name}
+              onClose={() => {
+                setPagesModalOpen(false);
+                setSelectedBusiness(null);
+              }}
+              onSave={() => {
+                setPagesModalOpen(false);
+                setSelectedBusiness(null);
+                // Optionally refresh businesses
+                fetchBusinesses();
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
