@@ -239,6 +239,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     from agents import function_tool
     from functools import partial
     
+    # 🎧 CRM Context-Aware Support: Default to disabled
+    customer_service_enabled = False
+    
     # If business_id provided, create wrapper tools that inject it
     if business_id:
         # ============================================================================
@@ -956,6 +959,85 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             return _business_get_info_impl(business_id=business_id)
         
+        # 🎧 CRM Context-Aware Support: Create wrapper tools for customer service mode
+        # These tools allow AI to read CRM context and create call summaries
+        from server.agent_tools.tools_crm_context import (
+            FindLeadByPhoneInput, GetLeadContextInput, CreateLeadNoteInput, UpdateLeadFieldsInput,
+            find_lead_by_phone as _find_lead_by_phone,
+            get_lead_context as _get_lead_context,
+            create_lead_note as _create_lead_note,
+            update_lead_fields as _update_lead_fields
+        )
+        
+        @function_tool
+        def crm_find_lead_by_phone(phone: str):
+            """
+            Find a lead by phone number in the CRM.
+            Use this at the start of a conversation to identify the customer.
+            
+            Args:
+                phone: Customer phone number (any format, will be normalized)
+                
+            Returns:
+                Lead ID and name if found, or indication that this is a new lead
+            """
+            from server.agent_tools.tools_crm_context import FindLeadByPhoneInput, find_lead_by_phone_impl
+            result = find_lead_by_phone_impl(business_id, phone)
+            return result.model_dump() if hasattr(result, 'model_dump') else result
+        
+        @function_tool
+        def crm_get_lead_context(lead_id: int):
+            """
+            Get full context for a lead: details, notes, appointments, call history.
+            Use this after identifying a lead to understand their history.
+            
+            Args:
+                lead_id: The lead ID to get context for
+                
+            Returns:
+                Lead details, recent notes, upcoming/past appointments
+            """
+            from server.agent_tools.tools_crm_context import GetLeadContextInput, get_lead_context_impl
+            result = get_lead_context_impl(business_id, lead_id)
+            return result.model_dump() if hasattr(result, 'model_dump') else result
+        
+        @function_tool
+        def crm_create_call_summary(lead_id: int, summary: str, outcome: str = "", next_step: str = ""):
+            """
+            Create a call summary note for a lead. Call this at the END of every conversation.
+            
+            Args:
+                lead_id: The lead ID to add the note to
+                summary: Summary of the conversation (what was discussed, what was agreed)
+                outcome: Outcome of the call (e.g., "appointment_set", "info_provided", "callback_needed")
+                next_step: What needs to happen next (e.g., "Call back tomorrow at 10:00")
+                
+            Returns:
+                Success/failure and note ID
+            """
+            from server.agent_tools.tools_crm_context import create_call_summary_note
+            structured_data = {}
+            if outcome:
+                structured_data['outcome'] = outcome
+            if next_step:
+                structured_data['next_step'] = next_step
+            result = create_call_summary_note(
+                business_id=business_id,
+                lead_id=lead_id,
+                content=summary,
+                structured_data=structured_data if structured_data else None
+            )
+            return result.model_dump() if hasattr(result, 'model_dump') else result
+        
+        # Check if customer service mode is enabled for this business
+        customer_service_enabled = False
+        try:
+            from server.models_sql import BusinessSettings
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            customer_service_enabled = getattr(settings, 'enable_customer_service', False) if settings else False
+        except Exception as e:
+            logger.warning(f"Could not check customer service setting: {e}")
+        
         # ✅ RESTORED: AgentKit tools for non-realtime flows (WhatsApp, backend tasks, post-call)
         # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
         # Realtime phone calls use media_ws_ai.py with separate tool policy
@@ -978,6 +1060,16 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 whatsapp_send,
                 business_get_info
             ]
+        
+        # 🎧 CRM Context-Aware Support: Add customer service tools if enabled
+        if customer_service_enabled:
+            tools_to_use.extend([
+                crm_find_lead_by_phone,
+                crm_get_lead_context,
+                crm_create_call_summary
+            ])
+            logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools added")
+        
         logger.info(f"✅ AgentKit tools RESTORED for business {business_id} (non-realtime flows)")
     else:
         # ✅ RESTORED: AgentKit tools without business_id injection
@@ -1222,6 +1314,43 @@ Be friendly and professional."""
         instructions = system_rules + fallback_prompt
         print(f"\n⚠️  NO DB prompt - using minimal fallback for {business_name}")
         logger.warning(f"No DATABASE prompt for {business_name} - using minimal fallback")
+
+    # 🎧 CRM Context-Aware Support: Add customer service instructions if enabled
+    # Only for INBOUND calls/messages - outbound should not use customer service mode
+    if customer_service_enabled:
+        customer_service_instructions = """
+
+🎧 מצב שירות לקוחות חכם (פעיל):
+==================================
+יש לך גישה לכלי CRM לשירות לקוחות. השתמש בהם בחוכמה!
+
+⚠️ חשוב מאוד - רק לשיחות/הודעות נכנסות!
+אל תשתמש בכלי שירות הלקוחות בשיחות יוצאות (outbound).
+כלי ה-CRM מיועדים רק כשלקוח פונה אלינו, לא כשאנחנו פונים אליו.
+
+📋 מתי להשתמש בכלים (רק בפניות נכנסות!):
+1. בתחילת שיחה/הודעה נכנסת - השתמש ב-crm_find_lead_by_phone() לזהות את הלקוח
+2. אם הלקוח מבקש מידע על פגישות/היסטוריה שלו - השתמש ב-crm_get_lead_context()
+3. בסיום כל שיחה נכנסת - השתמש ב-crm_create_call_summary() לתעד את הסיכום
+
+⚠️ כללים חשובים:
+- השתמש בכלים רק כשצריך! אל תקרא context אם הלקוח רק שואל שאלה כללית
+- אם הלקוח שואל "מתי הפגישה שלי?" או "מה דיברנו בפעם הקודמת?" - אז כן תקרא context
+- המערכת מחזירה 10 הערות אחרונות (מקוצרות) כדי לא להעמיס
+- אל תמציא מידע! אם משהו לא מופיע - אמור "לא מופיע לי במערכת"
+- אם יש סתירה בין דברי הלקוח ל-CRM - ברר בעדינות, אל תתווכח
+
+📝 סיכום שיחה (חובה בסיום כל שיחה נכנסת!):
+בסיום כל שיחה נכנסת, תמיד תעד סיכום עם crm_create_call_summary():
+- מה הלקוח רצה
+- מה הוסכם/נעשה  
+- מה הצעד הבא (אם יש)
+זה חשוב כדי שבשיחה הבאה נדע במה דיברנו!
+
+🚫 לא להשתמש בכלי CRM כשאנחנו מתקשרים/שולחים הודעה ללקוח (outbound)!
+"""
+        instructions = instructions + customer_service_instructions
+        logger.info(f"🎧 Added customer service instructions for business {business_id}")
 
     try:
         # DEBUG: Print the actual instructions the agent receives

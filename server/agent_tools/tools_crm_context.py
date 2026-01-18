@@ -15,7 +15,7 @@ from agents import function_tool
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from server.models_sql import db, Lead, LeadNote, Appointment
+from server.models_sql import db, Lead, LeadNote, Appointment, CallLog
 from server.agent_tools.phone_utils import normalize_il_phone
 import logging
 import re
@@ -277,7 +277,8 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
             'last_contact_at': lead.last_contact_at.isoformat() if lead.last_contact_at else None,
         }
         
-        # Get last 10 notes (most recent first)
+        # Get last 10 notes (most recent first) - sufficient context without overflow
+        # 🎧 CRM Context-Aware Support: 10 notes with truncated content (300 chars each)
         notes_query = LeadNote.query.filter_by(
             lead_id=input.lead_id,
             tenant_id=input.business_id
@@ -287,8 +288,8 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         for note in notes_query:
             notes_list.append(LeadContextNote(
                 id=note.id,
-                note_type=note.note_type or 'manual',
-                content=note.content[:500] if note.content else "",  # Truncate for token efficiency
+                note_type=getattr(note, 'note_type', 'manual') or 'manual',
+                content=note.content[:300] if note.content else "",  # Truncate to 300 chars for token efficiency
                 created_at=note.created_at.isoformat() if note.created_at else "",
                 created_by='ai' if note.created_by is None else str(note.created_by)
             ))
@@ -332,7 +333,6 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
             ))
         
         # Count recent calls (for context awareness)
-        from server.models_sql import CallLog
         recent_calls = CallLog.query.filter(
             CallLog.lead_id == input.lead_id,
             CallLog.business_id == input.business_id
