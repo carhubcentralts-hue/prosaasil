@@ -19,6 +19,7 @@ from sqlalchemy import text
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob
 from server.auth_api import require_api_auth
+from server.security.permissions import require_page_access
 from server.services.call_limiter import check_call_limits, get_call_counts, MAX_TOTAL_CALLS_PER_BUSINESS, MAX_OUTBOUND_CALLS_PER_BUSINESS
 from twilio.rest import Client
 
@@ -165,6 +166,7 @@ def get_public_host() -> str:
 
 @outbound_bp.route("/api/outbound_calls/templates", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_outbound_templates():
     """
     Get outbound call templates for current business
@@ -206,6 +208,7 @@ def get_outbound_templates():
 
 @outbound_bp.route("/api/outbound_calls/counts", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_call_counts_endpoint():
     """
     Get current active call counts for the business
@@ -242,6 +245,7 @@ def get_call_counts_endpoint():
 
 @outbound_bp.route("/api/inbound_calls/counts", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_inbound')
 def get_inbound_call_counts_endpoint():
     """
     Get current active call counts for the business (inbound endpoint)
@@ -377,6 +381,7 @@ def _start_bulk_queue(tenant_id: int, lead_ids: list, project_id: int = None) ->
 
 @outbound_bp.route("/api/outbound_calls/start", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def start_outbound_calls():
     """
     Start outbound AI calls to selected leads.
@@ -557,6 +562,7 @@ def start_outbound_calls():
 
 @outbound_bp.route("/api/outbound_calls/templates", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def create_outbound_template():
     """
     Create a new outbound call template
@@ -617,6 +623,7 @@ def create_outbound_template():
 
 @outbound_bp.route("/api/outbound_calls/templates/<int:template_id>", methods=["DELETE"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def delete_outbound_template(template_id: int):
     """
     Soft delete (deactivate) an outbound call template
@@ -660,6 +667,7 @@ MAX_IMPORTED_LEADS_PER_BUSINESS = 5000
 
 @outbound_bp.route("/api/outbound/import-leads", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def import_outbound_leads():
     """
     BUILD 182: Import leads from CSV for outbound calls
@@ -1115,6 +1123,7 @@ def import_outbound_leads():
 
 @outbound_bp.route("/api/outbound/import-leads", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_imported_leads():
     """
     BUILD 182: Get imported leads for outbound calls
@@ -1221,6 +1230,7 @@ def get_imported_leads():
 
 @outbound_bp.route("/api/outbound/import-leads/<int:lead_id>", methods=["DELETE"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def delete_imported_lead(lead_id: int):
     """
     BUILD 182: Delete a single imported lead
@@ -1266,6 +1276,7 @@ def delete_imported_lead(lead_id: int):
 
 @outbound_bp.route("/api/outbound/import-leads/bulk-delete", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def bulk_delete_imported_leads():
     """
     BUILD 182: Bulk delete imported leads
@@ -1336,6 +1347,7 @@ def bulk_delete_imported_leads():
 
 @outbound_bp.route("/api/outbound/import-lists", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_import_lists():
     """
     BUILD 182: Get all import lists for the business
@@ -1382,6 +1394,7 @@ def get_import_lists():
 
 @outbound_bp.route("/api/outbound/bulk-enqueue", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def bulk_enqueue_outbound_calls():
     """
     Bulk enqueue outbound calls with concurrency control
@@ -1489,6 +1502,7 @@ def bulk_enqueue_outbound_calls():
 
 @outbound_bp.route("/api/outbound/runs/<int:run_id>", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_run_status(run_id: int):
     """
     Get status of bulk call run
@@ -1545,6 +1559,7 @@ def get_run_status(run_id: int):
 
 @outbound_bp.route("/api/outbound/stop-queue", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def stop_queue():
     """
     Stop an active bulk call queue/run
@@ -1629,6 +1644,7 @@ def stop_queue():
 
 @outbound_bp.route("/api/outbound/bulk/active", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_active_bulk_run():
     """
     Get active bulk call run for the current business
@@ -1709,6 +1725,7 @@ def get_active_bulk_run():
 
 @outbound_bp.route("/api/outbound/recent-calls", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calls_outbound')
 def get_recent_calls():
     """
     Get recent outbound calls, sorted by most recent first
@@ -2475,6 +2492,7 @@ def cleanup_stuck_runs():
 
 @outbound_bp.route("/api/outbound/cleanup-stuck-jobs", methods=["POST"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def cleanup_stuck_jobs_endpoint():
     """
     Manually trigger cleanup of jobs stuck in 'dialing' status
@@ -2535,6 +2553,7 @@ def cleanup_stuck_jobs_endpoint():
 
 @outbound_bp.route("/api/outbound/leads/export", methods=["GET"])
 @require_api_auth(['system_admin', 'owner', 'admin'])
+@require_page_access('calls_outbound')
 def export_leads_by_status():
     """
     Export leads filtered by status to CSV format

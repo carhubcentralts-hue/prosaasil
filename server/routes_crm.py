@@ -6,6 +6,7 @@ Implements RBAC with business scoping as per guidelines
 import logging
 from flask import Blueprint, jsonify, request, g, send_file
 from server.auth_api import require_api_auth
+from server.security.permissions import require_page_access
 from server.models_sql import Business, Customer, WhatsAppMessage, CallLog, Deal, Payment, Invoice, Contract, PaymentGateway, CRMTask, Lead
 from server.db import db
 from datetime import datetime

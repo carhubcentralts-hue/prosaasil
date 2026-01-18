@@ -80,6 +80,7 @@ def get_user_business_filter():
 
 @calendar_bp.route('/appointments', methods=['GET'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
 def get_appointments():
     """Get all appointments for the current user's business or all businesses (admin/manager)"""
     try:
@@ -265,6 +266,7 @@ def get_appointments():
 
 @calendar_bp.route('/appointments', methods=['POST'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
 def create_appointment():
     """Create a new appointment"""
     try:
@@ -406,6 +408,7 @@ def create_appointment():
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['GET'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
 def get_appointment(appointment_id):
     """Get a specific appointment by ID"""
     try:
@@ -498,6 +501,7 @@ def get_appointment(appointment_id):
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['PUT'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
 def update_appointment(appointment_id):
     """Update an existing appointment"""
     try:
@@ -603,6 +607,7 @@ def update_appointment(appointment_id):
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['DELETE'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
 def delete_appointment(appointment_id):
     """Delete an appointment"""
     try:
@@ -645,6 +650,7 @@ def delete_appointment(appointment_id):
 
 @calendar_bp.route('/stats', methods=['GET'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('calendar')
 def get_calendar_stats():
     """Get calendar statistics for dashboard"""
     try:
