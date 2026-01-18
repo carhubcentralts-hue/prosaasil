@@ -2787,6 +2787,52 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ business_settings table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 74: Email Text Templates Enhancement - Add button_text, button_link, footer_text
+        # 🎯 PURPOSE: Allow full email template customization including CTA button and footer
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 74: Email Text Templates - Adding button and footer fields")
+        
+        if check_table_exists('email_text_templates'):
+            try:
+                # Add button_text column if missing
+                if not check_column_exists('email_text_templates', 'button_text'):
+                    checkpoint("  → Adding button_text to email_text_templates...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_text_templates 
+                        ADD COLUMN button_text VARCHAR(255)
+                    """))
+                    checkpoint("  ✅ email_text_templates.button_text added")
+                    migrations_applied.append('add_email_text_templates_button_text')
+                
+                # Add button_link column if missing
+                if not check_column_exists('email_text_templates', 'button_link'):
+                    checkpoint("  → Adding button_link to email_text_templates...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_text_templates 
+                        ADD COLUMN button_link VARCHAR(512)
+                    """))
+                    checkpoint("  ✅ email_text_templates.button_link added")
+                    migrations_applied.append('add_email_text_templates_button_link')
+                
+                # Add footer_text column if missing
+                if not check_column_exists('email_text_templates', 'footer_text'):
+                    checkpoint("  → Adding footer_text to email_text_templates...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_text_templates 
+                        ADD COLUMN footer_text TEXT
+                    """))
+                    checkpoint("  ✅ email_text_templates.footer_text added")
+                    migrations_applied.append('add_email_text_templates_footer_text')
+                
+                checkpoint("✅ Migration 74 completed - Email text template fields added")
+            except Exception as e:
+                log.error(f"❌ Migration 74 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ email_text_templates table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

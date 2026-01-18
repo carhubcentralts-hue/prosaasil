@@ -2291,6 +2291,13 @@ interface NoteAttachment {
 interface LeadNoteItem {
   id: number;
   content: string;
+  note_type?: 'manual' | 'call_summary' | 'system';  // CRM Context-Aware Support
+  call_id?: number;  // Link to call for call_summary notes
+  structured_data?: {
+    sentiment?: string;
+    outcome?: string;
+    next_step_date?: string;
+  };
   attachments: NoteAttachment[];
   created_at: string | null;
   updated_at: string | null;
@@ -2636,12 +2643,40 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
         </div>
       ) : (
         <div className="space-y-4">
-          {notes.map((note) => (
+          {notes.map((note) => {
+            // Determine note styling based on type
+            const isCallSummary = note.note_type === 'call_summary';
+            const isSystemNote = note.note_type === 'system';
+            const noteClasses = isCallSummary 
+              ? "p-4 bg-blue-50 border border-blue-200 rounded-lg" 
+              : isSystemNote 
+                ? "p-4 bg-gray-100 border border-gray-300 rounded-lg"
+                : "p-4 bg-white border border-gray-200 rounded-lg";
+            
+            return (
             <div 
               key={note.id} 
-              className="p-4 bg-white border border-gray-200 rounded-lg"
+              className={noteClasses}
               data-testid={`note-${note.id}`}
             >
+              {/* Note type badge */}
+              {isCallSummary && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-blue-200">
+                  <Phone className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded">סיכום שיחה (AI)</span>
+                  {note.structured_data?.outcome && (
+                    <span className="text-xs text-blue-600">
+                      תוצאה: {note.structured_data.outcome}
+                    </span>
+                  )}
+                </div>
+              )}
+              {isSystemNote && (
+                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-300">
+                  <span className="text-xs font-medium text-gray-600 bg-gray-200 px-2 py-0.5 rounded">הערת מערכת</span>
+                </div>
+              )}
+              
               {editingId === note.id ? (
                 <div>
                   <textarea
@@ -2665,22 +2700,27 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => startEditing(note)}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                        title="ערוך"
-                        data-testid={`button-edit-note-${note.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteNote(note.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="מחק"
-                        data-testid={`button-delete-note-${note.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Don't show edit/delete for AI-generated notes */}
+                      {!isCallSummary && !isSystemNote && (
+                        <>
+                          <button
+                            onClick={() => startEditing(note)}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="ערוך"
+                            data-testid={`button-edit-note-${note.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteNote(note.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="מחק"
+                            data-testid={`button-delete-note-${note.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                     <span className="text-xs text-gray-400">
                       {note.created_at ? formatDate(note.created_at) : ''}
@@ -2859,7 +2899,8 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                 </>
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
