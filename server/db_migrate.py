@@ -2963,6 +2963,128 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ attachments table already exists - skipping")
         
+        # Migration 77: Upgrade contracts system with R2 storage
+        if not check_table_exists('contract_files'):
+            checkpoint("🔧 Running Migration 77: Upgrade contracts system with R2 storage")
+            
+            try:
+                # Add missing columns to existing contract table if it exists
+                if check_table_exists('contract'):
+                    checkpoint("  → Upgrading existing contract table...")
+                    
+                    # Add lead_id if missing
+                    if not check_column_exists('contract', 'lead_id'):
+                        db.session.execute(text("""
+                            ALTER TABLE contract 
+                            ADD COLUMN lead_id INTEGER REFERENCES leads(id)
+                        """))
+                        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_lead ON contract(lead_id)"))
+                        checkpoint("    ✅ Added lead_id column")
+                    
+                    # Add title if missing
+                    if not check_column_exists('contract', 'title'):
+                        db.session.execute(text("""
+                            ALTER TABLE contract 
+                            ADD COLUMN title VARCHAR(255)
+                        """))
+                        checkpoint("    ✅ Added title column")
+                    
+                    # Update status column to use new enum values with CHECK constraint
+                    if check_column_exists('contract', 'status'):
+                        # Drop old constraint if exists and add new one
+                        db.session.execute(text("""
+                            ALTER TABLE contract DROP CONSTRAINT IF EXISTS contract_status_check
+                        """))
+                        db.session.execute(text("""
+                            ALTER TABLE contract 
+                            ADD CONSTRAINT contract_status_check 
+                            CHECK (status IN ('draft', 'sent', 'signed', 'cancelled', 'expired'))
+                        """))
+                        checkpoint("    ✅ Updated status CHECK constraint")
+                    
+                    # Add signer fields if missing
+                    for col in ['signer_name', 'signer_phone', 'signer_email']:
+                        if not check_column_exists('contract', col):
+                            db.session.execute(text(f"""
+                                ALTER TABLE contract 
+                                ADD COLUMN {col} VARCHAR(255)
+                            """))
+                    checkpoint("    ✅ Added signer fields")
+                    
+                    # Add created_by if missing
+                    if not check_column_exists('contract', 'created_by'):
+                        db.session.execute(text("""
+                            ALTER TABLE contract 
+                            ADD COLUMN created_by INTEGER REFERENCES users(id)
+                        """))
+                    checkpoint("    ✅ Added created_by field")
+                    
+                    # Add updated_at if missing
+                    if not check_column_exists('contract', 'updated_at'):
+                        db.session.execute(text("""
+                            ALTER TABLE contract 
+                            ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        """))
+                    checkpoint("    ✅ Added updated_at field")
+                    
+                    # Ensure indexes
+                    db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_business_created ON contract(business_id, created_at DESC)"))
+                    db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_contract_business_status ON contract(business_id, status)"))
+                    checkpoint("    ✅ Created performance indexes")
+                
+                # Create contract_files table (NEW)
+                checkpoint("  → Creating contract_files table...")
+                db.session.execute(text("""
+                    CREATE TABLE contract_files (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        contract_id INTEGER NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
+                        file_type VARCHAR(32) NOT NULL CHECK (file_type IN ('uploaded', 'generated_pdf', 'signed_pdf', 'template')),
+                        storage_key TEXT NOT NULL,
+                        original_filename VARCHAR(255),
+                        mime_type VARCHAR(128),
+                        size_bytes BIGINT,
+                        checksum_sha256 VARCHAR(64),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        uploaded_by INTEGER REFERENCES users(id),
+                        deleted_at TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for contract_files
+                db.session.execute(text("CREATE INDEX idx_contract_files_contract ON contract_files(contract_id, created_at DESC)"))
+                db.session.execute(text("CREATE INDEX idx_contract_files_business ON contract_files(business_id)"))
+                checkpoint("    ✅ contract_files table created")
+                
+                # Create contract_sign_events table (Audit Trail)
+                checkpoint("  → Creating contract_sign_events table...")
+                db.session.execute(text("""
+                    CREATE TABLE contract_sign_events (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id),
+                        contract_id INTEGER NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
+                        event_type VARCHAR(32) NOT NULL CHECK (event_type IN ('created', 'sent', 'viewed', 'otp_sent', 'otp_verified', 'signed', 'cancelled', 'downloaded')),
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_by INTEGER REFERENCES users(id)
+                    )
+                """))
+                
+                # Create indexes for contract_sign_events
+                db.session.execute(text("CREATE INDEX idx_contract_events_contract ON contract_sign_events(contract_id, created_at)"))
+                db.session.execute(text("CREATE INDEX idx_contract_events_business ON contract_sign_events(business_id)"))
+                checkpoint("    ✅ contract_sign_events table created")
+                
+                migrations_applied.append('upgrade_contracts_system_r2')
+                checkpoint("✅ Migration 77 completed - Contracts system upgraded with R2 storage")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 77 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ contract_files table already exists - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

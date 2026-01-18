@@ -446,6 +446,11 @@ def create_app():
         app.register_blueprint(attachments_bp)
         app.logger.info("✅ Attachments System blueprint registered")
         
+        # Contracts System - /api/contracts/*
+        from server.routes_contracts import contracts_bp
+        app.register_blueprint(contracts_bp)
+        app.logger.info("✅ Contracts System blueprint registered")
+        
         # Push Notifications - /api/push/*
         from server.routes_push import push_bp
         app.register_blueprint(push_bp)
