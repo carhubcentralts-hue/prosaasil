@@ -31,7 +31,7 @@ interface ContractFile {
   attachment_id: number;
   filename: string;
   mime_type: string;
-  size_bytes: number;
+  file_size: number;
   created_at: string;
 }
 
@@ -362,7 +362,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                       <div>
                         <p className="font-medium text-gray-900">{file.filename}</p>
                         <p className="text-xs text-gray-500">
-                          {file.purpose === 'original' ? 'מסמך מקורי' : 'מסמך חתום'} • {formatFileSize(file.size_bytes)}
+                          {file.purpose === 'original' ? 'מסמך מקורי' : 'מסמך חתום'} • {formatFileSize(file.file_size)}
                         </p>
                       </div>
                     </div>

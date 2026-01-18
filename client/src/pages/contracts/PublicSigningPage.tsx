@@ -14,7 +14,7 @@ interface SigningContract {
     id: number;
     filename: string;
     mime_type: string;
-    size_bytes: number;
+    file_size: number;
     download_url: string;
   }>;
 }
@@ -194,7 +194,7 @@ export function PublicSigningPage() {
                       <FileText className="w-5 h-5 text-gray-400" />
                       <div>
                         <p className="font-medium text-gray-900">{file.filename}</p>
-                        <p className="text-xs text-gray-500">{formatFileSize(file.size_bytes)}</p>
+                        <p className="text-xs text-gray-500">{formatFileSize(file.file_size)}</p>
                       </div>
                     </div>
                     <a

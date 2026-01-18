@@ -331,7 +331,7 @@ def get_contract(contract_id):
                     'attachment_id': cf.attachment_id,
                     'filename': attachment.filename_original,
                     'mime_type': attachment.mime_type,
-                    'size_bytes': attachment.file_size,
+                    'file_size': attachment.file_size,
                     'created_at': cf.created_at.isoformat(),
                     'created_by': cf.created_by
                 })
@@ -473,7 +473,7 @@ def upload_contract_file(contract_id):
             'attachment_id': attachment_id,
             'filename': attachment.filename_original if attachment else None,
             'mime_type': attachment.mime_type if attachment else None,
-            'size_bytes': attachment.file_size if attachment else None,
+            'file_size': attachment.file_size if attachment else None,
             'created_at': contract_file.created_at.isoformat()
         }), 201
         
@@ -718,7 +718,7 @@ def get_signing_page(token):
                     'id': cf.id,
                     'filename': attachment.filename_original,
                     'mime_type': attachment.mime_type,
-                    'size_bytes': attachment.file_size,
+                    'file_size': attachment.file_size,
                     'download_url': signed_url
                 })
         
