@@ -2905,6 +2905,64 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ lead_notes table does not exist - skipping")
         
+        # Migration 76: Create attachments table for unified file management
+        if not check_table_exists('attachments'):
+            checkpoint("🔧 Running Migration 76: Create attachments table for unified file management")
+            try:
+                from sqlalchemy import text
+                
+                # Create attachments table
+                db.session.execute(text("""
+                    CREATE TABLE attachments (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        filename_original VARCHAR(255) NOT NULL,
+                        mime_type VARCHAR(100) NOT NULL,
+                        file_size INTEGER NOT NULL,
+                        storage_path VARCHAR(512) NOT NULL,
+                        public_url VARCHAR(512),
+                        channel_compatibility JSON DEFAULT '{"email": true, "whatsapp": true, "broadcast": true}'::json,
+                        metadata JSON,
+                        is_deleted BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        deleted_at TIMESTAMP,
+                        deleted_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+                    )
+                """))
+                checkpoint("  ✅ attachments table created")
+                
+                # Add indexes for performance
+                db.session.execute(text("""
+                    CREATE INDEX idx_attachments_business 
+                    ON attachments(business_id, created_at DESC) 
+                    WHERE is_deleted = FALSE
+                """))
+                checkpoint("  ✅ Index created: idx_attachments_business")
+                
+                db.session.execute(text("""
+                    CREATE INDEX idx_attachments_uploader 
+                    ON attachments(uploaded_by, created_at DESC)
+                """))
+                checkpoint("  ✅ Index created: idx_attachments_uploader")
+                
+                # Create storage directory structure
+                import os
+                storage_root = os.path.join(os.getcwd(), 'storage', 'attachments')
+                os.makedirs(storage_root, exist_ok=True)
+                checkpoint(f"  ✅ Storage directory created: {storage_root}")
+                
+                migrations_applied.append('create_attachments_table')
+                checkpoint("✅ Migration 76 completed - Unified attachments system ready")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 76 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ attachments table already exists - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

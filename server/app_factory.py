@@ -441,6 +441,11 @@ def create_app():
         app.register_blueprint(email_bp)
         app.logger.info("✅ Email System blueprint registered")
         
+        # Attachments System - /api/attachments/*
+        from server.routes_attachments import attachments_bp
+        app.register_blueprint(attachments_bp)
+        app.logger.info("✅ Attachments System blueprint registered")
+        
         # Push Notifications - /api/push/*
         from server.routes_push import push_bp
         app.register_blueprint(push_bp)

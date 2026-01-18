@@ -1282,3 +1282,56 @@ class SecurityEvent(db.Model):
         db.CheckConstraint("severity IN ('critical', 'high', 'medium', 'low')", name='chk_security_events_severity'),
         db.CheckConstraint("status IN ('open', 'investigating', 'mitigated', 'resolved', 'closed')", name='chk_security_events_status'),
     )
+
+class Attachment(db.Model):
+    """
+    Unified Attachments System - Single source for all file attachments
+    Used by: Email, WhatsApp messages, Broadcasts
+    
+    Features:
+    - Multi-tenant isolation (business_id)
+    - Secure file storage with tenant-isolated paths
+    - Channel compatibility tracking (email/whatsapp/broadcast)
+    - Soft delete support
+    - Audit trail (uploaded_by, created_at)
+    """
+    __tablename__ = "attachments"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
+    # File metadata
+    filename_original = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(100), nullable=False)
+    file_size = db.Column(db.Integer, nullable=False)  # bytes
+    
+    # Storage
+    storage_path = db.Column(db.String(512), nullable=False)  # Relative path: {business_id}/{yyyy}/{mm}/{attachment_id}.ext
+    public_url = db.Column(db.String(512), nullable=True)  # Temporary signed URL (if applicable)
+    
+    # Channel compatibility - which channels support this file type/size
+    channel_compatibility = db.Column(db.JSON, default={"email": True, "whatsapp": True, "broadcast": True})
+    
+    # Additional metadata (dimensions for images, duration for videos, etc.)
+    metadata = db.Column(db.JSON, nullable=True)
+    
+    # Soft delete
+    is_deleted = db.Column(db.Boolean, default=False, index=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
+    deleted_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("attachments", lazy="dynamic"), foreign_keys=[business_id])
+    uploader = db.relationship("User", backref=db.backref("uploaded_attachments", lazy="dynamic"), foreign_keys=[uploaded_by])
+    deleter = db.relationship("User", backref=db.backref("deleted_attachments", lazy="dynamic"), foreign_keys=[deleted_by])
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        db.Index('idx_attachments_business', 'business_id', 'created_at'),
+        db.Index('idx_attachments_uploader', 'uploaded_by', 'created_at'),
+    )
