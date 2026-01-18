@@ -9,6 +9,7 @@ import { http } from '../../../services/http';
 import { formatDate } from '../../../shared/utils/format';
 import { Lead } from '../types';
 import { useAuth } from '../../../features/auth/hooks';
+import { AttachmentPicker } from '../../../shared/components/AttachmentPicker';
 
 interface WhatsAppMessage {
   id: string;
@@ -55,6 +56,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [aiEnabled, setAiEnabled] = useState(true);
   const [togglingAi, setTogglingAi] = useState(false);
+  const [attachmentId, setAttachmentId] = useState<number | null>(null);  // NEW: for media
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);  // NEW: toggle picker
   const [providers, setProviders] = useState<WhatsAppProvider[]>([
     { id: 'twilio', name: 'Twilio WhatsApp', type: 'twilio', status: 'active', description: 'ספק רשמי דרך Twilio Business API' },
     { id: 'baileys', name: 'WhatsApp Web', type: 'baileys', status: 'active', description: 'חיבור ישיר דרך WhatsApp Web' }
@@ -205,7 +208,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   }, [messages]);
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !lead.phone_e164 || sending) {
+    if ((!newMessage.trim() && !attachmentId) || !lead.phone_e164 || sending) {
       return;
     }
 
@@ -217,7 +220,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       const optimisticMessage: WhatsAppMessage = {
         id: `temp-${Date.now()}`,
         direction: 'out',
-        content_text: newMessage.trim(),
+        content_text: newMessage.trim() || (attachmentId ? '[קובץ מצורף]' : ''),
         sent_at: new Date().toISOString(),
         status: 'sending'
       };
@@ -234,6 +237,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       }>('/api/whatsapp/send', {
         to: lead.phone_e164,
         message: newMessage.trim(),
+        attachment_id: attachmentId,  // NEW: include attachment
         business_id: getBusinessId(),
         provider: selectedProvider
       });
@@ -248,6 +252,10 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               : msg
           )
         );
+        
+        // Clear attachment after successful send
+        setAttachmentId(null);
+        setShowAttachmentPicker(false);
       } else {
         // Mark as failed
         setMessages(prev => 
@@ -314,7 +322,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   };
 
   const handleAttachClick = () => {
-    alert('צירוף קבצים יהיה זמין בקרוב');
+    setShowAttachmentPicker(!showAttachmentPicker);
   };
 
   const getMessageStatusIcon = (status?: string) => {
@@ -547,12 +555,37 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               <span>AI מושבת - הודעות לא ייענו אוטומטית</span>
             </div>
           )}
+          
+          {/* Attachment Picker */}
+          {showAttachmentPicker && (
+            <div className="mb-3 p-3 border rounded-lg bg-gray-50">
+              <AttachmentPicker
+                channel="whatsapp"
+                mode="single"
+                onAttachmentSelect={(id) => {
+                  if (typeof id === 'number') {
+                    setAttachmentId(id);
+                  } else {
+                    setAttachmentId(null);
+                  }
+                }}
+                selectedAttachmentId={attachmentId}
+              />
+              {attachmentId && (
+                <div className="mt-2 text-sm text-green-600">
+                  ✅ קובץ נבחר - יישלח עם ההודעה
+                </div>
+              )}
+            </div>
+          )}
+          
           <div className="flex items-center space-x-2">
             <Button 
               size="sm" 
               variant="ghost" 
               onClick={handleAttachClick}
               data-testid="button-whatsapp-attach"
+              className={attachmentId ? 'text-green-600' : ''}
             >
               <Paperclip className="w-4 h-4" />
             </Button>
@@ -561,7 +594,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="הקלד הודעה..."
+                placeholder={attachmentId ? "הוסף כיתוב (אופציונלי)..." : "הקלד הודעה..."}
                 disabled={sending}
                 className="border-0 focus:ring-0 bg-gray-50"
                 data-testid="input-whatsapp-message"
@@ -577,7 +610,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
             </Button>
             <Button
               onClick={sendMessage}
-              disabled={!newMessage.trim() || sending}
+              disabled={(!newMessage.trim() && !attachmentId) || sending}
               size="sm"
               className="bg-green-500 hover:bg-green-600 text-white"
               data-testid="button-whatsapp-send"
