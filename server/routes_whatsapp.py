@@ -1183,18 +1183,19 @@ def baileys_webhook():
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @api_handler
 def send_manual_message():
-    """שליחת הודעה ידנית מנציג - Agent Takeover"""
+    """שליחת הודעה ידנית מנציג - Agent Takeover - supports text and media attachments"""
     data = request.get_json(force=True)
     
     to_number = data.get('to')
     message = data.get('message')
+    attachment_id = data.get('attachment_id')  # Optional media attachment
     
     # 🔒 SECURITY: business_id from authenticated session via get_business_id()
     from server.routes_crm import get_business_id
     
     business_id = get_business_id()
     
-    if not to_number or not message:
+    if not to_number or (not message and not attachment_id):
         return {"ok": False, "error": "missing_required_fields"}, 400
     
     try:
@@ -1226,8 +1227,61 @@ def send_manual_message():
             log.warning(f"[WA-SEND] ❌ BLOCKED: Manual send to non-private chat {formatted_number[:30]}...")
             return {"ok": False, "error": "cannot_send_to_non_private_chats"}, 400
         
+        # Handle media attachment if provided
+        message_type = 'text'
+        media_url = None
+        
+        if attachment_id:
+            from server.models_sql import Attachment
+            from server.services.attachment_service import get_attachment_service
+            
+            # Validate attachment belongs to business and is WhatsApp-compatible
+            attachment = db.session.query(Attachment).filter_by(
+                id=attachment_id,
+                business_id=business_id,
+                is_deleted=False
+            ).first()
+            
+            if not attachment:
+                return {"ok": False, "error": "attachment_not_found"}, 404
+            
+            if not attachment.channel_compatibility.get('whatsapp', False):
+                return {"ok": False, "error": "attachment_not_compatible_with_whatsapp"}, 400
+            
+            # Generate signed URL for media
+            attachment_service = get_attachment_service()
+            media_url = attachment_service.generate_signed_url(
+                attachment.id,
+                attachment.storage_path,
+                ttl_minutes=60
+            )
+            
+            # Determine media type from mime
+            if attachment.mime_type.startswith('image/'):
+                message_type = 'image'
+            elif attachment.mime_type.startswith('video/'):
+                message_type = 'video'
+            elif attachment.mime_type.startswith('audio/'):
+                message_type = 'audio'
+            elif attachment.mime_type == 'application/pdf':
+                message_type = 'document'
+            else:
+                message_type = 'document'  # Default to document for other types
+            
+            log.info(f"[WA-SEND] Sending {message_type} attachment: {attachment.filename_original}")
+        
         try:
-            send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
+            if media_url:
+                # Send media message - use send_media method
+                send_result = wa_service.send_media(
+                    formatted_number,
+                    media_url,
+                    caption=message or '',  # Optional caption
+                    tenant_id=tenant_id
+                )
+            else:
+                # Send text message
+                send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
         except Exception as e:
             log.error(f"[WA-SEND] Send message failed: {e}")
             return {"ok": False, "error": f"send_failed: {str(e)}"}, 500
@@ -1251,12 +1305,16 @@ def send_manual_message():
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
                 wa_msg.to_number = clean_number
-                wa_msg.body = message
-                wa_msg.message_type = 'text'
+                wa_msg.body = message or ''  # Caption or empty if media-only
+                wa_msg.message_type = message_type  # 'text', 'image', 'video', 'audio', 'document'
                 wa_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = send_result.get('provider', 'unknown')
                 wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
                 wa_msg.status = db_status
+                
+                # Store media URL if attachment was sent
+                if media_url:
+                    wa_msg.media_url = media_url
                 
                 db.session.add(wa_msg)
                 db.session.commit()
@@ -2732,9 +2790,57 @@ def create_broadcast():
         template_name = payload_dict.get('template_name')
         message_text = payload_dict.get('message_text', '')
         audience_source = payload_dict.get('audience_source', 'manual')
+        attachment_id = payload_dict.get('attachment_id')  # Optional media attachment
         
-        log.info(f"[WA_BROADCAST] provider={provider}, message_type={message_type}, audience_source={audience_source}")
+        log.info(f"[WA_BROADCAST] provider={provider}, message_type={message_type}, audience_source={audience_source}, attachment_id={attachment_id}")
         log.info(f"[WA_BROADCAST] message_text preview: {message_text[:100] if message_text else 'none'}")
+        
+        # Validate attachment if provided
+        media_url = None
+        if attachment_id:
+            from server.models_sql import Attachment
+            from server.services.attachment_service import get_attachment_service
+            
+            attachment = db.session.query(Attachment).filter_by(
+                id=attachment_id,
+                business_id=business_id,
+                is_deleted=False
+            ).first()
+            
+            if not attachment:
+                return jsonify({
+                    'ok': False,
+                    'error': 'attachment_not_found',
+                    'message': 'הקובץ שנבחר לא נמצא'
+                }), 404
+            
+            if not attachment.channel_compatibility.get('broadcast', False):
+                return jsonify({
+                    'ok': False,
+                    'error': 'attachment_not_compatible',
+                    'message': f'הקובץ {attachment.filename_original} לא נתמך בתפוצות WhatsApp'
+                }), 400
+            
+            # Generate signed URL for media
+            attachment_service = get_attachment_service()
+            media_url = attachment_service.generate_signed_url(
+                attachment.id,
+                attachment.storage_path,
+                ttl_minutes=1440  # 24 hours for broadcasts
+            )
+            
+            # Determine message type from mime if not explicitly set
+            if message_type == 'text' and attachment.mime_type:
+                if attachment.mime_type.startswith('image/'):
+                    message_type = 'image'
+                elif attachment.mime_type.startswith('video/'):
+                    message_type = 'video'
+                elif attachment.mime_type.startswith('audio/'):
+                    message_type = 'audio'
+                elif attachment.mime_type == 'application/pdf':
+                    message_type = 'document'
+            
+            log.info(f"[WA_BROADCAST] Using media attachment: {attachment.filename_original} ({message_type})")
         
         # 🔥 SIMPLIFIED RECIPIENT RESOLUTION - Accept phones from ANYWHERE!
         log.info(f"[WA_BROADCAST] Using SIMPLIFIED recipient resolver (accepts phones from ANY source)")
@@ -2856,8 +2962,14 @@ def create_broadcast():
         broadcast.template_id = template_id
         broadcast.template_name = template_name
         broadcast.message_text = message_text
+        # Store media URL if attachment provided
+        if media_url:
+            if not broadcast.audience_filter:
+                broadcast.audience_filter = {}
+            broadcast.audience_filter['media_url'] = media_url
+            broadcast.audience_filter['attachment_id'] = attachment_id
         # 🔥 SIMPLIFIED: Store raw payload for debugging
-        broadcast.audience_filter = {'raw_request': dict(payload_dict)} if payload_dict else {}
+        broadcast.audience_filter = {'raw_request': dict(payload_dict), 'media_url': media_url, 'attachment_id': attachment_id} if payload_dict or media_url else {}
         broadcast.total_recipients = len(normalized_recipients)
         broadcast.created_by = user_id
         broadcast.status = 'pending'
