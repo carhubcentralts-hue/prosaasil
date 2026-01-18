@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
 from server.auth_api import require_api_auth
+from server.security.permissions import require_page_access
 from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 from server.services.whatsapp_session_service import update_session_activity
@@ -3070,6 +3071,7 @@ def get_current_business_id_wa():
 
 @whatsapp_bp.route('/manual-templates', methods=['GET'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@require_page_access('whatsapp_inbox')
 def list_manual_templates():
     """List all WhatsApp manual templates for the current business"""
     try:

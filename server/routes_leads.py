@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request, session, g, send_file
 from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog
 from server.db import db
 from server.auth_api import require_api_auth
+from server.security.permissions import require_page_access
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
@@ -309,6 +310,7 @@ def get_valid_statuses_for_business(business_id):
 
 @leads_bp.route("/api/leads", methods=["GET"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def list_leads():
     """List leads with filtering and pagination"""
     
@@ -1208,6 +1210,7 @@ def update_reminder(lead_id, reminder_id):
 
 @leads_bp.route("/api/leads/<int:lead_id>/reminders/<int:reminder_id>", methods=["DELETE"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def delete_lead_reminder(lead_id, reminder_id):
     """Delete a reminder associated with a lead"""
     
@@ -1882,6 +1885,7 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB limit
 
 @leads_bp.route("/api/leads/<int:lead_id>/notes", methods=["GET"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def get_lead_notes(lead_id):
     """Get all notes for a lead - includes manual notes, call summaries, and system notes"""
     tenant_id = get_current_tenant()
@@ -1916,6 +1920,7 @@ def get_lead_notes(lead_id):
 
 @leads_bp.route("/api/leads/<int:lead_id>/notes", methods=["POST"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def create_lead_note(lead_id):
     """Create a new note for a lead"""
     tenant_id = get_current_tenant()
@@ -1973,6 +1978,7 @@ def create_lead_note(lead_id):
 
 @leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>", methods=["PATCH"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def update_lead_note(lead_id, note_id):
     """Update an existing note"""
     tenant_id = get_current_tenant()
@@ -2019,6 +2025,7 @@ def update_lead_note(lead_id, note_id):
 
 @leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>", methods=["DELETE"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def delete_lead_note(lead_id, note_id):
     """Delete a note"""
     tenant_id = get_current_tenant()
@@ -2037,6 +2044,7 @@ def delete_lead_note(lead_id, note_id):
 
 @leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>/upload", methods=["POST"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def upload_note_attachment(lead_id, note_id):
     """Upload file attachment to a note - max 10MB"""
     import base64
@@ -2109,6 +2117,7 @@ def upload_note_attachment(lead_id, note_id):
 
 @leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>/attachments/<attachment_id>", methods=["DELETE"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def delete_note_attachment(lead_id, note_id, attachment_id):
     """
     Delete a file attachment from a note
@@ -2206,6 +2215,7 @@ def sanitize_filename(filename):
 
 @leads_bp.route("/api/leads/<int:lead_id>/attachments", methods=["POST"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def upload_lead_attachment(lead_id):
     """
     Upload file attachment for a lead
@@ -2300,6 +2310,7 @@ def upload_lead_attachment(lead_id):
 
 @leads_bp.route("/api/attachments/<int:attachment_id>/download", methods=["GET"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def download_attachment(attachment_id):
     """
     Download or preview an attachment
@@ -2341,6 +2352,7 @@ def download_attachment(attachment_id):
 
 @leads_bp.route("/api/attachments/<int:attachment_id>", methods=["DELETE"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def delete_attachment(attachment_id):
     """
     Delete an attachment
@@ -2382,6 +2394,7 @@ def delete_attachment(attachment_id):
 
 @leads_bp.route("/api/leads/select-ids", methods=["POST"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def select_lead_ids():
     """
     Get lead IDs based on filter criteria (for bulk selection across pagination)
@@ -2472,6 +2485,7 @@ def select_lead_ids():
 
 @leads_bp.route("/api/leads/export", methods=["GET"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def export_leads():
     """
     Export leads to CSV with comprehensive filtering support
@@ -2699,6 +2713,7 @@ def export_leads():
 
 @leads_bp.route("/api/webhooks/status/dispatch", methods=["POST"])
 @require_api_auth()
+@require_page_access('crm_leads')
 def dispatch_status_webhook():
     """
     Manually dispatch status webhook for a lead

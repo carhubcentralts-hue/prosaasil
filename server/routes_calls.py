@@ -4,6 +4,7 @@ Includes call listing, details, transcript, and secure recording download
 """
 from flask import Blueprint, request, jsonify, send_file, current_app, session, g, Response, make_response
 from server.auth_api import require_api_auth
+from server.security.permissions import require_page_access
 from server.routes_crm import get_business_id
 from server.extensions import csrf
 from server.models_sql import CallLog as Call, db
@@ -22,6 +23,7 @@ calls_bp = Blueprint("calls", __name__)
 
 @calls_bp.route("/api/calls", methods=["GET"])
 @require_api_auth()
+@require_page_access('calls_inbound')
 def list_calls():
     """
     רשימת שיחות עם מסננים וחיפוש
@@ -171,6 +173,7 @@ def list_calls():
 
 @calls_bp.route("/api/calls/<call_sid>/details", methods=["GET"])
 @require_api_auth()
+@require_page_access('calls_inbound')
 def get_call_details(call_sid):
     """פרטי שיחה מפורטים עם תמליל מלא"""
     try:
@@ -221,6 +224,7 @@ def get_call_details(call_sid):
 
 @calls_bp.route("/api/calls/<call_sid>/download", methods=["GET"])
 @require_api_auth()
+@require_page_access('calls_inbound')
 def download_recording(call_sid):
     """הורדה מאובטחת של הקלטה דרך השרת - with Range support for iOS"""
     try:
@@ -356,6 +360,7 @@ def download_recording(call_sid):
 
 @calls_bp.route("/api/recordings/<call_sid>/stream", methods=["GET"])
 @require_api_auth()
+@require_page_access('calls_inbound')
 def stream_recording(call_sid):
     """
     🔥 FIX 502: Asynchronous recording streaming endpoint
@@ -516,6 +521,7 @@ def stream_recording(call_sid):
 @calls_bp.route("/api/calls/cleanup", methods=["POST"])
 @calls_bp.route("/api/calls/cleanup-recordings", methods=["POST"])
 @require_api_auth(["system_admin", "owner", "admin"])
+@require_page_access('calls_inbound')
 def cleanup_old_recordings():
     """מחיקה ידנית של הקלטות ישנות (רק למנהלים) - מסנן לפי עסק"""
     try:
@@ -556,6 +562,7 @@ def cleanup_old_recordings():
 
 @calls_bp.route("/api/calls/stats", methods=["GET"])
 @require_api_auth()
+@require_page_access('calls_inbound')
 def get_calls_stats():
     """סטטיסטיקות שיחות"""
     try:
@@ -603,6 +610,7 @@ def get_calls_stats():
 
 @calls_bp.route("/api/calls/<call_sid>/transcript", methods=["PUT"])
 @require_api_auth()
+@require_page_access('calls_inbound')
 def update_transcript(call_sid):
     """עדכון תמליל שיחה - לפי call_sid או מספר טלפון"""
     try:
@@ -657,6 +665,7 @@ def update_transcript(call_sid):
 
 @calls_bp.route("/api/calls/<call_sid>", methods=["DELETE"])
 @require_api_auth(["admin", "owner", "system_admin"])
+@require_page_access('calls_inbound')
 def delete_call(call_sid):
     """מחיקת שיחה - רק למנהלים"""
     try:
