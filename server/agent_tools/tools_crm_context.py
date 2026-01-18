@@ -278,7 +278,8 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         }
         
         # Get last 10 notes (most recent first) - sufficient context without overflow
-        # 🎧 CRM Context-Aware Support: 10 notes with truncated content (300 chars each)
+        # 🎧 CRM Context-Aware Support: 10 notes with FULL content (no truncation)
+        # 🔥 CRITICAL FIX: Removed 300-char truncation - AI needs ALL context to serve customers properly!
         # 🔥 FILTER: Only get AI Customer Service notes (call_summary, system, and customer_service_ai)
         # Migration 75: Added 'customer_service_ai' type for notes visible to AI
         # Exclude Free Notes (manual notes) to avoid context pollution
@@ -297,7 +298,7 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
             notes_list.append(LeadContextNote(
                 id=note.id,
                 note_type=getattr(note, 'note_type', 'manual') or 'manual',
-                content=note.content[:300] if note.content else "",  # Truncate to 300 chars for token efficiency
+                content=note.content if note.content else "",  # 🔥 FIX: Use full content, no truncation!
                 created_at=note.created_at.isoformat() if note.created_at else "",
                 created_by='ai' if note.created_by is None else str(note.created_by)
             ))

@@ -133,19 +133,16 @@ def summarize_conversation(
                 disconnect_reason = "הלקוח ניתק את השיחה מהר"
             
             # Create concise summary for short calls
-            summary = f"שיחה של {duration_text} - {disconnect_reason}\n\n"
-            
-            # Add transcript snippet if available
-            if len(transcription.strip()) > 0:
-                summary += f"תמלול: {transcription[:200]}"  # First 200 chars
-                if len(transcription) > 200:
-                    summary += "..."
+            # 🔥 FIX: Don't include transcript snippet in summary - it pollutes the AI Customer Service display
+            # The full transcript is available separately in call.notes/call.final_transcript
+            summary = f"שיחה של {duration_text} - {disconnect_reason}"
             
             log.info(f"📊 [SUMMARY] Created short call summary: '{disconnect_reason}'")
             return summary
         
         # Fallback if no duration available
-        return f"שיחה קצרה - לא נוצר דיאלוג מלא\n\nתמלול: {transcription[:200]}"
+        # 🔥 FIX: Don't include transcript snippet - keep summary clean
+        return f"שיחה קצרה - לא נוצר דיאלוג מלא"
     
     log.info(f"📊 [SUMMARY] User spoke detected ({user_content_length} chars) - generating full summary")
     
@@ -267,25 +264,24 @@ Summary: 80-150 words, factual only."""
 def _fallback_summary(transcription: str) -> str:
     """
     סיכום fallback דינמי (במקרה של כשל ב-AI)
+    🔥 FIX: Generate concise summary without embedding full transcript
     """
     words = transcription.strip().split()
     
+    # Create a clean, concise fallback summary
     summary_parts = []
-    summary_parts.append("**סוג הפנייה**: פנייה עסקית")
+    summary_parts.append("סיכום אוטומטי: שיחה עסקית התקבלה")
     
+    # Add length indication without full content
     if len(words) >= 80:
-        content = " ".join(words[:70])
-        summary_parts.append(f"\n\n**תוכן השיחה**: {content}...")
+        summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה מפורטת")
     elif len(words) >= 40:
-        summary_parts.append(f"\n\n**תוכן השיחה**: {transcription.strip()}")
-        summary_parts.append("\n\n**פרטים**: לא צוינו פרטים מלאים בשיחה")
+        summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה בינונית")
     else:
-        summary_parts.append(f"\n\n**תוכן השיחה**: {transcription.strip()}")
-        summary_parts.append("\n\n**פרטים**: המידע בשיחה היה מוגבל, יש צורך במעקב נוסף")
-        summary_parts.append("\n\n**פרטי קשר**: לא נמסרו פרטי קשר מפורשים")
+        summary_parts.append(f"\n\nהשיחה הכילה {len(words)} מילים - שיחה קצרה")
     
-    summary_parts.append("\n\n**סטטוס ומעקב**: לא נקבעה פגישה. מומלץ לחזור ללקוח ולקבל פרטים נוספים.")
-    summary_parts.append("\n\n**הערה**: סיכום אוטומטי (מערכת AI זמנית לא זמינה)")
+    summary_parts.append("\n\n**הערה**: התמליל המלא זמין בכרטיסייה 'שיחות טלפון'")
+    summary_parts.append("\n\n(סיכום זה נוצר אוטומטית - שירות AI זמנית לא זמין)")
     
     fallback = "\n".join(summary_parts)
     word_count = len(fallback.split())
