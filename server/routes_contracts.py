@@ -36,6 +36,70 @@ logger = logging.getLogger(__name__)
 
 contracts_bp = Blueprint("contracts", __name__, url_prefix="/api/contracts")
 
+def create_attachment_from_file(
+    file: FileStorage,
+    business_id: int,
+    user_id: int = None
+) -> Attachment:
+    """
+    Helper to create attachment record and save file to storage
+    
+    Handles transaction rollback on storage failure to prevent orphaned records.
+    
+    Args:
+        file: Uploaded file
+        business_id: Business ID for tenant isolation
+        user_id: User ID (None for public endpoints)
+        
+    Returns:
+        Attachment record with storage_path populated
+        
+    Raises:
+        Exception if validation or storage save fails
+    """
+    attachment_service = get_attachment_service()
+    
+    # Validate file
+    is_valid, error_msg = attachment_service.validate_file(file, channel='email')
+    if not is_valid:
+        raise ValueError(error_msg)
+    
+    # Get file metadata
+    filename = secure_filename(file.filename)
+    mime_type = file.content_type or 'application/octet-stream'
+    
+    # Get file size
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    
+    # Create attachment record
+    attachment = Attachment(
+        business_id=business_id,
+        uploaded_by=user_id,
+        filename_original=filename,
+        mime_type=mime_type,
+        file_size=file_size,
+        storage_path='',
+        metadata={}
+    )
+    
+    db.session.add(attachment)
+    db.session.flush()
+    
+    # Save file via attachment service
+    try:
+        storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+        attachment.storage_path = storage_key
+    except Exception as storage_error:
+        logger.error(f"[ATTACHMENT_CREATE] Storage save failed: {storage_error}")
+        db.session.rollback()
+        raise
+    
+    db.session.commit()
+    return attachment
+
+
 def get_current_user_id():
     """Get current user ID from authenticated context"""
     if hasattr(g, 'user') and g.user and isinstance(g.user, dict):
@@ -393,55 +457,18 @@ def upload_contract_file(contract_id):
         if purpose not in ['original', 'signed', 'extra_doc', 'template']:
             purpose = 'original'
         
-        # Use existing attachment service to upload to R2
-        attachment_service = get_attachment_service()
-        
-        # Validate file (use email channel for contracts - most permissive)
-        is_valid, error_msg = attachment_service.validate_file(file, channel='email')
-        if not is_valid:
-            return jsonify({'error': error_msg}), 400
-        
-        # Get file metadata
-        filename = secure_filename(file.filename)
-        mime_type = file.content_type or 'application/octet-stream'
-        
-        # Get file size
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-        
-        # Create attachment record first
-        attachment = Attachment(
+        # Create attachment using helper
+        attachment = create_attachment_from_file(
+            file=file,
             business_id=business_id,
-            uploaded_by=user_id,
-            filename_original=filename,
-            mime_type=mime_type,
-            file_size=file_size,
-            storage_path='',
-            metadata={}
+            user_id=user_id
         )
-        
-        db.session.add(attachment)
-        db.session.flush()
-        
-        # Save file via attachment service
-        try:
-            storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
-            attachment.storage_path = storage_key
-        except Exception as storage_error:
-            logger.error(f"[CONTRACTS_UPLOAD] Storage save failed: {storage_error}")
-            db.session.rollback()
-            raise
-        
-        db.session.commit()
-        
-        attachment_id = attachment.id
         
         # Create contract_file link
         contract_file = ContractFile(
             business_id=business_id,
             contract_id=contract_id,
-            attachment_id=attachment_id,
+            attachment_id=attachment.id,
             purpose=purpose,
             created_by=user_id
         )
@@ -449,18 +476,15 @@ def upload_contract_file(contract_id):
         db.session.add(contract_file)
         db.session.commit()
         
-        # Get attachment details for response
-        attachment = Attachment.query.get(attachment_id)
-        
         # Log event
         log_contract_event(
             contract_id=contract_id,
             business_id=business_id,
             event_type='file_uploaded',
             metadata={
-                'filename': attachment.filename_original if attachment else 'unknown',
+                'filename': attachment.filename_original,
                 'purpose': purpose,
-                'attachment_id': attachment_id
+                'attachment_id': attachment.id
             },
             user_id=user_id
         )
@@ -470,10 +494,10 @@ def upload_contract_file(contract_id):
         return jsonify({
             'id': contract_file.id,
             'purpose': purpose,
-            'attachment_id': attachment_id,
-            'filename': attachment.filename_original if attachment else None,
-            'mime_type': attachment.mime_type if attachment else None,
-            'file_size': attachment.file_size if attachment else None,
+            'attachment_id': attachment.id,
+            'filename': attachment.filename_original,
+            'mime_type': attachment.mime_type,
+            'file_size': attachment.file_size,
             'created_at': contract_file.created_at.isoformat()
         }), 201
         
@@ -788,52 +812,23 @@ def complete_signing(token):
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
-        attachment_service = get_attachment_service()
-        
-        is_valid, error_msg = attachment_service.validate_file(file, channel='email')
-        if not is_valid:
-            return jsonify({'error': error_msg}), 400
-        
-        # Get file metadata
-        filename = secure_filename(file.filename)
-        mime_type = file.content_type or 'application/octet-stream'
-        
-        # Get file size
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-        
-        # Create attachment record
-        attachment = Attachment(
-            business_id=business_id,
-            uploaded_by=None,
-            filename_original=filename,
-            mime_type=mime_type,
-            file_size=file_size,
-            storage_path='',
-            metadata={}
-        )
-        
-        db.session.add(attachment)
-        db.session.flush()
-        
-        # Save file
+        # Create attachment using helper
         try:
-            storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
-            attachment.storage_path = storage_key
-        except Exception as storage_error:
-            logger.error(f"[CONTRACT_SIGN_COMPLETE] Storage save failed: {storage_error}")
-            db.session.rollback()
-            raise
-        
-        db.session.commit()
-        
-        attachment_id = attachment.id
+            attachment = create_attachment_from_file(
+                file=file,
+                business_id=business_id,
+                user_id=None
+            )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"[CONTRACT_SIGN_COMPLETE] Attachment creation failed: {e}")
+            return jsonify({'error': 'Failed to upload signed file'}), 500
         
         contract_file = ContractFile(
             business_id=business_id,
             contract_id=contract_id,
-            attachment_id=attachment_id,
+            attachment_id=attachment.id,
             purpose='signed',
             created_by=None
         )
@@ -850,14 +845,12 @@ def complete_signing(token):
         
         db.session.commit()
         
-        attachment = Attachment.query.get(attachment_id)
-        
         log_contract_event(
             contract_id=contract_id,
             business_id=business_id,
             event_type='signed_completed',
             metadata={
-                'filename': attachment.filename_original if attachment else 'unknown',
+                'filename': attachment.filename_original,
                 'signer_name': contract.signer_name
             },
             user_id=None
