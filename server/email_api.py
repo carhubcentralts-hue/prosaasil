@@ -325,7 +325,8 @@ def send_email_to_lead(lead_id):
             "html": "<p>Email body</p>",  # Primary field for HTML content
             "body_html": "<p>Email body</p>",  # Alternative field name (for compatibility)
             "text": "Plain text version",  # Optional
-            "body_text": "Plain text version"  # Alternative field name (for compatibility)
+            "body_text": "Plain text version",  # Alternative field name (for compatibility)
+            "attachment_ids": [1, 2, 3]  # Optional array of attachment IDs
         }
     
     Returns:
@@ -398,6 +399,30 @@ def send_email_to_lead(lead_id):
         # 🔥 DEBUG LOGGING: Log final values before sending
         logger.info(f"[EMAIL_TO_LEAD] Validated - subject='{subject[:50]}...' html_bytes={len(html.encode('utf-8'))} text_bytes={len(plain_text.encode('utf-8')) if plain_text else 0}")
         
+        # Get attachment IDs if provided
+        attachment_ids = data.get('attachment_ids', [])
+        if attachment_ids and not isinstance(attachment_ids, list):
+            return jsonify({'error': 'attachment_ids must be an array'}), 400
+        
+        # Validate attachments belong to this business
+        if attachment_ids:
+            from server.models_sql import Attachment
+            attachments = db.session.query(Attachment).filter(
+                Attachment.id.in_(attachment_ids),
+                Attachment.business_id == business_id,
+                Attachment.is_deleted == False
+            ).all()
+            
+            if len(attachments) != len(attachment_ids):
+                return jsonify({'error': 'One or more attachments not found or not accessible'}), 404
+            
+            # Check channel compatibility
+            for att in attachments:
+                if not att.channel_compatibility.get('email', False):
+                    return jsonify({'error': f'Attachment {att.filename_original} is not compatible with email'}), 400
+            
+            logger.info(f"[EMAIL_TO_LEAD] Attachments: {len(attachments)} files")
+        
         # Send email
         email_service = get_email_service()
         result = email_service.send_crm_email(
@@ -408,6 +433,7 @@ def send_email_to_lead(lead_id):
             plain_text=plain_text,
             lead_id=lead_id,
             created_by_user_id=user_id,
+            attachment_ids=attachment_ids if attachment_ids else None,
             meta={'source': 'lead_page'}
         )
         

@@ -926,6 +926,7 @@ class EmailService:
         template_id: Optional[int] = None,
         created_by_user_id: Optional[int] = None,
         to_name: Optional[str] = None,
+        attachment_ids: Optional[list] = None,
         meta: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
@@ -938,7 +939,8 @@ class EmailService:
         4. Wrap content in beautiful base layout
         5. Add footer from settings.footer_html
         6. Sanitize HTML
-        7. Send via SendGrid with proper from_name and reply_to
+        7. Attach files if attachment_ids provided
+        8. Send via SendGrid with proper from_name and reply_to
         
         Args:
             business_id: Business ID
@@ -950,6 +952,7 @@ class EmailService:
             template_id: Template ID to use instead of custom content
             created_by_user_id: User who initiated the send
             to_name: Recipient name (optional)
+            attachment_ids: List of attachment IDs to include (optional)
             meta: Additional metadata (JSON)
             
         Returns:
@@ -1294,6 +1297,46 @@ class EmailService:
             # Set reply-to if enabled and configured
             if settings.get('reply_to_enabled') and settings.get('reply_to'):
                 message.reply_to = Email(settings['reply_to'])
+            
+            # Attach files if attachment_ids provided
+            if attachment_ids:
+                from server.models_sql import Attachment
+                from server.services.attachment_service import get_attachment_service
+                from sendgrid.helpers.mail import Attachment as SGAttachment
+                import base64
+                
+                logger.info(f"[EMAIL] Processing {len(attachment_ids)} attachments")
+                
+                attachments = db.session.execute(
+                    sa_text("SELECT id, filename_original, mime_type, storage_path FROM attachments WHERE id = ANY(:ids)"),
+                    {"ids": attachment_ids}
+                ).fetchall()
+                
+                attachment_service = get_attachment_service()
+                
+                for att in attachments:
+                    att_id, filename, mime_type, storage_path = att
+                    file_path = attachment_service.get_file_path(storage_path)
+                    
+                    try:
+                        # Read file and encode to base64
+                        with open(file_path, 'rb') as f:
+                            file_data = f.read()
+                            encoded = base64.b64encode(file_data).decode()
+                        
+                        # Create SendGrid attachment
+                        sg_attachment = SGAttachment()
+                        sg_attachment.file_content = encoded
+                        sg_attachment.file_name = filename
+                        sg_attachment.file_type = mime_type
+                        sg_attachment.disposition = 'attachment'
+                        
+                        message.add_attachment(sg_attachment)
+                        logger.info(f"[EMAIL] Attached file: {filename} ({len(file_data)} bytes)")
+                        
+                    except Exception as e:
+                        logger.error(f"[EMAIL] Failed to attach file {filename}: {e}")
+                        # Continue with other attachments - don't fail entire email
             
             # 🔥 FIX 6: Log before sending
             logger.info(f"[EMAIL] Sending to SendGrid: to={to_email} subject='{rendered_subject[:50]}'")
