@@ -6,6 +6,8 @@ and understanding chronological order of notes.
 
 Run: python test_customer_service_context_priority.py
 """
+import sys
+import traceback
 
 
 def test_instructions_text_has_priority_guidance():
@@ -167,11 +169,8 @@ if __name__ == "__main__":
         
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}")
-        import sys
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
-        import traceback
         traceback.print_exc()
-        import sys
         sys.exit(1)
