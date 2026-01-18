@@ -17,18 +17,20 @@ interface Attachment {
 
 interface AttachmentPickerProps {
   channel: 'email' | 'whatsapp' | 'broadcast';
-  onAttachmentSelect: (attachmentId: number | null) => void;
+  onAttachmentSelect: (attachmentId: number | number[] | null) => void;
   selectedAttachmentId?: number | null;
+  mode?: 'single' | 'multi';  // NEW: support multiple selections
 }
 
-export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachmentId }: AttachmentPickerProps) {
-  const [mode, setMode] = useState<'select' | 'upload'>('select');
+export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachmentId, mode = 'single' }: AttachmentPickerProps) {
+  const [modeView, setModeView] = useState<'select' | 'upload'>('select');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [filter, setFilter] = useState<'all' | 'images' | 'documents' | 'videos'>('all');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);  // NEW: for multi mode
 
   // Load attachments on mount and when filter changes
   useEffect(() => {
@@ -251,16 +253,33 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {attachments.map((att) => (
-                  <button
-                    key={att.id}
-                    onClick={() => onAttachmentSelect(att.id === selectedAttachmentId ? null : att.id)}
-                    className={`relative p-3 border rounded-lg hover:border-blue-300 transition ${
-                      att.id === selectedAttachmentId
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200'
-                    }`}
-                  >
+                {attachments.map((att) => {
+                  const isSelected = mode === 'multi' 
+                    ? selectedIds.includes(att.id)
+                    : att.id === selectedAttachmentId;
+                  
+                  return (
+                    <button
+                      key={att.id}
+                      onClick={() => {
+                        if (mode === 'multi') {
+                          // Toggle selection in multi mode
+                          const newIds = selectedIds.includes(att.id)
+                            ? selectedIds.filter(id => id !== att.id)
+                            : [...selectedIds, att.id];
+                          setSelectedIds(newIds);
+                          onAttachmentSelect(newIds.length > 0 ? newIds : null);
+                        } else {
+                          // Single mode
+                          onAttachmentSelect(att.id === selectedAttachmentId ? null : att.id);
+                        }
+                      }}
+                      className={`relative p-3 border rounded-lg hover:border-blue-300 transition ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200'
+                      }`}
+                    >
                     {/* Preview */}
                     <div className="aspect-square mb-2 bg-gray-100 rounded flex items-center justify-center overflow-hidden">
                       {att.mime_type.startsWith('image/') ? (
@@ -287,7 +306,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                     </p>
                     
                     {/* Selected indicator */}
-                    {att.id === selectedAttachmentId && (
+                    {isSelected && (
                       <div className="absolute top-2 left-2 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
                         <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -295,20 +314,26 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                       </div>
                     )}
                   </button>
-                ))}
+                );
+                })}
               </div>
             )}
           </div>
 
           {/* Clear selection button */}
-          {selectedAttachmentId && (
+          {((mode === 'single' && selectedAttachmentId) || (mode === 'multi' && selectedIds.length > 0)) && (
             <div className="mt-4 text-center">
               <button
-                onClick={() => onAttachmentSelect(null)}
+                onClick={() => {
+                  if (mode === 'multi') {
+                    setSelectedIds([]);
+                  }
+                  onAttachmentSelect(null);
+                }}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
               >
                 <X className="w-4 h-4" />
-                נקה בחירה
+                נקה בחירה {mode === 'multi' && selectedIds.length > 0 && `(${selectedIds.length})`}
               </button>
             </div>
           )}

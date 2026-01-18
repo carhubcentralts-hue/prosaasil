@@ -14,6 +14,7 @@ Security:
 - Permission checks (require send permission to upload)
 - Signed URLs with TTL for downloads
 - Audit logging for all operations
+- ATTACHMENT_SECRET must be set in production
 """
 
 from flask import Blueprint, jsonify, request, send_file, g
@@ -27,6 +28,22 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+
+# 🔒 PRODUCTION GATE: Check ATTACHMENT_SECRET is properly configured
+ATTACHMENT_SECRET = os.getenv('ATTACHMENT_SECRET', 'change-me-in-production')
+IS_PRODUCTION = os.getenv('DEBUG', '1') == '1'  # DEBUG=1 means production
+
+if IS_PRODUCTION and ATTACHMENT_SECRET == 'change-me-in-production':
+    logger.error("=" * 80)
+    logger.error("🚨 CRITICAL SECURITY ERROR: ATTACHMENT_SECRET is not set in production!")
+    logger.error("Attachment upload is DISABLED for security reasons.")
+    logger.error("Set ATTACHMENT_SECRET environment variable to enable attachments.")
+    logger.error("=" * 80)
+    ATTACHMENTS_ENABLED = False
+else:
+    ATTACHMENTS_ENABLED = True
+    if not IS_PRODUCTION:
+        logger.warning("⚠️ Running in development mode with default ATTACHMENT_SECRET")
 
 attachments_bp = Blueprint("attachments", __name__, url_prefix="/api/attachments")
 
@@ -83,7 +100,16 @@ def upload_attachment():
         - 400: Validation error
         - 403: Permission denied
         - 413: File too large
+        - 503: Service unavailable (if ATTACHMENT_SECRET not configured)
     """
+    # 🔒 PRODUCTION GATE: Block uploads if secret not configured
+    if not ATTACHMENTS_ENABLED:
+        logger.error("[ATTACHMENT_UPLOAD] ❌ Upload blocked - ATTACHMENT_SECRET not configured")
+        return jsonify({
+            'error': 'Attachment service unavailable',
+            'message': 'קובץ מצורף לא זמין - מערכת לא מוגדרת כראוי'
+        }), 503
+    
     try:
         business_id = get_current_business_id()
         user_id = get_current_user_id()
