@@ -162,7 +162,7 @@ def upload_attachment():
             file_size=file_size,
             storage_path='',  # Will be set after we have the ID
             channel_compatibility=compatibility,
-            metadata={}
+            meta_json={}
         )
         
         db.session.add(attachment)
@@ -322,7 +322,7 @@ def get_attachment(attachment_id):
             'mime_type': attachment.mime_type,
             'file_size': attachment.file_size,
             'channel_compatibility': attachment.channel_compatibility,
-            'metadata': attachment.metadata,
+            'metadata': attachment.meta_json,
             'download_url': download_url,
             'created_at': attachment.created_at.isoformat(),
             'uploaded_by': attachment.uploaded_by
