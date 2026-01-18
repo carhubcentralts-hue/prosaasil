@@ -862,6 +862,43 @@ export function WhatsAppBroadcastPage() {
                       dir="rtl"
                     />
                   </div>
+                  
+                  {/* Attachment Picker */}
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowAttachmentPicker(!showAttachmentPicker)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      {attachmentId ? 'שנה קובץ מצורף' : 'צרף קובץ'}
+                    </button>
+                    
+                    {showAttachmentPicker && (
+                      <div className="mt-3 p-4 border border-slate-200 rounded-lg bg-slate-50">
+                        <AttachmentPicker
+                          channel="broadcast"
+                          mode="single"
+                          onAttachmentSelect={(id) => {
+                            if (typeof id === 'number') {
+                              setAttachmentId(id);
+                            } else {
+                              setAttachmentId(null);
+                            }
+                          }}
+                          selectedAttachmentId={attachmentId}
+                        />
+                      </div>
+                    )}
+                    
+                    {attachmentId && (
+                      <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                        <p className="text-sm text-green-800">
+                          ✅ קובץ מצורף - יישלח לכל הנמענים
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </Card>

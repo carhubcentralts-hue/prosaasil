@@ -107,7 +107,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
       
       // Reset upload state
       setSelectedFile(null);
-      setMode('select');
+      setModeView('select');
       
     } catch (err: any) {
       console.error('Error uploading file:', err);
@@ -141,9 +141,9 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
         
         <div className="flex gap-2">
           <button
-            onClick={() => setMode('select')}
+            onClick={() => setModeView('select')}
             className={`px-3 py-1 rounded-md text-sm ${
-              mode === 'select'
+              modeView === 'select'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
@@ -151,9 +151,9 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
             בחר קיים
           </button>
           <button
-            onClick={() => setMode('upload')}
+            onClick={() => setModeView('upload')}
             className={`px-3 py-1 rounded-md text-sm ${
-              mode === 'upload'
+              modeView === 'upload'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
@@ -171,7 +171,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
       )}
 
       {/* Upload mode */}
-      {mode === 'upload' && (
+      {modeView === 'upload' && (
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
           <div className="text-center">
             <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
@@ -224,7 +224,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
       )}
 
       {/* Select mode */}
-      {mode === 'select' && (
+      {modeView === 'select' && (
         <>
           {/* Filter tabs */}
           <div className="flex gap-2 mb-4">
@@ -254,7 +254,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {attachments.map((att) => {
-                  const isSelected = mode === 'multi' 
+                  const isSelected = modeView === 'multi' 
                     ? selectedIds.includes(att.id)
                     : att.id === selectedAttachmentId;
                   
@@ -262,7 +262,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                     <button
                       key={att.id}
                       onClick={() => {
-                        if (mode === 'multi') {
+                        if (modeView === 'multi') {
                           // Toggle selection in multi mode
                           const newIds = selectedIds.includes(att.id)
                             ? selectedIds.filter(id => id !== att.id)
@@ -321,11 +321,11 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
           </div>
 
           {/* Clear selection button */}
-          {((mode === 'single' && selectedAttachmentId) || (mode === 'multi' && selectedIds.length > 0)) && (
+          {((modeView === 'single' && selectedAttachmentId) || (modeView === 'multi' && selectedIds.length > 0)) && (
             <div className="mt-4 text-center">
               <button
                 onClick={() => {
-                  if (mode === 'multi') {
+                  if (modeView === 'multi') {
                     setSelectedIds([]);
                   }
                   onAttachmentSelect(null);
@@ -333,7 +333,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                 className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
               >
                 <X className="w-4 h-4" />
-                נקה בחירה {mode === 'multi' && selectedIds.length > 0 && `(${selectedIds.length})`}
+                נקה בחירה {modeView === 'multi' && selectedIds.length > 0 && `(${selectedIds.length})`}
               </button>
             </div>
           )}

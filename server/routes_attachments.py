@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # 🔒 PRODUCTION GATE: Check ATTACHMENT_SECRET is properly configured
 ATTACHMENT_SECRET = os.getenv('ATTACHMENT_SECRET', 'change-me-in-production')
-IS_PRODUCTION = os.getenv('DEBUG', '1') == '1'  # DEBUG=1 means production
+IS_PRODUCTION = os.getenv('PRODUCTION', '0') == '1'  # PRODUCTION=1 means production mode
 
 if IS_PRODUCTION and ATTACHMENT_SECRET == 'change-me-in-production':
     logger.error("=" * 80)
