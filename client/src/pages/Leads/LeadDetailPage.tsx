@@ -2497,30 +2497,26 @@ function AINotesTab({ lead, onUpdate }: AINotesTabProps) {
                 <>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      {/* Only allow editing/deleting manual notes */}
+                      {/* Allow editing manual notes, but allow deleting all notes */}
                       {isManualNote && (
-                        <>
-                          <button
-                            onClick={() => startEditing(note)}
-                            className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                            title="ערוך"
-                            data-testid={`button-edit-ai-note-${note.id}`}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteNote(note.id)}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="מחק"
-                            data-testid={`button-delete-ai-note-${note.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
+                        <button
+                          onClick={() => startEditing(note)}
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                          title="ערוך"
+                          data-testid={`button-edit-ai-note-${note.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
                       )}
-                      {!isManualNote && (
-                        <span className="text-xs text-gray-400 italic">לא ניתן לערוך הערות AI</span>
-                      )}
+                      {/* All notes can be deleted - including AI-generated */}
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="מחק"
+                        data-testid={`button-delete-ai-note-${note.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                     <span className="text-xs text-gray-400">
                       {note.created_at ? formatDate(note.created_at) : ''}

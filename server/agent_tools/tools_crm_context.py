@@ -279,9 +279,23 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         
         # Get last 10 notes (most recent first) - sufficient context without overflow
         # 🎧 CRM Context-Aware Support: 10 notes with truncated content (300 chars each)
-        notes_query = LeadNote.query.filter_by(
-            lead_id=input.lead_id,
-            tenant_id=input.business_id
+        # 🔥 FILTER: Only get AI Customer Service notes (call_summary, system, and manual without attachments)
+        # Exclude Free Notes (manual notes with attachments) to avoid context pollution
+        notes_query = LeadNote.query.filter(
+            LeadNote.lead_id == input.lead_id,
+            LeadNote.tenant_id == input.business_id,
+            db.or_(
+                LeadNote.note_type == 'call_summary',  # AI-generated call summaries
+                LeadNote.note_type == 'system',  # System notes
+                db.and_(
+                    db.or_(LeadNote.note_type == 'manual', LeadNote.note_type == None),  # Manual notes
+                    db.or_(
+                        LeadNote.attachments == None,  # Without attachments
+                        LeadNote.attachments == '[]',  # Or empty attachments
+                        db.cast(db.func.json_array_length(LeadNote.attachments), db.Integer) == 0  # Or zero-length JSON array
+                    )
+                )
+            )
         ).order_by(LeadNote.created_at.desc()).limit(10)
         
         notes_list = []
