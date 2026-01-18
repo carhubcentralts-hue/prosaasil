@@ -3468,16 +3468,16 @@ class MediaStreamHandler:
                         self.outbound_lead_name = resolved_name
                         outbound_lead_name = resolved_name
                     
-                    # 🆕 GENDER: Also fetch gender from same Lead for pronoun usage
+                    # 🆕 GENDER + NOTES: Also fetch gender and notes from same Lead for context
                     try:
-                        from server.models_sql import Lead
+                        from server.models_sql import Lead, LeadNote
                         app = _get_flask_app()
                         with app.app_context():
-                            lead_for_gender = None
+                            lead_for_context = None
                             
                             # Try to find Lead by same identifiers used for name resolution
                             if lead_id:
-                                lead_for_gender = Lead.query.filter_by(id=lead_id, tenant_id=business_id_safe).first()
+                                lead_for_context = Lead.query.filter_by(id=lead_id, tenant_id=business_id_safe).first()
                             elif phone_number:
                                 # Generate phone variants for lookup
                                 phone_variants = [phone_number]
@@ -3487,17 +3487,47 @@ class MediaStreamHandler:
                                 elif phone_number.startswith('0'):
                                     phone_variants.append('+972' + cleaned[1:])
                                 
-                                lead_for_gender = Lead.query.filter_by(
+                                lead_for_context = Lead.query.filter_by(
                                     tenant_id=business_id_safe
                                 ).filter(
                                     Lead.phone_e164.in_(phone_variants)
                                 ).order_by(Lead.updated_at.desc()).first()
                             
-                            if lead_for_gender and lead_for_gender.gender:
-                                self.pending_customer_gender = lead_for_gender.gender
-                                print(f"✅ [GENDER] Fetched from Lead: '{lead_for_gender.gender}' (lead_id={lead_for_gender.id})")
+                            if lead_for_context:
+                                # Fetch gender
+                                if lead_for_context.gender:
+                                    self.pending_customer_gender = lead_for_context.gender
+                                    print(f"✅ [GENDER] Fetched from Lead: '{lead_for_context.gender}' (lead_id={lead_for_context.id})")
+                                
+                                # 🔥 NEW: Fetch lead notes (last 3 notes for context)
+                                # Notes provide critical context about customer history, preferences, issues
+                                try:
+                                    recent_notes = LeadNote.query.filter_by(
+                                        lead_id=lead_for_context.id,
+                                        tenant_id=business_id_safe
+                                    ).order_by(LeadNote.created_at.desc()).limit(3).all()
+                                    
+                                    if recent_notes:
+                                        # Combine notes into single context string
+                                        notes_parts = []
+                                        for note in recent_notes:
+                                            if note.content and note.content.strip():
+                                                # Truncate each note to 150 chars for efficiency
+                                                note_text = note.content.strip()[:150]
+                                                if len(note.content.strip()) > 150:
+                                                    note_text += "..."
+                                                notes_parts.append(note_text)
+                                        
+                                        if notes_parts:
+                                            combined_notes = " | ".join(notes_parts)
+                                            self.pending_lead_notes = combined_notes
+                                            print(f"✅ [NOTES] Fetched {len(notes_parts)} notes from Lead (lead_id={lead_for_context.id})")
+                                            print(f"📝 [NOTES] Preview: {combined_notes[:100]}...")
+                                except Exception as notes_err:
+                                    logger.warning(f"[NOTES] Failed to fetch notes: {notes_err}")
+                                    print(f"⚠️ [NOTES] Error fetching notes: {notes_err}")
                     except Exception as e:
-                        logger.warning(f"[GENDER] Failed to fetch gender from Lead: {e}")
+                        logger.warning(f"[CONTEXT] Failed to fetch lead context (gender/notes): {e}")
                     
                     # 🔥 DEBUG LOG: Show what we resolved
                     print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB ({call_direction}):")
@@ -3934,7 +3964,15 @@ class MediaStreamHandler:
                                 logger.info(f"[GENDER_DETECT] Cannot determine gender from name: '{customer_name_to_inject}' (unisex or unknown)")
                                 print(f"🧠 [GENDER] Unknown/unisex name: '{customer_name_to_inject}' (will wait for conversation)")
                         
-                        name_anchor_text = build_name_anchor_message(customer_name_to_inject, use_name_policy, customer_gender)
+                        # 🔥 NEW: Get lead notes if available (fetched during name resolution)
+                        lead_notes = getattr(self, 'pending_lead_notes', None)
+                        
+                        name_anchor_text = build_name_anchor_message(
+                            customer_name_to_inject, 
+                            use_name_policy, 
+                            customer_gender,
+                            lead_notes  # 🔥 NEW: Pass notes to context builder
+                        )
                         
                         # Inject as conversation system message
                         name_anchor_event = await client.send_event(
@@ -4897,8 +4935,16 @@ class MediaStreamHandler:
                     else:
                         logger.info(f"[GENDER_DETECT] Cannot determine from name: '{current_name}' (unisex/unknown)")
                 
+                # 🔥 NEW: Get lead notes if available (may have been fetched earlier)
+                lead_notes = getattr(self, 'pending_lead_notes', None)
+                
                 # Build updated NAME_ANCHOR
-                name_anchor_text = build_name_anchor_message(current_name, current_policy, customer_gender)
+                name_anchor_text = build_name_anchor_message(
+                    current_name, 
+                    current_policy, 
+                    customer_gender,
+                    lead_notes  # 🔥 NEW: Pass notes to context builder
+                )
                 
                 # Re-inject NAME_ANCHOR
                 name_anchor_event = await client.send_event(
@@ -7001,10 +7047,12 @@ class MediaStreamHandler:
                                         if hasattr(self, '_name_anchor_customer_name') and self._name_anchor_customer_name:
                                             from server.services.realtime_prompt_builder import build_name_anchor_message
                                             use_policy = getattr(self, '_name_anchor_policy', False)
+                                            lead_notes = getattr(self, 'pending_lead_notes', None)  # 🔥 NEW: Get notes
                                             updated_anchor = build_name_anchor_message(
                                                 self._name_anchor_customer_name, 
                                                 use_policy, 
-                                                detected_gender
+                                                detected_gender,
+                                                lead_notes  # 🔥 NEW: Pass notes
                                             )
                                             
                                             # Send updated context to AI
@@ -15752,6 +15800,47 @@ class MediaStreamHandler:
                         
                         db.session.commit()
                         force_print(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
+                        
+                        # 🔥 NEW: Create lead note with call summary/transcript
+                        # This ensures the AI has context from previous interactions in future calls
+                        if call_log.lead_id and full_conversation and len(full_conversation) > 20:
+                            try:
+                                from server.models_sql import LeadNote
+                                from datetime import datetime
+                                
+                                # Create a concise summary for the note (first 500 chars of conversation)
+                                note_content = full_conversation[:500]
+                                if len(full_conversation) > 500:
+                                    note_content += "... (תמלול מלא זמין בפרטי השיחה)"
+                                
+                                # Check if note already exists for this call to avoid duplicates
+                                existing_note = LeadNote.query.filter_by(
+                                    lead_id=call_log.lead_id,
+                                    call_id=call_log.id
+                                ).first()
+                                
+                                if not existing_note:
+                                    lead_note = LeadNote(
+                                        lead_id=call_log.lead_id,
+                                        tenant_id=call_log.business_id,
+                                        note_type='call_summary',
+                                        content=note_content,
+                                        call_id=call_log.id,
+                                        created_at=datetime.utcnow(),
+                                        created_by=None  # AI-generated
+                                    )
+                                    db.session.add(lead_note)
+                                    db.session.commit()
+                                    force_print(f"✅ [FINALIZE] Created lead note for lead_id={call_log.lead_id} from call {self.call_sid}")
+                                else:
+                                    force_print(f"ℹ️ [FINALIZE] Lead note already exists for this call, skipping duplicate")
+                            except Exception as note_err:
+                                force_print(f"⚠️ [FINALIZE] Failed to create lead note: {note_err}")
+                                # Continue - note creation is not critical for call to complete
+                                try:
+                                    db.session.rollback()
+                                except:
+                                    pass
                         
                         # 🔥 TX_STALL FIX: Defer ALL heavy processing to offline worker
                         # The offline worker (tasks_recording.py) will handle:
