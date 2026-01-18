@@ -60,7 +60,6 @@ except Exception as e:
 # 🔥 TRACE LOGGING: Log all incoming calls immediately
 x_twilio_signature = request.headers.get('X-Twilio-Signature', '')
 logger.info(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} from={from_number} to={to_number} direction={twilio_direction} signature_present={bool(x_twilio_signature)}")
-print(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} from={from_number} to={to_number}")
 ```
 
 **Impact**: Every incoming call will log immediately with call details, even if it crashes later.
@@ -76,7 +75,6 @@ print(f"[TWILIO][INBOUND] hit path=/webhook/incoming_call call_sid={call_sid} fr
 # 🔥 TRACE LOGGING: Log all outbound calls immediately
 x_twilio_signature = request.headers.get('X-Twilio-Signature', '')
 logger.info(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} from={from_number} to={to_number} lead_id={lead_id} business_id={business_id} signature_present={bool(x_twilio_signature)}")
-print(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} from={from_number} to={to_number}")
 ```
 
 **Impact**: Every outbound call webhook will log immediately.
@@ -90,25 +88,21 @@ print(f"[TWILIO][OUTBOUND] hit path=/webhook/outbound_call call_sid={call_sid} f
 **Added**:
 ```python
 # 🔥 TRACE LOGGING: Generate unique request ID for tracking
-import uuid
+# Note: uuid imported at top-level
 req_uuid = str(uuid.uuid4())[:8]
 log.info(f"[OUTBOUND][REQ={req_uuid}] tenant={business_id} lead_id={lead_id} to={to_phone} from={from_phone}")
-print(f"[OUTBOUND][REQ={req_uuid}] tenant={business_id} to={to_phone} from={from_phone}")
 
 # Before Twilio API call
 log.info(f"[OUTBOUND][REQ={req_uuid}] calling twilio...")
-print(f"[OUTBOUND][REQ={req_uuid}] calling twilio...")
 
 # After successful call
 log.info(f"[OUTBOUND][REQ={req_uuid}] twilio_ok call_sid={call_sid}")
-print(f"[OUTBOUND][REQ={req_uuid}] twilio_ok call_sid={call_sid}")
 
 # On failure
 log.error(f"[OUTBOUND][REQ={req_uuid}] twilio_failed err={str(e)}")
-print(f"[OUTBOUND][REQ={req_uuid}] twilio_failed err={str(e)}")
 ```
 
-**Impact**: Full lifecycle tracking of outbound calls with unique request ID.
+**Impact**: Full lifecycle tracking of outbound calls with unique request ID using structured logging only.
 
 ## Verification Steps
 
