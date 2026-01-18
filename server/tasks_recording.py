@@ -1218,7 +1218,13 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 conversation_summary = ci.generate_conversation_summary(final_transcript if final_transcript else "")
                 
                 # 🎧 CRM Context-Aware Support: Auto-save call summary to lead notes
-                # This happens AUTOMATICALLY after EACH call (inbound OR outbound)
+                # This happens AUTOMATICALLY AFTER EACH call completes (inbound OR outbound)
+                # 
+                # ⚠️ IMPORTANT DISTINCTION:
+                # - This code runs OFFLINE (after call ends) for ALL calls
+                # - AI Customer Service (real-time agent) runs ONLY during INBOUND calls (in media_ws_ai.py)
+                # - Outbound calls: AI agent does NOT answer, but we still save summary for future reference
+                # 
                 # 🔥 FIX: ALWAYS update/create call summary to replace temporary transcription from media_ws_ai.py
                 try:
                     from server.models_sql import LeadNote
