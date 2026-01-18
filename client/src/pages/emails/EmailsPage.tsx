@@ -53,6 +53,9 @@ interface EmailTextTemplate {
   category: string;
   subject_line: string;
   body_text: string;
+  button_text?: string;
+  button_link?: string;
+  footer_text?: string;
   is_active: boolean;
   created_at: string;
   updated_at?: string;
@@ -160,6 +163,9 @@ export function EmailsPage() {
   const [newTextTemplateCategory, setNewTextTemplateCategory] = useState('general');
   const [newTextTemplateSubject, setNewTextTemplateSubject] = useState('');
   const [newTextTemplateBody, setNewTextTemplateBody] = useState('');
+  const [newTextTemplateButtonText, setNewTextTemplateButtonText] = useState('');
+  const [newTextTemplateButtonLink, setNewTextTemplateButtonLink] = useState('');
+  const [newTextTemplateFooter, setNewTextTemplateFooter] = useState('');
   const [savingTextTemplate, setSavingTextTemplate] = useState(false);
   
   // Bulk selection state for Leads tab
@@ -409,7 +415,10 @@ export function EmailsPage() {
           name: newTextTemplateName,
           category: newTextTemplateCategory,
           subject_line: newTextTemplateSubject,
-          body_text: newTextTemplateBody
+          body_text: newTextTemplateBody,
+          button_text: newTextTemplateButtonText || null,
+          button_link: newTextTemplateButtonLink || null,
+          footer_text: newTextTemplateFooter || null
         });
         setSuccessMessage('תבנית עודכנה בהצלחה');
       } else {
@@ -418,7 +427,10 @@ export function EmailsPage() {
           name: newTextTemplateName,
           category: newTextTemplateCategory,
           subject_line: newTextTemplateSubject,
-          body_text: newTextTemplateBody
+          body_text: newTextTemplateBody,
+          button_text: newTextTemplateButtonText || null,
+          button_link: newTextTemplateButtonLink || null,
+          footer_text: newTextTemplateFooter || null
         });
         setSuccessMessage('תבנית נוצרה בהצלחה');
       }
@@ -428,6 +440,9 @@ export function EmailsPage() {
       setNewTextTemplateCategory('general');
       setNewTextTemplateSubject('');
       setNewTextTemplateBody('');
+      setNewTextTemplateButtonText('');
+      setNewTextTemplateButtonLink('');
+      setNewTextTemplateFooter('');
       setEditingTextTemplate(null);
       setShowCreateTextTemplate(false);
       
@@ -448,6 +463,9 @@ export function EmailsPage() {
     setNewTextTemplateCategory(template.category);
     setNewTextTemplateSubject(template.subject_line || '');
     setNewTextTemplateBody(template.body_text);
+    setNewTextTemplateButtonText(template.button_text || '');
+    setNewTextTemplateButtonLink(template.button_link || '');
+    setNewTextTemplateFooter(template.footer_text || '');
     setShowCreateTextTemplate(true);
   };
 
@@ -1603,6 +1621,9 @@ export function EmailsPage() {
                         setNewTextTemplateCategory('general');
                         setNewTextTemplateSubject('');
                         setNewTextTemplateBody('');
+                        setNewTextTemplateButtonText('');
+                        setNewTextTemplateButtonLink('');
+                        setNewTextTemplateFooter('');
                         setShowCreateTextTemplate(true);
                       }}
                       className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
@@ -1768,6 +1789,53 @@ export function EmailsPage() {
                               placeholder="כתוב כאן את תוכן התבנית..."
                               dir="rtl"
                             />
+                          </div>
+                          
+                          {/* Button Settings */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                טקסט כפתור (אופציונלי)
+                              </label>
+                              <input
+                                type="text"
+                                value={newTextTemplateButtonText}
+                                onChange={(e) => setNewTextTemplateButtonText(e.target.value)}
+                                className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="לדוגמה: צפה בהצעת מחיר"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                קישור כפתור (אופציונלי)
+                              </label>
+                              <input
+                                type="url"
+                                value={newTextTemplateButtonLink}
+                                onChange={(e) => setNewTextTemplateButtonLink(e.target.value)}
+                                className="w-full px-4 py-2.5 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="https://example.com/quote"
+                                dir="ltr"
+                              />
+                            </div>
+                          </div>
+                          
+                          {/* Footer */}
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              פוטר מייל (אופציונלי)
+                            </label>
+                            <textarea
+                              value={newTextTemplateFooter}
+                              onChange={(e) => setNewTextTemplateFooter(e.target.value)}
+                              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                              rows={3}
+                              placeholder="לדוגמה: בברכה, צוות {{business.name}} | טלפון: 050-1234567"
+                              dir="rtl"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              💡 טקסט שיופיע בתחתית המייל
+                            </p>
                           </div>
                           
                           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">

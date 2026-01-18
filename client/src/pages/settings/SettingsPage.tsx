@@ -82,6 +82,8 @@ interface BusinessSettings {
   // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
   // BUILD 186: Calendar scheduling toggle
   enable_calendar_scheduling?: boolean;
+  // CRM Context-Aware Support: Customer service mode toggle
+  enable_customer_service?: boolean;
 }
 
 interface AppointmentSettings {
@@ -169,7 +171,9 @@ export function SettingsPage() {
     auto_end_on_goodbye: false,
     // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
     // BUILD 186: Calendar scheduling toggle
-    enable_calendar_scheduling: true
+    enable_calendar_scheduling: true,
+    // CRM Context-Aware Support: Customer service mode toggle
+    enable_customer_service: false
   });
 
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>({
@@ -251,6 +255,8 @@ export function SettingsPage() {
     // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
     // BUILD 186: Calendar scheduling toggle
     enable_calendar_scheduling?: boolean;
+    // CRM Context-Aware Support: Customer service mode toggle
+    enable_customer_service?: boolean;
   }>({
     queryKey: ['/api/business/current'],
     refetchOnMount: true
@@ -387,7 +393,9 @@ export function SettingsPage() {
         auto_end_on_goodbye: businessData.auto_end_on_goodbye || false,
         // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
         // BUILD 186: Calendar scheduling toggle (default true)
-        enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false
+        enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false,
+        // CRM Context-Aware Support: Customer service mode toggle
+        enable_customer_service: businessData.enable_customer_service || false
       });
       
       // Load appointment settings
@@ -713,6 +721,44 @@ export function SettingsPage() {
                 <p className="text-sm text-gray-600 text-center p-4 bg-blue-50 rounded-lg">
                   🔧 כל הגדרות השיחה (בוט מדבר ראשון, ניתוק אוטומטי, מטרת שיחה) נמצאות ב"הגדרות AI" → "הגדרות שליטת שיחה"
                 </p>
+              </div>
+            </Card>
+
+            {/* CRM Context-Aware Support: Customer Service Mode */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">🎧 שירות לקוחות חכם (CRM)</h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">הפעלת מצב שירות לקוחות</h4>
+                    <p className="text-sm text-gray-600">
+                      כאשר מופעל, ה-AI יקרא את הקשר הלקוח מה-CRM (הערות, פגישות, היסטוריית שיחות) 
+                      ויענה לפי המידע הקיים. בסיום כל שיחה, ייווצר סיכום אוטומטי.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessSettings.enable_customer_service || false}
+                      onChange={(e) => setBusinessSettings({...businessSettings, enable_customer_service: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-customer-service"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+                
+                {businessSettings.enable_customer_service && (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <h4 className="font-medium text-green-800 mb-2">✅ מצב שירות לקוחות פעיל</h4>
+                    <ul className="text-sm text-green-700 space-y-1 list-disc list-inside">
+                      <li>זיהוי אוטומטי של לקוחות לפי מספר טלפון</li>
+                      <li>טעינת הקשר מלא: הערות, פגישות והיסטוריה</li>
+                      <li>תשובות מבוססות מידע אמיתי מה-CRM</li>
+                      <li>יצירת סיכום שיחה אוטומטי בסיום</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             </Card>
           </div>

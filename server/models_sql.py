@@ -236,6 +236,10 @@ class BusinessSettings(db.Model):
     stt_vocabulary_json = db.Column(db.JSON, nullable=True)  # Business-specific vocabulary for STT hints
     business_context = db.Column(db.String(500), nullable=True)  # Short context: "מספרת יוקרה לגברים ונשים"
     
+    # 🔥 CRM Context-Aware Support: Customer service mode
+    # When enabled, AI will use CRM context (lead notes, appointments) to provide personalized support
+    enable_customer_service = db.Column(db.Boolean, default=False)  # Toggle for customer service mode
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -548,6 +552,7 @@ class LeadActivity(db.Model):
 class LeadNote(db.Model):
     """Individual notes for leads - separate from WhatsApp/call logs
     BUILD 172: Permanent notes with edit/delete and file attachments
+    CRM Context-Aware Support: Added note_type for call summaries and system notes
     """
     __tablename__ = "lead_notes"
     
@@ -555,8 +560,19 @@ class LeadNote(db.Model):
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     
+    # CRM Context-Aware Support: note_type for categorizing notes
+    # Values: 'manual' (user-created), 'call_summary' (AI-generated after call), 'system' (auto-generated)
+    note_type = db.Column(db.String(32), default='manual', index=True)
+    
     content = db.Column(db.Text, nullable=False)
     attachments = db.Column(db.JSON, default=list)  # [{id, name, url, type, size}]
+    
+    # CRM Context-Aware Support: Optional call_id to link note to a specific call
+    call_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True, index=True)
+    
+    # CRM Context-Aware Support: Structured fields for call summaries
+    # Format: {"sentiment": "positive", "outcome": "appointment_set", "next_step_date": "2024-01-20"}
+    structured_data = db.Column(db.JSON, nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -564,6 +580,7 @@ class LeadNote(db.Model):
     
     __table_args__ = (
         db.Index('idx_lead_notes_lead', 'lead_id', 'created_at'),
+        db.Index('idx_lead_notes_type', 'lead_id', 'note_type'),
     )
 
 class LeadAttachment(db.Model):

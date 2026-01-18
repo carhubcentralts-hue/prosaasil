@@ -1213,6 +1213,45 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # 🔥 FIX: Use final_transcript from recording (NO realtime!)
                 conversation_summary = ci.generate_conversation_summary(final_transcript if final_transcript else "")
                 
+                # 🎧 CRM Context-Aware Support: Auto-save call summary to lead notes if customer service mode is enabled
+                # This happens AUTOMATICALLY after each inbound call - no AI action needed!
+                if call_log.direction == 'inbound' and summary:
+                    try:
+                        from server.models_sql import BusinessSettings, LeadNote
+                        settings = BusinessSettings.query.filter_by(tenant_id=call_log.business_id).first()
+                        customer_service_enabled = getattr(settings, 'enable_customer_service', False) if settings else False
+                        
+                        if customer_service_enabled:
+                            # Create call summary note automatically
+                            from datetime import datetime as dt
+                            
+                            # Build structured note content
+                            note_content = f"""📞 סיכום שיחה נכנסת - {dt.now().strftime('%d/%m/%Y %H:%M')}
+                            
+{summary}
+
+משך שיחה: {call_log.duration or 0} שניות"""
+                            
+                            # Create the note
+                            call_note = LeadNote()
+                            call_note.lead_id = lead.id
+                            call_note.tenant_id = call_log.business_id
+                            call_note.note_type = 'call_summary'
+                            call_note.content = note_content
+                            call_note.call_id = call_log.id
+                            call_note.structured_data = {
+                                'call_duration': call_log.duration,
+                                'call_direction': call_log.direction,
+                                'call_sid': call_sid
+                            }
+                            call_note.created_at = dt.utcnow()
+                            
+                            db.session.add(call_note)
+                            log.info(f"[CustomerService] 🎧 Auto-saved call summary to lead {lead.id} notes (customer service mode)")
+                    except Exception as cs_err:
+                        log.warning(f"[CustomerService] ⚠️ Failed to auto-save call summary: {cs_err}")
+                        # Non-critical - continue with other processing
+                
                 # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש
                 # Get call direction from call_log
                 call_direction = call_log.direction if call_log else "inbound"

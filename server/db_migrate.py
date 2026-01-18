@@ -2706,6 +2706,133 @@ def apply_migrations():
         elif check_table_exists('business'):
             checkpoint("Migration 71: enabled_pages column already exists - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 72: CRM Context-Aware Support - Add note_type, call_id, structured_data to lead_notes
+        # 🎯 PURPOSE: Enable AI to read/write CRM context and create call summary notes
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 72: CRM Context-Aware Support - Adding fields to lead_notes")
+        
+        if check_table_exists('lead_notes'):
+            try:
+                # Add note_type column if missing
+                if not check_column_exists('lead_notes', 'note_type'):
+                    checkpoint("  → Adding note_type to lead_notes...")
+                    db.session.execute(text("""
+                        ALTER TABLE lead_notes 
+                        ADD COLUMN note_type VARCHAR(32) DEFAULT 'manual'
+                    """))
+                    db.session.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_lead_notes_type 
+                        ON lead_notes(lead_id, note_type)
+                    """))
+                    checkpoint("  ✅ lead_notes.note_type added")
+                    migrations_applied.append('add_lead_notes_note_type')
+                
+                # Add call_id column if missing
+                if not check_column_exists('lead_notes', 'call_id'):
+                    checkpoint("  → Adding call_id to lead_notes...")
+                    db.session.execute(text("""
+                        ALTER TABLE lead_notes 
+                        ADD COLUMN call_id INTEGER REFERENCES call_log(id)
+                    """))
+                    db.session.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_lead_notes_call_id 
+                        ON lead_notes(call_id)
+                    """))
+                    checkpoint("  ✅ lead_notes.call_id added")
+                    migrations_applied.append('add_lead_notes_call_id')
+                
+                # Add structured_data column if missing
+                if not check_column_exists('lead_notes', 'structured_data'):
+                    checkpoint("  → Adding structured_data to lead_notes...")
+                    db.session.execute(text("""
+                        ALTER TABLE lead_notes 
+                        ADD COLUMN structured_data JSON
+                    """))
+                    checkpoint("  ✅ lead_notes.structured_data added")
+                    migrations_applied.append('add_lead_notes_structured_data')
+                
+                checkpoint("✅ Migration 72 completed - CRM Context-Aware Support fields added to lead_notes")
+            except Exception as e:
+                log.error(f"❌ Migration 72 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ lead_notes table does not exist - skipping")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 73: CRM Context-Aware Support - Add enable_customer_service to business_settings
+        # 🎯 PURPOSE: Toggle per-business customer service mode
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 73: CRM Context-Aware Support - Adding enable_customer_service to business_settings")
+        
+        if check_table_exists('business_settings'):
+            try:
+                if not check_column_exists('business_settings', 'enable_customer_service'):
+                    checkpoint("  → Adding enable_customer_service to business_settings...")
+                    db.session.execute(text("""
+                        ALTER TABLE business_settings 
+                        ADD COLUMN enable_customer_service BOOLEAN DEFAULT FALSE
+                    """))
+                    checkpoint("  ✅ business_settings.enable_customer_service added")
+                    migrations_applied.append('add_business_settings_enable_customer_service')
+                else:
+                    checkpoint("  ✅ business_settings.enable_customer_service already exists")
+                
+                checkpoint("✅ Migration 73 completed - Customer service toggle added")
+            except Exception as e:
+                log.error(f"❌ Migration 73 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ business_settings table does not exist - skipping")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 74: Email Text Templates Enhancement - Add button_text, button_link, footer_text
+        # 🎯 PURPOSE: Allow full email template customization including CTA button and footer
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 74: Email Text Templates - Adding button and footer fields")
+        
+        if check_table_exists('email_text_templates'):
+            try:
+                # Add button_text column if missing
+                if not check_column_exists('email_text_templates', 'button_text'):
+                    checkpoint("  → Adding button_text to email_text_templates...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_text_templates 
+                        ADD COLUMN button_text VARCHAR(255)
+                    """))
+                    checkpoint("  ✅ email_text_templates.button_text added")
+                    migrations_applied.append('add_email_text_templates_button_text')
+                
+                # Add button_link column if missing
+                if not check_column_exists('email_text_templates', 'button_link'):
+                    checkpoint("  → Adding button_link to email_text_templates...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_text_templates 
+                        ADD COLUMN button_link VARCHAR(512)
+                    """))
+                    checkpoint("  ✅ email_text_templates.button_link added")
+                    migrations_applied.append('add_email_text_templates_button_link')
+                
+                # Add footer_text column if missing
+                if not check_column_exists('email_text_templates', 'footer_text'):
+                    checkpoint("  → Adding footer_text to email_text_templates...")
+                    db.session.execute(text("""
+                        ALTER TABLE email_text_templates 
+                        ADD COLUMN footer_text TEXT
+                    """))
+                    checkpoint("  ✅ email_text_templates.footer_text added")
+                    migrations_applied.append('add_email_text_templates_footer_text')
+                
+                checkpoint("✅ Migration 74 completed - Email text template fields added")
+            except Exception as e:
+                log.error(f"❌ Migration 74 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ email_text_templates table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

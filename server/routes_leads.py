@@ -1883,7 +1883,7 @@ MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB limit
 @leads_bp.route("/api/leads/<int:lead_id>/notes", methods=["GET"])
 @require_api_auth()
 def get_lead_notes(lead_id):
-    """Get all notes for a lead - excludes WhatsApp/call logs, only manual notes"""
+    """Get all notes for a lead - includes manual notes, call summaries, and system notes"""
     tenant_id = get_current_tenant()
     if not tenant_id:
         return jsonify({"error": "No tenant access"}), 403
@@ -1898,11 +1898,15 @@ def get_lead_notes(lead_id):
     
     # 🔥 FIX: Return attachments from the JSON field, not from LeadAttachment table
     # The upload endpoint saves to the JSON field, so we need to read from there
+    # CRM Context-Aware Support: Include note_type, call_id, and structured_data
     return jsonify({
         "success": True,
         "notes": [{
             "id": note.id,
             "content": note.content,
+            "note_type": getattr(note, 'note_type', 'manual') or 'manual',
+            "call_id": getattr(note, 'call_id', None),
+            "structured_data": getattr(note, 'structured_data', None),
             "attachments": note.attachments or [],  # Use JSON field
             "created_at": note.created_at.isoformat() if note.created_at else None,
             "updated_at": note.updated_at.isoformat() if note.updated_at else None
