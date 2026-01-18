@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import { FileText, Download, Upload, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 
@@ -19,6 +20,7 @@ interface SigningContract {
 }
 
 export function PublicSigningPage() {
+  const { token } = useParams<{ token: string }>();
   const [contract, setContract] = useState<SigningContract | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,13 +28,19 @@ export function PublicSigningPage() {
   const [signedFile, setSignedFile] = useState<File | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const token = window.location.pathname.split('/').pop();
-
   useEffect(() => {
-    loadContract();
-  }, []);
+    if (token) {
+      loadContract();
+    }
+  }, [token]);
 
   const loadContract = async () => {
+    if (!token) {
+      setError('טוקן חסר');
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     setError(null);
 

@@ -425,8 +425,13 @@ def upload_contract_file(contract_id):
         db.session.flush()
         
         # Save file via attachment service
-        storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
-        attachment.storage_path = storage_key
+        try:
+            storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+            attachment.storage_path = storage_key
+        except Exception as storage_error:
+            logger.error(f"[CONTRACTS_UPLOAD] Storage save failed: {storage_error}")
+            db.session.rollback()
+            raise
         
         db.session.commit()
         
@@ -813,8 +818,13 @@ def complete_signing(token):
         db.session.flush()
         
         # Save file
-        storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
-        attachment.storage_path = storage_key
+        try:
+            storage_key, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+            attachment.storage_path = storage_key
+        except Exception as storage_error:
+            logger.error(f"[CONTRACT_SIGN_COMPLETE] Storage save failed: {storage_error}")
+            db.session.rollback()
+            raise
         
         db.session.commit()
         
@@ -887,6 +897,7 @@ def cancel_contract(contract_id):
         if contract.status == 'cancelled':
             return jsonify({'error': 'Contract already cancelled'}), 400
         
+        previous_status = contract.status
         contract.status = 'cancelled'
         contract.updated_at = datetime.utcnow()
         db.session.commit()
@@ -895,11 +906,11 @@ def cancel_contract(contract_id):
             contract_id=contract_id,
             business_id=business_id,
             event_type='cancelled',
-            metadata={'previous_status': contract.status},
+            metadata={'previous_status': previous_status},
             user_id=user_id
         )
         
-        logger.info(f"[CONTRACT_CANCEL] contract_id={contract_id} status=cancelled")
+        logger.info(f"[CONTRACT_CANCEL] contract_id={contract_id} previous_status={previous_status} status=cancelled")
         
         return jsonify({
             'message': 'Contract cancelled successfully',
