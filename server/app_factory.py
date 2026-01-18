@@ -826,6 +826,73 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
+    # 🔥 CRITICAL: Validate R2 storage configuration in production
+    # This validation runs at startup to fail-fast if R2 is not properly configured
+    is_production_mode = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+    if is_production_mode:
+        try:
+            logger.info("🔒 Production mode detected - validating R2 storage configuration...")
+            
+            # Validate storage driver is set to R2
+            storage_driver = os.getenv('ATTACHMENT_STORAGE_DRIVER', 'local').lower()
+            if storage_driver != 'r2':
+                logger.error("🚨 CRITICAL: PRODUCTION=1 but ATTACHMENT_STORAGE_DRIVER is not 'r2'")
+                logger.error(f"   Current value: ATTACHMENT_STORAGE_DRIVER={storage_driver}")
+                logger.error("   Required: ATTACHMENT_STORAGE_DRIVER=r2")
+                raise RuntimeError(
+                    "Production mode requires ATTACHMENT_STORAGE_DRIVER=r2. "
+                    "Update your .env file and restart."
+                )
+            
+            # Validate all R2 environment variables are set
+            required_r2_vars = {
+                'R2_ACCOUNT_ID': os.getenv('R2_ACCOUNT_ID'),
+                'R2_BUCKET_NAME': os.getenv('R2_BUCKET_NAME'),
+                'R2_ACCESS_KEY_ID': os.getenv('R2_ACCESS_KEY_ID'),
+                'R2_SECRET_ACCESS_KEY': os.getenv('R2_SECRET_ACCESS_KEY'),
+                'ATTACHMENT_SECRET': os.getenv('ATTACHMENT_SECRET')
+            }
+            
+            missing_vars = [var for var, value in required_r2_vars.items() if not value]
+            
+            if missing_vars:
+                logger.error("🚨 CRITICAL: Missing required R2 environment variables:")
+                for var in missing_vars:
+                    logger.error(f"   ❌ {var} = Not set")
+                logger.error("Set these environment variables in your .env file and restart.")
+                raise RuntimeError(
+                    f"Production mode requires complete R2 configuration. "
+                    f"Missing: {', '.join(missing_vars)}. "
+                    "See .env.r2.example for configuration details."
+                )
+            
+            # Validate ATTACHMENT_SECRET is not the default
+            attachment_secret = os.getenv('ATTACHMENT_SECRET', '')
+            if attachment_secret == 'CHANGE_ME_TO_RANDOM_SECRET_KEY_IN_PRODUCTION' or \
+               attachment_secret == 'change-me-in-production':
+                logger.error("🚨 CRITICAL: ATTACHMENT_SECRET is still set to default value")
+                logger.error("   Generate a secure secret with: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\"")
+                raise RuntimeError(
+                    "Production mode requires a secure ATTACHMENT_SECRET. "
+                    "Change it from the default value."
+                )
+            
+            # Try to initialize storage provider to verify R2 connection
+            logger.info("   Validating R2 connection...")
+            from server.services.storage import get_attachment_storage
+            storage = get_attachment_storage()
+            
+            logger.info(f"   ✅ Storage provider initialized: {type(storage).__name__}")
+            logger.info("✅ R2 storage configuration validated successfully")
+            
+        except Exception as e:
+            logger.error(f"🚨 FATAL: R2 storage validation failed: {e}")
+            logger.error("   Application cannot start in production mode without proper R2 configuration.")
+            logger.error("   See .env.r2.example for configuration details.")
+            raise
+    else:
+        logger.info("ℹ️  Development mode - R2 validation skipped (local storage allowed)")
+    
     # 🔥 CRITICAL FIX: Global flag to ensure migrations complete before warmup
     # Prevents "InFailedSqlTransaction" errors when warmup queries fail
     _migrations_complete = threading.Event()

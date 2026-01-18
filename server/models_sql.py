@@ -801,7 +801,7 @@ class ContractSignEvent(db.Model):
     Contract Sign Events - Audit trail for contract operations
     
     event_type: created|file_uploaded|sent_for_signature|viewed|signed_completed|cancelled
-    metadata: JSON with event-specific data
+    event_metadata: JSON with event-specific data (renamed from metadata to avoid SQLAlchemy reserved word)
     """
     __tablename__ = "contract_sign_events"
     id = db.Column(db.Integer, primary_key=True)
@@ -810,7 +810,7 @@ class ContractSignEvent(db.Model):
     
     # Event data
     event_type = db.Column(db.String(32), nullable=False)  # created|file_uploaded|... (CHECK constraint)
-    metadata = db.Column(db.JSON)  # Event-specific data (IP, user agent, etc.)
+    event_metadata = db.Column(db.JSON)  # Event-specific data (IP, user agent, etc.) - renamed from 'metadata' to avoid SQLAlchemy reserved word
     
     # Audit fields
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
