@@ -371,8 +371,8 @@ def create_contract():
                     uploaded_file_ids.append(attachment.id)
                 except Exception as file_error:
                     import traceback
-                    traceback.print_exc()
-                    print(f"⚠️ Failed to upload file {file.filename}: {file_error}")
+                    log.error(f"⚠️ Failed to upload file {file.filename}: {file_error}")
+                    log.error(traceback.format_exc())
                     # Continue with other files even if one fails
         
         db.session.commit()

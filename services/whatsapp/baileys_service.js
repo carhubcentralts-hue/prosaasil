@@ -665,11 +665,12 @@ app.post('/send', async (req, res) => {
             caption: caption || text || ''
           };
         } else {
-          // Fallback to document
+          // Fallback to document with extension from mimetype
+          const ext = media.mimetype ? media.mimetype.split('/')[1] : 'bin';
           messageContent = {
             document: mediaBuffer,
             mimetype: media.mimetype,
-            fileName: media.filename || 'file'
+            fileName: media.filename || `file.${ext}`
           };
         }
       } else {
