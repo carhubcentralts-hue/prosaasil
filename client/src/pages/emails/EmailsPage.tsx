@@ -2294,6 +2294,53 @@ export function EmailsPage() {
                   </p>
                 </div>
                 
+                {/* ⭐ ATTACHMENTS - קבצים מצורפים - מיקום בולט מעל התוכן */}
+                <div className="border-2 border-blue-300 rounded-xl p-4 sm:p-5 bg-gradient-to-br from-blue-50 to-cyan-50 shadow-sm">
+                  {/* כותרת בולטת עם אייקון */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-blue-600 rounded-lg shadow-md">
+                      <Paperclip className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900">📎 צרף קבצים למייל</h3>
+                      <p className="text-xs sm:text-sm text-gray-600 mt-0.5">העלה קבצים או בחר מהגלריה</p>
+                    </div>
+                  </div>
+
+                  {/* AttachmentPicker Component */}
+                  <div className="bg-white rounded-lg p-3 sm:p-4 border border-blue-200 shadow-sm">
+                    <AttachmentPicker
+                      channel="email"
+                      mode="multi"
+                      onAttachmentSelect={(ids) => {
+                        if (Array.isArray(ids)) {
+                          setAttachmentIds(ids);
+                        } else if (ids === null) {
+                          setAttachmentIds([]);
+                        } else {
+                          // Single ID - add to array
+                          setAttachmentIds([ids]);
+                        }
+                      }}
+                      selectedAttachmentId={null}
+                    />
+                  </div>
+                  
+                  {/* הצגת קבצים שנבחרו */}
+                  {attachmentIds.length > 0 && (
+                    <div className="mt-3 p-3 bg-green-50 border-2 border-green-300 rounded-lg shadow-sm">
+                      <div className="flex items-center gap-2 text-green-800">
+                        <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="font-semibold text-sm sm:text-base">
+                          ✅ {attachmentIds.length} קבצים מצורפים - מוכנים לשליחה!
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
                 {/* Greeting - Mobile Optimized */}
                 <div className="space-y-2">
                   <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
@@ -2685,6 +2732,53 @@ export function EmailsPage() {
                   />
                 </div>
                 
+                {/* ⭐ ATTACHMENTS - קבצים מצורפים - מיקום בולט מעל התוכן */}
+                <div className="border-2 border-blue-300 rounded-xl p-4 sm:p-5 bg-gradient-to-br from-blue-50 to-cyan-50 shadow-sm">
+                  {/* כותרת בולטת עם אייקון */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-blue-600 rounded-lg shadow-md">
+                      <Paperclip className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900">📎 צרף קבצים למייל</h3>
+                      <p className="text-xs sm:text-sm text-gray-600 mt-0.5">העלה קבצים או בחר מהגלריה</p>
+                    </div>
+                  </div>
+
+                  {/* AttachmentPicker Component */}
+                  <div className="bg-white rounded-lg p-3 sm:p-4 border border-blue-200 shadow-sm">
+                    <AttachmentPicker
+                      channel="email"
+                      mode="multi"
+                      onAttachmentSelect={(ids) => {
+                        if (Array.isArray(ids)) {
+                          setAttachmentIds(ids);
+                        } else if (ids === null) {
+                          setAttachmentIds([]);
+                        } else {
+                          // Single ID - add to array
+                          setAttachmentIds([ids]);
+                        }
+                      }}
+                      selectedAttachmentId={null}
+                    />
+                  </div>
+                  
+                  {/* הצגת קבצים שנבחרו */}
+                  {attachmentIds.length > 0 && (
+                    <div className="mt-3 p-3 bg-green-50 border-2 border-green-300 rounded-lg shadow-sm">
+                      <div className="flex items-center gap-2 text-green-800">
+                        <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="font-semibold text-sm sm:text-base">
+                          ✅ {attachmentIds.length} קבצים מצורפים - מוכנים לשליחה!
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
                 {/* Greeting */}
                 <div className="space-y-2">
                   <label className="block text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
@@ -2795,53 +2889,6 @@ export function EmailsPage() {
                     className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border-2 border-yellow-400 rounded-lg focus:ring-4 focus:ring-yellow-200 focus:border-yellow-500 text-xs sm:text-sm transition-all shadow-sm resize-none"
                     required
                   />
-                </div>
-                
-                {/* Attachments - עם כותרת בולטת */}
-                <div className="border-2 border-blue-200 rounded-xl p-5 bg-blue-50">
-                  {/* כותרת בולטת */}
-                  <div className="flex items-center gap-3 mb-4 pb-3 border-b border-blue-200">
-                    <div className="p-2 bg-blue-500 rounded-lg">
-                      <Paperclip className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-900">צרף קבצים למייל</h3>
-                      <p className="text-sm text-gray-600">העלה קבצים חדשים או בחר מהגלריה</p>
-                    </div>
-                  </div>
-
-                  {/* AttachmentPicker */}
-                  <div className="bg-white rounded-lg p-4">
-                    <AttachmentPicker
-                      channel="email"
-                      mode="multi"
-                      onAttachmentSelect={(ids) => {
-                        if (Array.isArray(ids)) {
-                          setAttachmentIds(ids);
-                        } else if (ids === null) {
-                          setAttachmentIds([]);
-                        } else {
-                          // Single ID - add to array
-                          setAttachmentIds([ids]);
-                        }
-                      }}
-                      selectedAttachmentId={null}
-                    />
-                  </div>
-                  
-                  {/* Show selected attachments - בולט יותר */}
-                  {attachmentIds.length > 0 && (
-                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="flex items-center gap-2 text-green-800">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-semibold text-sm">
-                          ✅ {attachmentIds.length} קבצים מצורפים - מוכנים לשליחה!
-                        </span>
-                      </div>
-                    </div>
-                  )}
                 </div>
                 
                 {/* Info Box */}
