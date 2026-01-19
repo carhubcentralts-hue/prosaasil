@@ -1303,7 +1303,7 @@ class EmailService:
             if attachment_ids:
                 from server.models_sql import Attachment
                 from server.services.attachment_service import get_attachment_service
-                from sendgrid.helpers.mail import Attachment as SGAttachment
+                from sendgrid.helpers.mail import Attachment as SGAttachment, FileContent, FileName, FileType, Disposition
                 import base64
                 
                 logger.info(f"[EMAIL_TO_LEAD] Attachments: {len(attachment_ids)} files")
@@ -1348,12 +1348,12 @@ class EmailService:
                         # Encode to base64 for SendGrid
                         encoded = base64.b64encode(file_data).decode()
                         
-                        # Create SendGrid attachment
+                        # Create SendGrid attachment with proper property names (v6+)
                         sg_attachment = SGAttachment()
-                        sg_attachment.file_content = encoded
-                        sg_attachment.file_name = filename
-                        sg_attachment.file_type = actual_mime or mime_type or 'application/octet-stream'
-                        sg_attachment.disposition = 'attachment'
+                        sg_attachment.file_content = FileContent(encoded)
+                        sg_attachment.file_name = FileName(filename)
+                        sg_attachment.file_type = FileType(actual_mime or mime_type or 'application/octet-stream')
+                        sg_attachment.disposition = Disposition('attachment')
                         
                         message.add_attachment(sg_attachment)
                         total_size += len(file_data)
