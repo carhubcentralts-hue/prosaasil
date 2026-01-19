@@ -1088,13 +1088,14 @@ def baileys_webhook():
                     log.info(f"[WA-INCOMING] Message saved (no AI response) in {msg_duration:.2f}s")
                     continue
                 
-                # ✅ BUILD 122: Load conversation history for AI context (10 messages)
+                # ✅ FIX: Load conversation history for AI context (12 messages for better context)
+                # Increased from 10 to 12 to match AI service limit and prevent context loss
                 previous_messages = []
                 try:
                     recent_msgs = WhatsAppMessage.query.filter_by(
                         business_id=business_id,
                         to_number=from_number_e164
-                    ).order_by(WhatsAppMessage.created_at.desc()).limit(10).all()
+                    ).order_by(WhatsAppMessage.created_at.desc()).limit(12).all()
                     
                     # Format as conversation (reversed to chronological order)
                     # 🔥 BUILD 180: Handle both 'in'/'inbound' and 'out'/'outbound' for backwards compatibility
