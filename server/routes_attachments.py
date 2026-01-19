@@ -232,10 +232,11 @@ def list_attachments():
         channel = request.args.get('channel')
         if channel and channel in ['email', 'whatsapp', 'broadcast']:
             # Filter attachments where channel_compatibility[channel] = true
-            # Using JSON query - PostgreSQL specific
+            # 🔥 FIX: Use ->> operator to extract as text, not -> which returns JSON
+            # This prevents "operator does not exist: json = unknown" error
             from sqlalchemy import text
             query = query.filter(
-                text(f"channel_compatibility->'{channel}' = 'true'")
+                text(f"channel_compatibility->>'{channel}' = 'true'")
             )
         
         # Filter by mime type prefix

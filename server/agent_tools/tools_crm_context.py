@@ -114,7 +114,8 @@ class LeadContextAppointment(BaseModel):
 class GetLeadContextOutput(BaseModel):
     """Output for get_lead_context with lead details, notes, and appointments"""
     found: bool
-    lead: Optional[Dict[str, Any]] = None
+    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
+    lead: Optional[dict] = None
     notes: List[LeadContextNote] = []
     appointments: List[LeadContextAppointment] = []
     recent_calls_count: int = 0
@@ -127,7 +128,9 @@ class CreateLeadNoteInput(BaseModel):
     note_type: str = Field("call_summary", description="Type of note: 'manual' (free notes), 'customer_service_ai' (AI context), 'call_summary' (AI call summary), or 'system'")
     content: str = Field(..., description="Note content (sensitive data will be redacted)", max_length=10000)
     call_id: Optional[int] = Field(None, description="Optional call ID to link the note to")
-    structured_data: Optional[Dict[str, Any]] = Field(
+    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
+    # Now accepts None or a dict as Python object (no strict schema enforcement)
+    structured_data: Optional[dict] = Field(
         None, 
         description="Optional structured data: {sentiment, outcome, next_step_date}"
     )
@@ -144,7 +147,8 @@ class UpdateLeadFieldsInput(BaseModel):
     """Input for updating lead fields - only allowed fields can be updated"""
     business_id: int = Field(..., description="Business ID (tenant_id) - REQUIRED for multi-tenant security", ge=1)
     lead_id: int = Field(..., description="Lead ID to update", ge=1)
-    patch: Dict[str, Any] = Field(
+    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
+    patch: dict = Field(
         ..., 
         description="""Fields to update. Allowed fields:
         - status: Lead status (e.g., 'new', 'contacted', 'qualified')
@@ -556,7 +560,8 @@ def create_call_summary_note(
     lead_id: int, 
     content: str, 
     call_id: Optional[int] = None,
-    structured_data: Optional[Dict[str, Any]] = None
+    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
+    structured_data: Optional[dict] = None
 ) -> CreateLeadNoteOutput:
     """
     Convenience function to create a call summary note.
