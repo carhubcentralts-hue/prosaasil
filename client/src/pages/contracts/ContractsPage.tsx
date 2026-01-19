@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Plus, Search, Filter, Download, Send, X, Calendar, User, Upload } from 'lucide-react';
+import { FileText, Plus, Search, Filter, Download, Send, X, Calendar, User, Upload, Trash2 } from 'lucide-react';
 import { formatDate } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
 import { Button } from '../../shared/components/ui/Button';
@@ -85,6 +85,28 @@ export function ContractsPage() {
 
   const handleContractUpdated = () => {
     loadContracts();
+  };
+
+  const handleDeleteContract = async (contractId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('האם אתה בטוח שברצונך למחוק את החוזה? פעולה זו אינה ניתנת לביטול.')) return;
+
+    try {
+      const response = await fetch(`/api/contracts/${contractId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete contract');
+      }
+
+      loadContracts();
+    } catch (error: any) {
+      console.error('Error deleting contract:', error);
+      alert(error.message || 'שגיאה במחיקת חוזה');
+    }
   };
 
   const totalPages = Math.ceil(total / perPage);
@@ -253,15 +275,26 @@ export function ContractsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedContractId(contract.id);
-                          }}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                        >
-                          פרטים
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedContractId(contract.id);
+                            }}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          >
+                            פרטים
+                          </button>
+                          {(contract.status === 'draft' || contract.status === 'cancelled') && (
+                            <button
+                              onClick={(e) => handleDeleteContract(contract.id, e)}
+                              className="p-1 hover:bg-red-100 rounded text-red-600 transition"
+                              title="מחק חוזה"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
