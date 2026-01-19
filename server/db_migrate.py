@@ -3206,37 +3206,43 @@ def apply_migrations():
             checkpoint("🔧 Running Migration 80: Add 'file_downloaded' to contract_sign_events event types")
             
             try:
-                # Check if constraint exists and needs updating
+                # Check if constraint exists by querying check_constraints
                 result = db.session.execute(text("""
-                    SELECT constraint_name 
-                    FROM information_schema.constraint_column_usage 
-                    WHERE table_name = 'contract_sign_events' 
-                    AND constraint_name LIKE '%event_type%'
+                    SELECT constraint_name, check_clause
+                    FROM information_schema.check_constraints 
+                    WHERE constraint_name LIKE '%event_type%'
+                    AND constraint_schema = 'public'
                 """))
-                constraint_exists = result.fetchone() is not None
+                constraint_row = result.fetchone()
                 
-                if constraint_exists:
-                    # Drop old constraint
-                    db.session.execute(text("""
-                        ALTER TABLE contract_sign_events 
-                        DROP CONSTRAINT IF EXISTS contract_sign_events_event_type_check
-                    """))
+                if constraint_row:
+                    constraint_name = constraint_row[0]
+                    check_clause = constraint_row[1] if len(constraint_row) > 1 else ''
                     
-                    # Add new constraint with 'file_downloaded' included
-                    db.session.execute(text("""
-                        ALTER TABLE contract_sign_events 
-                        ADD CONSTRAINT contract_sign_events_event_type_check 
-                        CHECK (event_type IN (
-                            'created', 'file_uploaded', 'sent_for_signature', 
-                            'viewed', 'signed_completed', 'cancelled', 'file_downloaded'
-                        ))
-                    """))
-                    
-                    migrations_applied.append('add_file_downloaded_event_type')
-                    checkpoint("✅ Migration 80 completed - Added 'file_downloaded' to allowed event types")
-                    checkpoint("  📋 Purpose: Allow logging of file download events in contract audit trail")
+                    # Check if 'file_downloaded' is already in the constraint
+                    if 'file_downloaded' in check_clause:
+                        checkpoint("  ℹ️ 'file_downloaded' already in event_type constraint - skipping")
+                    else:
+                        # Drop old constraint and add new one with 'file_downloaded'
+                        db.session.execute(text(f"""
+                            ALTER TABLE contract_sign_events 
+                            DROP CONSTRAINT IF EXISTS {constraint_name}
+                        """))
+                        
+                        db.session.execute(text("""
+                            ALTER TABLE contract_sign_events 
+                            ADD CONSTRAINT contract_sign_events_event_type_check 
+                            CHECK (event_type IN (
+                                'created', 'file_uploaded', 'sent_for_signature', 
+                                'viewed', 'signed_completed', 'cancelled', 'file_downloaded'
+                            ))
+                        """))
+                        
+                        migrations_applied.append('add_file_downloaded_event_type')
+                        checkpoint("✅ Migration 80 completed - Added 'file_downloaded' to allowed event types")
+                        checkpoint("  📋 Purpose: Allow logging of file download events in contract audit trail")
                 else:
-                    checkpoint("  ℹ️ Event type constraint not found - may need manual verification")
+                    checkpoint("  ℹ️ Event type constraint not found - table may not have constraint yet")
                 
             except Exception as e:
                 log.error(f"❌ Migration 80 failed: {e}")
