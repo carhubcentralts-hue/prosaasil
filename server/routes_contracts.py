@@ -301,6 +301,7 @@ def create_contract():
     Request body (JSON):
         - title: Contract title (required)
         - lead_id: Lead ID (optional)
+        - customer_id: Customer ID (optional, legacy)
         - signer_name: Signer name (optional)
         - signer_phone: Signer phone (optional)
         - signer_email: Signer email (optional)
@@ -323,7 +324,7 @@ def create_contract():
         # Validate lead_id if provided
         lead_id = data.get('lead_id')
         if lead_id:
-            lead = Lead.query.filter_by(id=lead_id, business_id=business_id).first()
+            lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
             if not lead:
                 return jsonify({'error': 'Lead not found'}), 404
         
@@ -331,6 +332,7 @@ def create_contract():
         contract = Contract(
             business_id=business_id,
             lead_id=lead_id,
+            customer_id=data.get('customer_id'),  # Legacy support
             title=title,
             status='draft',
             signer_name=data.get('signer_name'),
@@ -357,6 +359,7 @@ def create_contract():
             'id': contract.id,
             'title': contract.title,
             'status': contract.status,
+            'lead_id': contract.lead_id,
             'created_at': contract.created_at.isoformat()
         }), 201
         
@@ -364,6 +367,148 @@ def create_contract():
         logger.error(f"[CONTRACTS_CREATE] Error: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'error': 'Failed to create contract'}), 500
+
+
+@contracts_bp.route('/upload', methods=['POST'])
+@require_api_auth
+@require_page_access('contracts')
+def create_contract_with_file():
+    """
+    Create new contract with file upload in one step
+    
+    Request:
+        - multipart/form-data
+        - file: PDF/DOCX file to upload (required)
+        - title: Contract title (optional, defaults to filename)
+        - lead_id: Lead ID (optional)
+        - customer_id: Customer ID (optional, legacy)
+        - signer_name: Signer name (optional)
+        - signer_phone: Signer phone (optional)
+        - signer_email: Signer email (optional)
+    
+    Response:
+        - 201: Contract created with file attached
+        - 400: Validation error
+        - 403: Permission denied
+        - 500: Server error
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Get uploaded file
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Get title (default to filename if not provided)
+        title = request.form.get('title', '').strip()
+        if not title:
+            title = secure_filename(file.filename)
+            # Remove extension from title
+            if '.' in title:
+                title = title.rsplit('.', 1)[0]
+        
+        # Validate lead_id if provided
+        lead_id = request.form.get('lead_id', type=int)
+        if lead_id:
+            lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
+            if not lead:
+                return jsonify({'error': 'Lead not found'}), 404
+        
+        # Create contract first
+        contract = Contract(
+            business_id=business_id,
+            lead_id=lead_id,
+            customer_id=request.form.get('customer_id', type=int),  # Legacy support
+            title=title,
+            status='draft',
+            signer_name=request.form.get('signer_name'),
+            signer_phone=request.form.get('signer_phone'),
+            signer_email=request.form.get('signer_email'),
+            created_by=user_id
+        )
+        
+        db.session.add(contract)
+        db.session.flush()  # Get contract.id without committing yet
+        
+        # Create attachment using helper
+        try:
+            attachment = create_attachment_from_file(
+                file=file,
+                business_id=business_id,
+                user_id=user_id
+            )
+        except ValueError as ve:
+            db.session.rollback()
+            return jsonify({'error': str(ve)}), 400
+        
+        # Mark attachment as compatible with contracts channel
+        if attachment.channel_compatibility:
+            attachment.channel_compatibility['contracts'] = True
+        else:
+            attachment.channel_compatibility = {'contracts': True, 'email': True}
+        
+        # Create contract_file link
+        contract_file = ContractFile(
+            business_id=business_id,
+            contract_id=contract.id,
+            attachment_id=attachment.id,
+            purpose='original',
+            created_by=user_id
+        )
+        
+        db.session.add(contract_file)
+        db.session.commit()
+        
+        # Log events
+        log_contract_event(
+            contract_id=contract.id,
+            business_id=business_id,
+            event_type='created',
+            metadata={'title': title},
+            user_id=user_id
+        )
+        
+        log_contract_event(
+            contract_id=contract.id,
+            business_id=business_id,
+            event_type='file_uploaded',
+            metadata={
+                'filename': attachment.filename_original,
+                'purpose': 'original',
+                'attachment_id': attachment.id
+            },
+            user_id=user_id
+        )
+        
+        logger.info(f"[CONTRACTS_CREATE_UPLOAD] Created contract_id={contract.id} with file_id={contract_file.id}")
+        
+        return jsonify({
+            'id': contract.id,
+            'title': contract.title,
+            'status': contract.status,
+            'lead_id': contract.lead_id,
+            'file': {
+                'id': contract_file.id,
+                'attachment_id': attachment.id,
+                'filename': attachment.filename_original,
+                'mime_type': attachment.mime_type,
+                'file_size': attachment.file_size
+            },
+            'created_at': contract.created_at.isoformat()
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"[CONTRACTS_CREATE_UPLOAD] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to create contract with file'}), 500
 
 
 @contracts_bp.route('/<int:contract_id>', methods=['GET'])
