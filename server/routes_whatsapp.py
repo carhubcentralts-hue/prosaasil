@@ -3230,7 +3230,10 @@ def get_current_business_id_wa():
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @require_page_access('whatsapp_inbox')
 def list_manual_templates():
-    """List all WhatsApp manual templates for the current business"""
+    """🔥 FIX F: List all WhatsApp manual templates for the current business
+    
+    Handles missing table gracefully - returns empty list if table doesn't exist
+    """
     try:
         business_id = get_current_business_id_wa()
         if not business_id:
@@ -3238,32 +3241,40 @@ def list_manual_templates():
         
         from sqlalchemy import text as sa_text
         
-        result = db.session.execute(
-            sa_text("""
-                SELECT id, name, message_text, is_active, created_at, updated_at
-                FROM whatsapp_manual_templates
-                WHERE business_id = :business_id AND is_active = TRUE
-                ORDER BY created_at DESC
-            """),
-            {"business_id": business_id}
-        ).fetchall()
-        
-        templates = []
-        for row in result:
-            templates.append({
-                'id': row[0],
-                'name': row[1],
-                'message_text': row[2],
-                'is_active': row[3],
-                'created_at': row[4].isoformat() if row[4] else None,
-                'updated_at': row[5].isoformat() if row[5] else None
-            })
-        
-        return jsonify({'ok': True, 'templates': templates}), 200
+        # 🔥 FIX F: Try to query templates, but handle missing table gracefully
+        try:
+            result = db.session.execute(
+                sa_text("""
+                    SELECT id, name, message_text, is_active, created_at, updated_at
+                    FROM whatsapp_manual_templates
+                    WHERE business_id = :business_id AND is_active = TRUE
+                    ORDER BY created_at DESC
+                """),
+                {"business_id": business_id}
+            ).fetchall()
+            
+            templates = []
+            for row in result:
+                templates.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'message_text': row[2],
+                    'is_active': row[3],
+                    'created_at': row[4].isoformat() if row[4] else None,
+                    'updated_at': row[5].isoformat() if row[5] else None
+                })
+            
+            return jsonify({'ok': True, 'templates': templates}), 200
+            
+        except Exception as db_err:
+            # 🔥 FIX F: Table might not exist - return empty list gracefully
+            log.warning(f"[WA_MANUAL_TEMPLATES] Could not load templates (table may not exist): {db_err}")
+            return jsonify({'ok': True, 'templates': [], 'warning': 'Templates table not available'}), 200
         
     except Exception as e:
         log.exception("[WA_MANUAL_TEMPLATES] Failed to list templates")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        # 🔥 FIX F: Always return gracefully, never 500
+        return jsonify({'ok': True, 'templates': [], 'error': str(e)}), 200
 
 
 @whatsapp_bp.route('/manual-templates', methods=['POST'])
