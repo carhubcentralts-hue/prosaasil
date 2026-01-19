@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, Download, Upload, CheckCircle, XCircle, Eye, Edit3, X } from 'lucide-react';
+import { FileText, Download, Upload, CheckCircle, XCircle, Eye, Edit3, X, Printer } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 
 interface SigningContract {
@@ -19,6 +19,13 @@ interface SigningContract {
   }>;
 }
 
+interface SignedContractResult {
+  signed_document_url?: string;
+  signed_at?: string;
+  signer_name?: string;
+  signature_type?: string;
+}
+
 export function PublicSigningPage() {
   const { token } = useParams<{ token: string }>();
   const [contract, setContract] = useState<SigningContract | null>(null);
@@ -27,6 +34,9 @@ export function PublicSigningPage() {
   const [signing, setSigning] = useState(false);
   const [signedFile, setSignedFile] = useState<File | null>(null);
   const [success, setSuccess] = useState(false);
+  
+  // ✅ NEW: Store signed result with document URL
+  const [signedResult, setSignedResult] = useState<SignedContractResult | null>(null);
   
   // ✅ NEW: Preview and digital signature states
   const [showPreview, setShowPreview] = useState(false);
@@ -109,6 +119,15 @@ export function PublicSigningPage() {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to complete signing');
       }
+
+      // ✅ NEW: Capture signed result with document URL
+      const result = await response.json();
+      setSignedResult({
+        signed_document_url: result.signed_document_url,
+        signed_at: result.signed_at || new Date().toISOString(),
+        signer_name: contract?.signer_name,
+        signature_type: 'uploaded'
+      });
 
       setSuccess(true);
     } catch (err: any) {
@@ -207,6 +226,15 @@ export function PublicSigningPage() {
         throw new Error(errorData.error || 'Failed to complete signing');
       }
 
+      // ✅ NEW: Capture signed result with document URL
+      const result = await apiResponse.json();
+      setSignedResult({
+        signed_document_url: result.signed_document_url,
+        signed_at: result.signed_at || new Date().toISOString(),
+        signer_name: signerName,
+        signature_type: 'digital'
+      });
+      
       setSuccess(true);
     } catch (err: any) {
       console.error('Error signing contract:', err);
@@ -251,13 +279,102 @@ export function PublicSigningPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center" dir="rtl">
-        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 py-8 px-4" dir="rtl" style={{ fontFamily: 'Assistant, sans-serif' }}>
+        <div className="max-w-4xl mx-auto">
+          {/* Success Header */}
+          <div className="bg-white rounded-xl shadow-xl p-8 mb-6">
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-20 h-20 bg-green-100 rounded-full mb-4">
+                <CheckCircle className="w-12 h-12 text-green-500" />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">החוזה נחתם בהצלחה! 🎉</h1>
+              <p className="text-lg text-gray-600 mb-2">תודה על חתימתך, {signedResult?.signer_name || contract?.signer_name || 'לקוח יקר'}.</p>
+              <p className="text-gray-500">החוזה עודכן במערכת ונשלח לצדדים הרלוונטיים.</p>
+              {signedResult?.signed_at && (
+                <p className="text-sm text-green-600 mt-2">
+                  נחתם בתאריך: {new Date(signedResult.signed_at).toLocaleString('he-IL')}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Signed Contract Preview */}
+          <div className="bg-white rounded-xl shadow-xl overflow-hidden mb-6">
+            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <FileText className="w-6 h-6 text-green-600" />
+                החוזה החתום
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">{contract?.title}</p>
+            </div>
+
+            {/* Preview Section */}
+            <div className="p-6">
+              {signedResult?.signed_document_url ? (
+                <>
+                  {/* PDF Preview */}
+                  <div className="border-2 border-gray-200 rounded-lg overflow-hidden mb-4">
+                    <iframe
+                      src={signedResult.signed_document_url}
+                      className="w-full h-[600px]"
+                      title="Signed Contract Preview"
+                    />
+                  </div>
+                  
+                  {/* Download & Print Actions */}
+                  <div className="flex flex-wrap gap-3 justify-center">
+                    <a
+                      href={signedResult.signed_document_url}
+                      download={`${contract?.title || 'contract'}_signed.pdf`}
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md"
+                    >
+                      <Download className="w-5 h-5" />
+                      הורד חוזה חתום
+                    </a>
+                    <button
+                      onClick={() => {
+                        const printWindow = window.open(signedResult.signed_document_url, '_blank');
+                        printWindow?.print();
+                      }}
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-md"
+                    >
+                      <Printer className="w-5 h-5" />
+                      הדפס
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* Fallback if no signed document URL - show signature confirmation */
+                <div className="text-center py-8">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
+                    <CheckCircle className="w-8 h-8 text-green-600" />
+                  </div>
+                  <p className="text-gray-600 mb-4">
+                    החוזה נחתם והחתימה נשמרה במערכת.<br />
+                    עותק של החוזה החתום ישלח אליך בהקדם.
+                  </p>
+                  
+                  {/* Show signature if digital */}
+                  {signatureDataUrl && (
+                    <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200 inline-block">
+                      <p className="text-sm font-medium text-gray-700 mb-2">החתימה שלך:</p>
+                      <img src={signatureDataUrl} alt="Your Signature" className="max-w-[300px] h-auto border border-gray-300 rounded bg-white" />
+                      <p className="text-xs text-gray-500 mt-2">{signedResult?.signer_name || signerName}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
           <div className="text-center">
-            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">החוזה נחתם בהצלחה!</h2>
-            <p className="text-gray-600 mb-6">תודה על חתימתך. החוזה עודכן במערכת.</p>
-            <p className="text-sm text-gray-500">ניתן לסגור חלון זה</p>
+            <p className="text-sm text-gray-600 mb-2">
+              📧 עותק מהחוזה החתום נשלח לכתובת המייל שלך
+            </p>
+            <p className="text-xs text-gray-500">
+              שמור דף זה או הורד את החוזה לצורך תיעוד
+            </p>
           </div>
         </div>
       </div>

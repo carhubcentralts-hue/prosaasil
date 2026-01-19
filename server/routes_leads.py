@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g, send_file
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog, Contract
 from server.db import db
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
@@ -2781,4 +2781,53 @@ def dispatch_status_webhook():
             
     except Exception as e:
         log.error(f"Error dispatching status webhook: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============== NEW: Lead Contracts Endpoints ==============
+
+@leads_bp.route("/api/leads/<int:lead_id>/contracts", methods=["GET"])
+@require_api_auth()
+@require_page_access('crm_leads')
+def get_lead_contracts(lead_id):
+    """
+    Get all contracts for a specific lead
+    Returns contract list with status and basic info
+    """
+    try:
+        tenant_id = get_current_tenant()
+        if not tenant_id:
+            return jsonify({"error": "No tenant access"}), 403
+        
+        # Verify lead belongs to tenant
+        lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+        if not lead:
+            return jsonify({"error": "Lead not found"}), 404
+        
+        # Get contracts for this lead
+        contracts = Contract.query.filter_by(
+            lead_id=lead_id,
+            business_id=tenant_id
+        ).order_by(Contract.created_at.desc()).all()
+        
+        contracts_data = []
+        for contract in contracts:
+            contracts_data.append({
+                'id': contract.id,
+                'title': contract.title,
+                'status': contract.status,
+                'signer_name': contract.signer_name,
+                'signer_phone': contract.signer_phone,
+                'signer_email': contract.signer_email,
+                'created_at': contract.created_at.isoformat() if contract.created_at else None,
+                'signed_at': contract.signed_at.isoformat() if contract.signed_at else None
+            })
+        
+        return jsonify({
+            "success": True,
+            "contracts": contracts_data
+        })
+        
+    except Exception as e:
+        log.error(f"Error fetching lead contracts: {e}")
         return jsonify({"error": str(e)}), 500
