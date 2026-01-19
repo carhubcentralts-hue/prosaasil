@@ -345,13 +345,29 @@ def create_contract():
             attachment_service = get_attachment_service()
             for file in uploaded_files:
                 try:
-                    # Save attachment
-                    attachment = attachment_service.save_attachment(
+                    # 🔥 FIX: Create Attachment record first, then save file
+                    attachment = Attachment()
+                    attachment.business_id = business_id
+                    attachment.entity_type = 'contract'
+                    attachment.entity_id = contract.id
+                    attachment.filename = file.filename
+                    attachment.mime_type = file.content_type or 'application/octet-stream'
+                    attachment.created_at = datetime.utcnow()
+                    
+                    db.session.add(attachment)
+                    db.session.flush()  # Get attachment.id
+                    
+                    # Now save the physical file
+                    storage_key, file_size = attachment_service.save_file(
                         file=file,
                         business_id=business_id,
-                        entity_type='contract',
-                        entity_id=contract.id
+                        attachment_id=attachment.id
                     )
+                    
+                    # Update attachment record with storage info
+                    attachment.storage_key = storage_key
+                    attachment.file_size = file_size
+                    
                     uploaded_file_ids.append(attachment.id)
                 except Exception as file_error:
                     import traceback
