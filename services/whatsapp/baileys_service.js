@@ -587,9 +587,19 @@ app.post('/sendTyping', async (req, res) => {
 app.post('/send', async (req, res) => {
   const startTime = Date.now();
   try {
-    const { to, text, type = 'text', tenantId } = req.body;
+    const { to, text, type = 'text', media, caption, tenantId } = req.body;
     
-    if (!to || !text) {
+    // 🔥 FIX: Support both text messages and media messages
+    // For text: requires 'to' and 'text'
+    // For media: requires 'to' and 'media' object with {data, mimetype, filename}
+    if (!to) {
+      return res.status(400).json({ error: 'Missing required field: to' });
+    }
+    
+    // Check if this is media message or text message
+    const isMediaMessage = media && media.data && media.mimetype;
+    
+    if (!isMediaMessage && !text) {
       return res.status(400).json({ error: 'Missing required fields: to, text' });
     }
     
@@ -616,12 +626,61 @@ app.post('/send', async (req, res) => {
     lock.activeSends += 1;
     
     try {
-      // 🔥 STEP 1 FIX: Add detailed logging before send
-      console.log(`[BAILEYS] sending message to ${to.substring(0, 15)}..., tenantId=${tenantId}, textLength=${text.length}, activeSends=${lock.activeSends}`);
+      // 🔥 FIX: Support media messages
+      let messageContent;
+      
+      if (isMediaMessage) {
+        // Media message (image/video/audio/document)
+        console.log(`[BAILEYS] sending ${type} media to ${to.substring(0, 15)}..., tenantId=${tenantId}, mime=${media.mimetype}, size=${media.data.length} chars`);
+        
+        // Decode base64 data to Buffer
+        const mediaBuffer = Buffer.from(media.data, 'base64');
+        
+        // Build message content based on media type
+        if (type === 'image') {
+          messageContent = {
+            image: mediaBuffer,
+            caption: caption || text || '',
+            mimetype: media.mimetype,
+            fileName: media.filename || 'image.jpg'
+          };
+        } else if (type === 'video') {
+          messageContent = {
+            video: mediaBuffer,
+            caption: caption || text || '',
+            mimetype: media.mimetype,
+            fileName: media.filename || 'video.mp4'
+          };
+        } else if (type === 'audio') {
+          messageContent = {
+            audio: mediaBuffer,
+            mimetype: media.mimetype,
+            fileName: media.filename || 'audio.mp3'
+          };
+        } else if (type === 'document') {
+          messageContent = {
+            document: mediaBuffer,
+            mimetype: media.mimetype,
+            fileName: media.filename || 'document.pdf',
+            caption: caption || text || ''
+          };
+        } else {
+          // Fallback to document
+          messageContent = {
+            document: mediaBuffer,
+            mimetype: media.mimetype,
+            fileName: media.filename || 'file'
+          };
+        }
+      } else {
+        // Text message
+        console.log(`[BAILEYS] sending message to ${to.substring(0, 15)}..., tenantId=${tenantId}, textLength=${text.length}, activeSends=${lock.activeSends}`);
+        messageContent = { text: text };
+      }
       
       // 🔥 STEP 1 FIX: Add timeout protection to prevent hanging (30s max)
       // This ensures we always return a response even if WhatsApp hangs
-      const sendPromise = s.sock.sendMessage(to, { text: text });
+      const sendPromise = s.sock.sendMessage(to, messageContent);
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Send timeout after 30s')), 30000)
       );

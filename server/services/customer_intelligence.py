@@ -34,11 +34,19 @@ class CustomerIntelligence:
         """
         זיהוי או יצירת לקוח מתוך הודעת WhatsApp
         ✅ תמיד נרמל טלפון לפני בדיקה - מונע כפילויות!
+        🔥 FIX: Support @lid identifiers (non-phone WhatsApp IDs)
         
         Returns:
             Tuple[Customer, Lead, bool]: (לקוח, ליד, האם נוצר חדש)
         """
         try:
+            # 🔥 FIX: Check if this is @lid or other non-phone identifier
+            if not phone_number or '_at_lid' in str(phone_number) or '@lid' in str(phone_number):
+                # @lid format - no real phone number available
+                # Use external_id for deduplication instead of phone_e164
+                log.info(f"📱 WhatsApp @lid identifier detected: {phone_number}")
+                return self._handle_lid_message(phone_number, message_text)
+            
             # ✅ נרמל טלפון קודם כל - תמיד +972 format
             phone_e164 = self._normalize_phone(phone_number)
             
@@ -647,6 +655,70 @@ class CustomerIntelligence:
         db.session.add(lead)
         db.session.commit()
         return lead
+    
+    def _handle_lid_message(self, lid_identifier: str, message_text: str) -> Tuple[None, Lead, bool]:
+        """
+        🔥 FIX: Handle WhatsApp @lid messages (non-phone identifiers)
+        
+        @lid is used for:
+        - WhatsApp Business accounts without phone numbers
+        - Channel messages
+        - Other non-standard WhatsApp identifiers
+        
+        Since there's no phone number, we:
+        1. Store lid_identifier as external_id for deduplication
+        2. Don't create Customer (no phone = no customer)
+        3. Create Lead with source="whatsapp_lid"
+        
+        Args:
+            lid_identifier: The @lid identifier (e.g., "135871961501772@lid")
+            message_text: The message content
+            
+        Returns:
+            (None, Lead, was_created): No customer, the lead, and whether it was newly created
+        """
+        try:
+            # Look for existing lead with this external_id
+            existing_lead = Lead.query.filter_by(
+                tenant_id=self.business_id,
+                external_id=lid_identifier
+            ).order_by(Lead.updated_at.desc()).first()
+            
+            if existing_lead:
+                # Update existing lead
+                existing_lead.updated_at = datetime.utcnow()
+                if existing_lead.notes:
+                    existing_lead.notes += f"\n[WhatsApp @lid]: {message_text[:100]}..."
+                else:
+                    existing_lead.notes = f"[WhatsApp @lid]: {message_text[:100]}..."
+                
+                db.session.commit()
+                log.info(f"♻️ Updated existing @lid lead {existing_lead.id} (external_id={lid_identifier})")
+                return None, existing_lead, False
+            else:
+                # Create new lead for @lid
+                extracted_info = self._extract_info_from_transcription(message_text)
+                
+                lead = Lead()
+                lead.tenant_id = self.business_id
+                lead.external_id = lid_identifier  # Use @lid as unique identifier
+                lead.phone_e164 = None  # No phone number for @lid
+                lead.source = "whatsapp_lid"  # Special source to identify @lid leads
+                lead.status = "new"
+                lead.first_name = extracted_info.get('name') or DEFAULT_LEAD_NAME_WHATSAPP
+                lead.notes = f"WhatsApp @lid: {message_text[:200]}... (זיהוי: {lid_identifier})"
+                lead.created_at = datetime.utcnow()
+                
+                db.session.add(lead)
+                db.session.commit()
+                log.info(f"🆕 Created new @lid lead (external_id={lid_identifier})")
+                return None, lead, True
+                
+        except Exception as e:
+            log.error(f"❌ Error handling @lid message: {e}")
+            db.session.rollback()
+            # Don't use fallback - just skip this message
+            raise
     
     def _generate_text_summary(self, text: str) -> str:
         """BUILD 147: סיכום טקסט דינמי באמצעות GPT-4o-mini

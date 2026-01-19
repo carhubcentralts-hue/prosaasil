@@ -255,13 +255,25 @@ def create_contract():
     if _contracts_disabled():
         return _feature_disabled_response("contracts")
     try:
-        from server.models_sql import Contract, Deal, db, Lead
+        from server.models_sql import Contract, Deal, db, Lead, Attachment
         from server.routes_crm import get_business_id
+        from server.services.attachment_service import get_attachment_service
         
-        data = request.get_json()
-        lead_id = data.get('lead_id')
-        contract_type = data.get('type', 'mediation')  # sale, rent, mediation, custom
-        custom_title = data.get('title', '')
+        # 🔥 FIX: Support both JSON and FormData (for file uploads from lead page)
+        # Check if request has files (FormData) or is JSON
+        if request.files:
+            # FormData with files
+            lead_id = request.form.get('lead_id')
+            contract_type = request.form.get('type', 'mediation')
+            custom_title = request.form.get('title', '')
+            uploaded_files = request.files.getlist('files')
+        else:
+            # JSON (backward compatibility)
+            data = request.get_json()
+            lead_id = data.get('lead_id')
+            contract_type = data.get('type', 'mediation')
+            custom_title = data.get('title', '')
+            uploaded_files = []
         
         if not lead_id:
             return jsonify({'success': False, 'message': 'Lead ID נדרש'}), 400
@@ -325,14 +337,37 @@ def create_contract():
         contract.created_at = datetime.utcnow()
         
         db.session.add(contract)
+        db.session.flush()  # Get contract ID before adding attachments
+        
+        # 🔥 FIX: Handle file uploads from lead page
+        uploaded_file_ids = []
+        if uploaded_files:
+            attachment_service = get_attachment_service()
+            for file in uploaded_files:
+                try:
+                    # Save attachment
+                    attachment = attachment_service.save_attachment(
+                        file=file,
+                        business_id=business_id,
+                        entity_type='contract',
+                        entity_id=contract.id
+                    )
+                    uploaded_file_ids.append(attachment.id)
+                except Exception as file_error:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"⚠️ Failed to upload file {file.filename}: {file_error}")
+                    # Continue with other files even if one fails
+        
         db.session.commit()
         
         return jsonify({
             'success': True,
-            'message': f'{contract_name} נוצר בהצלחה',
+            'message': f'{contract_name} נוצר בהצלחה' + (f' עם {len(uploaded_file_ids)} קבצים' if uploaded_file_ids else ''),
             'contract_id': contract.id,
             'type': contract_type,
-            'deal_id': deal.id
+            'deal_id': deal.id,
+            'uploaded_files': uploaded_file_ids
         })
         
     except Exception as e:

@@ -872,22 +872,22 @@ def baileys_webhook():
                         from_number_e164 = None
                         
                 elif remote_jid.endswith('@lid'):
-                    # 🔥 FIX D: @lid JID - store as customer_external_id, NOT as phone
+                    # 🔥 FIX: @lid JID - store as customer_external_id, NOT as phone
                     # DO NOT try to extract phone from @lid - it's NOT a phone number!
                     push_name = msg.get('pushName', 'Unknown')
                     log.info(f"[WA-INCOMING] @lid JID detected: {remote_jid}, pushName={push_name}")
                     customer_external_id = remote_jid  # Store full @lid
-                    from_number_e164 = None  # No phone number available
-                    # Use safe DB identifier based on lid (not a phone number!)
-                    from_number_e164 = remote_jid.replace('@', '_at_').replace('.', '_')  # lid_at_lid format
+                    # 🔥 CRITICAL FIX: Keep from_number_e164 = None - don't overwrite with synthetic ID!
+                    # Using @lid as phone number causes validation failures and duplicate leads
+                    from_number_e164 = None
                     
                 else:
-                    # 🔥 FIX D: Other non-standard JID - store as external ID
+                    # 🔥 FIX: Other non-standard JID - store as external ID
                     push_name = msg.get('pushName', 'Unknown')
                     log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name} - storing as external ID")
                     customer_external_id = remote_jid
-                    # For database consistency, use safe identifier (NOT a phone number!)
-                    from_number_e164 = remote_jid.replace('@', '_at_').replace('.', '_')
+                    # 🔥 CRITICAL FIX: Keep from_number_e164 = None for non-standard JIDs
+                    from_number_e164 = None
                 
                 log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}, external_id={customer_external_id}")
                 
