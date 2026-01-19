@@ -1195,7 +1195,11 @@ def embed_signature_in_pdf(token):
         # Download the original PDF
         attachment_service = get_attachment_service()
         try:
-            pdf_data = attachment_service.get_file_content(attachment.storage_path)
+            filename, mime_type, pdf_data = attachment_service.open_file(
+                attachment.storage_path,
+                filename=attachment.filename_original,
+                mime_type=attachment.mime_type
+            )
         except Exception as download_err:
             logger.error(f"[CONTRACT_EMBED_SIGN] Failed to download PDF: {download_err}")
             return jsonify({'error': 'Failed to load original document'}), 500
@@ -1360,7 +1364,11 @@ def get_pdf_info_for_signing(token, file_id):
         # Download and analyze PDF
         attachment_service = get_attachment_service()
         try:
-            pdf_data = attachment_service.get_file_content(attachment.storage_path)
+            filename, mime_type, pdf_data = attachment_service.open_file(
+                attachment.storage_path,
+                filename=attachment.filename_original,
+                mime_type=attachment.mime_type
+            )
         except Exception as download_err:
             logger.error(f"[CONTRACT_PDF_INFO] Failed to download PDF: {download_err}")
             return jsonify({'error': 'Failed to load document'}), 500

@@ -3199,6 +3199,52 @@ def apply_migrations():
             else:
                 checkpoint("  ℹ️ email_messages table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 80: Add 'file_downloaded' to contract_sign_events event_type CHECK constraint
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('contract_sign_events'):
+            checkpoint("🔧 Running Migration 80: Add 'file_downloaded' to contract_sign_events event types")
+            
+            try:
+                # Check if constraint exists and needs updating
+                result = db.session.execute(text("""
+                    SELECT constraint_name 
+                    FROM information_schema.constraint_column_usage 
+                    WHERE table_name = 'contract_sign_events' 
+                    AND constraint_name LIKE '%event_type%'
+                """))
+                constraint_exists = result.fetchone() is not None
+                
+                if constraint_exists:
+                    # Drop old constraint
+                    db.session.execute(text("""
+                        ALTER TABLE contract_sign_events 
+                        DROP CONSTRAINT IF EXISTS contract_sign_events_event_type_check
+                    """))
+                    
+                    # Add new constraint with 'file_downloaded' included
+                    db.session.execute(text("""
+                        ALTER TABLE contract_sign_events 
+                        ADD CONSTRAINT contract_sign_events_event_type_check 
+                        CHECK (event_type IN (
+                            'created', 'file_uploaded', 'sent_for_signature', 
+                            'viewed', 'signed_completed', 'cancelled', 'file_downloaded'
+                        ))
+                    """))
+                    
+                    migrations_applied.append('add_file_downloaded_event_type')
+                    checkpoint("✅ Migration 80 completed - Added 'file_downloaded' to allowed event types")
+                    checkpoint("  📋 Purpose: Allow logging of file download events in contract audit trail")
+                else:
+                    checkpoint("  ℹ️ Event type constraint not found - may need manual verification")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 80 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

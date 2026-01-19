@@ -259,7 +259,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {attachments.map((att) => {
-                  const isSelected = modeView === 'multi' 
+                  const isSelected = mode === 'multi' 
                     ? selectedIds.includes(att.id)
                     : att.id === selectedAttachmentId;
                   
@@ -268,7 +268,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                       key={att.id}
                       type="button"
                       onClick={() => {
-                        if (modeView === 'multi') {
+                        if (mode === 'multi') {
                           // Toggle selection in multi mode
                           const newIds = selectedIds.includes(att.id)
                             ? selectedIds.filter(id => id !== att.id)
@@ -327,12 +327,12 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
           </div>
 
           {/* Clear selection button */}
-          {((modeView === 'single' && selectedAttachmentId) || (modeView === 'multi' && selectedIds.length > 0)) && (
+          {((mode === 'single' && selectedAttachmentId) || (mode === 'multi' && selectedIds.length > 0)) && (
             <div className="mt-4 text-center">
               <button
                 type="button"
                 onClick={() => {
-                  if (modeView === 'multi') {
+                  if (mode === 'multi') {
                     setSelectedIds([]);
                   }
                   onAttachmentSelect(null);
@@ -340,7 +340,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                 className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
               >
                 <X className="w-4 h-4" />
-                נקה בחירה {modeView === 'multi' && selectedIds.length > 0 && `(${selectedIds.length})`}
+                נקה בחירה {mode === 'multi' && selectedIds.length > 0 && `(${selectedIds.length})`}
               </button>
             </div>
           )}
