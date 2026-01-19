@@ -1094,6 +1094,61 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             ])
             logger.info(f"🎧 Customer service mode ENABLED for business {business_id} - CRM tools added")
         
+        # 📦 Assets Library: Add assets tools if enabled for this business
+        try:
+            from server.agent_tools.tools_assets import is_assets_enabled, assets_search_impl, assets_get_impl, assets_get_media_impl
+            if is_assets_enabled(business_id):
+                # Create wrapper tools with business_id pre-injected
+                @function_tool
+                def assets_search(query: str = "", category: str = "", tag: str = "", limit: int = 5):
+                    """
+                    חיפוש במאגר הפריטים של העסק
+                    
+                    Args:
+                        query: מילות חיפוש (שם, תיאור, תגיות)
+                        category: סינון לפי קטגוריה
+                        tag: סינון לפי תגית ספציפית
+                        limit: מספר תוצאות מקסימלי (ברירת מחדל: 5)
+                    
+                    Returns:
+                        רשימת פריטים עם שם, תיאור קצר, תגיות ו-attachment_id לתמונת קאבר
+                    """
+                    result = assets_search_impl(business_id, query or None, category or None, tag or None, limit)
+                    return result.model_dump() if hasattr(result, 'model_dump') else result
+                
+                @function_tool
+                def assets_get(asset_id: int):
+                    """
+                    שליפת פרטי פריט מלאים מהמאגר
+                    
+                    Args:
+                        asset_id: מזהה הפריט
+                    
+                    Returns:
+                        פרטי הפריט כולל שם, תיאור, תגיות, שדות מותאמים, ורשימת תמונות עם attachment_id
+                    """
+                    result = assets_get_impl(business_id, asset_id)
+                    return result.model_dump() if hasattr(result, 'model_dump') else result
+                
+                @function_tool
+                def assets_get_media(asset_id: int):
+                    """
+                    שליפת רשימת תמונות של פריט לשליחה בוואטסאפ
+                    
+                    Args:
+                        asset_id: מזהה הפריט
+                    
+                    Returns:
+                        רשימת attachment_id + role + mime_type לכל תמונה - ניתן לשלוח עם whatsapp_send
+                    """
+                    result = assets_get_media_impl(business_id, asset_id)
+                    return result.model_dump() if hasattr(result, 'model_dump') else result
+                
+                tools_to_use.extend([assets_search, assets_get, assets_get_media])
+                logger.info(f"📦 Assets Library ENABLED for business {business_id} - assets tools added")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load assets tools: {e}")
+        
         logger.info(f"✅ AgentKit tools RESTORED for business {business_id} (non-realtime flows)")
     else:
         # ✅ RESTORED: AgentKit tools without business_id injection

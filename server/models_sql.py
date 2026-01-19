@@ -1429,3 +1429,77 @@ class Attachment(db.Model):
         db.Index('idx_attachments_business', 'business_id', 'created_at'),
         db.Index('idx_attachments_uploader', 'uploaded_by', 'created_at'),
     )
+
+
+# === ASSETS LIBRARY (מאגר) ===
+
+class AssetItem(db.Model):
+    """
+    Asset items for the Assets Library (מאגר)
+    Stores properties, inventory, catalog items, or any business-specific items
+    """
+    __tablename__ = "asset_items"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Core fields
+    title = db.Column(db.String(160), nullable=False)
+    description = db.Column(db.Text)
+    tags = db.Column(db.JSON, default=list)  # Array of tags for filtering
+    category = db.Column(db.String(64), nullable=True)  # e.g., "דירה", "מוצר", "שירות"
+    
+    # Status
+    status = db.Column(db.String(16), nullable=False, default="active")  # active|archived
+    
+    # Custom fields for business-specific data
+    custom_fields = db.Column(db.JSON, nullable=True)  # Dynamic key-value fields
+    
+    # Audit fields
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("asset_items", lazy="dynamic"))
+    creator = db.relationship("User", foreign_keys=[created_by], backref=db.backref("created_assets", lazy="dynamic"))
+    updater = db.relationship("User", foreign_keys=[updated_by], backref=db.backref("updated_assets", lazy="dynamic"))
+    media = db.relationship("AssetItemMedia", backref="asset_item", lazy="dynamic", cascade="all, delete-orphan")
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        db.Index('idx_asset_items_business_updated', 'business_id', 'updated_at'),
+        db.Index('idx_asset_items_business_status_category', 'business_id', 'status', 'category'),
+        db.CheckConstraint("status IN ('active', 'archived')", name='chk_asset_item_status'),
+    )
+
+
+class AssetItemMedia(db.Model):
+    """
+    Media attachments for asset items
+    Links AssetItem to Attachment (R2 storage)
+    """
+    __tablename__ = "asset_item_media"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    asset_item_id = db.Column(db.Integer, db.ForeignKey("asset_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Media role
+    role = db.Column(db.String(32), nullable=False, default="gallery")  # cover|gallery|floorplan|other
+    sort_order = db.Column(db.Integer, default=0)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("asset_media", lazy="dynamic"))
+    attachment = db.relationship("Attachment", backref=db.backref("asset_item_media", lazy="dynamic"))
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        db.Index('idx_asset_item_media_sort', 'asset_item_id', 'sort_order'),
+        db.CheckConstraint("role IN ('cover', 'gallery', 'floorplan', 'other')", name='chk_asset_media_role'),
+    )

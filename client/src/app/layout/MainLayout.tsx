@@ -22,7 +22,8 @@ import {
   Send,
   Mail,
   BarChart3,
-  FileText
+  FileText,
+  Package
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -110,6 +111,13 @@ const menuItems = [
     to: '/app/contracts',
     roles: ['system_admin', 'owner', 'admin', 'agent'],
     pageKey: 'contracts'
+  },
+  { 
+    icon: Package, 
+    label: 'מאגר',
+    to: '/app/assets',
+    roles: ['system_admin', 'owner', 'admin', 'agent'],
+    pageKey: 'assets'
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
   // { 

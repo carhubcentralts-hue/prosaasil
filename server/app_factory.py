@@ -446,6 +446,11 @@ def create_app():
         app.register_blueprint(attachments_bp)
         app.logger.info("✅ Attachments System blueprint registered")
         
+        # Assets Library (מאגר) - /api/assets/*
+        from server.routes_assets import assets_bp
+        app.register_blueprint(assets_bp)
+        app.logger.info("✅ Assets Library blueprint registered")
+        
         # Contracts System - /api/contracts/*
         from server.routes_contracts import contracts_bp
         app.register_blueprint(contracts_bp)
