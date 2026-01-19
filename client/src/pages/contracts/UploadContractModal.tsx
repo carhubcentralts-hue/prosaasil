@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, FileText, Upload, User, Phone, Mail, AlertCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, FileText, Upload, User, Phone, Mail, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 
@@ -7,6 +7,9 @@ interface UploadContractModalProps {
   onClose: () => void;
   onSuccess: () => void;
 }
+
+// Duration to display success message before closing modal
+const SUCCESS_DISPLAY_DURATION = 1500;
 
 export function UploadContractModal({ onClose, onSuccess }: UploadContractModalProps) {
   const [formData, setFormData] = useState({
@@ -20,6 +23,17 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -93,7 +107,16 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
 
       const result = await response.json();
       console.log('Contract created:', result);
-      onSuccess();
+      
+      // Show success message
+      setSuccess(true);
+      setError(null);
+      
+      // Close modal and refresh list after a short delay to show success message
+      timeoutRef.current = setTimeout(() => {
+        onSuccess();
+        onClose();
+      }, SUCCESS_DISPLAY_DURATION);
     } catch (err: any) {
       console.error('Error uploading contract:', err);
       setError(err.message || 'שגיאה בהעלאת חוזה');
@@ -109,15 +132,15 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white">
+        <div className="flex items-center justify-between p-4 md:p-6 border-b border-gray-200 sticky top-0 bg-white">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
-              <Upload className="w-5 h-5 text-blue-600" />
+              <Upload className="w-4 h-4 md:w-5 md:h-5 text-blue-600" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900">העלאת חוזה</h2>
+            <h2 className="text-lg md:text-xl font-bold text-gray-900">העלאת חוזה</h2>
           </div>
           <button
             onClick={onClose}
@@ -129,7 +152,21 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
         </div>
 
         {/* Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4 md:space-y-6">
+          {success && (
+            <div 
+              className="p-4 bg-green-50 border border-green-200 rounded-md flex items-start gap-3"
+              role="alert"
+              aria-live="polite"
+            >
+              <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-green-800 font-medium">החוזה הועלה בהצלחה!</p>
+                <p className="text-green-700 text-sm mt-1">הדף יתרענן בעוד רגע...</p>
+              </div>
+            </div>
+          )}
+          
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
