@@ -3169,6 +3169,36 @@ def apply_migrations():
             else:
                 checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 79: Add attachments column to email_messages table
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('email_messages') and not check_column_exists('email_messages', 'attachments'):
+            checkpoint("🔧 Running Migration 79: Add attachments column to email_messages")
+            
+            try:
+                # Add attachments column as JSON array to store attachment IDs
+                db.session.execute(text("""
+                    ALTER TABLE email_messages 
+                    ADD COLUMN attachments JSON DEFAULT '[]'
+                """))
+                
+                migrations_applied.append('add_email_messages_attachments')
+                checkpoint("✅ Migration 79 completed - Added attachments column to email_messages")
+                checkpoint("  📋 Purpose: Store attachment IDs for email attachments support")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 79 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            if check_table_exists('email_messages'):
+                if check_column_exists('email_messages', 'attachments'):
+                    checkpoint("  ℹ️ attachments column already exists - skipping")
+                else:
+                    checkpoint("  ℹ️ email_messages table not found - skipping")
+            else:
+                checkpoint("  ℹ️ email_messages table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

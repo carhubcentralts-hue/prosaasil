@@ -1194,12 +1194,12 @@ class EmailService:
                      subject, body_html, body_text, 
                      rendered_subject, rendered_body_html, rendered_body_text,
                      provider, from_email, from_name, reply_to,
-                     status, meta, created_at)
+                     status, attachments, meta, created_at)
                     VALUES (:business_id, :lead_id, :created_by_user_id, :template_id, :to_email, :to_name,
                             :subject, :body_html, :body_text,
                             :rendered_subject, :rendered_body_html, :rendered_body_text,
                             :provider, :from_email, :from_name, :reply_to,
-                            'queued', :meta, :created_at)
+                            'queued', :attachments, :meta, :created_at)
                     RETURNING id
                 """),
                 {
@@ -1219,6 +1219,7 @@ class EmailService:
                     "from_email": settings['from_email'],
                     "from_name": settings['from_name'],
                     "reply_to": settings.get('reply_to') if settings.get('reply_to_enabled') else None,
+                    "attachments": json.dumps(attachment_ids) if attachment_ids else json.dumps([]),
                     "meta": json.dumps(meta) if meta else None,
                     "created_at": datetime.utcnow()
                 }

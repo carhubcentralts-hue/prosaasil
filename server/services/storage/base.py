@@ -143,6 +143,7 @@ def get_storage_provider() -> AttachmentStorageProvider:
     Environment Variables:
         PRODUCTION: Set to '1' or 'true' for production mode
         ATTACHMENT_STORAGE_DRIVER: 'local' (default) or 'r2'
+        R2_FALLBACK_TO_LOCAL: Set to '1' or 'true' to allow fallback to local storage on R2 failure (optional)
         
         For R2:
         - R2_ACCOUNT_ID: Cloudflare account ID
@@ -151,16 +152,18 @@ def get_storage_provider() -> AttachmentStorageProvider:
         - R2_BUCKET_NAME: R2 bucket name
         
     Raises:
-        RuntimeError: In production mode if R2 is not properly configured
+        RuntimeError: In production mode if R2 is not properly configured (and no fallback allowed)
     """
     driver = os.getenv('ATTACHMENT_STORAGE_DRIVER', 'local').lower()
     is_production = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+    allow_fallback = os.getenv('R2_FALLBACK_TO_LOCAL', '0') in ('1', 'true', 'True')
     
-    # 🔥 PRODUCTION SAFETY: R2 is REQUIRED in production
-    if is_production and driver != 'r2':
+    # 🔥 PRODUCTION SAFETY: R2 is REQUIRED in production (unless fallback is explicitly enabled)
+    if is_production and driver != 'r2' and not allow_fallback:
         logger.error("🚨 CRITICAL: Production mode requires ATTACHMENT_STORAGE_DRIVER=r2")
         logger.error("❌ Local storage is NOT allowed in production")
         logger.error("Set ATTACHMENT_STORAGE_DRIVER=r2 and configure R2_* environment variables")
+        logger.error("Or set R2_FALLBACK_TO_LOCAL=1 to allow graceful degradation to local storage")
         raise RuntimeError(
             "Production mode requires R2 storage. "
             "Set ATTACHMENT_STORAGE_DRIVER=r2 and configure R2 credentials. "
@@ -180,8 +183,8 @@ def get_storage_provider() -> AttachmentStorageProvider:
                 error_msg = f"R2 storage selected but missing environment variables: {', '.join(missing_vars)}"
                 logger.error(f"❌ {error_msg}")
                 
-                # 🔥 PRODUCTION SAFETY: NO fallback in production
-                if is_production:
+                # 🔥 PRODUCTION SAFETY: NO fallback in production unless explicitly allowed
+                if is_production and not allow_fallback:
                     logger.error("🚨 CRITICAL: Cannot fall back to local storage in production mode")
                     logger.error(f"Missing: {', '.join(missing_vars)}")
                     logger.error("Set these environment variables and restart the application")
@@ -190,8 +193,8 @@ def get_storage_provider() -> AttachmentStorageProvider:
                         "See .env.r2.example for configuration details."
                     )
                 
-                # Development: allow fallback with warning
-                logger.warning("⚠️ Development mode: Falling back to local storage")
+                # Development or fallback allowed: allow fallback with warning
+                logger.warning("⚠️ Falling back to local storage due to missing R2 configuration")
                 driver = 'local'
             else:
                 logger.info("✅ Using R2 (Cloudflare) storage provider")
@@ -201,8 +204,8 @@ def get_storage_provider() -> AttachmentStorageProvider:
             error_msg = f"R2 provider not available (boto3 missing): {e}"
             logger.error(f"❌ {error_msg}")
             
-            # 🔥 PRODUCTION SAFETY: NO fallback in production
-            if is_production:
+            # 🔥 PRODUCTION SAFETY: NO fallback in production unless explicitly allowed
+            if is_production and not allow_fallback:
                 logger.error("🚨 CRITICAL: Cannot fall back to local storage in production mode")
                 logger.error("Install boto3: pip install boto3")
                 raise RuntimeError(
@@ -210,29 +213,29 @@ def get_storage_provider() -> AttachmentStorageProvider:
                     "Install boto3: pip install boto3"
                 )
             
-            # Development: allow fallback with warning
-            logger.warning("⚠️ Development mode: Falling back to local storage")
+            # Development or fallback allowed: allow fallback with warning
+            logger.warning("⚠️ Falling back to local storage due to boto3 not available")
             driver = 'local'
         except Exception as e:
             error_msg = f"Failed to initialize R2 provider: {e}"
             logger.error(f"❌ {error_msg}")
             
-            # 🔥 PRODUCTION SAFETY: NO fallback in production  
-            if is_production:
+            # 🔥 PRODUCTION SAFETY: NO fallback in production unless explicitly allowed
+            if is_production and not allow_fallback:
                 logger.error("🚨 CRITICAL: Cannot fall back to local storage in production mode")
                 logger.error(f"R2 initialization error: {e}")
                 raise RuntimeError(
                     f"Production mode requires working R2 configuration. {error_msg}"
                 )
             
-            # Development: allow fallback with warning
-            logger.warning("⚠️ Development mode: Falling back to local storage")
+            # Development or fallback allowed: allow fallback with warning
+            logger.warning(f"⚠️ Falling back to local storage due to R2 initialization failure: {e}")
             driver = 'local'
     
-    # Default to local storage (only allowed in development)
+    # Default to local storage (only allowed in development or with fallback enabled)
     from server.services.storage.local_provider import LocalStorageProvider
     
-    if is_production:
+    if is_production and not allow_fallback:
         # This should never be reached due to earlier checks, but double-check
         logger.error("🚨 CRITICAL: Local storage is NOT allowed in production mode")
         raise RuntimeError(
@@ -240,7 +243,10 @@ def get_storage_provider() -> AttachmentStorageProvider:
             "Set ATTACHMENT_STORAGE_DRIVER=r2 and configure R2 credentials."
         )
     
-    logger.info("✅ Using local filesystem storage provider (development only)")
+    if is_production:
+        logger.warning("⚠️ Using local filesystem storage provider in production (R2_FALLBACK_TO_LOCAL enabled)")
+    else:
+        logger.info("✅ Using local filesystem storage provider (development only)")
     return LocalStorageProvider()
 
 
