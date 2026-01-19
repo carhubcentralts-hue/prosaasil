@@ -1537,7 +1537,7 @@ def delete_contract(contract_id):
     """
     Delete contract (soft delete)
     
-    Only allowed when contract status is 'draft' or 'cancelled'
+    Allows deleting contracts in any status
     """
     try:
         business_id = get_current_business_id()
@@ -1549,10 +1549,6 @@ def delete_contract(contract_id):
         contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
         if not contract:
             return jsonify({'error': 'Contract not found'}), 404
-        
-        # Only allow deleting draft or cancelled contracts
-        if contract.status not in ['draft', 'cancelled']:
-            return jsonify({'error': 'Only draft or cancelled contracts can be deleted'}), 400
         
         # Soft delete all contract files (keep attachment records)
         contract_files = ContractFile.query.filter_by(
@@ -1576,7 +1572,7 @@ def delete_contract(contract_id):
         db.session.delete(contract)
         db.session.commit()
         
-        logger.info(f"[CONTRACT_DELETE] contract_id={contract_id} deleted by user_id={user_id}")
+        logger.info(f"[CONTRACT_DELETE] contract_id={contract_id} status={contract.status} deleted by user_id={user_id}")
         
         return jsonify({
             'message': 'Contract deleted successfully'
