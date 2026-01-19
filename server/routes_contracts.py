@@ -362,9 +362,9 @@ def create_contract():
             customer_id=customer_id,  # Legacy support
             title=title,
             status='draft',
-            signer_name=signer_name or None,
-            signer_phone=signer_phone or None,
-            signer_email=signer_email or None,
+            signer_name=signer_name if signer_name else None,
+            signer_phone=signer_phone if signer_phone else None,
+            signer_email=signer_email if signer_email else None,
             created_by=user_id
         )
         
@@ -422,7 +422,7 @@ def create_contract():
                             user_id=user_id
                         )
                         
-                    except Exception as file_error:
+                    except (ValueError, IOError) as file_error:
                         logger.warning(f"[CONTRACTS_CREATE] Failed to upload file {file.filename}: {file_error}")
                         # Continue with other files, don't fail the entire contract creation
         
