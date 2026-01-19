@@ -515,9 +515,14 @@ class CustomerIntelligence:
         return customer, lead
     
     def _update_or_create_lead_for_existing_customer(self, customer: Customer, call_sid: str, extracted_info: Dict) -> Lead:
-        """עדכן או צור ליד עבור לקוח קיים"""
+        """
+        🔥 FIX: עדכן ליד קיים במקום ליצור חדש - מונע כפילויות!
+        
+        כל מספר טלפון = ליד אחד בלבד!
+        אם יש ליד קיים, נעדכן אותו גם אם הוא סגור או הושלם.
+        """
         # ✅ חפש ליד קיים לאותו מספר טלפון בלבד (לא לפי call_sid!)
-        # 🔥 SIMPLIFIED: Just check by phone number, no status filtering
+        # 🔥 FIX: Always update existing lead, never create duplicate
         existing_lead = Lead.query.filter_by(
             tenant_id=self.business_id,
             phone_e164=customer.phone_e164
@@ -538,21 +543,22 @@ class CustomerIntelligence:
             log.info(f"♻️ Updated existing lead {existing_lead.id} for phone {customer.phone_e164}")
             return existing_lead
         else:
-            # צור ליד חדש רק אם אין ליד פעיל
+            # 🔥 FIX: צור ליד חדש רק אם אין בכלל ליד לטלפון זה
+            # זה המקרה הראשון שהלקוח מתקשר
             lead = Lead()
             lead.tenant_id = self.business_id
             lead.phone_e164 = customer.phone_e164
             lead.source = "call"
             lead.external_id = call_sid
-            lead.status = "attempting"  # לקוח קיים - ניסיון קשר חוזר
+            lead.status = "new"  # 🔥 FIX: שיחה ראשונה = סטטוס "new" ולא "attempting"
             lead.first_name = customer.name
-            lead.notes = f"שיחה חוזרת מלקוח קיים - {call_sid}"
+            lead.notes = f"שיחה ראשונה - {call_sid}"
             lead.created_at = datetime.utcnow()
             lead.last_contact_at = datetime.utcnow()
             
             db.session.add(lead)
             db.session.commit()
-            log.info(f"🆕 Created new lead for existing customer (no active lead found)")
+            log.info(f"🆕 Created first lead for customer phone {customer.phone_e164}")
             return lead
     
     def _update_lead_from_whatsapp(self, customer: Customer, message: str, extracted_info: Dict) -> Lead:
