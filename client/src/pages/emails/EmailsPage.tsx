@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil, Save, Edit2, Trash2, FileText } from 'lucide-react';
+import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil, Save, Edit2, Trash2, FileText, Paperclip } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 import { AttachmentPicker } from '../../shared/components/AttachmentPicker';
@@ -2797,28 +2797,49 @@ export function EmailsPage() {
                   />
                 </div>
                 
-                {/* Attachments */}
-                <div className="border-2 border-gray-200 rounded-xl p-4">
-                  <AttachmentPicker
-                    channel="email"
-                    mode="multi"
-                    onAttachmentSelect={(ids) => {
-                      if (Array.isArray(ids)) {
-                        setAttachmentIds(ids);
-                      } else if (ids === null) {
-                        setAttachmentIds([]);
-                      } else {
-                        // Single ID - add to array
-                        setAttachmentIds([ids]);
-                      }
-                    }}
-                    selectedAttachmentId={null}
-                  />
+                {/* Attachments - עם כותרת בולטת */}
+                <div className="border-2 border-blue-200 rounded-xl p-5 bg-blue-50">
+                  {/* כותרת בולטת */}
+                  <div className="flex items-center gap-3 mb-4 pb-3 border-b border-blue-200">
+                    <div className="p-2 bg-blue-500 rounded-lg">
+                      <Paperclip className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">צרף קבצים למייל</h3>
+                      <p className="text-sm text-gray-600">העלה קבצים חדשים או בחר מהגלריה</p>
+                    </div>
+                  </div>
+
+                  {/* AttachmentPicker */}
+                  <div className="bg-white rounded-lg p-4">
+                    <AttachmentPicker
+                      channel="email"
+                      mode="multi"
+                      onAttachmentSelect={(ids) => {
+                        if (Array.isArray(ids)) {
+                          setAttachmentIds(ids);
+                        } else if (ids === null) {
+                          setAttachmentIds([]);
+                        } else {
+                          // Single ID - add to array
+                          setAttachmentIds([ids]);
+                        }
+                      }}
+                      selectedAttachmentId={null}
+                    />
+                  </div>
                   
-                  {/* Show selected attachments */}
+                  {/* Show selected attachments - בולט יותר */}
                   {attachmentIds.length > 0 && (
-                    <div className="mt-3 text-sm text-gray-600">
-                      ✅ {attachmentIds.length} קבצים מצורפים
+                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2 text-green-800">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="font-semibold text-sm">
+                          ✅ {attachmentIds.length} קבצים מצורפים - מוכנים לשליחה!
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>

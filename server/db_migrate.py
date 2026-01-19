@@ -2851,11 +2851,41 @@ def apply_migrations():
                 # (created_by=NULL typically means AI-created or system-created)
                 checkpoint("  → Migrating existing AI customer service notes...")
                 
+                # First, check if attachments column exists and what type it is
+                column_type_query = text("""
+                    SELECT data_type, udt_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'lead_notes' AND column_name = 'attachments'
+                """)
+                column_info = db.session.execute(column_type_query).fetchone()
+                
+                # Build the query based on column type
+                if column_info:
+                    data_type = column_info[0].lower()
+                    udt_name = column_info[1].lower() if len(column_info) > 1 else ''
+                    checkpoint(f"  Column attachments type: {data_type} ({udt_name})")
+                    
+                    # Determine the right comparison based on column type
+                    if 'jsonb' in data_type or udt_name == 'jsonb':
+                        # JSONB column - use jsonb operators
+                        attachments_condition = "(attachments IS NULL OR attachments = '[]'::jsonb OR jsonb_array_length(attachments) = 0)"
+                    elif 'json' in data_type or udt_name == 'json':
+                        # JSON column - cast and compare
+                        attachments_condition = "(attachments IS NULL OR CAST(attachments AS TEXT) = '[]' OR json_array_length(attachments) = 0)"
+                    else:
+                        # TEXT column - use trim and cast
+                        attachments_condition = "(attachments IS NULL OR TRIM(attachments) = '' OR TRIM(attachments) = '[]' OR (attachments ~ '^\\[\\s*\\]$'))"
+                    
+                    checkpoint(f"  Using condition: {attachments_condition}")
+                else:
+                    checkpoint("  ⚠️ attachments column not found, skipping attachment check")
+                    attachments_condition = "TRUE"
+                
                 # Count notes that will be migrated
-                count_query = text("""
+                count_query = text(f"""
                     SELECT COUNT(*) FROM lead_notes
                     WHERE note_type = 'manual'
-                      AND (attachments IS NULL OR attachments = '[]' OR json_array_length(CAST(attachments AS json)) = 0)
+                      AND {attachments_condition}
                       AND created_by IS NULL
                 """)
                 notes_to_migrate = db.session.execute(count_query).scalar() or 0
@@ -2864,11 +2894,11 @@ def apply_migrations():
                 if notes_to_migrate > 0:
                     # Update note_type for these notes
                     # Note: We keep created_by=NULL to preserve that these were AI/system generated
-                    update_query = text("""
+                    update_query = text(f"""
                         UPDATE lead_notes 
                         SET note_type = 'customer_service_ai'
                         WHERE note_type = 'manual'
-                          AND (attachments IS NULL OR attachments = '[]' OR json_array_length(CAST(attachments AS json)) = 0)
+                          AND {attachments_condition}
                           AND created_by IS NULL
                     """)
                     db.session.execute(update_query)

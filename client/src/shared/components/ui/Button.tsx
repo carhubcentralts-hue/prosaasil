@@ -2,7 +2,7 @@ import React from 'react'; // ✅ Classic JSX runtime
 import { cn } from '../../utils/cn';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'destructive';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'destructive' | 'outline';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   children: React.ReactNode;
@@ -23,7 +23,8 @@ export function Button({
     primary: 'btn-primary',
     secondary: 'btn-secondary', 
     ghost: 'btn-ghost',
-    destructive: 'bg-red-600 text-white hover:bg-red-700 rounded-lg'
+    destructive: 'bg-red-600 text-white hover:bg-red-700 rounded-lg',
+    outline: 'border-2 border-gray-300 text-gray-700 hover:bg-gray-50 bg-white rounded-lg'
   };
   
   const sizeStyles = {
