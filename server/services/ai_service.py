@@ -603,20 +603,28 @@ class AIService:
                 if context.get("previous_messages"):
                     prev_msgs = context["previous_messages"][-12:]  # ✅ 12 הודעות אחרונות לזיכרון משופר!
                     for msg in prev_msgs:
-                        # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." (או "לאה:" legacy)
+                        # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." או "עוזר:" (WhatsApp)
                         if msg.startswith("לקוח:"):
                             messages.append({
                                 "role": "user",
                                 "content": msg.replace("לקוח:", "").strip()
                             })
-                        elif msg.startswith("עוזרת:") or msg.startswith("לאה:"):  # ✅ תמיכה בשניהם!
-                            content = msg.replace("עוזרת:", "").replace("לאה:", "").strip()
-                            # 🔥 FIX: Add "עוזר:" support for WhatsApp bot messages
+                        elif msg.startswith("עוזרת:"):
+                            # Legacy support for "עוזרת:" prefix
+                            content = msg.replace("עוזרת:", "").strip()
                             messages.append({
                                 "role": "assistant",
                                 "content": content
                             })
-                        elif msg.startswith("עוזר:"):  # ✅ תמיכה גם ב"עוזר:" (WhatsApp)
+                        elif msg.startswith("לאה:"):
+                            # Legacy support for specific assistant name
+                            content = msg.replace("לאה:", "").strip()
+                            messages.append({
+                                "role": "assistant",
+                                "content": content
+                            })
+                        elif msg.startswith("עוזר:"):
+                            # 🔥 FIX: Support for WhatsApp assistant messages
                             content = msg.replace("עוזר:", "").strip()
                             messages.append({
                                 "role": "assistant",

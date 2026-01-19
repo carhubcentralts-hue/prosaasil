@@ -3873,7 +3873,6 @@ function EmailTab({ lead }: EmailTabProps) {
                     setAttachmentIds([ids]);
                   }
                 }}
-                selectedAttachmentId={attachmentIds.length > 0 ? attachmentIds[0] : null}
               />
               
               {attachmentIds.length > 0 && (
