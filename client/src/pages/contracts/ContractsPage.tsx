@@ -143,6 +143,7 @@ export function ContractsPage() {
               <Button 
                 onClick={() => setIsUploadModalOpen(true)} 
                 className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg w-full sm:w-auto"
+                title="העלה חוזה עם קובץ PDF או DOCX"
               >
                 <Upload className="w-4 h-4 md:w-5 md:h-5" />
                 <span className="font-bold text-sm md:text-base">העלה חוזה</span>
@@ -161,7 +162,7 @@ export function ContractsPage() {
 
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center bg-white p-3 md:p-4 rounded-lg shadow-sm">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-[200px]">
               <div className="relative">
                 <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 md:w-5 md:h-5" />
                 <Input
