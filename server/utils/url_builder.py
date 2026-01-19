@@ -61,7 +61,13 @@ def public_url(path: str) -> str:
         base = "http://localhost:5000"  # Last resort fallback (will break in production)
     
     # Normalize path (ensure leading slash, no trailing slash)
-    path = path.lstrip('/').rstrip('/')
+    # Note: Preserves trailing slashes for directory endpoints that require them
+    path = path.lstrip('/')
+    if not path.endswith('/'):
+        path = path.rstrip('/')
+    else:
+        # Keep trailing slash for directory endpoints
+        pass
     
     # Build full URL
     full_url = f"{base}/{path}"

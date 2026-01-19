@@ -2799,7 +2799,15 @@ def create_broadcast():
         template_name = payload_dict.get('template_name')
         message_text = payload_dict.get('message_text', '')
         audience_source = payload_dict.get('audience_source', 'manual')
-        attachment_id = payload_dict.get('attachment_id')  # Optional media attachment
+        
+        # ✅ FIX: Convert attachment_id to int (comes as string from FormData)
+        attachment_id = payload_dict.get('attachment_id')
+        if attachment_id:
+            try:
+                attachment_id = int(attachment_id)
+            except (ValueError, TypeError):
+                log.warning(f"[WA_BROADCAST] Invalid attachment_id: {attachment_id}")
+                attachment_id = None
         
         log.info(f"[WA_BROADCAST] provider={provider}, message_type={message_type}, audience_source={audience_source}, attachment_id={attachment_id}")
         log.info(f"[WA_BROADCAST] message_text preview: {message_text[:100] if message_text else 'none'}")
