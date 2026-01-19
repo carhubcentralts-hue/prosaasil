@@ -883,6 +883,8 @@ def baileys_webhook():
                     # 🔥 CRITICAL FIX: Keep from_number_e164 = None - don't overwrite with synthetic ID!
                     # Using @lid as phone number causes validation failures and duplicate leads
                     from_number_e164 = None
+                    # 🔥 NEW FIX: Store remoteJid for AI state checking
+                    phone_for_ai_check = remote_jid
                     
                 else:
                     # 🔥 FIX: Other non-standard JID - store as external ID
@@ -1058,13 +1060,19 @@ def baileys_webhook():
                     from server.models_sql import WhatsAppConversationState
                     # Use phone_for_ai_check if available, otherwise use from_number_e164
                     check_phone = phone_for_ai_check if 'phone_for_ai_check' in locals() else from_number_e164
-                    conv_state = WhatsAppConversationState.query.filter_by(
-                        business_id=business_id,
-                        phone=check_phone
-                    ).first()
-                    if conv_state:
-                        ai_enabled = conv_state.ai_active
-                        log.info(f"[WA-INCOMING] AI state for {check_phone}: {'enabled' if ai_enabled else 'DISABLED'}")
+                    
+                    if not check_phone:
+                        log.warning(f"[WA-INCOMING] No phone identifier for AI check - defaulting to enabled")
+                    else:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=check_phone
+                        ).first()
+                        if conv_state:
+                            ai_enabled = conv_state.ai_active
+                            log.info(f"[WA-INCOMING] 🤖 AI state for {check_phone}: {'✅ ENABLED' if ai_enabled else '❌ DISABLED'}")
+                        else:
+                            log.info(f"[WA-INCOMING] 🤖 No AI state found for {check_phone} - defaulting to ENABLED")
                 except Exception as e:
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
