@@ -50,11 +50,13 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'בוטל',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'gray',
-  sent: 'blue',
-  signed: 'green',
-  cancelled: 'red',
+type BadgeVariant = 'success' | 'error' | 'warning' | 'info' | 'neutral';
+
+const STATUS_VARIANTS: Record<string, BadgeVariant> = {
+  draft: 'neutral',
+  sent: 'info',
+  signed: 'success',
+  cancelled: 'error',
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -460,7 +462,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
               ) : (
                 <h2 className="text-xl font-bold text-gray-900">{contract.title}</h2>
               )}
-              <Badge color={STATUS_COLORS[contract.status] as any} className="mt-1">
+              <Badge variant={STATUS_VARIANTS[contract.status]} className="mt-1">
                 {STATUS_LABELS[contract.status]}
               </Badge>
             </div>
