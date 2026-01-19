@@ -58,6 +58,18 @@ export function PublicSigningPage() {
     }
   }, [contract]);
 
+  // Initialize canvas with white background
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas && showDigitalSignature) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+  }, [showDigitalSignature]);
+
   const loadContract = async () => {
     if (!token) {
       setError('טוקן חסר');

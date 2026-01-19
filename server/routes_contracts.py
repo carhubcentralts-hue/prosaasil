@@ -296,7 +296,7 @@ def list_contracts():
 @require_page_access('contracts')
 def create_contract():
     """
-    Create new contract
+    Create new contract - supports both JSON and FormData with multiple files
     
     Request body (JSON):
         - title: Contract title (required)
@@ -305,6 +305,15 @@ def create_contract():
         - signer_name: Signer name (optional)
         - signer_phone: Signer phone (optional)
         - signer_email: Signer email (optional)
+    
+    Request body (FormData):
+        - title: Contract title (required)
+        - type: Contract type (optional)
+        - lead_id: Lead ID (optional)
+        - signer_name: Signer name (optional)
+        - signer_phone: Signer phone (optional)
+        - signer_email: Signer email (optional)
+        - files: Multiple files to upload (optional)
     """
     try:
         business_id = get_current_business_id()
@@ -313,16 +322,34 @@ def create_contract():
         if not business_id:
             return jsonify({'error': 'Business ID not found'}), 403
         
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'Request body required'}), 400
+        # Detect if this is JSON or FormData
+        is_form_data = request.content_type and 'multipart/form-data' in request.content_type
         
-        title = data.get('title', '').strip()
+        if is_form_data:
+            # Handle FormData (from LeadDetailPage with file uploads)
+            title = request.form.get('title', '').strip()
+            lead_id = request.form.get('lead_id', type=int)
+            customer_id = request.form.get('customer_id', type=int)
+            signer_name = request.form.get('signer_name', '').strip()
+            signer_phone = request.form.get('signer_phone', '').strip()
+            signer_email = request.form.get('signer_email', '').strip()
+        else:
+            # Handle JSON (from CreateContractModal)
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'Request body required'}), 400
+            
+            title = data.get('title', '').strip()
+            lead_id = data.get('lead_id')
+            customer_id = data.get('customer_id')
+            signer_name = data.get('signer_name')
+            signer_phone = data.get('signer_phone')
+            signer_email = data.get('signer_email')
+        
         if not title:
             return jsonify({'error': 'Title is required'}), 400
         
         # Validate lead_id if provided
-        lead_id = data.get('lead_id')
         if lead_id:
             lead = Lead.query.filter_by(id=lead_id, tenant_id=business_id).first()
             if not lead:
@@ -332,36 +359,100 @@ def create_contract():
         contract = Contract(
             business_id=business_id,
             lead_id=lead_id,
-            customer_id=data.get('customer_id'),  # Legacy support
+            customer_id=customer_id,  # Legacy support
             title=title,
             status='draft',
-            signer_name=data.get('signer_name'),
-            signer_phone=data.get('signer_phone'),
-            signer_email=data.get('signer_email'),
+            signer_name=signer_name if signer_name else None,
+            signer_phone=signer_phone if signer_phone else None,
+            signer_email=signer_email if signer_email else None,
             created_by=user_id
         )
         
         db.session.add(contract)
+        db.session.flush()  # Get contract.id before processing files
+        
+        # Process uploaded files if FormData
+        uploaded_files = []
+        if is_form_data and 'files' in request.files:
+            files = request.files.getlist('files')
+            for file in files:
+                if file and file.filename:
+                    try:
+                        # Create attachment
+                        attachment = create_attachment_from_file(
+                            file=file,
+                            business_id=business_id,
+                            user_id=user_id
+                        )
+                        
+                        # Mark attachment as compatible with contracts channel
+                        if attachment.channel_compatibility:
+                            attachment.channel_compatibility['contracts'] = True
+                        else:
+                            attachment.channel_compatibility = {'contracts': True, 'email': True}
+                        
+                        # Create contract_file link
+                        contract_file = ContractFile(
+                            business_id=business_id,
+                            contract_id=contract.id,
+                            attachment_id=attachment.id,
+                            purpose='original',
+                            created_by=user_id
+                        )
+                        
+                        db.session.add(contract_file)
+                        uploaded_files.append({
+                            'id': contract_file.id,
+                            'attachment_id': attachment.id,
+                            'filename': attachment.filename_original,
+                            'mime_type': attachment.mime_type,
+                            'file_size': attachment.file_size
+                        })
+                        
+                        # Log file upload event
+                        log_contract_event(
+                            contract_id=contract.id,
+                            business_id=business_id,
+                            event_type='file_uploaded',
+                            metadata={
+                                'filename': attachment.filename_original,
+                                'purpose': 'original',
+                                'attachment_id': attachment.id
+                            },
+                            user_id=user_id
+                        )
+                        
+                    except (ValueError, IOError) as file_error:
+                        logger.warning(f"[CONTRACTS_CREATE] Failed to upload file {file.filename}: {file_error}")
+                        # Continue with other files, don't fail the entire contract creation
+        
         db.session.commit()
         
-        # Log event
+        # Log contract creation event
         log_contract_event(
             contract_id=contract.id,
             business_id=business_id,
             event_type='created',
-            metadata={'title': title},
+            metadata={'title': title, 'files_count': len(uploaded_files)},
             user_id=user_id
         )
         
-        logger.info(f"[CONTRACTS_CREATE] Created contract_id={contract.id} business_id={business_id}")
+        logger.info(f"[CONTRACTS_CREATE] Created contract_id={contract.id} business_id={business_id} files_count={len(uploaded_files)}")
         
-        return jsonify({
+        response_data = {
+            'success': True,
+            'contract_id': contract.id,
             'id': contract.id,
             'title': contract.title,
             'status': contract.status,
             'lead_id': contract.lead_id,
             'created_at': contract.created_at.isoformat()
-        }), 201
+        }
+        
+        if uploaded_files:
+            response_data['files'] = uploaded_files
+        
+        return jsonify(response_data), 201
         
     except Exception as e:
         logger.error(f"[CONTRACTS_CREATE] Error: {e}", exc_info=True)

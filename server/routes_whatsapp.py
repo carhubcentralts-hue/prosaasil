@@ -883,6 +883,8 @@ def baileys_webhook():
                     # 🔥 CRITICAL FIX: Keep from_number_e164 = None - don't overwrite with synthetic ID!
                     # Using @lid as phone number causes validation failures and duplicate leads
                     from_number_e164 = None
+                    # 🔥 NEW FIX: Store remoteJid for AI state checking
+                    phone_for_ai_check = remote_jid
                     
                 else:
                     # 🔥 FIX: Other non-standard JID - store as external ID
@@ -986,14 +988,16 @@ def baileys_webhook():
                 log.info(f"[WA-INCOMING] biz={business_id}, from={from_number_e164}, remoteJid={remote_jid}, text={message_text[:50]}...")
                 
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
+                # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
+                phone_or_id = from_number_e164 if from_number_e164 else customer_external_id
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
-                    phone_number=from_number_e164,
+                    phone_number=phone_or_id,
                     message_text=message_text
                 )
                 
                 action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {from_number_e164}")
+                log.info(f"✅ {action} customer/lead for {phone_or_id}")
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
                 # 🔥 BUILD 180: Check both 'in' and 'inbound' for backwards compatibility
@@ -1058,14 +1062,23 @@ def baileys_webhook():
                     from server.models_sql import WhatsAppConversationState
                     # Use phone_for_ai_check if available, otherwise use from_number_e164
                     check_phone = phone_for_ai_check if 'phone_for_ai_check' in locals() else from_number_e164
-                    conv_state = WhatsAppConversationState.query.filter_by(
-                        business_id=business_id,
-                        phone=check_phone
-                    ).first()
-                    if conv_state:
-                        ai_enabled = conv_state.ai_active
-                        log.info(f"[WA-INCOMING] AI state for {check_phone}: {'enabled' if ai_enabled else 'DISABLED'}")
+                    
+                    if not check_phone:
+                        log.warning(f"[WA-INCOMING] No phone identifier for AI check - defaulting to enabled")
+                        ai_enabled = True  # Explicitly set to True
+                    else:
+                        conv_state = WhatsAppConversationState.query.filter_by(
+                            business_id=business_id,
+                            phone=check_phone
+                        ).first()
+                        if conv_state:
+                            ai_enabled = conv_state.ai_active
+                            log.info(f"[WA-INCOMING] 🤖 AI state for {check_phone}: {'✅ ENABLED' if ai_enabled else '❌ DISABLED'}")
+                        else:
+                            ai_enabled = True  # Explicitly set to True when no state found
+                            log.info(f"[WA-INCOMING] 🤖 No AI state found for {check_phone} - defaulting to ENABLED")
                 except Exception as e:
+                    ai_enabled = True  # Explicitly set to True on error
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
                 # If AI is disabled, skip AI response generation

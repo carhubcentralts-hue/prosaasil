@@ -3940,7 +3940,7 @@ function WhatsAppTemplateTab({ lead }: WhatsAppTemplateTabProps) {
   const loadTemplates = async () => {
     try {
       setLoading(true);
-      const response = await http.get<{ templates: ManualTemplate[] }>('/api/whatsapp/templates/manual');
+      const response = await http.get<{ templates: ManualTemplate[] }>('/api/whatsapp/manual-templates');
       setTemplates(response.templates || []);
     } catch (err) {
       console.error('Failed to load templates:', err);

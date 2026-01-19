@@ -141,6 +141,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
         
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => setModeView('select')}
             className={`px-3 py-1 rounded-md text-sm ${
               modeView === 'select'
@@ -151,6 +152,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
             בחר קיים
           </button>
           <button
+            type="button"
             onClick={() => setModeView('upload')}
             className={`px-3 py-1 rounded-md text-sm ${
               modeView === 'upload'
@@ -203,6 +205,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                 
                 <div className="flex gap-2 justify-center">
                   <button
+                    type="button"
                     onClick={handleUpload}
                     disabled={uploading}
                     className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50"
@@ -210,6 +213,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                     {uploading ? 'מעלה...' : 'העלה'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setSelectedFile(null)}
                     disabled={uploading}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50"
@@ -231,6 +235,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
             {(['all', 'images', 'documents', 'videos'] as const).map((f) => (
               <button
                 key={f}
+                type="button"
                 onClick={() => setFilter(f)}
                 className={`px-3 py-1 rounded-md text-sm ${
                   filter === f
@@ -261,6 +266,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
                   return (
                     <button
                       key={att.id}
+                      type="button"
                       onClick={() => {
                         if (modeView === 'multi') {
                           // Toggle selection in multi mode
@@ -324,6 +330,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
           {((modeView === 'single' && selectedAttachmentId) || (modeView === 'multi' && selectedIds.length > 0)) && (
             <div className="mt-4 text-center">
               <button
+                type="button"
                 onClick={() => {
                   if (modeView === 'multi') {
                     setSelectedIds([]);
