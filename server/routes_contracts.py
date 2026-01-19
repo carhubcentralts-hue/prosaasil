@@ -1167,3 +1167,155 @@ def cancel_contract(contract_id):
         logger.error(f"[CONTRACT_CANCEL] Error: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'error': 'Failed to cancel contract'}), 500
+
+
+@contracts_bp.route('/<int:contract_id>', methods=['PUT'])
+@require_api_auth
+@require_page_access('contracts')
+def update_contract(contract_id):
+    """
+    Update contract details
+    
+    Request body (JSON):
+        - title: Contract title (optional)
+        - signer_name: Signer name (optional)
+        - signer_phone: Signer phone (optional)
+        - signer_email: Signer email (optional)
+    
+    Only allowed when contract status is 'draft'
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        # Only allow editing draft contracts
+        if contract.status != 'draft':
+            return jsonify({'error': 'Only draft contracts can be edited'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        # Track changes for audit
+        changes = {}
+        
+        if 'title' in data:
+            new_title = data['title'].strip()
+            if new_title:
+                if contract.title != new_title:
+                    changes['title'] = {'from': contract.title, 'to': new_title}
+                    contract.title = new_title
+        
+        if 'signer_name' in data:
+            new_value = data['signer_name'].strip() if data['signer_name'] else None
+            if contract.signer_name != new_value:
+                changes['signer_name'] = {'from': contract.signer_name, 'to': new_value}
+                contract.signer_name = new_value
+        
+        if 'signer_phone' in data:
+            new_value = data['signer_phone'].strip() if data['signer_phone'] else None
+            if contract.signer_phone != new_value:
+                changes['signer_phone'] = {'from': contract.signer_phone, 'to': new_value}
+                contract.signer_phone = new_value
+        
+        if 'signer_email' in data:
+            new_value = data['signer_email'].strip() if data['signer_email'] else None
+            if contract.signer_email != new_value:
+                changes['signer_email'] = {'from': contract.signer_email, 'to': new_value}
+                contract.signer_email = new_value
+        
+        if changes:
+            contract.updated_at = datetime.utcnow()
+            db.session.commit()
+            
+            log_contract_event(
+                contract_id=contract_id,
+                business_id=business_id,
+                event_type='updated',
+                metadata={'changes': changes},
+                user_id=user_id
+            )
+            
+            logger.info(f"[CONTRACT_UPDATE] contract_id={contract_id} changes={list(changes.keys())}")
+        
+        return jsonify({
+            'id': contract.id,
+            'title': contract.title,
+            'status': contract.status,
+            'signer_name': contract.signer_name,
+            'signer_phone': contract.signer_phone,
+            'signer_email': contract.signer_email,
+            'updated_at': contract.updated_at.isoformat() if contract.updated_at else None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_UPDATE] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to update contract'}), 500
+
+
+@contracts_bp.route('/<int:contract_id>', methods=['DELETE'])
+@require_api_auth
+@require_page_access('contracts')
+def delete_contract(contract_id):
+    """
+    Delete contract (soft delete)
+    
+    Only allowed when contract status is 'draft' or 'cancelled'
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        # Only allow deleting draft or cancelled contracts
+        if contract.status not in ['draft', 'cancelled']:
+            return jsonify({'error': 'Only draft or cancelled contracts can be deleted'}), 400
+        
+        # Soft delete: mark as deleted by setting a deleted status
+        # For now, we'll do a hard delete of the contract and its files
+        # First, soft delete all contract files
+        contract_files = ContractFile.query.filter_by(
+            contract_id=contract_id,
+            business_id=business_id
+        ).filter(ContractFile.deleted_at.is_(None)).all()
+        
+        for cf in contract_files:
+            cf.deleted_at = datetime.utcnow()
+        
+        # Log deletion event before removing
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='deleted',
+            metadata={'title': contract.title, 'status': contract.status},
+            user_id=user_id
+        )
+        
+        # Hard delete the contract
+        db.session.delete(contract)
+        db.session.commit()
+        
+        logger.info(f"[CONTRACT_DELETE] contract_id={contract_id} deleted by user_id={user_id}")
+        
+        return jsonify({
+            'message': 'Contract deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_DELETE] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to delete contract'}), 500
