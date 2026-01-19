@@ -32,6 +32,7 @@ from server.services.attachment_service import get_attachment_service
 from datetime import datetime, timedelta
 import logging
 import os
+import io
 import hashlib
 import secrets
 
@@ -1122,6 +1123,265 @@ def complete_signing(token):
         logger.error(f"[CONTRACT_SIGN_COMPLETE] Error: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'error': 'Failed to complete signing'}), 500
+
+
+@contracts_bp.route('/sign/<token>/embed-signature', methods=['POST'])
+def embed_signature_in_pdf(token):
+    """
+    PUBLIC endpoint - Embed signature(s) into PDF document (NO auth required)
+    
+    This endpoint takes signature placements and embeds them into the original PDF,
+    returning a fully signed PDF document.
+    
+    Request body (JSON):
+        - file_id: ID of the original PDF file
+        - signatures: Array of signature placements
+            - page_number: 0-indexed page number
+            - x: X coordinate (from left, in PDF points)
+            - y: Y coordinate (from bottom, in PDF points)
+            - width: Signature width in PDF points
+            - height: Signature height in PDF points
+            - signature_data: Base64 encoded PNG signature image
+        - signer_name: Name of the signer
+    
+    Returns:
+        - Signed PDF saved as attachment
+        - Download URL for the signed document
+    """
+    try:
+        token_data = verify_signing_token(token)
+        if not token_data:
+            return jsonify({'error': 'Invalid, expired, or already used token'}), 403
+        
+        contract_id = token_data['contract_id']
+        business_id = token_data['business_id']
+        token_id = token_data['token_id']
+        
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+        
+        file_id = data.get('file_id')
+        signatures_data = data.get('signatures', [])
+        signer_name = data.get('signer_name', contract.signer_name or 'Unknown')
+        
+        if not file_id:
+            return jsonify({'error': 'file_id is required'}), 400
+        
+        if not signatures_data:
+            return jsonify({'error': 'At least one signature is required'}), 400
+        
+        # Get the original PDF file
+        contract_file = ContractFile.query.filter_by(
+            id=file_id,
+            contract_id=contract_id,
+            business_id=business_id
+        ).filter(ContractFile.deleted_at.is_(None)).first()
+        
+        if not contract_file:
+            return jsonify({'error': 'File not found'}), 404
+        
+        attachment = Attachment.query.get(contract_file.attachment_id)
+        if not attachment:
+            return jsonify({'error': 'Attachment not found'}), 404
+        
+        if attachment.mime_type != 'application/pdf':
+            return jsonify({'error': 'Only PDF files can be signed with embedded signatures'}), 400
+        
+        # Download the original PDF
+        attachment_service = get_attachment_service()
+        try:
+            pdf_data = attachment_service.get_file_content(attachment.storage_path)
+        except Exception as download_err:
+            logger.error(f"[CONTRACT_EMBED_SIGN] Failed to download PDF: {download_err}")
+            return jsonify({'error': 'Failed to load original document'}), 500
+        
+        # Import PDF signing service
+        from server.services.pdf_signing_service import SignaturePlacement, embed_signatures_in_pdf
+        import base64
+        
+        # Parse signature placements
+        signature_placements = []
+        for sig_data in signatures_data:
+            try:
+                # Decode base64 signature image
+                sig_image_b64 = sig_data.get('signature_data', '')
+                if sig_image_b64.startswith('data:'):
+                    sig_image_b64 = sig_image_b64.split(',')[1]
+                
+                sig_image_bytes = base64.b64decode(sig_image_b64)
+                
+                placement = SignaturePlacement(
+                    page_number=int(sig_data.get('page_number', 0)),
+                    x=float(sig_data.get('x', 0)),
+                    y=float(sig_data.get('y', 0)),
+                    width=float(sig_data.get('width', 150)),
+                    height=float(sig_data.get('height', 50)),
+                    signature_image=sig_image_bytes,
+                    signer_name=signer_name
+                )
+                signature_placements.append(placement)
+            except Exception as parse_err:
+                logger.warning(f"[CONTRACT_EMBED_SIGN] Error parsing signature: {parse_err}")
+                continue
+        
+        if not signature_placements:
+            return jsonify({'error': 'No valid signatures provided'}), 400
+        
+        # Embed signatures into PDF
+        try:
+            signed_pdf_data = embed_signatures_in_pdf(pdf_data, signature_placements)
+        except Exception as embed_err:
+            logger.error(f"[CONTRACT_EMBED_SIGN] Failed to embed signatures: {embed_err}")
+            return jsonify({'error': 'Failed to embed signatures in PDF'}), 500
+        
+        # Save the signed PDF as a new attachment
+        from werkzeug.datastructures import FileStorage
+        signed_filename = f"signed_{attachment.filename_original}"
+        signed_file = FileStorage(
+            stream=io.BytesIO(signed_pdf_data),
+            filename=signed_filename,
+            content_type='application/pdf'
+        )
+        
+        try:
+            signed_attachment = create_attachment_from_file(
+                file=signed_file,
+                business_id=business_id,
+                user_id=None
+            )
+        except Exception as save_err:
+            logger.error(f"[CONTRACT_EMBED_SIGN] Failed to save signed PDF: {save_err}")
+            return jsonify({'error': 'Failed to save signed document'}), 500
+        
+        # Create contract_file record for signed document
+        signed_contract_file = ContractFile(
+            business_id=business_id,
+            contract_id=contract_id,
+            attachment_id=signed_attachment.id,
+            purpose='signed',
+            created_by=None
+        )
+        
+        db.session.add(signed_contract_file)
+        
+        # Update contract status
+        contract.status = 'signed'
+        contract.signed_at = datetime.utcnow()
+        contract.updated_at = datetime.utcnow()
+        if signer_name:
+            contract.signer_name = signer_name
+        
+        # Mark token as used
+        sign_token = ContractSignToken.query.get(token_id)
+        if sign_token:
+            sign_token.used_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        # Log event
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='signed_completed',
+            metadata={
+                'filename': signed_filename,
+                'signer_name': signer_name,
+                'signature_count': len(signature_placements),
+                'signature_type': 'embedded'
+            },
+            user_id=None
+        )
+        
+        # Generate download URL for signed document
+        signed_document_url = None
+        try:
+            signed_document_url = attachment_service.generate_signed_url(
+                signed_attachment.storage_path,
+                expires_in=86400  # 24 hours
+            )
+        except Exception as url_err:
+            logger.warning(f"[CONTRACT_EMBED_SIGN] Could not generate signed URL: {url_err}")
+        
+        logger.info(f"[CONTRACT_EMBED_SIGN] contract_id={contract_id} signatures={len(signature_placements)} status=signed")
+        
+        return jsonify({
+            'message': 'Contract signed successfully with embedded signatures',
+            'contract_id': contract_id,
+            'status': 'signed',
+            'signed_at': contract.signed_at.isoformat(),
+            'signed_document_url': signed_document_url,
+            'signer_name': signer_name,
+            'signature_count': len(signature_placements)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_EMBED_SIGN] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to embed signatures'}), 500
+
+
+@contracts_bp.route('/sign/<token>/pdf-info/<int:file_id>', methods=['GET'])
+def get_pdf_info_for_signing(token, file_id):
+    """
+    PUBLIC endpoint - Get PDF info for signature placement (NO auth required)
+    
+    Returns page count and dimensions for proper signature placement UI
+    """
+    try:
+        token_data = verify_signing_token(token)
+        if not token_data:
+            return jsonify({'error': 'Invalid, expired, or already used token'}), 403
+        
+        contract_id = token_data['contract_id']
+        business_id = token_data['business_id']
+        
+        # Get the PDF file
+        contract_file = ContractFile.query.filter_by(
+            id=file_id,
+            contract_id=contract_id,
+            business_id=business_id
+        ).filter(ContractFile.deleted_at.is_(None)).first()
+        
+        if not contract_file:
+            return jsonify({'error': 'File not found'}), 404
+        
+        attachment = Attachment.query.get(contract_file.attachment_id)
+        if not attachment:
+            return jsonify({'error': 'Attachment not found'}), 404
+        
+        if attachment.mime_type != 'application/pdf':
+            return jsonify({'error': 'Not a PDF file'}), 400
+        
+        # Download and analyze PDF
+        attachment_service = get_attachment_service()
+        try:
+            pdf_data = attachment_service.get_file_content(attachment.storage_path)
+        except Exception as download_err:
+            logger.error(f"[CONTRACT_PDF_INFO] Failed to download PDF: {download_err}")
+            return jsonify({'error': 'Failed to load document'}), 500
+        
+        from server.services.pdf_signing_service import get_pdf_info
+        
+        try:
+            pdf_info = get_pdf_info(pdf_data)
+        except Exception as info_err:
+            logger.error(f"[CONTRACT_PDF_INFO] Failed to get PDF info: {info_err}")
+            return jsonify({'error': 'Failed to analyze PDF'}), 500
+        
+        return jsonify({
+            'file_id': file_id,
+            'filename': attachment.filename_original,
+            **pdf_info
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_PDF_INFO] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get PDF info'}), 500
 
 
 @contracts_bp.route('/<int:contract_id>/cancel', methods=['POST'])
