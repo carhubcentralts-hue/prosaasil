@@ -1063,6 +1063,7 @@ def baileys_webhook():
                     
                     if not check_phone:
                         log.warning(f"[WA-INCOMING] No phone identifier for AI check - defaulting to enabled")
+                        ai_enabled = True  # Explicitly set to True
                     else:
                         conv_state = WhatsAppConversationState.query.filter_by(
                             business_id=business_id,
@@ -1072,8 +1073,10 @@ def baileys_webhook():
                             ai_enabled = conv_state.ai_active
                             log.info(f"[WA-INCOMING] 🤖 AI state for {check_phone}: {'✅ ENABLED' if ai_enabled else '❌ DISABLED'}")
                         else:
+                            ai_enabled = True  # Explicitly set to True when no state found
                             log.info(f"[WA-INCOMING] 🤖 No AI state found for {check_phone} - defaulting to ENABLED")
                 except Exception as e:
+                    ai_enabled = True  # Explicitly set to True on error
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
                 # If AI is disabled, skip AI response generation
