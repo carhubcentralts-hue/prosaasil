@@ -782,14 +782,15 @@ export function EmailsPage() {
       
       console.log('[COMPOSE] Sending email to lead...');
       
-      // 🔥 FIX: Then send the rendered email
+      // 🔥 FIX: Then send the rendered email with attachments
       await axios.post(`/api/leads/${selectedLead.id}/email`, {
         to_email: selectedLead.email,
         subject: rendered.subject,
         html: rendered.html,  // 🔥 FIX: Use 'html' field (primary)
         body_html: rendered.html,  // Also send as body_html for compatibility
         text: rendered.text,
-        body_text: rendered.text
+        body_text: rendered.text,
+        attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined
       });
       
       console.log('[COMPOSE] ✅ Email sent successfully');

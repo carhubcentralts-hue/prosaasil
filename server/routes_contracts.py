@@ -822,10 +822,11 @@ def send_for_signature(contract_id):
             user_id=user_id
         )
         
-        base_url = os.getenv('FRONTEND_URL', 'http://localhost:5000')
-        sign_url = f"{base_url}/contracts/sign/{token_plain}"
+        # ✅ FIX (Problem 3): Use PUBLIC_BASE_URL instead of localhost
+        from server.utils.url_builder import public_url
+        sign_url = public_url(f"/contracts/sign/{token_plain}")
         
-        logger.info(f"[CONTRACT_SEND] contract_id={contract_id} status=sent sign_url_generated=yes")
+        logger.info(f"[CONTRACT_SEND] contract_id={contract_id} status=sent sign_url={sign_url}")
         
         return jsonify({
             'sign_url': sign_url,

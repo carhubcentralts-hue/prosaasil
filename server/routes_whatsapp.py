@@ -239,31 +239,36 @@ def status():
             if r.status_code == 200:
                 baileys_data = r.json()
                 
-                # 🔥 FIX: Separate "connected" from "canSend" for better UX
-                # Connection status = socket open + authenticated
-                # Send capability = verified after first successful send
+                # ✅ FIX (Problem 2): "truly_connected" now REQUIRES canSend=True
+                # If canSend=False, the connection is NOT usable and needs QR rescan
+                # This fixes the issue where truly_connected=True but canSend=False (zombie state)
                 is_connected = baileys_data.get("connected", False)
                 is_auth_paired = baileys_data.get("authPaired", False)
                 can_send = baileys_data.get("canSend", False)
                 has_qr = baileys_data.get("hasQR", False)
                 
-                # True connection requires socket + auth (canSend is separate capability)
-                truly_connected = is_connected and is_auth_paired
+                # ✅ FIX: True connection REQUIRES all three: socket + auth + canSend
+                # Without canSend, the connection is NOT ready for sending messages
+                truly_connected = is_connected and is_auth_paired and can_send
                 
-                # 🔥 FIX: Detect if user needs to relink (disconnected without QR or auth files)
-                # This happens after logged_out when Baileys clears auth and generates new QR
-                needs_relink = (not truly_connected) and (not has_qr) and (not is_auth_paired)
+                # ✅ FIX: User needs QR rescan if:
+                # 1. Not truly connected (missing canSend or auth)
+                # 2. OR explicit QR available
+                # 3. OR zombie state (connected + authPaired but canSend=False)
+                zombie_state = is_connected and is_auth_paired and not can_send
+                needs_qr = (not truly_connected) or has_qr or zombie_state
                 
                 health_info = {
                     "connected": truly_connected,
                     "hasQR": has_qr,
-                    "qr_required": has_qr and not truly_connected,
-                    "needs_relink": needs_relink,  # 🔥 NEW: UI should show "נותק - צריך לסרוק QR מחדש"
+                    "qr_required": needs_qr,  # ✅ FIX: Always true when canSend=False
+                    "needs_qr": needs_qr,  # ✅ FIX: UI should show "לא מחובר - צריך QR"
                     "canSend": can_send,
                     "authPaired": is_auth_paired,
                     "sessionState": baileys_data.get("sessionState", "unknown"),
                     "pushName": baileys_data.get("pushName", ""),
-                    "reconnectAttempts": baileys_data.get("reconnectAttempts", 0)
+                    "reconnectAttempts": baileys_data.get("reconnectAttempts", 0),
+                    "reason": "WA_NOT_READY_CAN_SEND_FALSE" if zombie_state else None  # ✅ FIX: Clear error reason
                 }
                 
                 log.info(f"[WA_STATUS] tenant={t} truly_connected={truly_connected} (connected={is_connected}, authPaired={is_auth_paired}, canSend={can_send})")
@@ -2794,7 +2799,15 @@ def create_broadcast():
         template_name = payload_dict.get('template_name')
         message_text = payload_dict.get('message_text', '')
         audience_source = payload_dict.get('audience_source', 'manual')
-        attachment_id = payload_dict.get('attachment_id')  # Optional media attachment
+        
+        # ✅ FIX: Convert attachment_id to int (comes as string from FormData)
+        attachment_id = payload_dict.get('attachment_id')
+        if attachment_id:
+            try:
+                attachment_id = int(attachment_id)
+            except (ValueError, TypeError):
+                log.warning(f"[WA_BROADCAST] Invalid attachment_id: {attachment_id}")
+                attachment_id = None
         
         log.info(f"[WA_BROADCAST] provider={provider}, message_type={message_type}, audience_source={audience_source}, attachment_id={attachment_id}")
         log.info(f"[WA_BROADCAST] message_text preview: {message_text[:100] if message_text else 'none'}")
