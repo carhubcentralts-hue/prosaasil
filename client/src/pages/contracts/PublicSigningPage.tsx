@@ -148,7 +148,7 @@ function PDFSigningView({
     setCurrentSignatureData(null);
   };
 
-  const handlePdfClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePdfDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pdfContainerRef.current) return;
     const rect = pdfContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -284,20 +284,21 @@ function PDFSigningView({
 
       {/* Instructions */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-blue-800 text-sm">
-        <strong>הוראות:</strong> לחץ על המסמך במקום בו תרצה להוסיף חתימה. ניתן להוסיף מספר חתימות על עמודים שונים.
+        <strong>הוראות:</strong> לחץ <strong>לחיצה כפולה</strong> על המסמך במקום בו תרצה להוסיף חתימה. ניתן להוסיף מספר חתימות על עמודים שונים.
       </div>
 
-      {/* PDF Preview with clickable signature placement */}
+      {/* PDF Preview with double-click signature placement */}
       <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-white">
         <div
           ref={pdfContainerRef}
-          onClick={handlePdfClick}
-          className="relative cursor-crosshair"
-          style={{ minHeight: '600px' }}
+          onDoubleClick={handlePdfDoubleClick}
+          className="relative cursor-pointer"
+          style={{ minHeight: '800px' }}
+          title="לחץ לחיצה כפולה להוספת חתימה"
         >
           <iframe
             src={`${file.download_url}#page=${currentPage + 1}`}
-            className="w-full h-[600px] pointer-events-none"
+            className="w-full h-[800px] pointer-events-none"
             title={file.filename}
           />
           
@@ -306,7 +307,7 @@ function PDFSigningView({
             {currentPageSignatures.map((sig) => {
               const pageInfo = pdfInfo.pages[currentPage];
               const containerWidth = pdfContainerRef.current?.offsetWidth || 800;
-              const containerHeight = 600;
+              const containerHeight = 800;
               const scaleX = containerWidth / pageInfo.width;
               const scaleY = containerHeight / pageInfo.height;
               
@@ -536,7 +537,7 @@ function SigningFilePreview({ file, formatFileSize }: {
           {isPdf ? (
             <iframe
               src={file.download_url}
-              className="w-full h-[600px]"
+              className="w-full h-[800px]"
               title={`Preview: ${file.filename}`}
             />
           ) : isImage ? (
@@ -863,7 +864,7 @@ export function PublicSigningPage() {
                   <div className="border-2 border-gray-200 rounded-lg overflow-hidden mb-4">
                     <iframe
                       src={signedResult.signed_document_url}
-                      className="w-full h-[600px]"
+                      className="w-full h-[800px]"
                       title="Signed Contract Preview"
                     />
                   </div>

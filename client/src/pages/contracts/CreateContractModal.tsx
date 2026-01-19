@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, FileText, User, Phone, Mail } from 'lucide-react';
+import { X, FileText, User, Phone, Mail, CheckCircle } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 
@@ -18,6 +18,13 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  // Reset states when modal is opened
+  useEffect(() => {
+    setSuccess(false);
+    setError(null);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,11 +59,17 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
         throw new Error(errorData.error || 'Failed to create contract');
       }
 
-      onSuccess();
+      // Show success feedback before closing
+      setSuccess(true);
+      setLoading(false);
+      
+      // Wait 1.5 seconds to show success message, then close and refresh
+      setTimeout(() => {
+        onSuccess();
+      }, 1500);
     } catch (err: any) {
       console.error('Error creating contract:', err);
       setError(err.message || 'שגיאה ביצירת חוזה');
-    } finally {
       setLoading(false);
     }
   };
@@ -89,6 +102,13 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
             </div>
           )}
 
+          {success && (
+            <div className="p-4 bg-green-50 border border-green-200 rounded-md text-green-700 flex items-center gap-2">
+              <CheckCircle className="w-5 h-5" />
+              <span className="font-medium">החוזה נוצר בהצלחה! ✓</span>
+            </div>
+          )}
+
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -100,7 +120,7 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               placeholder="לדוגמה: חוזה שירות לקוח ABC"
               required
-              disabled={loading}
+              disabled={loading || success}
             />
           </div>
 
@@ -112,7 +132,7 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
               value={formData.lead_id}
               onChange={(e) => setFormData({ ...formData, lead_id: e.target.value })}
               placeholder="123"
-              disabled={loading}
+              disabled={loading || success}
             />
           </div>
 
@@ -127,7 +147,7 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
                 onChange={(e) => setFormData({ ...formData, signer_name: e.target.value })}
                 placeholder="ישראל ישראלי"
                 className="pr-10"
-                disabled={loading}
+                disabled={loading || success}
               />
             </div>
           </div>
@@ -143,7 +163,7 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
                 onChange={(e) => setFormData({ ...formData, signer_phone: e.target.value })}
                 placeholder="050-1234567"
                 className="pr-10"
-                disabled={loading}
+                disabled={loading || success}
               />
             </div>
           </div>
@@ -159,17 +179,26 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
                 onChange={(e) => setFormData({ ...formData, signer_email: e.target.value })}
                 placeholder="example@email.com"
                 className="pr-10"
-                disabled={loading}
+                disabled={loading || success}
               />
             </div>
           </div>
 
           {/* Actions */}
           <div className="flex gap-3 pt-4">
-            <Button type="submit" disabled={loading} className="flex-1">
-              {loading ? 'יוצר...' : 'צור חוזה'}
+            <Button type="submit" disabled={loading || success} className="flex-1">
+              {success ? (
+                <>
+                  <CheckCircle className="w-4 h-4 ml-2" />
+                  נוצר בהצלחה!
+                </>
+              ) : loading ? (
+                'יוצר...'
+              ) : (
+                'צור חוזה'
+              )}
             </Button>
-            <Button type="button" onClick={onClose} variant="secondary" disabled={loading} className="flex-1">
+            <Button type="button" onClick={onClose} variant="secondary" disabled={loading || success} className="flex-1">
               ביטול
             </Button>
           </div>

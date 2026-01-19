@@ -89,7 +89,17 @@ export function ContractsPage() {
 
   const handleDeleteContract = async (contractId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('האם אתה בטוח שברצונך למחוק את החוזה? פעולה זו אינה ניתנת לביטול.')) return;
+    
+    // Find the contract to get its status
+    const contract = contracts.find(c => c.id === contractId);
+    const isSignedOrSent = contract && (contract.status === 'signed' || contract.status === 'sent');
+    
+    // Enhanced confirmation message for signed/sent contracts
+    const confirmMessage = isSignedOrSent
+      ? 'חוזה זה כבר נשלח או נחתם! האם אתה בטוח שברצונך למחוק אותו? פעולה זו אינה ניתנת לביטול.'
+      : 'האם אתה בטוח שברצונך למחוק את החוזה? פעולה זו אינה ניתנת לביטול.';
+    
+    if (!confirm(confirmMessage)) return;
 
     try {
       const response = await fetch(`/api/contracts/${contractId}`, {
@@ -285,15 +295,13 @@ export function ContractsPage() {
                           >
                             פרטים
                           </button>
-                          {(contract.status === 'draft' || contract.status === 'cancelled') && (
-                            <button
-                              onClick={(e) => handleDeleteContract(contract.id, e)}
-                              className="p-1 hover:bg-red-100 rounded text-red-600 transition"
-                              title="מחק חוזה"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => handleDeleteContract(contract.id, e)}
+                            className="p-1 hover:bg-red-100 rounded text-red-600 transition"
+                            title="מחק חוזה"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
