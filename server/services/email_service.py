@@ -1306,38 +1306,68 @@ class EmailService:
                 from sendgrid.helpers.mail import Attachment as SGAttachment
                 import base64
                 
-                logger.info(f"[EMAIL] Processing {len(attachment_ids)} attachments")
+                logger.info(f"[EMAIL_TO_LEAD] Attachments: {len(attachment_ids)} files")
+                
+                # Validate attachment count limit (max 10 attachments)
+                MAX_ATTACHMENTS = 10
+                if len(attachment_ids) > MAX_ATTACHMENTS:
+                    logger.warning(f"[EMAIL] Too many attachments ({len(attachment_ids)}), limiting to {MAX_ATTACHMENTS}")
+                    attachment_ids = attachment_ids[:MAX_ATTACHMENTS]
                 
                 attachments = db.session.execute(
-                    sa_text("SELECT id, filename_original, mime_type, storage_path FROM attachments WHERE id = ANY(:ids)"),
+                    sa_text("SELECT id, filename_original, mime_type, storage_path, file_size FROM attachments WHERE id = ANY(:ids) AND is_deleted = false"),
                     {"ids": attachment_ids}
                 ).fetchall()
                 
                 attachment_service = get_attachment_service()
                 
+                # Max total attachment size (20MB for email)
+                MAX_TOTAL_SIZE = 20 * 1024 * 1024
+                total_size = 0
+                processed_count = 0
+                
+                logger.info(f"[EMAIL] Processing {len(attachments)} attachments")
+                
                 for att in attachments:
-                    att_id, filename, mime_type, storage_path = att
-                    file_path = attachment_service.get_file_path(storage_path)
+                    att_id, filename, mime_type, storage_path, file_size = att
+                    
+                    # Check total size limit
+                    if file_size and total_size + file_size > MAX_TOTAL_SIZE:
+                        logger.warning(f"[EMAIL] Skipping attachment {filename} - would exceed {MAX_TOTAL_SIZE} bytes limit")
+                        continue
                     
                     try:
-                        # Read file and encode to base64
-                        with open(file_path, 'rb') as f:
-                            file_data = f.read()
-                            encoded = base64.b64encode(file_data).decode()
+                        # 🔥 FIX: Use open_file instead of get_file_path - works with both Local and R2 storage
+                        # This downloads bytes directly from storage (R2 via get_object, local via file read)
+                        _, actual_mime, file_data = attachment_service.open_file(
+                            storage_key=storage_path,
+                            filename=filename,
+                            mime_type=mime_type
+                        )
+                        
+                        # Encode to base64 for SendGrid
+                        encoded = base64.b64encode(file_data).decode()
                         
                         # Create SendGrid attachment
                         sg_attachment = SGAttachment()
                         sg_attachment.file_content = encoded
                         sg_attachment.file_name = filename
-                        sg_attachment.file_type = mime_type
+                        sg_attachment.file_type = actual_mime or mime_type or 'application/octet-stream'
                         sg_attachment.disposition = 'attachment'
                         
                         message.add_attachment(sg_attachment)
+                        total_size += len(file_data)
+                        processed_count += 1
                         logger.info(f"[EMAIL] Attached file: {filename} ({len(file_data)} bytes)")
                         
+                    except FileNotFoundError as e:
+                        logger.error(f"[EMAIL] Attachment not found: {filename} (id={att_id}): {e}")
+                        # Continue with other attachments - don't fail entire email
                     except Exception as e:
                         logger.error(f"[EMAIL] Failed to attach file {filename}: {e}")
                         # Continue with other attachments - don't fail entire email
+                
+                logger.info(f"[EMAIL] Processed {processed_count}/{len(attachments)} attachments (total: {total_size} bytes)")
             
             # 🔥 FIX 6: Log before sending
             logger.info(f"[EMAIL] Sending to SendGrid: to={to_email} subject='{rendered_subject[:50]}'")

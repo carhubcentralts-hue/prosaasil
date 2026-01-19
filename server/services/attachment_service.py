@@ -258,6 +258,49 @@ class AttachmentService:
         ttl_seconds = ttl_minutes * 60
         return self.storage.generate_signed_url(storage_key, ttl_seconds)
     
+    def open_file(self, storage_key: str, filename: str = None, mime_type: str = None) -> Tuple[str, str, bytes]:
+        """
+        Open and read file from storage (works with both Local and R2)
+        
+        This is the PRIMARY method for accessing file content for:
+        - Email attachments (SendGrid requires base64 of actual bytes)
+        - WhatsApp media (Baileys needs bytes/buffer)
+        
+        Unlike get_file_path (which only works with local storage),
+        this method works uniformly with any storage provider.
+        
+        Args:
+            storage_key: Storage key from attachment record
+            filename: Original filename (used for email attachment name)
+            mime_type: MIME type of file (if known)
+            
+        Returns:
+            Tuple of (filename, mime_type, file_bytes)
+            
+        Raises:
+            FileNotFoundError: If file does not exist
+            Exception: On storage access failure
+        """
+        # Download bytes from storage (works with both Local and R2)
+        file_bytes = self.storage.download_bytes(storage_key)
+        
+        # Get metadata if we don't have mime_type
+        if not mime_type:
+            try:
+                metadata = self.storage.get_metadata(storage_key)
+                mime_type = metadata.get('content_type', 'application/octet-stream')
+            except Exception:
+                mime_type = 'application/octet-stream'
+        
+        # Default filename from storage key if not provided
+        if not filename:
+            # Extract filename from storage key (last part)
+            filename = storage_key.split('/')[-1] if '/' in storage_key else storage_key
+        
+        logger.info(f"[ATTACHMENT] Opened file: {filename} ({len(file_bytes)} bytes, {mime_type})")
+        
+        return filename, mime_type, file_bytes
+    
     def verify_signed_url(self, attachment_id: int, storage_key: str, expires_ts: int, signature: str) -> Tuple[bool, Optional[str]]:
         """
         Verify signed URL (LOCAL STORAGE ONLY)

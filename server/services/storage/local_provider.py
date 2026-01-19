@@ -120,3 +120,59 @@ class LocalStorageProvider(AttachmentStorageProvider):
     def get_file_path(self, storage_key: str) -> str:
         """Get absolute file path from storage key (local-specific method)"""
         return os.path.join(self.storage_root, storage_key)
+    
+    def download_bytes(self, storage_key: str) -> bytes:
+        """
+        Download file content from local filesystem as bytes
+        
+        This provides a unified API with R2 storage for attaching files to emails
+        and sending media via WhatsApp.
+        
+        Args:
+            storage_key: Storage key of the file
+            
+        Returns:
+            File content as bytes
+            
+        Raises:
+            FileNotFoundError: If file does not exist
+        """
+        file_path = self.get_file_path(storage_key)
+        
+        if not os.path.isfile(file_path):
+            logger.error(f"[LOCAL_STORAGE] File not found for download: {storage_key}")
+            raise FileNotFoundError(f"File not found: {storage_key}")
+        
+        with open(file_path, 'rb') as f:
+            file_bytes = f.read()
+        
+        logger.info(f"[LOCAL_STORAGE] ✅ Downloaded {storage_key} ({len(file_bytes)} bytes)")
+        return file_bytes
+    
+    def get_metadata(self, storage_key: str) -> dict:
+        """
+        Get file metadata from local filesystem
+        
+        Args:
+            storage_key: Storage key of the file
+            
+        Returns:
+            Dict with content_length and last_modified
+        """
+        file_path = self.get_file_path(storage_key)
+        
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"File not found: {storage_key}")
+        
+        stat = os.stat(file_path)
+        
+        # Guess content type from extension
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(file_path)
+        
+        return {
+            'content_type': content_type or 'application/octet-stream',
+            'content_length': stat.st_size,
+            'metadata': {},
+            'last_modified': datetime.fromtimestamp(stat.st_mtime)
+        }
