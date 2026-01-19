@@ -2064,7 +2064,8 @@ function ContractsTab({ lead }: { lead: Lead }) {
         setShowContractModal(false);
         setContractForm({ title: '', type: 'sale' });
         setNewContractFiles([]);
-        loadContracts();
+        await loadContracts(); // Wait for contracts to load
+        setActiveTab('contracts'); // Switch to contracts tab to show the new contract
       } else {
         alert('שגיאה ביצירת החוזה');
       }
