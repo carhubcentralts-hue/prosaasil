@@ -21,6 +21,16 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -100,7 +110,7 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
       setError(null);
       
       // Close modal and refresh list after a short delay to show success message
-      setTimeout(() => {
+      timeoutRef.current = setTimeout(() => {
         onSuccess();
         onClose();
       }, 1500);
@@ -141,7 +151,11 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
         {/* Body */}
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4 md:space-y-6">
           {success && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-md flex items-start gap-3">
+            <div 
+              className="p-4 bg-green-50 border border-green-200 rounded-md flex items-start gap-3"
+              role="alert"
+              aria-live="polite"
+            >
               <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-green-800 font-medium">החוזה הועלה בהצלחה!</p>

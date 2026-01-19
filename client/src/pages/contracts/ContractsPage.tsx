@@ -231,7 +231,12 @@ export function ContractsPage() {
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                        <span className="font-medium text-gray-900 truncate">{contract.title}</span>
+                        <span 
+                          className="font-medium text-gray-900 truncate" 
+                          title={contract.title}
+                        >
+                          {contract.title}
+                        </span>
                       </div>
                       <Badge color={STATUS_COLORS[contract.status] as any} className="flex-shrink-0 mr-2">
                         {STATUS_LABELS[contract.status]}
