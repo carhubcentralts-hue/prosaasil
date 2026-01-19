@@ -1207,11 +1207,12 @@ def update_contract(contract_id):
         changes = {}
         
         if 'title' in data:
-            new_title = data['title'].strip()
-            if new_title:
-                if contract.title != new_title:
-                    changes['title'] = {'from': contract.title, 'to': new_title}
-                    contract.title = new_title
+            new_title = data['title'].strip() if data['title'] else ''
+            if not new_title:
+                return jsonify({'error': 'Title cannot be empty'}), 400
+            if contract.title != new_title:
+                changes['title'] = {'from': contract.title, 'to': new_title}
+                contract.title = new_title
         
         if 'signer_name' in data:
             new_value = data['signer_name'].strip() if data['signer_name'] else None
@@ -1285,9 +1286,7 @@ def delete_contract(contract_id):
         if contract.status not in ['draft', 'cancelled']:
             return jsonify({'error': 'Only draft or cancelled contracts can be deleted'}), 400
         
-        # Soft delete: mark as deleted by setting a deleted status
-        # For now, we'll do a hard delete of the contract and its files
-        # First, soft delete all contract files
+        # Soft delete all contract files (keep attachment records)
         contract_files = ContractFile.query.filter_by(
             contract_id=contract_id,
             business_id=business_id
@@ -1305,7 +1304,7 @@ def delete_contract(contract_id):
             user_id=user_id
         )
         
-        # Hard delete the contract
+        # Hard delete the contract record
         db.session.delete(contract)
         db.session.commit()
         

@@ -66,7 +66,6 @@ const EVENT_LABELS: Record<string, string> = {
   cancelled: 'בוטל',
   file_downloaded: 'קובץ הורד',
   updated: 'עודכן',
-  deleted: 'נמחק',
 };
 
 function FilePreviewItem({ file, contractId, formatFileSize }: {
