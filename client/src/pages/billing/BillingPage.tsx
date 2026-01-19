@@ -1220,7 +1220,7 @@ export function BillingPage() {
                 <SignatureCanvas
                   onSave={handleSignContract}
                   onClear={() => console.log('Signature cleared')}
-                  width={Math.min(600, window.innerWidth - 64)}
+                  width={typeof window !== 'undefined' ? Math.min(600, window.innerWidth - 64) : 600}
                   height={200}
                 />
               </div>
