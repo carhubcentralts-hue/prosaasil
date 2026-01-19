@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Plus, Search, Filter, Download, Send, X, Calendar, User } from 'lucide-react';
+import { FileText, Plus, Search, Filter, Download, Send, X, Calendar, User, Upload } from 'lucide-react';
 import { formatDate } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { CreateContractModal } from './CreateContractModal';
 import { ContractDetails } from './ContractDetails';
+import { UploadContractModal } from './UploadContractModal';
 
 interface Contract {
   id: number;
@@ -43,6 +44,7 @@ export function ContractsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
 
   const perPage = 20;
@@ -102,10 +104,25 @@ export function ContractsPage() {
                 <p className="text-sm text-gray-600">ניהול חוזים דיגיטליים וחתימות</p>
               </div>
             </div>
-            <Button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              חוזה חדש
-            </Button>
+            <div className="flex gap-3">
+              {/* כפתור העלאת חוזה - בולט וברור */}
+              <Button 
+                onClick={() => setIsUploadModalOpen(true)} 
+                className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg"
+              >
+                <Upload className="w-5 h-5" />
+                <span className="font-bold">העלה חוזה עם קובץ</span>
+              </Button>
+              {/* כפתור יצירת חוזה רגיל */}
+              <Button 
+                onClick={() => setIsCreateModalOpen(true)} 
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                חוזה ריק
+              </Button>
+            </div>
           </div>
 
           {/* Filters */}
@@ -286,6 +303,10 @@ export function ContractsPage() {
       {/* Modals */}
       {isCreateModalOpen && (
         <CreateContractModal onClose={() => setIsCreateModalOpen(false)} onSuccess={handleContractCreated} />
+      )}
+
+      {isUploadModalOpen && (
+        <UploadContractModal onClose={() => setIsUploadModalOpen(false)} onSuccess={handleContractCreated} />
       )}
 
       {selectedContractId && (
