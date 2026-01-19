@@ -75,9 +75,15 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [textContent, setTextContent] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  const canPreview = file.mime_type === 'application/pdf' || file.mime_type.startsWith('image/');
+  const canPreview = file.mime_type === 'application/pdf' || 
+                     file.mime_type.startsWith('image/') || 
+                     file.mime_type.startsWith('text/') ||
+                     file.mime_type === 'application/json';
+
+  const isTextFile = file.mime_type.startsWith('text/') || file.mime_type === 'application/json';
 
   const handlePreviewToggle = async () => {
     if (showPreview) {
@@ -92,6 +98,20 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
       if (response.ok) {
         const data = await response.json();
         setPreviewUrl(data.url);
+        
+        // For text files, fetch the content
+        if (isTextFile && data.url) {
+          try {
+            const textResponse = await fetch(data.url);
+            if (textResponse.ok) {
+              const text = await textResponse.text();
+              setTextContent(text);
+            }
+          } catch (err) {
+            console.error('Error loading text content:', err);
+          }
+        }
+        
         setShowPreview(true);
       }
     } catch (err) {
@@ -155,6 +175,10 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
             <div className="flex justify-center">
               <img src={previewUrl} alt={file.filename} className="max-w-full max-h-96 rounded-lg border border-gray-300" />
             </div>
+          ) : isTextFile && textContent ? (
+            <pre className="w-full h-96 overflow-auto p-4 bg-gray-900 text-gray-100 rounded-lg border border-gray-300 text-sm font-mono whitespace-pre-wrap" dir="ltr">
+              {textContent}
+            </pre>
           ) : null}
         </div>
       )}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, Download, Upload, CheckCircle, XCircle, Eye, Edit3, X, Printer } from 'lucide-react';
+import { FileText, Download, Upload, CheckCircle, XCircle, Eye, Edit3, X, Printer, Image, File } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 
 interface SigningContract {
@@ -26,6 +26,127 @@ interface SignedContractResult {
   signature_type?: string;
 }
 
+// File Preview Component for Public Signing Page
+function SigningFilePreview({ file, formatFileSize }: {
+  file: {
+    id: number;
+    filename: string;
+    mime_type: string;
+    file_size: number;
+    download_url: string;
+  };
+  formatFileSize: (bytes: number) => string;
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [loadingText, setLoadingText] = useState(false);
+
+  const canPreview = file.mime_type === 'application/pdf' || 
+                     file.mime_type.startsWith('image/') || 
+                     file.mime_type.startsWith('text/') ||
+                     file.mime_type === 'application/json';
+
+  const isTextFile = file.mime_type.startsWith('text/') || file.mime_type === 'application/json';
+  const isImage = file.mime_type.startsWith('image/');
+  const isPdf = file.mime_type === 'application/pdf';
+
+  const handlePreviewToggle = async () => {
+    if (showPreview) {
+      setShowPreview(false);
+      return;
+    }
+    
+    // For text files, fetch content
+    if (isTextFile && !textContent) {
+      setLoadingText(true);
+      try {
+        const response = await fetch(file.download_url);
+        if (response.ok) {
+          const text = await response.text();
+          setTextContent(text);
+        }
+      } catch (err) {
+        console.error('Error loading text content:', err);
+      } finally {
+        setLoadingText(false);
+      }
+    }
+    
+    setShowPreview(true);
+  };
+
+  const getFileIcon = () => {
+    if (isImage) return <Image className="w-5 h-5 text-purple-500" />;
+    if (isPdf) return <FileText className="w-5 h-5 text-red-500" />;
+    if (isTextFile) return <File className="w-5 h-5 text-blue-500" />;
+    return <FileText className="w-5 h-5 text-gray-400" />;
+  };
+
+  return (
+    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-3">
+          {getFileIcon()}
+          <div>
+            <p className="font-medium text-gray-900">{file.filename}</p>
+            <p className="text-xs text-gray-500">{formatFileSize(file.file_size)}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {canPreview && (
+            <button
+              onClick={handlePreviewToggle}
+              disabled={loadingText}
+              className="flex items-center gap-2 px-3 py-2 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 text-sm disabled:opacity-50"
+            >
+              {loadingText ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+              {showPreview ? 'סגור תצוגה' : 'תצוגה מקדימה'}
+            </button>
+          )}
+          <a
+            href={file.download_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+          >
+            <Download className="w-4 h-4" />
+            הורד
+          </a>
+        </div>
+      </div>
+      
+      {/* Preview Section */}
+      {showPreview && (
+        <div className="mt-4 border-2 border-gray-300 rounded-lg overflow-hidden">
+          {isPdf ? (
+            <iframe
+              src={file.download_url}
+              className="w-full h-[600px]"
+              title={`Preview: ${file.filename}`}
+            />
+          ) : isImage ? (
+            <div className="flex justify-center p-4 bg-white">
+              <img 
+                src={file.download_url} 
+                alt={file.filename} 
+                className="max-w-full max-h-[500px] rounded-lg shadow-lg"
+              />
+            </div>
+          ) : isTextFile && textContent ? (
+            <pre className="w-full h-[400px] overflow-auto p-4 bg-gray-900 text-gray-100 text-sm font-mono whitespace-pre-wrap" dir="ltr">
+              {textContent}
+            </pre>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PublicSigningPage() {
   const { token } = useParams<{ token: string }>();
   const [contract, setContract] = useState<SigningContract | null>(null);
@@ -38,9 +159,8 @@ export function PublicSigningPage() {
   // ✅ NEW: Store signed result with document URL
   const [signedResult, setSignedResult] = useState<SignedContractResult | null>(null);
   
-  // ✅ NEW: Preview and digital signature states
-  const [showPreview, setShowPreview] = useState(false);
-  const [showDigitalSignature, setShowDigitalSignature] = useState(false);
+  // ✅ Digital signature states
+  const [showDigitalSignature, setShowDigitalSignature] = useState(true);
   const [signerName, setSignerName] = useState('');
   const [signatureDrawing, setSignatureDrawing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -418,57 +538,19 @@ export function PublicSigningPage() {
             </div>
           )}
 
-          {/* ✅ NEW: Files with Preview and Download */}
+          {/* ✅ Files with Preview and Download - supports all file types */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">מסמכים לעיון</h2>
             {contract.files.length === 0 ? (
               <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg">אין מסמכים זמינים</div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {contract.files.map((file) => (
-                  <div key={file.id} className="p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-5 h-5 text-gray-400" />
-                        <div>
-                          <p className="font-medium text-gray-900">{file.filename}</p>
-                          <p className="text-xs text-gray-500">{formatFileSize(file.file_size)}</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        {/* ✅ NEW: Preview button for PDFs */}
-                        {file.mime_type === 'application/pdf' && (
-                          <button
-                            onClick={() => setShowPreview(!showPreview)}
-                            className="flex items-center gap-2 px-3 py-2 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 text-sm"
-                          >
-                            <Eye className="w-4 h-4" />
-                            {showPreview ? 'סגור תצוגה' : 'תצוגה מקדימה'}
-                          </button>
-                        )}
-                        <a
-                          href={file.download_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
-                        >
-                          <Download className="w-4 h-4" />
-                          הורד
-                        </a>
-                      </div>
-                    </div>
-                    
-                    {/* ✅ NEW: PDF Preview iframe */}
-                    {showPreview && file.mime_type === 'application/pdf' && (
-                      <div className="mt-4 border-2 border-gray-300 rounded-lg overflow-hidden">
-                        <iframe
-                          src={file.download_url}
-                          className="w-full h-[600px]"
-                          title="Contract Preview"
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <SigningFilePreview 
+                    key={file.id} 
+                    file={file} 
+                    formatFileSize={formatFileSize} 
+                  />
                 ))}
               </div>
             )}
