@@ -8,6 +8,7 @@ Uses signed internal URLs for secure access.
 import os
 import hashlib
 import logging
+import mimetypes
 from datetime import datetime, timedelta
 from typing import Optional
 from werkzeug.datastructures import FileStorage
@@ -167,7 +168,6 @@ class LocalStorageProvider(AttachmentStorageProvider):
         stat = os.stat(file_path)
         
         # Guess content type from extension
-        import mimetypes
         content_type, _ = mimetypes.guess_type(file_path)
         
         return {

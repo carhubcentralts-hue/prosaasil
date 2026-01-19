@@ -5,12 +5,14 @@ Handles rate limiting (1-3 msgs/sec), exponential backoff, and detailed status t
 """
 import os
 import time
+import base64
 import logging
 import random
 from datetime import datetime
 from server.db import db
-from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business
+from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business, Attachment
 from server.app_factory import get_process_app
+from server.services.attachment_service import get_attachment_service
 
 log = logging.getLogger(__name__)
 
@@ -162,9 +164,6 @@ class BroadcastWorker:
                 # Baileys can work with URLs, but bytes are more reliable (no URL expiration issues)
                 if attachment_id and not media_bytes:
                     try:
-                        from server.models_sql import Attachment
-                        from server.services.attachment_service import get_attachment_service
-                        
                         attachment = Attachment.query.get(attachment_id)
                         if attachment and attachment.storage_path:
                             attachment_service = get_attachment_service()
@@ -197,7 +196,6 @@ class BroadcastWorker:
                         # ✅ FIX: Add timeout to prevent bottlenecks (8-12 seconds)
                         if media_bytes:
                             # 🔥 FIX: Send media as bytes (works with R2 storage)
-                            import base64
                             media_data = {
                                 'data': base64.b64encode(media_bytes).decode('utf-8'),
                                 'mimetype': media_mimetype or 'application/octet-stream',
