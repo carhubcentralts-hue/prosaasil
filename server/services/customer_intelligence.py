@@ -295,12 +295,29 @@ class CustomerIntelligence:
     # === PRIVATE HELPER METHODS ===
     
     def _normalize_phone(self, phone: str) -> str:
-        """נקה וסדר מספר טלפון לפורמט E164 - תמיד +972XXXXXXXXX"""
+        """🔥 FIX D: נקה וסדר מספר טלפון לפורמט E164 - תמיד +972XXXXXXXXX
+        
+        Handles:
+        - Standard phone numbers → E.164 format (+972...)
+        - @lid identifiers → Return as-is (NOT a phone number!)
+        - Invalid formats → Return as-is (NOT a phone number!)
+        """
         if not phone:
             return ""
         
+        # 🔥 FIX D: Detect @lid or _lid identifiers - these are NOT phone numbers!
+        # Don't convert them to +972 prefix as they're external WhatsApp IDs
+        if '_lid' in phone.lower() or '_at_lid' in phone.lower() or '@lid' in phone.lower():
+            log.info(f"📱 Detected @lid identifier (not a phone): {phone} - returning as-is")
+            return phone  # Return as-is, don't try to normalize
+        
         # הסר תווים לא נומריים (שמור +)
         digits_only = re.sub(r'[^\d+]', '', phone)
+        
+        # 🔥 FIX D: If no digits found, it's not a phone number - return original
+        if not digits_only or digits_only == '+':
+            log.warning(f"⚠️ Not a phone number (no digits): {phone}")
+            return phone  # Return original, don't try to normalize
         
         # התמודד עם פורמטים שונים - תמיד החזר +972
         if digits_only.startswith('+972'):
@@ -316,7 +333,13 @@ class CustomerIntelligence:
             # חסר 0 בהתחלה: 501234567 -> +972501234567
             return '+972' + digits_only
         else:
-            # פורמט לא מזוהה - נסה להוסיף +972 בכל מקרה
+            # 🔥 FIX D: פורמט לא מזוהה - DON'T force +972 if it looks wrong
+            # Validate that it could be a valid phone number before adding prefix
+            if len(digits_only) > 15 or len(digits_only) < 8:
+                # Invalid phone length - return as-is
+                log.warning(f"⚠️ Invalid phone length ({len(digits_only)} digits): {phone} - not normalizing")
+                return phone
+            
             log.warning(f"⚠️ Unrecognized phone format: {phone}, attempting +972 prefix")
             clean = digits_only.lstrip('+')
             if clean.startswith('972'):

@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Global service instance
 _whatsapp_service = None
 
+# 🔥 FIX A: Provider cache to prevent "fresh BaileysProvider" on every send
+# Cache Baileys providers per tenant_id to maintain connection state
+_provider_cache = {}  # tenant_id -> BaileysProvider instance
+
 def _is_valid_url(url: str) -> bool:
     """
     Validate URL format - must start with http:// or https://
@@ -193,6 +197,25 @@ class BaileysProvider(Provider):
         
         logger.warning(f"⏰ Baileys didn't connect within {timeout}s")
         return False
+    
+    def ensure_ready(self, tenant_id: str) -> bool:
+        """🔥 FIX A: Ensure provider is ready before sending media
+        
+        This method checks if the tenant's WhatsApp session is ready for sending.
+        It should be called before media operations to prevent "socket not ready" errors.
+        
+        Args:
+            tenant_id: The tenant ID (e.g., "business_1")
+            
+        Returns:
+            bool: True if ready, False otherwise
+        """
+        if not tenant_id:
+            logger.warning("[BAILEYS] ensure_ready: No tenant_id provided")
+            return False
+        
+        # Check if tenant can send (combines connection + auth + canSend checks)
+        return self._can_send(tenant_id)
     
     def send_typing(self, jid: str, is_typing: bool = True, tenant_id: str = None) -> Dict[str, Any]:
         """⚡ Send typing indicator - instant user feedback (MULTI-TENANT)"""
@@ -395,7 +418,26 @@ class BaileysProvider(Provider):
             }
     
     def send_media_message(self, to: str, caption: str, media: Dict, media_type: str, tenant_id: str = None) -> Dict[str, Any]:
-        """Send media message with base64 data via Baileys HTTP API (MULTI-TENANT)"""
+        """🔥 FIX B & C: Send media message with proper Baileys format + size validation
+        
+        This method sends media (image/video/audio/document) via Baileys HTTP API.
+        
+        Fixes:
+        - Enhanced error logging (statusCode, response.data, jid, messageType, mime, bytesLen)
+        - Proper Baileys format validation
+        - File size limits to prevent HTTP 413
+        - Buffer vs base64 handling
+        
+        Args:
+            to: Target JID
+            caption: Media caption
+            media: Dict with keys: data (base64), mimetype, filename
+            media_type: One of: image, video, audio, document
+            tenant_id: Tenant ID for multi-tenant routing
+            
+        Returns:
+            Dict with status and error details
+        """
         if not tenant_id:
             logger.error(f"[BAILEYS-ERR] send_media_message: tenant_id required")
             return {
@@ -405,38 +447,95 @@ class BaileysProvider(Provider):
             }
         
         try:
-            # 🔥 CRITICAL: Check if tenant can send
-            if not self._can_send(tenant_id):
+            # 🔥 FIX A: Ensure provider is ready before sending media
+            if not self.ensure_ready(tenant_id):
                 return {
                     "provider": "baileys",
                     "status": "error",
                     "error": "WhatsApp not connected - QR code scan required"
                 }
             
+            # 🔥 FIX C: Validate file size to prevent HTTP 413
+            # WhatsApp limits: images ~16MB, videos ~16MB, documents ~100MB
+            MAX_SIZE_MB = {
+                'image': 16,
+                'video': 16,
+                'audio': 16,
+                'document': 100
+            }
+            
+            max_size_bytes = MAX_SIZE_MB.get(media_type, 16) * 1024 * 1024
+            
+            # Calculate size from base64 data
+            media_data = media.get('data', '')
+            if media_data:
+                # Base64 encoded size is ~1.33x larger than actual bytes
+                bytes_len = len(media_data) * 3 // 4
+                
+                logger.info(f"📊 [BAILEYS-MEDIA] type={media_type}, bytesLen={bytes_len}, maxAllowed={max_size_bytes}")
+                
+                if bytes_len > max_size_bytes:
+                    size_mb = bytes_len / (1024 * 1024)
+                    max_mb = MAX_SIZE_MB.get(media_type, 16)
+                    return {
+                        "provider": "baileys",
+                        "status": "error",
+                        "error": f"File too large ({size_mb:.1f}MB). WhatsApp limit is {max_mb}MB for {media_type}"
+                    }
+            
+            # 🔥 FIX B: Validate proper Baileys media format
+            # Baileys requires: data (base64), mimetype, and filename (for documents)
+            if not media.get('mimetype'):
+                logger.error(f"[BAILEYS-ERR] Missing mimetype for {media_type}")
+                return {
+                    "provider": "baileys",
+                    "status": "error",
+                    "error": "Missing mimetype - required for media"
+                }
+            
+            # For images: mime must start with 'image/'
+            if media_type == 'image' and not media['mimetype'].startswith('image/'):
+                logger.error(f"[BAILEYS-ERR] Invalid mimetype for image: {media['mimetype']}")
+                return {
+                    "provider": "baileys",
+                    "status": "error",
+                    "error": f"Invalid mimetype for image: {media['mimetype']}"
+                }
+            
+            # For documents: must have filename
+            if media_type == 'document' and not media.get('filename'):
+                logger.warning(f"[BAILEYS-WARN] Document missing filename, using default")
+                media['filename'] = 'document.pdf'  # Default filename
+            
             # Generate idempotency key
             idempotency_key = str(uuid.uuid4())
             
-            # Prepare payload with base64 media data
+            # 🔥 FIX B: Prepare payload with PROPER Baileys format
+            # Baileys expects: {to, type, media: {data, mimetype, filename}, caption, idempotencyKey, tenantId}
             payload = {
                 "to": to.replace("whatsapp:", "").replace("+", ""),
                 "type": media_type,  # image/video/audio/document
-                "media": media,  # Contains: data (base64), mimetype, filename
-                "caption": caption,
+                "media": {
+                    "data": media.get('data', ''),  # base64 string
+                    "mimetype": media.get('mimetype', ''),
+                    "filename": media.get('filename', 'file')
+                },
+                "caption": caption or '',
                 "idempotencyKey": idempotency_key,
                 "tenantId": tenant_id
             }
             
-            logger.info(f"⚡ Sending {media_type} to {to[:15]}...")
+            logger.info(f"⚡ [BAILEYS-MEDIA] Sending {media_type} to {to[:15]}... mime={media.get('mimetype')}, bytes={bytes_len if 'bytes_len' in locals() else 'unknown'}")
             
             response = self._session.post(
                 f"{self.outbound_url}/send",
                 json=payload,
-                timeout=(3.0, 30.0)  # Longer read timeout for media (30s)
+                timeout=(3.0, 60.0)  # 🔥 FIX C: Longer timeout for large media (60s read timeout)
             )
             
             if response.status_code == 200:
                 result = response.json()
-                logger.info(f"✅ {media_type} sent successfully to {to[:15]}...")
+                logger.info(f"✅ [BAILEYS-MEDIA] {media_type} sent successfully to {to[:15]}...")
                 return {
                     "provider": "baileys",
                     "status": "sent",
@@ -444,19 +543,52 @@ class BaileysProvider(Provider):
                     "media_url": result.get("mediaUrl")
                 }
             else:
-                logger.error(f"❌ Baileys media send failed: {response.status_code}")
+                # 🔥 FIX 0: Enhanced error logging with FULL details
+                error_body = None
+                try:
+                    error_body = response.json()
+                except:
+                    error_body = response.text
+                
+                logger.error(f"❌ [BAILEYS-MEDIA-ERR] Media send failed!")
+                logger.error(f"   statusCode: {response.status_code}")
+                logger.error(f"   response.data: {error_body}")
+                logger.error(f"   jid: {to}")
+                logger.error(f"   messageType: {media_type}")
+                logger.error(f"   mime: {media.get('mimetype')}")
+                logger.error(f"   bytesLen: {bytes_len if 'bytes_len' in locals() else 'unknown'}")
+                logger.error(f"   filename: {media.get('filename')}")
+                
                 return {
                     "provider": "baileys",
                     "status": "error",
-                    "error": f"HTTP {response.status_code}"
+                    "error": f"HTTP {response.status_code}",
+                    "details": {
+                        "statusCode": response.status_code,
+                        "responseBody": error_body,
+                        "jid": to,
+                        "messageType": media_type,
+                        "mime": media.get('mimetype'),
+                        "bytesLen": bytes_len if 'bytes_len' in locals() else None
+                    }
                 }
                 
-        except Exception as e:
-            logger.error(f"❌ Baileys media send exception: {e}")
+        except requests.exceptions.Timeout as e:
+            logger.error(f"❌ [BAILEYS-MEDIA-ERR] Timeout sending {media_type}: {e}")
             return {
                 "provider": "baileys",
                 "status": "error",
-                "error": str(e)
+                "error": f"Timeout after 60s - file may be too large"
+            }
+        except Exception as e:
+            logger.error(f"❌ [BAILEYS-MEDIA-ERR] Exception sending {media_type}: {e}")
+            import traceback
+            logger.error(f"   stack: {traceback.format_exc()}")
+            return {
+                "provider": "baileys",
+                "status": "error",
+                "error": str(e),
+                "stack": traceback.format_exc()
             }
 
 
@@ -597,23 +729,43 @@ def get_provider() -> Provider:
         return TwilioProvider()
 
 def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any] | None = None, tenant_id: str = None):
-    """Get WhatsApp service with smart routing and failover (MULTI-TENANT)
+    """🔥 FIX A: Get WhatsApp service with CACHED providers (no more "fresh BaileysProvider")
     
-    IMPORTANT: When tenant_id is provided, we ALWAYS create a fresh BaileysProvider 
-    to ensure multi-tenant routing works correctly. The singleton is only used for 
-    non-tenant-specific calls (like health checks).
+    This function now caches Baileys providers per tenant_id to maintain connection state
+    and prevent socket/state issues with media sending.
+    
+    IMPORTANT: 
+    - When tenant_id is provided, returns CACHED BaileysProvider for that tenant
+    - Cache prevents "socket not ready" / "state not loaded" / "upload path incorrect" errors
+    - Only creates new provider if not in cache
+    
+    Args:
+        provider: Optional provider override ("baileys" or "twilio")
+        thread_data: Optional thread data for smart routing
+        tenant_id: Tenant ID for multi-tenant routing (e.g., "business_1")
+        
+    Returns:
+        WhatsAppService: Service instance with cached provider
     """
-    global _whatsapp_service
+    global _whatsapp_service, _provider_cache
     
-    # 🔥 MULTI-TENANT: If tenant_id is provided, ALWAYS use fresh Baileys (no singleton)
+    # 🔥 FIX A: Use cached Baileys provider if tenant_id provided
     if tenant_id:
-        print(f"🔌 get_whatsapp_service: tenant_id={tenant_id} → using fresh BaileysProvider", flush=True)
-        return WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
+        # Check if we have a cached provider for this tenant
+        if tenant_id in _provider_cache:
+            logger.debug(f"🔌 get_whatsapp_service: tenant_id={tenant_id} → using CACHED BaileysProvider ✅")
+            return WhatsAppService(_provider_cache[tenant_id], tenant_id=tenant_id)
+        else:
+            # Create new provider and cache it
+            logger.info(f"🔌 get_whatsapp_service: tenant_id={tenant_id} → creating NEW BaileysProvider (will be cached)")
+            new_provider = BaileysProvider()
+            _provider_cache[tenant_id] = new_provider
+            return WhatsAppService(new_provider, tenant_id=tenant_id)
     
     # Provider override for specific request
     if provider:
         p = provider.lower()
-        print(f"🔌 get_whatsapp_service: explicit provider={p}", flush=True)
+        logger.debug(f"🔌 get_whatsapp_service: explicit provider={p}")
         if p == "twilio":
             return WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         if p == "baileys":
@@ -622,7 +774,7 @@ def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any
     # Smart routing logic
     if thread_data:
         resolved_provider = _resolve_smart_provider(thread_data)
-        print(f"🔌 get_whatsapp_service: smart routing → {resolved_provider}", flush=True)
+        logger.debug(f"🔌 get_whatsapp_service: smart routing → {resolved_provider}")
         if resolved_provider == "twilio":
             return WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         elif resolved_provider == "baileys":
@@ -631,7 +783,7 @@ def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any
     # Default service with auto-routing (singleton for non-tenant calls)
     if _whatsapp_service is None:
         provider_type = os.getenv("WHATSAPP_PROVIDER", "auto").lower()
-        print(f"🔌 get_whatsapp_service: creating singleton (provider_type={provider_type})", flush=True)
+        logger.debug(f"🔌 get_whatsapp_service: creating singleton (provider_type={provider_type})")
         
         if provider_type == "auto":
             # Auto-routing: prefer Baileys if available, fallback to Twilio

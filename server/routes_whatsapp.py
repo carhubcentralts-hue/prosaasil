@@ -849,29 +849,47 @@ def baileys_webhook():
                     log.info(f"[WA-SKIP] Ignoring non-private message from {remote_jid} - bot only responds to private chats")
                     continue
                 
-                # 🔥 CRITICAL FIX: Extract E.164 phone number ONLY from @s.whatsapp.net
-                # For @lid or other non-standard JIDs, use pushName or mark as unknown
+                # 🔥 FIX D: Extract E.164 phone number OR store @lid as customer_external_id
+                # For @lid or other non-standard JIDs, DON'T create invalid phone numbers like "+97282399..."
                 from_number_e164 = None
+                customer_external_id = None  # For @lid and other non-standard JIDs
+                
                 if remote_jid.endswith('@s.whatsapp.net'):
                     # Standard WhatsApp user - extract phone number
                     phone_part = remote_jid.replace('@s.whatsapp.net', '')
                     # Clean and normalize to E.164 format
                     from_number_e164 = phone_part.replace('+', '').strip()
-                    # Add + prefix if it's a valid international number
+                    # Validate it's a valid phone number (digits only, 10+ chars)
                     if from_number_e164 and from_number_e164.isdigit() and len(from_number_e164) >= 10:
-                        if not from_number_e164.startswith('972'):  # Check if already has country code
-                            # Assume Israeli number if no country code
-                            if from_number_e164.startswith('0'):
-                                from_number_e164 = '972' + from_number_e164[1:]
-                else:
-                    # Non-standard JID (@lid, etc.) - cannot extract E.164
-                    # Use pushName for identification or mark as unknown
+                        # Valid phone number - keep as-is or normalize Israeli numbers
+                        if not from_number_e164.startswith('972') and from_number_e164.startswith('0'):
+                            # Israeli local number - convert to international
+                            from_number_e164 = '972' + from_number_e164[1:]
+                    else:
+                        # Invalid phone format - treat as external ID
+                        log.warning(f"[WA-INCOMING] Invalid phone in standard JID: {remote_jid}")
+                        customer_external_id = remote_jid
+                        from_number_e164 = None
+                        
+                elif remote_jid.endswith('@lid'):
+                    # 🔥 FIX D: @lid JID - store as customer_external_id, NOT as phone
+                    # DO NOT try to extract phone from @lid - it's NOT a phone number!
                     push_name = msg.get('pushName', 'Unknown')
-                    log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name} - cannot extract E.164")
-                    # For database consistency, use the JID itself as identifier
-                    from_number_e164 = remote_jid.replace('@', '_').replace('.', '_')  # Safe DB identifier
+                    log.info(f"[WA-INCOMING] @lid JID detected: {remote_jid}, pushName={push_name}")
+                    customer_external_id = remote_jid  # Store full @lid
+                    from_number_e164 = None  # No phone number available
+                    # Use safe DB identifier based on lid (not a phone number!)
+                    from_number_e164 = remote_jid.replace('@', '_at_').replace('.', '_')  # lid_at_lid format
+                    
+                else:
+                    # 🔥 FIX D: Other non-standard JID - store as external ID
+                    push_name = msg.get('pushName', 'Unknown')
+                    log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name} - storing as external ID")
+                    customer_external_id = remote_jid
+                    # For database consistency, use safe identifier (NOT a phone number!)
+                    from_number_e164 = remote_jid.replace('@', '_at_').replace('.', '_')
                 
-                log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}")
+                log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}, external_id={customer_external_id}")
                 
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
                 # Different devices send messages in different formats:
@@ -907,25 +925,31 @@ def baileys_webhook():
                     message_text = '[הודעה קולית]'
                     log.debug(f"[WA-PARSE] Found 'audioMessage'")
                 
-                # 🔥 ANDROID FIX: Log unknown message types for debugging
+                # 🔥 FIX D: Don't crash on empty/unknown message formats - just skip gracefully
                 if not message_text:
-                    available_keys = list(message_obj.keys())
-                    log.warning(f"[WA-PARSE] Unknown message format from {from_identifier} (remoteJid={remote_jid}), available keys: {available_keys}")
-                    log.warning(f"[WA-PARSE] Full message object: {str(message_obj)[:200]}...")
-                    # Try to extract ANY text from ANY key
-                    for key in available_keys:
-                        if isinstance(message_obj[key], dict):
-                            if 'text' in message_obj[key]:
-                                message_text = message_obj[key]['text']
-                                log.info(f"[WA-PARSE] Found text in '{key}.text'")
-                                break
-                            if 'caption' in message_obj[key]:
-                                message_text = message_obj[key]['caption']
-                                log.info(f"[WA-PARSE] Found text in '{key}.caption'")
-                                break
+                    available_keys = list(message_obj.keys()) if message_obj else []
+                    if available_keys:
+                        log.info(f"[WA-SKIP] Unknown message format from {from_identifier} (remoteJid={remote_jid}), available keys: {available_keys}")
+                        log.debug(f"[WA-PARSE] Full message object: {str(message_obj)[:200]}...")
+                        # Try to extract ANY text from ANY key as last resort
+                        for key in available_keys:
+                            if isinstance(message_obj[key], dict):
+                                if 'text' in message_obj[key]:
+                                    message_text = message_obj[key]['text']
+                                    log.info(f"[WA-PARSE] Found text in '{key}.text'")
+                                    break
+                                if 'caption' in message_obj[key]:
+                                    message_text = message_obj[key]['caption']
+                                    log.info(f"[WA-PARSE] Found text in '{key}.caption'")
+                                    break
+                    else:
+                        # Empty message object - skip without error
+                        log.info(f"[WA-SKIP] Empty message object from {remote_jid} - skipping gracefully")
+                        continue
                 
+                # 🔥 FIX D: If still no message text after all attempts, skip gracefully (don't crash)
                 if not remote_jid or not message_text:
-                    log.warning(f"[WA-SKIP] Missing remote_jid={bool(remote_jid)} or message_text={bool(message_text)}")
+                    log.info(f"[WA-SKIP] Missing remote_jid={bool(remote_jid)} or message_text={bool(message_text)} - skipping message")
                     continue
                 
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
