@@ -29,11 +29,13 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'בוטל',
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'gray',
-  sent: 'blue',
-  signed: 'green',
-  cancelled: 'red',
+type BadgeVariant = 'success' | 'error' | 'warning' | 'info' | 'neutral';
+
+const STATUS_VARIANTS: Record<string, BadgeVariant> = {
+  draft: 'neutral',
+  sent: 'info',
+  signed: 'success',
+  cancelled: 'error',
 };
 
 export function ContractsPage() {
@@ -238,7 +240,7 @@ export function ContractsPage() {
                           {contract.title}
                         </span>
                       </div>
-                      <Badge color={STATUS_COLORS[contract.status] as any} className="flex-shrink-0 mr-2">
+                      <Badge variant={STATUS_VARIANTS[contract.status]} className="flex-shrink-0 mr-2">
                         {STATUS_LABELS[contract.status]}
                       </Badge>
                     </div>
@@ -319,7 +321,7 @@ export function ContractsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <Badge color={STATUS_COLORS[contract.status] as any}>
+                          <Badge variant={STATUS_VARIANTS[contract.status]}>
                             {STATUS_LABELS[contract.status]}
                           </Badge>
                         </td>

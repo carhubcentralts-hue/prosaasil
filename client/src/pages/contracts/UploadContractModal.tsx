@@ -8,6 +8,9 @@ interface UploadContractModalProps {
   onSuccess: () => void;
 }
 
+// Duration to display success message before closing modal
+const SUCCESS_DISPLAY_DURATION = 1500;
+
 export function UploadContractModal({ onClose, onSuccess }: UploadContractModalProps) {
   const [formData, setFormData] = useState({
     title: '',
@@ -113,7 +116,7 @@ export function UploadContractModal({ onClose, onSuccess }: UploadContractModalP
       timeoutRef.current = setTimeout(() => {
         onSuccess();
         onClose();
-      }, 1500);
+      }, SUCCESS_DISPLAY_DURATION);
     } catch (err: any) {
       console.error('Error uploading contract:', err);
       setError(err.message || 'שגיאה בהעלאת חוזה');
