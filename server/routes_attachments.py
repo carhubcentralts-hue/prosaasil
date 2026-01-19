@@ -20,7 +20,7 @@ Security:
 from flask import Blueprint, jsonify, request, send_file, g
 from werkzeug.utils import secure_filename
 from server.auth_api import require_api_auth
-from server.models_sql import Attachment, User
+from server.models_sql import Attachment, User, ContractFile
 from server.db import db
 from server.services.attachment_service import get_attachment_service
 from datetime import datetime
@@ -212,6 +212,7 @@ def list_attachments():
         - mime_type: Filter by mime type prefix (e.g., 'image/', 'video/')
         - page: Page number (default: 1)
         - per_page: Items per page (default: 30, max: 100)
+        - include_contracts: Include contract-related files (default: false)
     
     Response:
         - 200: List of attachments
@@ -227,6 +228,19 @@ def list_attachments():
             business_id=business_id,
             is_deleted=False
         )
+        
+        # By default, exclude contract-related attachments (digital signatures, signed PDFs)
+        # These should only be visible in the contracts section
+        include_contracts = request.args.get('include_contracts', 'false').lower() == 'true'
+        if not include_contracts:
+            # Exclude attachments that are linked to any contract file using EXISTS for better performance
+            query = query.filter(
+                ~db.session.query(ContractFile).filter(
+                    ContractFile.attachment_id == Attachment.id,
+                    ContractFile.business_id == business_id,
+                    ContractFile.deleted_at.is_(None)
+                ).exists()
+            )
         
         # Filter by channel compatibility
         channel = request.args.get('channel')

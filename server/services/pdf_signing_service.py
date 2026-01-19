@@ -12,7 +12,7 @@ import io
 import logging
 from typing import List, Dict, Tuple, Optional
 from PIL import Image
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
