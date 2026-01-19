@@ -988,14 +988,16 @@ def baileys_webhook():
                 log.info(f"[WA-INCOMING] biz={business_id}, from={from_number_e164}, remoteJid={remote_jid}, text={message_text[:50]}...")
                 
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
+                # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
+                phone_or_id = from_number_e164 if from_number_e164 else customer_external_id
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
-                    phone_number=from_number_e164,
+                    phone_number=phone_or_id,
                     message_text=message_text
                 )
                 
                 action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {from_number_e164}")
+                log.info(f"✅ {action} customer/lead for {phone_or_id}")
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
                 # 🔥 BUILD 180: Check both 'in' and 'inbound' for backwards compatibility
