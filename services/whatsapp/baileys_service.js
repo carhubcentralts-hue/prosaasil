@@ -982,12 +982,15 @@ async function startSession(tenantId, forceRelink = false) {
           
           console.log(`[WA] ${tenantId}: ✅ AUTHENTICATED! pushName=${s.pushName}, phone=${phoneNumber}`);
           
-          // 🔥 CORRECTED: Mark connected immediately, canSend will be true after first successful send
-          // Don't use sendPresenceUpdate as it's not reliable across all account types
+          // 🔥 FIX: When connection is established with authPaired=true, we CAN send messages
+          // Previously canSend was only set to true after first successful send, creating a deadlock:
+          // - Python blocks sends because canSend=false
+          // - canSend never becomes true because no sends succeed
+          // Now: if connected AND authPaired, set canSend=true immediately
           s.connected = true;
           s.starting = false;
-          s.canSend = false; // Will be set to true after first successful message send
-          console.log(`[WA] ${tenantId}: 🎉 CONNECTED! (canSend will be verified on first message)`);
+          s.canSend = true;  // 🔥 FIX: Set to TRUE when authenticated - we can send!
+          console.log(`[WA] ${tenantId}: 🎉 CONNECTED AND READY TO SEND! (connected=true, authPaired=true, canSend=true)`);
           
           // Resolve the starting promise
           if (resolvePromise) {

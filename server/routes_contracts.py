@@ -1007,11 +1007,24 @@ def complete_signing(token):
         
         logger.info(f"[CONTRACT_SIGN_COMPLETE] contract_id={contract_id} status=signed")
         
+        # ✅ Generate download URL for signed document
+        attachment_service = get_attachment_service()
+        signed_document_url = None
+        try:
+            signed_document_url = attachment_service.generate_signed_url(
+                attachment.storage_path,
+                expires_in=86400  # 24 hours
+            )
+        except Exception as url_err:
+            logger.warning(f"[CONTRACT_SIGN_COMPLETE] Could not generate signed URL: {url_err}")
+        
         return jsonify({
             'message': 'Contract signed successfully',
             'contract_id': contract_id,
             'status': 'signed',
-            'signed_at': contract.signed_at.isoformat()
+            'signed_at': contract.signed_at.isoformat(),
+            'signed_document_url': signed_document_url,
+            'signer_name': contract.signer_name
         }), 200
         
     except Exception as e:

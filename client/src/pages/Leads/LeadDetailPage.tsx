@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -21,8 +21,10 @@ interface LeadDetailPageProps {}
 const TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
   { key: 'conversation', label: 'וואטסאפ', icon: MessageSquare },
+  { key: 'wa_template', label: 'שליחה מתבנית', icon: Send },  // NEW: WhatsApp template-based sending for single lead
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
   { key: 'email', label: 'מייל', icon: Mail },
+  { key: 'contracts', label: 'חוזים', icon: FileSignature },  // NEW: Lead contracts
   { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
   { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone },  // AI-generated call summaries for customer service
@@ -482,8 +484,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           />
         )}
         {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
+        {activeTab === 'wa_template' && <WhatsAppTemplateTab lead={lead} />}
         {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'email' && <EmailTab lead={lead} />}
+        {activeTab === 'contracts' && <ContractsTab lead={lead} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'ai_notes' && <AINotesTab lead={lead} onUpdate={fetchLead} />}
@@ -1988,29 +1992,40 @@ function InvoicesTab({ leadId }: { leadId: number }) {
   );
 }
 
-function ContractsTab({ leadId }: { leadId: number }) {
+function ContractsTab({ lead }: { lead: Lead }) {
   const [contracts, setContracts] = useState<any[]>([]);
   const [showContractModal, setShowContractModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [contractForm, setContractForm] = useState({
     title: '',
     type: 'sale'
   });
+  const [newContractFiles, setNewContractFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadContracts();
-  }, [leadId]);
+  }, [lead.id]);
 
   const loadContracts = async () => {
     try {
       setLoading(true);
-      const response = await http.get('/api/contracts') as any;
-      const allContracts = response?.contracts || [];
-      const leadContracts = allContracts.filter((contract: any) => contract.lead_id === leadId);
-      setContracts(leadContracts);
-    } catch (error) {
-      console.error('Error loading contracts:', error);
-      setContracts([]);
+      setError(null);
+      // Use new lead-specific endpoint
+      const response = await http.get(`/api/leads/${lead.id}/contracts`) as any;
+      setContracts(response?.contracts || []);
+    } catch (err: any) {
+      console.error('Error loading contracts:', err);
+      // Fallback to old method if new endpoint not available
+      try {
+        const response = await http.get('/api/contracts') as any;
+        const allContracts = response?.contracts || [];
+        const leadContracts = allContracts.filter((contract: any) => contract.lead_id === lead.id);
+        setContracts(leadContracts);
+      } catch (fallbackError) {
+        setContracts([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -2024,16 +2039,30 @@ function ContractsTab({ leadId }: { leadId: number }) {
       }
 
       setLoading(true);
-      const response = await http.post('/api/contracts', {
-        lead_id: leadId,
-        type: contractForm.type,
-        title: contractForm.title
+      
+      // Use FormData for file uploads
+      const formData = new FormData();
+      formData.append('lead_id', lead.id.toString());
+      formData.append('type', contractForm.type);
+      formData.append('title', contractForm.title);
+      formData.append('signer_name', `${lead.first_name || ''} ${lead.last_name || ''}`.trim());
+      formData.append('signer_phone', lead.phone_e164 || '');
+      formData.append('signer_email', lead.email || '');
+      
+      newContractFiles.forEach(file => {
+        formData.append('files', file);
+      });
+      
+      const response = await http.request('/api/contracts', {
+        method: 'POST',
+        body: formData
       }) as any;
 
-      if (response.success) {
-        alert(`חוזה נוצר בהצלחה! מספר: ${response.contract_id}`);
+      if (response.success || response.contract_id) {
+        alert(`חוזה נוצר בהצלחה! מספר: ${response.contract_id || response.id}`);
         setShowContractModal(false);
         setContractForm({ title: '', type: 'sale' });
+        setNewContractFiles([]);
         loadContracts();
       } else {
         alert('שגיאה ביצירת החוזה');
@@ -2045,16 +2074,36 @@ function ContractsTab({ leadId }: { leadId: number }) {
       setLoading(false);
     }
   };
+  
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      setNewContractFiles(prev => [...prev, ...Array.from(files)]);
+    }
+    e.target.value = '';
+  };
 
-  const getContractTypeLabel = (type: string) => {
-    const types: Record<string, string> = {
-      'sale': 'מכר',
-      'rent': 'שכירות',
-      'mediation': 'תיווך',
-      'management': 'ניהול',
-      'custom': 'מותאם אישית'
+  const removeFile = (index: number) => {
+    setNewContractFiles(prev => prev.filter((_, i) => i !== index));
+  };
+  
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getContractStatusBadge = (status: string) => {
+    const config: Record<string, { color: string; label: string }> = {
+      draft: { color: 'bg-gray-100 text-gray-800', label: 'טיוטה' },
+      sent: { color: 'bg-blue-100 text-blue-800', label: 'נשלח' },
+      signed: { color: 'bg-green-100 text-green-800', label: 'נחתם' },
+      rejected: { color: 'bg-red-100 text-red-800', label: 'נדחה' },
+      expired: { color: 'bg-yellow-100 text-yellow-800', label: 'פג תוקף' },
+      active: { color: 'bg-green-100 text-green-800', label: 'פעיל' }
     };
-    return types[type] || type;
+    const { color, label } = config[status] || { color: 'bg-gray-100 text-gray-800', label: status };
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>{label}</span>;
   };
 
   return (
@@ -2073,24 +2122,37 @@ function ContractsTab({ leadId }: { leadId: number }) {
       </div>
       
       {showContractModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="contract-modal">
-          <Card className="w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" data-testid="contract-modal">
+          <Card className="w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium">צור חוזה חדש</h3>
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                  <FileSignature className="w-5 h-5 text-purple-600" />
+                  צור חוזה חדש
+                </h3>
                 <Button 
                   variant="ghost" 
                   size="sm"
                   onClick={() => setShowContractModal(false)}
                   data-testid="button-close-contract-modal"
                 >
-                  ✕
+                  <X className="w-5 h-5" />
                 </Button>
+              </div>
+              
+              {/* Lead Info (Auto-filled) */}
+              <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 mb-4">
+                <p className="text-sm font-medium text-purple-900 mb-1">פרטי החותם (מליד)</p>
+                <div className="text-sm text-purple-700 space-y-0.5">
+                  <p>שם: {lead.first_name} {lead.last_name}</p>
+                  <p>טלפון: {lead.phone_e164 || 'לא צוין'}</p>
+                  <p>מייל: {lead.email || 'לא צוין'}</p>
+                </div>
               </div>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">כותרת החוזה</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">כותרת החוזה *</label>
                   <Input
                     type="text"
                     placeholder="לדוגמה: חוזה מכר דירה"
@@ -2116,18 +2178,72 @@ function ContractsTab({ leadId }: { leadId: number }) {
                   </select>
                 </div>
                 
+                {/* File Upload */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">מסמכי חוזה</label>
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-purple-400 transition-colors"
+                  >
+                    <Upload className="w-6 h-6 text-gray-400 mx-auto mb-1" />
+                    <p className="text-sm text-gray-600">לחץ להעלאת קבצים</p>
+                    <p className="text-xs text-gray-400">PDF, DOC, DOCX</p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+
+                  {newContractFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {newContractFiles.map((file, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-gray-500" />
+                            <span className="text-sm text-gray-700">{file.name}</span>
+                            <span className="text-xs text-gray-400">({formatFileSize(file.size)})</span>
+                          </div>
+                          <button
+                            onClick={() => removeFile(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
                 <div className="flex gap-2 pt-4">
                   <Button
                     onClick={handleCreateContract}
-                    disabled={loading}
-                    className="flex-1"
+                    disabled={loading || !contractForm.title.trim()}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
                     data-testid="button-submit-contract"
                   >
-                    {loading ? 'יוצר...' : 'צור חוזה'}
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin ml-2" />
+                        יוצר...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 ml-2" />
+                        צור חוזה
+                      </>
+                    )}
                   </Button>
                   <Button
                     variant="secondary"
-                    onClick={() => setShowContractModal(false)}
+                    onClick={() => {
+                      setShowContractModal(false);
+                      setNewContractFiles([]);
+                    }}
                     className="flex-1"
                   >
                     ביטול
@@ -2146,27 +2262,39 @@ function ContractsTab({ leadId }: { leadId: number }) {
         </div>
       ) : contracts.length === 0 ? (
         <div className="text-center py-8">
-          <Tag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <FileSignature className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <p className="text-sm text-gray-500 mb-4">אין חוזים עדיין</p>
         </div>
       ) : (
         <div className="space-y-3">
           {contracts.map((contract) => (
-            <div key={contract.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`contract-${contract.id}`}>
+            <div key={contract.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors" data-testid={`contract-${contract.id}`}>
               <div className="flex justify-between items-start mb-2">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{contract.title}</p>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-medium text-gray-900">{contract.title}</p>
+                    {getContractStatusBadge(contract.status)}
+                  </div>
                   <p className="text-xs text-gray-500">מספר: {contract.id}</p>
+                  {contract.signer_name && (
+                    <p className="text-xs text-gray-600 mt-1">חותם: {contract.signer_name}</p>
+                  )}
                 </div>
-                <Badge className="bg-blue-100 text-blue-800">
-                  {getContractTypeLabel(contract.type)}
-                </Badge>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => window.open(`/app/contracts/${contract.id}`, '_blank')}
+                  >
+                    צפה
+                  </Button>
+                </div>
               </div>
               <div className="flex justify-between items-center text-xs text-gray-500">
-                <span>{formatDate(contract.created_at)}</span>
-                <Badge className={contract.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                  {contract.status === 'active' ? 'פעיל' : contract.status}
-                </Badge>
+                <span>נוצר: {formatDate(contract.created_at)}</span>
+                {contract.signed_at && (
+                  <span className="text-green-600 font-medium">נחתם: {formatDate(contract.signed_at)}</span>
+                )}
               </div>
             </div>
           ))}
@@ -3782,3 +3910,231 @@ function EmailTab({ lead }: EmailTabProps) {
     </Card>
   );
 }
+
+// =============== NEW: WhatsApp Template Tab - Send with template like broadcasts ===============
+interface WhatsAppTemplateTabProps {
+  lead: Lead;
+}
+
+interface ManualTemplate {
+  id: number;
+  name: string;
+  message_text: string;
+  created_at: string;
+}
+
+function WhatsAppTemplateTab({ lead }: WhatsAppTemplateTabProps) {
+  const [templates, setTemplates] = useState<ManualTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [customMessage, setCustomMessage] = useState('');
+  const [attachmentId, setAttachmentId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const loadTemplates = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get<{ templates: ManualTemplate[] }>('/api/whatsapp/templates/manual');
+      setTemplates(response.templates || []);
+    } catch (err) {
+      console.error('Failed to load templates:', err);
+      setError('שגיאה בטעינת התבניות');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTemplateSelect = (templateId: number) => {
+    setSelectedTemplateId(templateId);
+    const template = templates.find(t => t.id === templateId);
+    if (template) {
+      // Replace variables in template
+      let message = template.message_text;
+      message = message.replace(/\{\{first_name\}\}/gi, lead.first_name || '');
+      message = message.replace(/\{\{last_name\}\}/gi, lead.last_name || '');
+      message = message.replace(/\{\{name\}\}/gi, `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'לקוח/ה יקר/ה');
+      setCustomMessage(message);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!customMessage.trim()) {
+      setError('נא להזין הודעה');
+      return;
+    }
+
+    if (!lead.phone_e164) {
+      setError('לליד זה אין מספר טלפון');
+      return;
+    }
+
+    setSending(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const phoneNumber = lead.phone_e164.replace(/[^0-9]/g, '');
+      
+      const payload: any = {
+        to: phoneNumber,
+        message: customMessage
+      };
+
+      if (attachmentId) {
+        payload.attachment_id = attachmentId;
+      }
+
+      await http.post('/api/whatsapp/send', payload);
+      
+      setSuccess('ההודעה נשלחה בהצלחה!');
+      setCustomMessage('');
+      setSelectedTemplateId(null);
+      setAttachmentId(null);
+      
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to send message:', err);
+      setError(err.message || 'שגיאה בשליחת ההודעה');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Card className="p-4 sm:p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+            <Send className="w-5 h-5 text-green-600" />
+            שליחת הודעה מתבנית
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">
+            שלח הודעת וואטסאפ לליד באמצעות תבנית מוכנה או הודעה מותאמת
+          </p>
+        </div>
+      </div>
+
+      {/* Lead Info */}
+      <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
+            {(lead.first_name?.[0] || lead.last_name?.[0] || 'ל').toUpperCase()}
+          </div>
+          <div>
+            <p className="font-medium text-gray-900">
+              {lead.first_name} {lead.last_name}
+            </p>
+            <p className="text-sm text-gray-600">
+              {lead.phone_e164 || 'אין מספר טלפון'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-5 h-5" />
+          {success}
+        </div>
+      )}
+
+      {/* Template Selection */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          בחר תבנית (אופציונלי)
+        </label>
+        {loading ? (
+          <div className="flex items-center gap-2 text-gray-500">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            טוען תבניות...
+          </div>
+        ) : templates.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            אין תבניות זמינות. ניתן ליצור תבניות בדף התפוצה.
+          </p>
+        ) : (
+          <select
+            value={selectedTemplateId || ''}
+            onChange={(e) => e.target.value ? handleTemplateSelect(parseInt(e.target.value)) : setSelectedTemplateId(null)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          >
+            <option value="">בחר תבנית...</option>
+            {templates.map(template => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* Message Text */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          תוכן ההודעה *
+        </label>
+        <textarea
+          value={customMessage}
+          onChange={(e) => setCustomMessage(e.target.value)}
+          placeholder="כתוב כאן את ההודעה..."
+          rows={6}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+          dir="rtl"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          המשתנים {"{{first_name}}"}, {"{{last_name}}"} הוחלפו אוטומטית
+        </p>
+      </div>
+
+      {/* Attachment (placeholder - would integrate with AttachmentPicker) */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          קובץ מצורף (אופציונלי)
+        </label>
+        <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center text-gray-500">
+          <Upload className="w-8 h-8 mx-auto mb-2" />
+          <p className="text-sm">גרור קובץ לכאן או לחץ לבחירה</p>
+          <p className="text-xs text-gray-400 mt-1">תמיכה בתמונות, מסמכים וקבצים</p>
+        </div>
+      </div>
+
+      {/* Send Button */}
+      <Button
+        onClick={handleSend}
+        disabled={sending || !customMessage.trim() || !lead.phone_e164}
+        className="w-full bg-green-600 hover:bg-green-700"
+      >
+        {sending ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin ml-2" />
+            שולח...
+          </>
+        ) : (
+          <>
+            <Send className="w-4 h-4 ml-2" />
+            שלח הודעה
+          </>
+        )}
+      </Button>
+
+      {!lead.phone_e164 && (
+        <p className="text-center text-sm text-red-600 mt-2">
+          לא ניתן לשלוח - אין מספר טלפון לליד
+        </p>
+      )}
+    </Card>
+  );
+}
+

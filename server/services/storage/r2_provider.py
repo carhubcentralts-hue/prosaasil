@@ -195,3 +195,71 @@ class R2StorageProvider(AttachmentStorageProvider):
             else:
                 logger.error(f"[R2_STORAGE] Error checking file existence for {storage_key}: {e}")
                 return False
+    
+    def download_bytes(self, storage_key: str) -> bytes:
+        """
+        Download file content from R2 as bytes
+        
+        This is used for attaching files to emails (SendGrid requires base64 content)
+        and for sending media via WhatsApp (Baileys needs the actual bytes/buffer).
+        
+        Args:
+            storage_key: Storage key of the file
+            
+        Returns:
+            File content as bytes
+            
+        Raises:
+            Exception: If download fails or file not found
+        """
+        try:
+            response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=storage_key
+            )
+            
+            # Read the body into bytes
+            file_bytes = response['Body'].read()
+            
+            logger.info(f"[R2_STORAGE] ✅ Downloaded {storage_key} ({len(file_bytes)} bytes)")
+            return file_bytes
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            if error_code == '404' or error_code == 'NoSuchKey':
+                logger.error(f"[R2_STORAGE] File not found for download: {storage_key}")
+                raise FileNotFoundError(f"File not found in R2: {storage_key}")
+            else:
+                logger.error(f"[R2_STORAGE] Download failed for {storage_key}: {e}")
+                raise Exception(f"Failed to download from R2: {e}")
+    
+    def get_metadata(self, storage_key: str) -> dict:
+        """
+        Get file metadata from R2
+        
+        Args:
+            storage_key: Storage key of the file
+            
+        Returns:
+            Dict with content_type, content_length, and metadata
+        """
+        try:
+            response = self.s3_client.head_object(
+                Bucket=self.bucket_name,
+                Key=storage_key
+            )
+            
+            return {
+                'content_type': response.get('ContentType', 'application/octet-stream'),
+                'content_length': response.get('ContentLength', 0),
+                'metadata': response.get('Metadata', {}),
+                'last_modified': response.get('LastModified')
+            }
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            if error_code == '404' or error_code == 'NoSuchKey':
+                raise FileNotFoundError(f"File not found in R2: {storage_key}")
+            else:
+                logger.error(f"[R2_STORAGE] Get metadata failed for {storage_key}: {e}")
+                raise Exception(f"Failed to get metadata from R2: {e}")

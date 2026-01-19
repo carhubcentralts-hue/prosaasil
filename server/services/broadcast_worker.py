@@ -5,12 +5,14 @@ Handles rate limiting (1-3 msgs/sec), exponential backoff, and detailed status t
 """
 import os
 import time
+import base64
 import logging
 import random
 from datetime import datetime
 from server.db import db
-from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business
+from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Business, Attachment
 from server.app_factory import get_process_app
+from server.services.attachment_service import get_attachment_service
 
 log = logging.getLogger(__name__)
 
@@ -148,16 +150,66 @@ class BroadcastWorker:
                 
                 # Check if broadcast has media attachment
                 media_url = None
+                attachment_id = None
+                media_bytes = None
+                media_type = 'image'  # Default media type
+                media_filename = None
+                media_mimetype = None
+                
                 if self.broadcast.audience_filter and isinstance(self.broadcast.audience_filter, dict):
                     media_url = self.broadcast.audience_filter.get('media_url')
+                    attachment_id = self.broadcast.audience_filter.get('attachment_id')
+                
+                # 🔥 FIX: For R2 storage, download bytes instead of relying on signed URLs
+                # Baileys can work with URLs, but bytes are more reliable (no URL expiration issues)
+                if attachment_id and not media_bytes:
+                    try:
+                        attachment = Attachment.query.get(attachment_id)
+                        if attachment and attachment.storage_path:
+                            attachment_service = get_attachment_service()
+                            media_filename, media_mimetype, media_bytes = attachment_service.open_file(
+                                storage_key=attachment.storage_path,
+                                filename=attachment.filename_original,
+                                mime_type=attachment.mime_type
+                            )
+                            
+                            # Determine media type from mime
+                            if media_mimetype:
+                                if media_mimetype.startswith('image/'):
+                                    media_type = 'image'
+                                elif media_mimetype.startswith('video/'):
+                                    media_type = 'video'
+                                elif media_mimetype.startswith('audio/'):
+                                    media_type = 'audio'
+                                else:
+                                    media_type = 'document'
+                            
+                            log.info(f"[WA_SEND] Loaded attachment bytes: {media_filename} ({len(media_bytes)} bytes, {media_type})")
+                    except Exception as e:
+                        log.error(f"[WA_SEND] Failed to load attachment bytes: {e}, falling back to URL")
+                        # Fall back to URL if bytes loading fails
                 
                 # ✅ FIX: Send with retries and exponential backoff (1s, 3s, 10s)
                 backoff_delays = [1, 3, 10]  # seconds
                 for attempt in range(self.max_retries):
                     try:
                         # ✅ FIX: Add timeout to prevent bottlenecks (8-12 seconds)
-                        if media_url:
-                            # Send media message with optional caption
+                        if media_bytes:
+                            # 🔥 FIX: Send media as bytes (works with R2 storage)
+                            media_data = {
+                                'data': base64.b64encode(media_bytes).decode('utf-8'),
+                                'mimetype': media_mimetype or 'application/octet-stream',
+                                'filename': media_filename or 'attachment'
+                            }
+                            result = wa_service.send_message(
+                                formatted_number, 
+                                text or '', 
+                                tenant_id=tenant_id,
+                                media=media_data,
+                                media_type=media_type
+                            )
+                        elif media_url:
+                            # Send media message via URL with optional caption (legacy/fallback)
                             result = wa_service.send_media(
                                 formatted_number,
                                 media_url,
