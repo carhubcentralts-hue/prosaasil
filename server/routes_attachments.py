@@ -233,13 +233,14 @@ def list_attachments():
         # These should only be visible in the contracts section
         include_contracts = request.args.get('include_contracts', 'false').lower() == 'true'
         if not include_contracts:
-            # Exclude attachments that are linked to any contract file
-            contract_attachment_ids = db.session.query(ContractFile.attachment_id).filter(
-                ContractFile.business_id == business_id,
-                ContractFile.deleted_at.is_(None)
-            ).subquery()
-            
-            query = query.filter(~Attachment.id.in_(contract_attachment_ids))
+            # Exclude attachments that are linked to any contract file using EXISTS for better performance
+            query = query.filter(
+                ~db.session.query(ContractFile).filter(
+                    ContractFile.attachment_id == Attachment.id,
+                    ContractFile.business_id == business_id,
+                    ContractFile.deleted_at.is_(None)
+                ).exists()
+            )
         
         # Filter by channel compatibility
         channel = request.args.get('channel')

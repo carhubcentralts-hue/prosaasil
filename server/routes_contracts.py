@@ -1550,6 +1550,10 @@ def delete_contract(contract_id):
         if not contract:
             return jsonify({'error': 'Contract not found'}), 404
         
+        # Store status before deletion for logging
+        contract_status = contract.status
+        contract_title = contract.title
+        
         # Soft delete all contract files (keep attachment records)
         contract_files = ContractFile.query.filter_by(
             contract_id=contract_id,
@@ -1564,7 +1568,7 @@ def delete_contract(contract_id):
             contract_id=contract_id,
             business_id=business_id,
             event_type='deleted',
-            metadata={'title': contract.title, 'status': contract.status},
+            metadata={'title': contract_title, 'status': contract_status},
             user_id=user_id
         )
         
@@ -1572,7 +1576,7 @@ def delete_contract(contract_id):
         db.session.delete(contract)
         db.session.commit()
         
-        logger.info(f"[CONTRACT_DELETE] contract_id={contract_id} status={contract.status} deleted by user_id={user_id}")
+        logger.info(f"[CONTRACT_DELETE] contract_id={contract_id} status={contract_status} deleted by user_id={user_id}")
         
         return jsonify({
             'message': 'Contract deleted successfully'
