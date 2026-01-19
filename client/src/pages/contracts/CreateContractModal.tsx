@@ -20,6 +20,12 @@ export function CreateContractModal({ onClose, onSuccess }: CreateContractModalP
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Reset states when modal is opened
+  useEffect(() => {
+    setSuccess(false);
+    setError(null);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
