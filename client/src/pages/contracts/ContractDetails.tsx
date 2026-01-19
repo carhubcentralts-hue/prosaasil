@@ -69,16 +69,9 @@ const EVENT_LABELS: Record<string, string> = {
   deleted: 'נמחק',
 };
 
-// File Preview Item Component
-function FilePreviewItem({ 
-  file, 
-  contractId, 
-  onDownload, 
-  formatFileSize 
-}: { 
-  file: ContractFile; 
+function FilePreviewItem({ file, contractId, formatFileSize }: {
+  file: ContractFile;
   contractId: number;
-  onDownload: (fileId: number, filename: string) => void;
   formatFileSize: (bytes: number) => string;
 }) {
   const [showPreview, setShowPreview] = useState(false);
@@ -92,7 +85,6 @@ function FilePreviewItem({
       setShowPreview(false);
       return;
     }
-
     setLoadingPreview(true);
     try {
       const response = await fetch(`/api/contracts/${contractId}/files/${file.id}/download`, {
@@ -110,6 +102,20 @@ function FilePreviewItem({
     }
   };
 
+  const handleDownload = async () => {
+    try {
+      const response = await fetch(`/api/contracts/${contractId}/files/${file.id}/download`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        window.open(data.url, '_blank');
+      }
+    } catch (err) {
+      console.error('Error downloading file:', err);
+    }
+  };
+
   return (
     <div className="bg-gray-50 rounded-lg hover:bg-gray-100 overflow-hidden">
       <div className="flex items-center justify-between p-3">
@@ -118,7 +124,7 @@ function FilePreviewItem({
           <div>
             <p className="font-medium text-gray-900">{file.filename}</p>
             <p className="text-xs text-gray-500">
-              {file.purpose === 'original' ? 'מסמך מקורי' : file.purpose === 'signed' ? 'מסמך חתום' : 'מסמך נוסף'} • {formatFileSize(file.file_size)}
+              {file.purpose === 'original' ? 'מסמך מקורי' : file.purpose === 'signed' ? 'מסמך חתום' : 'מסמך נוסף'} - {formatFileSize(file.file_size)}
             </p>
           </div>
         </div>
@@ -137,32 +143,18 @@ function FilePreviewItem({
               )}
             </button>
           )}
-          <button
-            onClick={() => onDownload(file.id, file.filename)}
-            className="p-2 hover:bg-gray-200 rounded-lg transition"
-            title="הורד קובץ"
-          >
+          <button onClick={handleDownload} className="p-2 hover:bg-gray-200 rounded-lg transition" title="הורד קובץ">
             <Download className="w-4 h-4 text-gray-600" />
           </button>
         </div>
       </div>
-      
-      {/* Preview Section */}
       {showPreview && previewUrl && (
         <div className="border-t border-gray-200 p-4 bg-white">
           {file.mime_type === 'application/pdf' ? (
-            <iframe
-              src={previewUrl}
-              className="w-full h-[500px] rounded-lg border border-gray-300"
-              title={`Preview: ${file.filename}`}
-            />
+            <iframe src={previewUrl} className="w-full h-96 rounded-lg border border-gray-300" title={file.filename} />
           ) : file.mime_type.startsWith('image/') ? (
             <div className="flex justify-center">
-              <img
-                src={previewUrl}
-                alt={file.filename}
-                className="max-w-full max-h-[500px] rounded-lg border border-gray-300"
-              />
+              <img src={previewUrl} alt={file.filename} className="max-w-full max-h-96 rounded-lg border border-gray-300" />
             </div>
           ) : null}
         </div>
@@ -182,16 +174,11 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signUrl, setSignUrl] = useState<string | null>(null);
-  
-  // Edit mode states
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editSignerName, setEditSignerName] = useState('');
   const [editSignerPhone, setEditSignerPhone] = useState('');
   const [editSignerEmail, setEditSignerEmail] = useState('');
-  
-  // Preview state
-  const [previewFileId, setPreviewFileId] = useState<number | null>(null);
 
   useEffect(() => {
     loadContract();
@@ -341,30 +328,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
     }
   };
 
-  const handlePreviewFile = async (fileId: number) => {
-    if (previewFileId === fileId) {
-      setPreviewFileId(null);
-      return;
-    }
-    setPreviewFileId(fileId);
-  };
-
-  const getPreviewUrl = async (fileId: number): Promise<string | null> => {
-    try {
-      const response = await fetch(`/api/contracts/${contractId}/files/${fileId}/download`, {
-        credentials: 'include',
-      });
-
-      if (!response.ok) return null;
-
-      const data = await response.json();
-      return data.url;
-    } catch (err) {
-      console.error('Error getting preview URL:', err);
-      return null;
-    }
-  };
-
   const startEditing = () => {
     if (!contract) return;
     setEditTitle(contract.title);
@@ -381,10 +344,8 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
 
   const handleSaveEdit = async () => {
     if (!contract) return;
-
     setSaving(true);
     setError(null);
-
     try {
       const response = await fetch(`/api/contracts/${contractId}`, {
         method: 'PUT',
@@ -397,12 +358,10 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
           signer_email: editSignerEmail.trim() || null,
         }),
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to update contract');
       }
-
       await loadContract();
       await loadEvents();
       setIsEditing(false);
@@ -417,21 +376,17 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
 
   const handleDeleteContract = async () => {
     if (!confirm('האם אתה בטוח שברצונך למחוק את החוזה? פעולה זו אינה ניתנת לביטול.')) return;
-
     setDeleting(true);
     setError(null);
-
     try {
       const response = await fetch(`/api/contracts/${contractId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to delete contract');
       }
-
       onUpdate();
       onClose();
     } catch (err: any) {
@@ -476,7 +431,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="text-xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="text-xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-blue-500"
                   placeholder="כותרת החוזה"
                 />
               ) : (
@@ -489,21 +444,12 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
           </div>
           <div className="flex items-center gap-2">
             {contract.status === 'draft' && !isEditing && (
-              <button
-                onClick={startEditing}
-                className="p-2 hover:bg-blue-100 rounded-lg transition text-blue-600"
-                title="ערוך חוזה"
-              >
+              <button onClick={startEditing} className="p-2 hover:bg-blue-100 rounded-lg transition text-blue-600" title="ערוך חוזה">
                 <Edit3 className="w-5 h-5" />
               </button>
             )}
             {(contract.status === 'draft' || contract.status === 'cancelled') && (
-              <button
-                onClick={handleDeleteContract}
-                disabled={deleting}
-                className="p-2 hover:bg-red-100 rounded-lg transition text-red-600 disabled:opacity-50"
-                title="מחק חוזה"
-              >
+              <button onClick={handleDeleteContract} disabled={deleting} className="p-2 hover:bg-red-100 rounded-lg transition text-red-600 disabled:opacity-50" title="מחק חוזה">
                 <Trash2 className="w-5 h-5" />
               </button>
             )}
@@ -511,7 +457,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
               <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
-        </div>
         </div>
 
         {/* Body */}
@@ -552,7 +497,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                   type="text"
                   value={editSignerName}
                   onChange={(e) => setEditSignerName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500"
                   placeholder="שם החותם"
                 />
               ) : (
@@ -576,7 +521,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                   type="tel"
                   value={editSignerPhone}
                   onChange={(e) => setEditSignerPhone(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500"
                   placeholder="טלפון"
                 />
               ) : (
@@ -590,7 +535,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                   type="email"
                   value={editSignerEmail}
                   onChange={(e) => setEditSignerEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500"
                   placeholder="אימייל"
                 />
               ) : (
@@ -632,7 +577,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                     key={file.id}
                     file={file}
                     contractId={contractId}
-                    onDownload={handleDownloadFile}
                     formatFileSize={formatFileSize}
                   />
                 ))}
@@ -667,11 +611,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
         <div className="p-6 border-t border-gray-200 flex gap-3 flex-wrap">
           {isEditing ? (
             <>
-              <Button
-                onClick={handleSaveEdit}
-                disabled={saving || !editTitle.trim()}
-                className="flex items-center gap-2"
-              >
+              <Button onClick={handleSaveEdit} disabled={saving || !editTitle.trim()} className="flex items-center gap-2">
                 <Save className="w-4 h-4" />
                 {saving ? 'שומר...' : 'שמור שינויים'}
               </Button>
