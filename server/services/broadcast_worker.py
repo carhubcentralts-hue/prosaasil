@@ -42,6 +42,44 @@ class BroadcastWorker:
                 log.error(f"[WA_BROADCAST] Broadcast {self.broadcast_id} not found")
                 return False
             
+            # ✅ FIX (Problem 2): Check canSend BEFORE starting broadcast
+            # If canSend=False, fail immediately with clear error
+            tenant_id = f"business_{self.broadcast.business_id}"
+            
+            try:
+                import requests
+                BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
+                INT_SECRET = os.getenv('INTERNAL_SECRET')
+                
+                status_response = requests.get(
+                    f"{BAILEYS_BASE}/whatsapp/{tenant_id}/status",
+                    headers={'X-Internal-Secret': INT_SECRET},
+                    timeout=5
+                )
+                
+                if status_response.status_code == 200:
+                    status_data = status_response.json()
+                    can_send = status_data.get('canSend', False)
+                    is_connected = status_data.get('connected', False)
+                    is_auth_paired = status_data.get('authPaired', False)
+                    
+                    # ✅ FIX: Require ALL three conditions for broadcast to proceed
+                    if not (is_connected and is_auth_paired and can_send):
+                        error_reason = "WA_NOT_READY_CAN_SEND_FALSE" if not can_send else "WA_NOT_CONNECTED"
+                        log.error(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} BLOCKED: connected={is_connected} authPaired={is_auth_paired} canSend={can_send}")
+                        
+                        self.broadcast.status = 'failed'
+                        self.broadcast.started_at = datetime.utcnow()
+                        self.broadcast.completed_at = datetime.utcnow()
+                        db.session.commit()
+                        
+                        log.error(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} failed reason={error_reason} - needs QR rescan")
+                        return False
+                else:
+                    log.warning(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} Could not verify WhatsApp status (HTTP {status_response.status_code}) - proceeding anyway")
+            except Exception as status_check_err:
+                log.warning(f"[WA_BROADCAST] broadcast_id={self.broadcast_id} Status check failed: {status_check_err} - proceeding anyway")
+            
             # Mark as running
             self.broadcast.status = 'running'
             self.broadcast.started_at = datetime.utcnow()

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { FileText, Download, Upload, CheckCircle, XCircle } from 'lucide-react';
+import { FileText, Download, Upload, CheckCircle, XCircle, Eye, Edit3, X } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 
 interface SigningContract {
@@ -27,12 +27,26 @@ export function PublicSigningPage() {
   const [signing, setSigning] = useState(false);
   const [signedFile, setSignedFile] = useState<File | null>(null);
   const [success, setSuccess] = useState(false);
+  
+  // ✅ NEW: Preview and digital signature states
+  const [showPreview, setShowPreview] = useState(false);
+  const [showDigitalSignature, setShowDigitalSignature] = useState(false);
+  const [signerName, setSignerName] = useState('');
+  const [signatureDrawing, setSignatureDrawing] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (token) {
       loadContract();
     }
   }, [token]);
+
+  useEffect(() => {
+    if (contract?.signer_name) {
+      setSignerName(contract.signer_name);
+    }
+  }, [contract]);
 
   const loadContract = async () => {
     if (!token) {
@@ -100,6 +114,103 @@ export function PublicSigningPage() {
     } catch (err: any) {
       console.error('Error signing contract:', err);
       setError(err.message || 'שגיאה בחתימת חוזה');
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  // ✅ NEW: Digital signature functions
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    setSignatureDrawing(true);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!signatureDrawing) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setSignatureDrawing(false);
+    if (canvasRef.current) {
+      setSignatureDataUrl(canvasRef.current.toDataURL());
+    }
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureDataUrl(null);
+  };
+
+  const handleDigitalSign = async () => {
+    if (!signatureDataUrl || !signerName.trim()) {
+      setError('יש למלא שם ולחתום על ידי ציור חתימה');
+      return;
+    }
+
+    setSigning(true);
+    setError(null);
+
+    try {
+      // Convert data URL to blob
+      const response = await fetch(signatureDataUrl);
+      const blob = await response.blob();
+      
+      // Create file from blob
+      const file = new File([blob], `signature_${Date.now()}.png`, { type: 'image/png' });
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('signer_name', signerName);
+      formData.append('signature_type', 'digital');
+
+      const apiResponse = await fetch(`/api/contracts/sign/${token}/complete`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!apiResponse.ok) {
+        const errorData = await apiResponse.json();
+        throw new Error(errorData.error || 'Failed to complete signing');
+      }
+
+      setSuccess(true);
+    } catch (err: any) {
+      console.error('Error signing contract:', err);
+      setError(err.message || 'שגיאה בחתימה דיגיטלית');
     } finally {
       setSigning(false);
     }
@@ -178,7 +289,7 @@ export function PublicSigningPage() {
             </div>
           )}
 
-          {/* Files to Review */}
+          {/* ✅ NEW: Files with Preview and Download */}
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">מסמכים לעיון</h2>
             {contract.files.length === 0 ? (
@@ -186,78 +297,192 @@ export function PublicSigningPage() {
             ) : (
               <div className="space-y-2">
                 {contract.files.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
-                  >
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-gray-400" />
-                      <div>
-                        <p className="font-medium text-gray-900">{file.filename}</p>
-                        <p className="text-xs text-gray-500">{formatFileSize(file.file_size)}</p>
+                  <div key={file.id} className="p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-5 h-5 text-gray-400" />
+                        <div>
+                          <p className="font-medium text-gray-900">{file.filename}</p>
+                          <p className="text-xs text-gray-500">{formatFileSize(file.file_size)}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {/* ✅ NEW: Preview button for PDFs */}
+                        {file.mime_type === 'application/pdf' && (
+                          <button
+                            onClick={() => setShowPreview(!showPreview)}
+                            className="flex items-center gap-2 px-3 py-2 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 text-sm"
+                          >
+                            <Eye className="w-4 h-4" />
+                            {showPreview ? 'סגור תצוגה' : 'תצוגה מקדימה'}
+                          </button>
+                        )}
+                        <a
+                          href={file.download_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
+                        >
+                          <Download className="w-4 h-4" />
+                          הורד
+                        </a>
                       </div>
                     </div>
-                    <a
-                      href={file.download_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm"
-                    >
-                      <Download className="w-4 h-4" />
-                      הורד
-                    </a>
+                    
+                    {/* ✅ NEW: PDF Preview iframe */}
+                    {showPreview && file.mime_type === 'application/pdf' && (
+                      <div className="mt-4 border-2 border-gray-300 rounded-lg overflow-hidden">
+                        <iframe
+                          src={file.download_url}
+                          className="w-full h-[600px]"
+                          title="Contract Preview"
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Upload Signed Document */}
+          {/* ✅ NEW: Signature Options - Tab Interface */}
           <div className="border-t border-gray-200 pt-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">העלאת מסמך חתום</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              לאחר קריאת המסמך והחתימה עליו, אנא העלה את המסמך החתום
-            </p>
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">אפשרויות חתימה</h2>
+            
+            {/* Tab Buttons */}
+            <div className="flex gap-2 mb-4 border-b border-gray-200">
+              <button
+                onClick={() => setShowDigitalSignature(true)}
+                className={`px-4 py-2 font-medium transition-colors ${
+                  showDigitalSignature
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Edit3 className="w-4 h-4" />
+                  חתימה דיגיטלית
+                </div>
+              </button>
+              <button
+                onClick={() => setShowDigitalSignature(false)}
+                className={`px-4 py-2 font-medium transition-colors ${
+                  !showDigitalSignature
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Upload className="w-4 h-4" />
+                  העלאת מסמך חתום
+                </div>
+              </button>
+            </div>
 
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">{error}</div>
             )}
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-              {!signedFile ? (
-                <>
-                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600 mb-4">בחר קובץ חתום להעלאה</p>
-                  <label className="cursor-pointer">
-                    <input type="file" onChange={handleFileSelect} className="hidden" accept=".pdf,.doc,.docx" />
-                    <span className="inline-block px-6 py-3 bg-blue-500 text-white rounded-md hover:bg-blue-600">
-                      בחר קובץ
-                    </span>
-                  </label>
-                </>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-center gap-2 text-gray-700">
-                    <FileText className="w-5 h-5" />
-                    <span className="font-medium">{signedFile.name}</span>
-                    <span className="text-sm text-gray-500">({formatFileSize(signedFile.size)})</span>
-                  </div>
-                  <div className="flex gap-3 justify-center">
-                    <Button onClick={handleSign} disabled={signing} className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4" />
-                      {signing ? 'שולח...' : 'אשר וחתום'}
-                    </Button>
-                    <Button
-                      onClick={() => setSignedFile(null)}
-                      disabled={signing}
-                      variant="secondary"
-                    >
-                      ביטול
-                    </Button>
-                  </div>
+            {/* ✅ NEW: Digital Signature Tab */}
+            {showDigitalSignature ? (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  חתום בצורה דיגיטלית על ידי ציור חתימתך למטה
+                </p>
+                
+                {/* Name Input */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
+                  <input
+                    type="text"
+                    value={signerName}
+                    onChange={(e) => setSignerName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="הכנס שם מלא"
+                  />
                 </div>
-              )}
-            </div>
+
+                {/* Signature Canvas */}
+                <div className="border-2 border-gray-300 rounded-lg bg-white">
+                  <div className="p-2 bg-gray-50 border-b border-gray-300 flex justify-between items-center">
+                    <span className="text-sm text-gray-600">צייר את חתימתך כאן</span>
+                    <button
+                      onClick={clearSignature}
+                      className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
+                    >
+                      <X className="w-4 h-4" />
+                      נקה
+                    </button>
+                  </div>
+                  <canvas
+                    ref={canvasRef}
+                    width={600}
+                    height={200}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                    className="w-full cursor-crosshair touch-none"
+                    style={{ maxWidth: '100%', height: '200px' }}
+                  />
+                </div>
+
+                <Button
+                  onClick={handleDigitalSign}
+                  disabled={signing || !signatureDataUrl || !signerName.trim()}
+                  className="w-full flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  {signing ? 'שולח חתימה...' : 'אשר וחתום דיגיטלית'}
+                </Button>
+              </div>
+            ) : (
+              /* Original Upload Signed Document Tab */
+              <div>
+                <p className="text-sm text-gray-600 mb-4">
+                  לאחר קריאת המסמך והחתימה עליו, אנא העלה את המסמך החתום
+                </p>
+
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  {!signedFile ? (
+                    <>
+                      <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-600 mb-4">בחר קובץ חתום להעלאה</p>
+                      <label className="cursor-pointer">
+                        <input type="file" onChange={handleFileSelect} className="hidden" accept=".pdf,.doc,.docx" />
+                        <span className="inline-block px-6 py-3 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                          בחר קובץ
+                        </span>
+                      </label>
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-center gap-2 text-gray-700">
+                        <FileText className="w-5 h-5" />
+                        <span className="font-medium">{signedFile.name}</span>
+                        <span className="text-sm text-gray-500">({formatFileSize(signedFile.size)})</span>
+                      </div>
+                      <div className="flex gap-3 justify-center">
+                        <Button onClick={handleSign} disabled={signing} className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4" />
+                          {signing ? 'שולח...' : 'אשר וחתום'}
+                        </Button>
+                        <Button
+                          onClick={() => setSignedFile(null)}
+                          disabled={signing}
+                          variant="secondary"
+                        >
+                          ביטול
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
