@@ -865,29 +865,34 @@ def baileys_webhook():
                         if not from_number_e164.startswith('972') and from_number_e164.startswith('0'):
                             # Israeli local number - convert to international
                             from_number_e164 = '972' + from_number_e164[1:]
+                        # 🔥 NEW FIX: Use E.164 phone for AI state checking
+                        phone_for_ai_check = from_number_e164
                     else:
                         # Invalid phone format - treat as external ID
                         log.warning(f"[WA-INCOMING] Invalid phone in standard JID: {remote_jid}")
                         customer_external_id = remote_jid
                         from_number_e164 = None
+                        phone_for_ai_check = remote_jid
                         
                 elif remote_jid.endswith('@lid'):
-                    # 🔥 FIX D: @lid JID - store as customer_external_id, NOT as phone
+                    # 🔥 FIX: @lid JID - store as customer_external_id, NOT as phone
                     # DO NOT try to extract phone from @lid - it's NOT a phone number!
                     push_name = msg.get('pushName', 'Unknown')
                     log.info(f"[WA-INCOMING] @lid JID detected: {remote_jid}, pushName={push_name}")
                     customer_external_id = remote_jid  # Store full @lid
-                    from_number_e164 = None  # No phone number available
-                    # Use safe DB identifier based on lid (not a phone number!)
-                    from_number_e164 = remote_jid.replace('@', '_at_').replace('.', '_')  # lid_at_lid format
+                    # 🔥 CRITICAL FIX: Keep from_number_e164 = None - don't overwrite with synthetic ID!
+                    # Using @lid as phone number causes validation failures and duplicate leads
+                    from_number_e164 = None
                     
                 else:
-                    # 🔥 FIX D: Other non-standard JID - store as external ID
+                    # 🔥 FIX: Other non-standard JID - store as external ID
                     push_name = msg.get('pushName', 'Unknown')
                     log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name} - storing as external ID")
                     customer_external_id = remote_jid
-                    # For database consistency, use safe identifier (NOT a phone number!)
-                    from_number_e164 = remote_jid.replace('@', '_at_').replace('.', '_')
+                    # 🔥 CRITICAL FIX: Keep from_number_e164 = None for non-standard JIDs
+                    from_number_e164 = None
+                    # 🔥 NEW FIX: Store remoteJid for AI state checking
+                    phone_for_ai_check = remote_jid
                 
                 log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}, external_id={customer_external_id}")
                 
@@ -1047,22 +1052,25 @@ def baileys_webhook():
                     log.warning(f"⚠️ Appointment check failed: {e}")
                 
                 # ✅ BUILD 152: Check if AI is enabled for this conversation
+                # 🔥 FIX: Use phone_for_ai_check (remoteJid) instead of from_number_e164 for @lid messages
                 ai_enabled = True  # Default to enabled
                 try:
                     from server.models_sql import WhatsAppConversationState
+                    # Use phone_for_ai_check if available, otherwise use from_number_e164
+                    check_phone = phone_for_ai_check if 'phone_for_ai_check' in locals() else from_number_e164
                     conv_state = WhatsAppConversationState.query.filter_by(
                         business_id=business_id,
-                        phone=from_number_e164
+                        phone=check_phone
                     ).first()
                     if conv_state:
                         ai_enabled = conv_state.ai_active
-                        log.info(f"[WA-INCOMING] AI state for {from_number_e164}: {'enabled' if ai_enabled else 'DISABLED'}")
+                        log.info(f"[WA-INCOMING] AI state for {check_phone}: {'enabled' if ai_enabled else 'DISABLED'}")
                 except Exception as e:
                     log.warning(f"[WA-WARN] Could not check AI state: {e}")
                 
                 # If AI is disabled, skip AI response generation
                 if not ai_enabled:
-                    log.info(f"[WA-INCOMING] AI disabled for {from_number_e164} - skipping AI response")
+                    log.info(f"[WA-INCOMING] AI disabled for {check_phone if 'check_phone' in locals() else from_number_e164} - skipping AI response")
                     msg_duration = time.time() - msg_start
                     log.info(f"[WA-INCOMING] Message saved (no AI response) in {msg_duration:.2f}s")
                     continue
