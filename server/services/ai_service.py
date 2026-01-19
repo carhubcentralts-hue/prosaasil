@@ -14,19 +14,45 @@ from server.models_sql import BusinessSettings, PromptRevisions, Business, Agent
 from server.db import db
 from datetime import datetime
 
-# 🔥 CRITICAL: Import agent modules at TOP of file (not inside function!)
-# This prevents re-importing on every call and speeds up response time
-try:
-    from server.agent_tools import get_agent, AGENTS_ENABLED
-    from agents import Runner
-    AGENT_MODULES_LOADED = True
-    logger_temp = logging.getLogger(__name__)
-    logger_temp.info("✅ Agent modules pre-loaded at module level")
-except ImportError as e:
-    AGENT_MODULES_LOADED = False
-    AGENTS_ENABLED = False
-    logger_temp = logging.getLogger(__name__)
-    logger_temp.warning(f"⚠️ Agent modules not available: {e}")
+# 🔥 FIX E: LAZY agent imports to prevent schema errors from breaking WhatsApp
+# Agents are loaded on-demand, so WhatsApp still works even if agent schema fails
+AGENT_MODULES_LOADED = None  # None = not yet loaded, True = loaded, False = failed
+AGENTS_ENABLED = False  # Will be set when agents load successfully
+_agent_load_error = None  # Store error for debugging
+
+def _ensure_agent_modules_loaded():
+    """🔥 FIX E: Lazy load agent modules on first use
+    
+    This prevents WhatsApp from breaking if agent schema has errors.
+    WhatsApp will continue to work, just without agents.
+    
+    Returns:
+        bool: True if agents loaded successfully, False otherwise
+    """
+    global AGENT_MODULES_LOADED, AGENTS_ENABLED, _agent_load_error
+    
+    if AGENT_MODULES_LOADED is not None:
+        return AGENT_MODULES_LOADED
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Try to import agent modules
+        from server.agent_tools import get_agent, AGENTS_ENABLED as agents_flag
+        from agents import Runner
+        
+        AGENT_MODULES_LOADED = True
+        AGENTS_ENABLED = agents_flag
+        logger.info("✅ Agent modules loaded successfully (lazy load)")
+        return True
+        
+    except Exception as e:
+        AGENT_MODULES_LOADED = False
+        AGENTS_ENABLED = False
+        _agent_load_error = str(e)
+        logger.error(f"❌ Agent modules failed to load: {e}")
+        logger.warning("⚠️ WhatsApp will continue to work, but without agent tools")
+        return False
 
 logger = logging.getLogger(__name__)
 
@@ -1046,6 +1072,7 @@ class AIService:
         """
         ✨ BUILD 119: Agent-enhanced response generation
         🚀 Phase 2K: Intent-based routing - AgentKit only for bookings (≤2s target)
+        🔥 FIX E: Uses lazy agent loading - won't break if agent schema fails
         
         Uses AgentKit to perform real actions (appointments, leads, WhatsApp)
         Falls back to FAQ/lightweight responses for info questions
@@ -1062,14 +1089,20 @@ class AIService:
         Returns:
             AI response (potentially enhanced with tool actions)
         """
+        # 🔥 FIX E: Try to load agents lazily - if fails, use regular response
+        agents_loaded = _ensure_agent_modules_loaded()
+        
+        if not agents_loaded:
+            # Agent modules failed to load - use regular response
+            logger.warning(f"⚠️ Agents not available (error: {_agent_load_error}) - using regular response")
+            return self.generate_response(message, business_id, context, channel, is_first_turn)
+        
         # Check if agents are enabled (default: enabled)
         agents_enabled = os.getenv("AGENTS_ENABLED", "1") == "1"
-        print(f"🎯 AGENTS_ENABLED = {agents_enabled}")
         logger.info(f"🎯 AGENTS_ENABLED = {agents_enabled}")
         
         if not agents_enabled:
             # Fallback to regular response
-            print("⚠️ Agents disabled - using regular response")
             logger.warning("⚠️ Agents disabled - using regular response")
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
@@ -1144,8 +1177,12 @@ class AIService:
             print(f"⏱️ DB query time: {db_time:.0f}ms")
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
-            # 🔥 CRITICAL FIX: Use get_or_create_agent (singleton cache) instead of get_agent (legacy)!
-            from server.agent_tools.agent_factory import get_or_create_agent
+            # 🔥 FIX E: Lazy import get_or_create_agent to prevent schema errors
+            try:
+                from server.agent_tools.agent_factory import get_or_create_agent
+            except Exception as e:
+                logger.error(f"❌ Failed to import agent_factory: {e}")
+                return self.generate_response(message, business_id, context, channel, is_first_turn)
             
             agent_create_start = time.time()
             agent = get_or_create_agent(
@@ -1249,8 +1286,12 @@ class AIService:
                 "content": message
             })
             
-            # 🔥 FIX: Runner is a static class - use Runner.run() directly!
-            from agents import Runner
+            # 🔥 FIX E: Lazy import Runner to prevent schema errors
+            try:
+                from agents import Runner
+            except Exception as e:
+                logger.error(f"❌ Failed to import Runner: {e}")
+                return self.generate_response(message, business_id, context, channel, is_first_turn)
             
             print(f"🔄 Starting Runner.run() with {len(conversation_messages)-1} history messages...")
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
