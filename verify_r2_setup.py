@@ -51,25 +51,45 @@ def check_r2_connection():
             print("⚠️  Skipping R2 connection test - credentials not set")
             return True
         
-        endpoint_url = f"https://{account_id}.r2.cloudflarestorage.com"
+        # Use R2_ENDPOINT if set, otherwise construct from account_id
+        endpoint_url = os.getenv('R2_ENDPOINT') or f"https://{account_id}.r2.cloudflarestorage.com"
+        print(f"   Testing endpoint: {endpoint_url}")
         
+        # Use the same config as r2_provider.py
         s3 = boto3.client(
             's3',
             endpoint_url=endpoint_url,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            config=Config(signature_version='s3v4'),
-            region_name='auto'
+            region_name='auto',  # R2 requires 'auto'
+            config=Config(
+                signature_version='s3v4',
+                s3={'addressing_style': 'path'},
+                retries={'max_attempts': 3, 'mode': 'standard'}
+            )
         )
         
         # Test bucket access
         s3.head_bucket(Bucket=bucket_name)
         print(f"✅ R2 connection successful: {bucket_name}")
+        
+        # Try to list objects (limited to 1) to verify read access
+        try:
+            response = s3.list_objects_v2(Bucket=bucket_name, MaxKeys=1)
+            print(f"✅ R2 bucket read access verified")
+        except Exception as e:
+            print(f"⚠️  R2 bucket read test failed (but head_bucket passed): {e}")
+        
         return True
         
     except Exception as e:
         print(f"❌ R2 connection failed: {e}")
         print("   Check credentials and bucket name")
+        print("   Common issues:")
+        print("   - Incorrect R2_ACCOUNT_ID")
+        print("   - Invalid access key or secret")
+        print("   - Bucket name doesn't exist")
+        print("   - Region not set to 'auto'")
         return False
 
 def main():
@@ -113,6 +133,8 @@ def main():
     all_ok &= check_env_var('R2_ACCESS_KEY_ID', required=(driver=='r2'))
     all_ok &= check_env_var('R2_SECRET_ACCESS_KEY', required=(driver=='r2'))
     all_ok &= check_env_var('R2_BUCKET_NAME', required=(driver=='r2'))
+    check_env_var('R2_ENDPOINT', required=False)  # Optional, will be constructed if not set
+    check_env_var('R2_FALLBACK_TO_LOCAL', required=False)  # Optional fallback
     print()
     
     # Check boto3

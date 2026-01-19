@@ -63,20 +63,22 @@ class R2StorageProvider(AttachmentStorageProvider):
             
             raise ValueError(f"Missing required environment variables for R2: {', '.join(missing)}")
         
-        # Build R2 endpoint from account ID
-        self.endpoint_url = f"https://{self.account_id}.r2.cloudflarestorage.com"
+        # Build R2 endpoint - prefer explicit R2_ENDPOINT if set, otherwise construct from account ID
+        self.endpoint_url = os.getenv('R2_ENDPOINT') or f"https://{self.account_id}.r2.cloudflarestorage.com"
         
         # Initialize S3 client with R2 configuration
+        # CRITICAL for R2: region='auto', signature_version='s3v4', path-style addressing
         self.s3_client = boto3.client(
             's3',
             endpoint_url=self.endpoint_url,
             aws_access_key_id=self.access_key_id,
             aws_secret_access_key=self.secret_access_key,
+            region_name='auto',  # R2 requires 'auto' region
             config=Config(
                 signature_version='s3v4',
-                s3={'addressing_style': 'path'}
-            ),
-            region_name='auto'  # R2 uses 'auto' region
+                s3={'addressing_style': 'path'},
+                retries={'max_attempts': 3, 'mode': 'standard'}
+            )
         )
         
         logger.info(f"[R2_STORAGE] Initialized with bucket: {self.bucket_name}")
@@ -102,12 +104,16 @@ class R2StorageProvider(AttachmentStorageProvider):
             file_content = file.read()
             file_size = len(file_content)
             
-            # Upload to R2
+            # Upload to R2 - CRITICAL: Always set ContentType or default to application/octet-stream
+            content_type = mime_type or "application/octet-stream"
+            
+            logger.info(f"[R2_STORAGE] Uploading to bucket={self.bucket_name}, key={storage_key}, size={file_size}, type={content_type}")
+            
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=storage_key,
                 Body=file_content,
-                ContentType=mime_type,
+                ContentType=content_type,
                 Metadata={
                     'business_id': str(business_id),
                     'attachment_id': str(attachment_id),
@@ -115,7 +121,7 @@ class R2StorageProvider(AttachmentStorageProvider):
                 }
             )
             
-            logger.info(f"[R2_STORAGE] Uploaded: {storage_key} ({file_size} bytes)")
+            logger.info(f"[R2_STORAGE] ✅ Uploaded: {storage_key} ({file_size} bytes)")
             
             return StorageResult(
                 storage_key=storage_key,

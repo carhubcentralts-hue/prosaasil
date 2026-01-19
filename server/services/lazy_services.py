@@ -94,6 +94,9 @@ def warmup_services_async():
         print("🔥🔥🔥 WARMUP STARTING - Preloading services...")
         log.info("🔥 Starting service warmup...")
         
+        # Check if agent warmup is disabled
+        disable_agent_warmup = os.getenv('DISABLE_AGENT_WARMUP', '0') in ('1', 'true', 'True')
+        
         # Warmup OpenAI
         print("  🔥 Warming OpenAI client...")
         client = get_openai_client()
@@ -113,87 +116,92 @@ def warmup_services_async():
         log.info("WARMUP_STT_SKIPPED")
         
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
-        try:
-            from server.app_factory import get_process_app
-            from server.agent_tools.agent_factory import get_or_create_agent
-            from server.models_sql import Business, BusinessSettings, db
-            from sqlalchemy.exc import SQLAlchemyError
-            
-            # 🔥 ARCHITECT FIX: Need app context for database operations!
-            app = get_process_app()
-            with app.app_context():
-                # 🔥 MULTI-TENANT: Warmup ALL active businesses (up to 10 for reasonable startup time)
-                try:
-                    businesses = Business.query.filter_by(is_active=True).limit(10).all()
-                except SQLAlchemyError as db_error:
-                    # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
-                    db.session.rollback()
-                    print(f"    ❌ Database query failed during warmup: {db_error}")
-                    log.error(f"WARMUP_DB_ERR: {db_error}")
-                    businesses = []
+        # Can be disabled with DISABLE_AGENT_WARMUP=1 if schema issues occur
+        if disable_agent_warmup:
+            print("  🚫 Agent warmup SKIPPED (DISABLE_AGENT_WARMUP=1)")
+            log.info("WARMUP_AGENT_SKIPPED: disabled by environment variable")
+        else:
+            try:
+                from server.app_factory import get_process_app
+                from server.agent_tools.agent_factory import get_or_create_agent
+                from server.models_sql import Business, BusinessSettings, db
+                from sqlalchemy.exc import SQLAlchemyError
                 
-                if not businesses:
-                    print("    ⚠️ No active businesses to warm up")
-                    log.warning("WARMUP_AGENT_ERR: No active businesses found")
-                else:
-                    log.info(f"🔥 WARMUP: Found {len(businesses)} active businesses to warm up")
-                    print(f"  🔥 Warming {len(businesses)} active businesses (Agent Cache)...")
+                # 🔥 ARCHITECT FIX: Need app context for database operations!
+                app = get_process_app()
+                with app.app_context():
+                    # 🔥 MULTI-TENANT: Warmup ALL active businesses (up to 10 for reasonable startup time)
+                    try:
+                        businesses = Business.query.filter_by(is_active=True).limit(10).all()
+                    except SQLAlchemyError as db_error:
+                        # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                        db.session.rollback()
+                        print(f"    ❌ Database query failed during warmup: {db_error}")
+                        log.error(f"WARMUP_DB_ERR: {db_error}")
+                        businesses = []
                     
-                    total_start = time.time()
-                    success_count = 0
-                    
-                    for business in businesses:
-                        business_id = business.id
-                        business_name = business.name
+                    if not businesses:
+                        print("    ⚠️ No active businesses to warm up")
+                        log.warning("WARMUP_AGENT_ERR: No active businesses found")
+                    else:
+                        log.info(f"🔥 WARMUP: Found {len(businesses)} active businesses to warm up")
+                        print(f"  🔥 Warming {len(businesses)} active businesses (Agent Cache)...")
                         
-                        # Warmup both channels for each business
-                        for channel in ['calls', 'whatsapp']:
-                            try:
-                                # Get prompt from database for THIS business
+                        total_start = time.time()
+                        success_count = 0
+                        
+                        for business in businesses:
+                            business_id = business.id
+                            business_name = business.name
+                            
+                            # Warmup both channels for each business
+                            for channel in ['calls', 'whatsapp']:
                                 try:
-                                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-                                except SQLAlchemyError as db_error:
-                                    # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
-                                    db.session.rollback()
-                                    log.warning(f"WARMUP_SETTINGS_ERR: business={business_id} - {db_error}")
-                                    settings = None
+                                    # Get prompt from database for THIS business
+                                    try:
+                                        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                                    except SQLAlchemyError as db_error:
+                                        # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+                                        db.session.rollback()
+                                        log.warning(f"WARMUP_SETTINGS_ERR: business={business_id} - {db_error}")
+                                        settings = None
+                                        
+                                    custom_instructions = ""  # Default empty string
+                                    if settings and settings.ai_prompt:
+                                        import json
+                                        prompts = json.loads(settings.ai_prompt)
+                                        custom_instructions = prompts.get(channel, prompts.get('calls', '')) or ""
                                     
-                                custom_instructions = ""  # Default empty string
-                                if settings and settings.ai_prompt:
-                                    import json
-                                    prompts = json.loads(settings.ai_prompt)
-                                    custom_instructions = prompts.get(channel, prompts.get('calls', '')) or ""
-                                
-                                # Create agent (will cache it)
-                                warmup_start = time.time()
-                                agent = get_or_create_agent(
-                                    business_id=business_id,
-                                    channel=channel,
-                                    business_name=business_name,
-                                    custom_instructions=custom_instructions
-                                )
-                                warmup_time = (time.time() - warmup_start) * 1000
-                                
-                                if agent:
-                                    success_count += 1
-                                    log.info(f"WARMUP_AGENT_OK: business={business_id} ({business_name}), channel={channel} ({warmup_time:.0f}ms)")
-                                    print(f"  ✅ {business_name} ({channel}): {warmup_time:.0f}ms")
-                                else:
-                                    log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - agent is None")
-                            except Exception as e:
-                                log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - {e}")
-                                import traceback
-                                traceback.print_exc()
-                    
-                    total_time = (time.time() - total_start) * 1000
-                    print(f"\n🔥🔥🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents ready in {total_time:.0f}ms")
-                    print(f"🚀 System preheated - First AI response will be FAST!\n")
-                    log.info(f"🔥 WARMUP COMPLETE: {success_count} agents warmed in {total_time:.0f}ms")
-        except Exception as e:
-            print(f"    ❌ Agent warmup failed: {e}")
-            log.warning(f"WARMUP_AGENT_FAILED: {e}")
-            import traceback
-            traceback.print_exc()
+                                    # Create agent (will cache it)
+                                    warmup_start = time.time()
+                                    agent = get_or_create_agent(
+                                        business_id=business_id,
+                                        channel=channel,
+                                        business_name=business_name,
+                                        custom_instructions=custom_instructions
+                                    )
+                                    warmup_time = (time.time() - warmup_start) * 1000
+                                    
+                                    if agent:
+                                        success_count += 1
+                                        log.info(f"WARMUP_AGENT_OK: business={business_id} ({business_name}), channel={channel} ({warmup_time:.0f}ms)")
+                                        print(f"  ✅ {business_name} ({channel}): {warmup_time:.0f}ms")
+                                    else:
+                                        log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - agent is None")
+                                except Exception as e:
+                                    log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                        
+                        total_time = (time.time() - total_start) * 1000
+                        print(f"\n🔥🔥🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents ready in {total_time:.0f}ms")
+                        print(f"🚀 System preheated - First AI response will be FAST!\n")
+                        log.info(f"🔥 WARMUP COMPLETE: {success_count} agents warmed in {total_time:.0f}ms")
+            except Exception as e:
+                print(f"    ❌ Agent warmup failed: {e}")
+                log.warning(f"WARMUP_AGENT_FAILED: {e}")
+                import traceback
+                traceback.print_exc()
             
         print("✅ Service warmup thread completed")
         log.info("🔥 Service warmup completed")

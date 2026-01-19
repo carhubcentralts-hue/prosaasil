@@ -111,11 +111,29 @@ class LeadContextAppointment(BaseModel):
     notes: Optional[str] = None
 
 
+class LeadData(BaseModel):
+    """Lead data in context - explicit schema for strict mode compatibility"""
+    id: int
+    name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    status: Optional[str] = None
+    tags: List[str] = []
+    source: Optional[str] = None
+    service_type: Optional[str] = None
+    city: Optional[str] = None
+    summary: Optional[str] = None
+    created_at: Optional[str] = None
+    last_contact_at: Optional[str] = None
+
+
 class GetLeadContextOutput(BaseModel):
     """Output for get_lead_context with lead details, notes, and appointments"""
     found: bool
-    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
-    lead: Optional[dict] = None
+    # 🔥 FIX: Use explicit LeadData model instead of dict to avoid additionalProperties schema error
+    lead: Optional[LeadData] = None
     notes: List[LeadContextNote] = []
     appointments: List[LeadContextAppointment] = []
     recent_calls_count: int = 0
@@ -363,9 +381,12 @@ def get_lead_context(input: GetLeadContextInput) -> GetLeadContextOutput:
         
         logger.info(f"Got context for lead {input.lead_id}: {len(notes_list)} notes, {len(appointments_list)} appointments")
         
+        # Convert lead_data dict to LeadData model for strict schema compliance
+        lead_obj = LeadData(**lead_data)
+        
         return GetLeadContextOutput(
             found=True,
-            lead=lead_data,
+            lead=lead_obj,
             notes=notes_list,
             appointments=appointments_list,
             recent_calls_count=recent_calls
