@@ -10,6 +10,7 @@ import { Input } from '../../shared/components/ui/Input';
 import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { LeadNavigationArrows } from '../../shared/components/LeadNavigationArrows';
+import { AttachmentPicker } from '../../shared/components/AttachmentPicker';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -3363,6 +3364,9 @@ function EmailTab({ lead }: EmailTabProps) {
   const [sending, setSending] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   
+  // 🔥 FIX: Add attachment support for lead email
+  const [attachmentIds, setAttachmentIds] = useState<number[]>([]);
+  
   // Text templates for quick content
   const [textTemplates, setTextTemplates] = useState<{id: number; name: string; category: string; subject_line: string; body_text: string}[]>([]);
   
@@ -3550,14 +3554,15 @@ function EmailTab({ lead }: EmailTabProps) {
       
       console.log('[LEAD_EMAIL] ✅ Render successful, sending email...');
       
-      // Then send the rendered email
+      // 🔥 FIX: Then send the rendered email with attachments
       await http.post(`/api/leads/${lead.id}/email`, {
         to_email: lead.email,
         subject: rendered.subject,
         html: rendered.html,
         body_html: rendered.html,
         text: rendered.text,
-        body_text: rendered.text
+        body_text: rendered.text,
+        attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined  // 🔥 FIX: Include attachments
       });
       
       console.log('[LEAD_EMAIL] ✅ Email sent successfully');
@@ -3570,6 +3575,7 @@ function EmailTab({ lead }: EmailTabProps) {
         cta_url: '',
         footer: 'אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות'
       });
+      setAttachmentIds([]);  // 🔥 FIX: Reset attachments after sending
       setShowCompose(false);
       await loadEmails();
     } catch (err: any) {
@@ -3843,6 +3849,42 @@ function EmailTab({ lead }: EmailTabProps) {
                   required
                 />
               </div>
+            </div>
+
+            {/* 🔥 FIX: Add Attachment Picker for Lead Email */}
+            <div className="bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-200 rounded-lg p-4 shadow-sm">
+              <label className="block text-sm font-bold text-green-900 mb-2 flex items-center gap-2">
+                <span className="text-xl">📎</span>
+                <span>קבצים מצורפים (אופציונלי)</span>
+              </label>
+              <p className="text-xs text-green-700 mb-3">
+                הוסף תמונות, מסמכים או קבצים נוספים למייל
+              </p>
+              
+              <AttachmentPicker
+                channel="email"
+                mode="multi"
+                onAttachmentSelect={(ids) => {
+                  if (Array.isArray(ids)) {
+                    setAttachmentIds(ids);
+                  } else if (ids === null) {
+                    setAttachmentIds([]);
+                  } else {
+                    setAttachmentIds([ids]);
+                  }
+                }}
+              />
+              
+              {attachmentIds.length > 0 && (
+                <div className="mt-3 bg-white border border-green-300 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-sm text-green-800">
+                    <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    ✅ {attachmentIds.length} קבצים מצורפים - מוכנים לשליחה!
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 pt-2">

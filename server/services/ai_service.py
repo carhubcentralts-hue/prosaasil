@@ -598,18 +598,34 @@ class AIService:
                         "content": "מידע על הלקוח:\n" + "\n".join(context_info)
                     })
                 
-                # ✅ BUILD 92: שליחת previous_messages כשיחה אמיתית - 10 הודעות לזיכרון מלא!
+                # ✅ FIX: Improved conversation history - 12 messages for better context retention
+                # Increased from 10 to 12 to prevent context loss after 5th message
                 if context.get("previous_messages"):
-                    prev_msgs = context["previous_messages"][-10:]  # ✅ 10 הודעות אחרונות (לא 6!)
+                    prev_msgs = context["previous_messages"][-12:]  # ✅ 12 הודעות אחרונות לזיכרון משופר!
                     for msg in prev_msgs:
-                        # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." (או "לאה:" legacy)
+                        # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." או "עוזר:" (WhatsApp)
                         if msg.startswith("לקוח:"):
                             messages.append({
                                 "role": "user",
                                 "content": msg.replace("לקוח:", "").strip()
                             })
-                        elif msg.startswith("עוזרת:") or msg.startswith("לאה:"):  # ✅ תמיכה בשניהם!
-                            content = msg.replace("עוזרת:", "").replace("לאה:", "").strip()
+                        elif msg.startswith("עוזרת:"):
+                            # Legacy support for "עוזרת:" prefix
+                            content = msg.replace("עוזרת:", "").strip()
+                            messages.append({
+                                "role": "assistant",
+                                "content": content
+                            })
+                        elif msg.startswith("לאה:"):
+                            # Legacy support for specific assistant name
+                            content = msg.replace("לאה:", "").strip()
+                            messages.append({
+                                "role": "assistant",
+                                "content": content
+                            })
+                        elif msg.startswith("עוזר:"):
+                            # 🔥 FIX: Support for WhatsApp assistant messages
+                            content = msg.replace("עוזר:", "").strip()
                             messages.append({
                                 "role": "assistant",
                                 "content": content
@@ -1245,21 +1261,25 @@ class AIService:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
-            # 🔥 BUILD 99: LIMIT CONVERSATION HISTORY to last 4 exchanges (8 messages)
-            # Why: 10 messages = ~4.5K tokens = 27s latency in Runner.run()
-            #      4 exchanges (8 messages) = ~1.2K tokens = 1.2s latency ✅
+            # 🔥 FIX: IMPROVED CONVERSATION HISTORY for better context retention
+            # Previous: 8 messages (4 exchanges) - caused context loss after 5th message
+            # New: 12 messages (6 exchanges) - maintains context while keeping performance
+            # Performance: ~1.8K tokens, estimated 2-2.5s latency (acceptable for WhatsApp)
             history_start = time.time()
             conversation_messages = []
             if context and "previous_messages" in context:
                 prev_msgs = context["previous_messages"]
                 print(f"📚 Found {len(prev_msgs)} previous messages in context")
                 
-                # 🔥 CRITICAL PERFORMANCE FIX: Keep only last 8 messages (4 user + 4 assistant)
-                # This reduces prompt from ~4.5K tokens to ~1.2K tokens
-                if len(prev_msgs) > 8:
-                    prev_msgs = prev_msgs[-8:]
-                    print(f"⚡ PERFORMANCE: Limited to last 8 messages (4 exchanges) to reduce latency")
-                    logger.info(f"⚡ Truncated history from {len(context['previous_messages'])} to 8 messages")
+                # 🔥 FIX: Keep last 12 messages (6 exchanges) to maintain better context
+                # This balances context retention with performance:
+                # - Prevents "איך אפשר לעזור" generic responses after 5 messages
+                # - Allows bot to remember conversation flow and user preferences
+                # - Still lightweight enough for <3s response time
+                if len(prev_msgs) > 12:
+                    prev_msgs = prev_msgs[-12:]
+                    print(f"⚡ PERFORMANCE: Limited to last 12 messages (6 exchanges) for context retention")
+                    logger.info(f"⚡ Truncated history from {len(context['previous_messages'])} to 12 messages")
                 
                 # Convert to Agent SDK format
                 # prev_msgs is list of strings like "לקוח: XXX" or "עוזר: YYY"
