@@ -434,14 +434,14 @@ def add_asset_media(asset_id):
         ).first()
         
         if not asset:
-            return jsonify({'error': 'Asset not found'}), 404
+            return jsonify({'error': 'הפריט לא נמצא'}), 404
         
         data = request.get_json() or {}
         
         # Validate attachment_id
         attachment_id = data.get('attachment_id')
         if not attachment_id:
-            return jsonify({'error': 'attachment_id is required'}), 400
+            return jsonify({'error': 'נדרש מזהה קובץ מצורף'}), 400
         
         # Verify attachment exists and belongs to business
         attachment = Attachment.query.filter_by(

@@ -404,7 +404,7 @@ export default function AssetsPage() {
                   <div className="p-4">
                     <h3 className="font-semibold text-slate-900 truncate">{asset.title}</h3>
                     {asset.description && (
-                      <p className="text-sm text-slate-500 mt-1 line-clamp-2">{asset.description}</p>
+                      <p className="text-sm text-slate-500 mt-1 line-clamp-2" title={asset.description}>{asset.description}</p>
                     )}
                     
                     {/* Tags */}
