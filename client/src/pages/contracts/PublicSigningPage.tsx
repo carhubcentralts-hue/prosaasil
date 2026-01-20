@@ -110,7 +110,8 @@ function PDFSigningView({
   useEffect(() => {
     const iframe = iframeRef.current;
     if (iframe && pdfInfo) {
-      // Force iframe reload with new page number
+      // Directly set the src to navigate to the correct page
+      // The key prop on the iframe will force a reload when the page changes
       iframe.src = `${file.download_url}#page=${currentPage + 1}`;
     }
   }, [currentPage, file.download_url, pdfInfo]);
@@ -189,6 +190,8 @@ function PDFSigningView({
   const confirmSignaturePlacement = () => {
     if (!pendingPlacement || !currentSignatureData) return;
     
+    console.log(`[PDF_SIGN] Adding signature on page ${pendingPlacement.pageNumber + 1} (0-indexed: ${pendingPlacement.pageNumber})`);
+    
     const newPlacement: SignaturePlacement = {
       id: `sig-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       pageNumber: pendingPlacement.pageNumber,
@@ -214,6 +217,12 @@ function PDFSigningView({
       onError('יש להוסיף לפחות חתימה אחת על המסמך');
       return;
     }
+
+    console.log('[PDF_SIGN] Submitting signatures:', signaturePlacements.map(sig => ({
+      id: sig.id,
+      pageNumber: sig.pageNumber,
+      displayPage: sig.pageNumber + 1
+    })));
 
     setSigning(true);
     try {
@@ -273,40 +282,56 @@ function PDFSigningView({
   return (
     <div className="space-y-4">
       {/* Header with page navigation */}
-      <div className="flex items-center justify-between bg-gray-100 p-3 rounded-lg">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border-2 border-blue-200 shadow-sm">
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+            onClick={() => {
+              const newPage = Math.max(0, currentPage - 1);
+              console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+              setCurrentPage(newPage);
+            }}
             onTouchEnd={(e) => {
               e.preventDefault();
               if (currentPage > 0) {
-                setCurrentPage(p => Math.max(0, p - 1));
+                const newPage = Math.max(0, currentPage - 1);
+                console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+                setCurrentPage(newPage);
               }
             }}
             disabled={currentPage === 0}
-            className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed active:bg-gray-300 touch-manipulation"
+            className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed active:bg-blue-200 touch-manipulation shadow-sm border border-blue-200"
+            title="עמוד קודם"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className="w-6 h-6 text-blue-600" />
           </button>
-          <span className="font-medium">
-            עמוד {currentPage + 1} מתוך {pdfInfo.page_count}
-          </span>
+          <div className="px-4 py-2 bg-white rounded-lg border-2 border-blue-400 shadow-md">
+            <span className="text-lg font-bold text-blue-900">
+              עמוד {currentPage + 1} מתוך {pdfInfo.page_count}
+            </span>
+          </div>
           <button
-            onClick={() => setCurrentPage(p => Math.min(pdfInfo.page_count - 1, p + 1))}
+            onClick={() => {
+              const newPage = Math.min(pdfInfo.page_count - 1, currentPage + 1);
+              console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+              setCurrentPage(newPage);
+            }}
             onTouchEnd={(e) => {
               e.preventDefault();
               if (currentPage < pdfInfo.page_count - 1) {
-                setCurrentPage(p => Math.min(pdfInfo.page_count - 1, p + 1));
+                const newPage = Math.min(pdfInfo.page_count - 1, currentPage + 1);
+                console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+                setCurrentPage(newPage);
               }
             }}
             disabled={currentPage === pdfInfo.page_count - 1}
-            className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed active:bg-gray-300 touch-manipulation"
+            className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed active:bg-blue-200 touch-manipulation shadow-sm border border-blue-200"
+            title="עמוד הבא"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-6 h-6 text-blue-600" />
           </button>
         </div>
-        <div className="text-sm text-gray-600">
-          <span className="font-medium text-blue-600">{signaturePlacements.length}</span> חתימות
+        <div className="text-sm text-gray-700 bg-white px-3 py-2 rounded-lg border border-blue-200">
+          <span className="font-bold text-blue-600">{signaturePlacements.length}</span> חתימות
         </div>
       </div>
 
@@ -361,6 +386,7 @@ function PDFSigningView({
           style={{ minHeight: '400px' }}
         >
           <iframe
+            key={`pdf-page-${currentPage}`}
             ref={iframeRef}
             src={`${file.download_url}#page=${currentPage + 1}&view=FitH`}
             className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
