@@ -190,7 +190,9 @@ function PDFSigningView({
   const confirmSignaturePlacement = () => {
     if (!pendingPlacement || !currentSignatureData) return;
     
-    console.log(`[PDF_SIGN] Adding signature on page ${pendingPlacement.pageNumber + 1} (0-indexed: ${pendingPlacement.pageNumber})`);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[PDF_SIGN] Adding signature on page ${pendingPlacement.pageNumber + 1} (0-indexed: ${pendingPlacement.pageNumber})`);
+    }
     
     const newPlacement: SignaturePlacement = {
       id: `sig-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -218,11 +220,13 @@ function PDFSigningView({
       return;
     }
 
-    console.log('[PDF_SIGN] Submitting signatures:', signaturePlacements.map(sig => ({
-      id: sig.id,
-      pageNumber: sig.pageNumber,
-      displayPage: sig.pageNumber + 1
-    })));
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[PDF_SIGN] Submitting signatures:', signaturePlacements.map(sig => ({
+        id: sig.id,
+        pageNumber: sig.pageNumber,
+        displayPage: sig.pageNumber + 1
+      })));
+    }
 
     setSigning(true);
     try {
@@ -287,14 +291,18 @@ function PDFSigningView({
           <button
             onClick={() => {
               const newPage = Math.max(0, currentPage - 1);
-              console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+              }
               setCurrentPage(newPage);
             }}
             onTouchEnd={(e) => {
               e.preventDefault();
               if (currentPage > 0) {
                 const newPage = Math.max(0, currentPage - 1);
-                console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+                }
                 setCurrentPage(newPage);
               }
             }}
@@ -312,14 +320,18 @@ function PDFSigningView({
           <button
             onClick={() => {
               const newPage = Math.min(pdfInfo.page_count - 1, currentPage + 1);
-              console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+              }
               setCurrentPage(newPage);
             }}
             onTouchEnd={(e) => {
               e.preventDefault();
               if (currentPage < pdfInfo.page_count - 1) {
                 const newPage = Math.min(pdfInfo.page_count - 1, currentPage + 1);
-                console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+                }
                 setCurrentPage(newPage);
               }
             }}
