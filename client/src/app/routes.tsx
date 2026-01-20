@@ -45,6 +45,7 @@ const StatisticsPage = lazy(() => import('../pages/statistics/StatisticsPage').t
 const ContractsPage = lazy(() => import('../pages/contracts/ContractsPage').then(m => ({ default: m.ContractsPage })));
 const PublicSigningPage = lazy(() => import('../pages/contracts/PublicSigningPage').then(m => ({ default: m.PublicSigningPage })));
 const AssetsPage = lazy(() => import('../pages/assets/AssetsPage'));
+const ReceiptsPage = lazy(() => import('../pages/receipts/ReceiptsPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -314,6 +315,20 @@ export function AppRoutes() {
               <PageGuard pageKey="assets">
                 <Suspense fallback={<PageLoader />}>
                   <AssetsPage />
+                </Suspense>
+              </PageGuard>
+            </RoleGuard>
+          }
+        />
+
+        {/* Gmail Receipts Routes (קבלות) */}
+        <Route
+          path="receipts"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+              <PageGuard pageKey="gmail_receipts">
+                <Suspense fallback={<PageLoader />}>
+                  <ReceiptsPage />
                 </Suspense>
               </PageGuard>
             </RoleGuard>

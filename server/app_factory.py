@@ -451,6 +451,12 @@ def create_app():
         app.register_blueprint(assets_bp)
         app.logger.info("✅ Assets Library blueprint registered")
         
+        # Gmail Receipts System - /api/gmail/* and /api/receipts/*
+        from server.routes_receipts import gmail_oauth_bp, receipts_bp
+        app.register_blueprint(gmail_oauth_bp)
+        app.register_blueprint(receipts_bp)
+        app.logger.info("✅ Gmail Receipts System blueprints registered")
+        
         # Contracts System - /api/contracts/*
         from server.routes_contracts import contracts_bp
         app.register_blueprint(contracts_bp)

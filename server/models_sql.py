@@ -1503,3 +1503,106 @@ class AssetItemMedia(db.Model):
         db.Index('idx_asset_item_media_sort', 'asset_item_id', 'sort_order'),
         db.CheckConstraint("role IN ('cover', 'gallery', 'floorplan', 'other')", name='chk_asset_media_role'),
     )
+
+
+# === GMAIL RECEIPTS SYSTEM ===
+
+class GmailConnection(db.Model):
+    """
+    Gmail OAuth connections for businesses
+    Stores encrypted refresh tokens for accessing Gmail API
+    Multi-tenant: Each business can have one Gmail connection
+    """
+    __tablename__ = "gmail_connections"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    
+    # Google OAuth fields
+    email_address = db.Column(db.String(255), nullable=False)  # Connected Gmail address
+    google_sub = db.Column(db.String(255), nullable=True)  # Google user ID
+    refresh_token_encrypted = db.Column(db.Text, nullable=False)  # Encrypted refresh token
+    
+    # Connection status
+    status = db.Column(db.String(32), nullable=False, default="connected")  # connected|disconnected|error
+    error_message = db.Column(db.Text, nullable=True)  # Last error if status is 'error'
+    
+    # Sync tracking
+    last_sync_at = db.Column(db.DateTime, nullable=True)
+    last_history_id = db.Column(db.String(64), nullable=True)  # Gmail history ID for incremental sync
+    
+    # Audit
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("gmail_connection", uselist=False, lazy="joined"))
+    
+    # Status constraints
+    __table_args__ = (
+        db.CheckConstraint("status IN ('connected', 'disconnected', 'error')", name='chk_gmail_connection_status'),
+    )
+
+
+class Receipt(db.Model):
+    """
+    Receipts extracted from Gmail
+    Stores metadata about receipts and links to attachment storage
+    Multi-tenant with unique constraint on gmail_message_id per business
+    """
+    __tablename__ = "receipts"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Source identification
+    source = db.Column(db.String(32), nullable=False, default="gmail")  # gmail|manual|upload
+    gmail_message_id = db.Column(db.String(255), nullable=True, index=True)  # Unique Gmail message ID
+    gmail_thread_id = db.Column(db.String(255), nullable=True)
+    
+    # Email metadata
+    from_email = db.Column(db.String(255), nullable=True)
+    subject = db.Column(db.String(500), nullable=True)
+    received_at = db.Column(db.DateTime, nullable=True, index=True)
+    
+    # Extracted receipt data
+    vendor_name = db.Column(db.String(255), nullable=True)
+    amount = db.Column(db.Numeric(12, 2), nullable=True)  # Extracted amount
+    currency = db.Column(db.String(3), nullable=False, default="ILS")
+    invoice_number = db.Column(db.String(100), nullable=True)
+    invoice_date = db.Column(db.Date, nullable=True)
+    
+    # AI extraction confidence
+    confidence = db.Column(db.Integer, nullable=True)  # 0-100 confidence score
+    raw_extraction_json = db.Column(db.JSON, nullable=True)  # Full extraction results
+    
+    # Status management
+    status = db.Column(db.String(32), nullable=False, default="pending_review")  # pending_review|approved|rejected|not_receipt
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Attachment reference (via unified attachments system)
+    attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Soft delete
+    is_deleted = db.Column(db.Boolean, default=False, index=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
+    
+    # Audit
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("receipts", lazy="dynamic"))
+    reviewer = db.relationship("User", backref=db.backref("reviewed_receipts", lazy="dynamic"))
+    attachment = db.relationship("Attachment", backref=db.backref("receipts", lazy="dynamic"))
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        # Unique constraint: prevent duplicate receipts per business
+        db.UniqueConstraint('business_id', 'gmail_message_id', name='uq_receipt_business_gmail_message'),
+        db.Index('idx_receipts_business_received', 'business_id', 'received_at'),
+        db.Index('idx_receipts_business_status', 'business_id', 'status'),
+        db.CheckConstraint("status IN ('pending_review', 'approved', 'rejected', 'not_receipt')", name='chk_receipt_status'),
+        db.CheckConstraint("source IN ('gmail', 'manual', 'upload')", name='chk_receipt_source'),
+    )

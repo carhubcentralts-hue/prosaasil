@@ -205,6 +205,18 @@ PAGE_REGISTRY: Dict[str, PageConfig] = {
         description="ניהול פריטים, מלאי ותמונות"
     ),
     
+    # Gmail Receipts (קבלות מג׳ימייל)
+    "gmail_receipts": PageConfig(
+        page_key="gmail_receipts",
+        title_he="קבלות",
+        route="/app/receipts",
+        min_role="admin",
+        category="finance",
+        api_tags=["gmail", "receipts"],
+        icon="Receipt",
+        description="קבלות מג׳ימייל - סנכרון אוטומטי"
+    ),
+    
     # Settings & Management
     "settings": PageConfig(
         page_key="settings",

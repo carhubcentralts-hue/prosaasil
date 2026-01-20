@@ -3372,6 +3372,95 @@ def apply_migrations():
         else:
             checkpoint("✅ Migration 81 completed - Assets Library tables created")
         
+        # Migration 82: Gmail Receipts System - Create gmail_connections and receipts tables
+        checkpoint("Migration 82: Gmail Receipts System")
+        
+        # Create gmail_connections table
+        if not check_table_exists('gmail_connections'):
+            try:
+                checkpoint("  → Creating gmail_connections table...")
+                db.session.execute(text("""
+                    CREATE TABLE gmail_connections (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        email_address VARCHAR(255) NOT NULL,
+                        google_sub VARCHAR(255),
+                        refresh_token_encrypted TEXT NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'connected',
+                        error_message TEXT,
+                        last_sync_at TIMESTAMP,
+                        last_history_id VARCHAR(64),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uq_gmail_connection_business UNIQUE (business_id),
+                        CONSTRAINT chk_gmail_connection_status CHECK (status IN ('connected', 'disconnected', 'error'))
+                    )
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_gmail_connections_business ON gmail_connections(business_id)
+                """))
+                checkpoint("  ✅ gmail_connections table created")
+                migrations_applied.append('create_gmail_connections_table')
+            except Exception as e:
+                log.error(f"❌ Migration 82 (gmail_connections) failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ gmail_connections table already exists - skipping")
+        
+        # Create receipts table
+        if not check_table_exists('receipts'):
+            try:
+                checkpoint("  → Creating receipts table...")
+                db.session.execute(text("""
+                    CREATE TABLE receipts (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        source VARCHAR(32) NOT NULL DEFAULT 'gmail',
+                        gmail_message_id VARCHAR(255),
+                        gmail_thread_id VARCHAR(255),
+                        from_email VARCHAR(255),
+                        subject VARCHAR(500),
+                        received_at TIMESTAMP,
+                        vendor_name VARCHAR(255),
+                        amount NUMERIC(12, 2),
+                        currency VARCHAR(3) NOT NULL DEFAULT 'ILS',
+                        invoice_number VARCHAR(100),
+                        invoice_date DATE,
+                        confidence INTEGER,
+                        raw_extraction_json JSONB,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending_review',
+                        reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        reviewed_at TIMESTAMP,
+                        attachment_id INTEGER REFERENCES attachments(id) ON DELETE SET NULL,
+                        is_deleted BOOLEAN DEFAULT FALSE,
+                        deleted_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uq_receipt_business_gmail_message UNIQUE (business_id, gmail_message_id),
+                        CONSTRAINT chk_receipt_status CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt')),
+                        CONSTRAINT chk_receipt_source CHECK (source IN ('gmail', 'manual', 'upload'))
+                    )
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_receipts_business ON receipts(business_id);
+                    CREATE INDEX idx_receipts_business_received ON receipts(business_id, received_at);
+                    CREATE INDEX idx_receipts_business_status ON receipts(business_id, status);
+                    CREATE INDEX idx_receipts_gmail_message_id ON receipts(gmail_message_id);
+                    CREATE INDEX idx_receipts_attachment ON receipts(attachment_id);
+                    CREATE INDEX idx_receipts_is_deleted ON receipts(is_deleted)
+                """))
+                checkpoint("  ✅ receipts table created")
+                migrations_applied.append('create_receipts_table')
+            except Exception as e:
+                log.error(f"❌ Migration 82 (receipts) failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ receipts table already exists - skipping")
+        
+        checkpoint("✅ Migration 82 completed - Gmail Receipts System tables created")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
