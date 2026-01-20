@@ -693,7 +693,7 @@ def sync_receipts():
     """
     Trigger manual sync of receipts from Gmail
     
-    Body:
+    Body (optional):
     - mode: 'full' or 'incremental' (default: incremental)
     - max_messages: Maximum messages to process (optional)
     
@@ -711,8 +711,12 @@ def sync_receipts():
             "error": "Gmail not connected. Please connect your Gmail account first."
         }), 400
     
-    # Get parameters
-    data = request.get_json() or {}
+    # Get parameters - handle both JSON and empty body
+    try:
+        data = request.get_json(silent=True) or {}
+    except Exception:
+        data = {}
+    
     mode = data.get('mode', 'incremental')
     max_messages = data.get('max_messages', None)
     

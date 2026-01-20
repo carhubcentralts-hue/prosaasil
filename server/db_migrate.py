@@ -3504,50 +3504,62 @@ def apply_migrations():
         checkpoint("Migration 84: Gmail Receipts Enhanced - purpose-based file separation")
         
         # 84a: Add purpose field to attachments
-        if check_table_exists('attachments') and not check_column_exists('attachments', 'purpose'):
-            checkpoint("Migration 84a: Adding purpose to attachments")
-            from sqlalchemy import text
-            try:
-                db.session.execute(text("""
-                    ALTER TABLE attachments 
-                    ADD COLUMN purpose VARCHAR(50) NOT NULL DEFAULT 'general_upload'
-                """))
-                
-                # Add index for efficient filtering
-                if not check_index_exists('idx_attachments_purpose'):
+        if check_table_exists('attachments'):
+            if not check_column_exists('attachments', 'purpose'):
+                checkpoint("Migration 84a: Adding purpose to attachments")
+                from sqlalchemy import text
+                try:
                     db.session.execute(text("""
-                        CREATE INDEX idx_attachments_purpose 
-                        ON attachments(business_id, purpose, created_at)
+                        ALTER TABLE attachments 
+                        ADD COLUMN purpose VARCHAR(50) NOT NULL DEFAULT 'general_upload'
                     """))
-                
-                migrations_applied.append("add_purpose_to_attachments")
-                checkpoint("✅ Migration 84a complete: purpose added with index")
-            except Exception as e:
-                db.session.rollback()
-                checkpoint(f"⚠️ Migration 84a failed: {e}")
+                    db.session.commit()  # Commit immediately to persist the column
+                    
+                    # Add index for efficient filtering
+                    if not check_index_exists('idx_attachments_purpose'):
+                        db.session.execute(text("""
+                            CREATE INDEX idx_attachments_purpose 
+                            ON attachments(business_id, purpose, created_at)
+                        """))
+                        db.session.commit()  # Commit index creation
+                    
+                    migrations_applied.append("add_purpose_to_attachments")
+                    checkpoint("✅ Migration 84a complete: purpose added with index")
+                except Exception as e:
+                    db.session.rollback()
+                    checkpoint(f"⚠️ Migration 84a failed: {e}")
+                    log.error(f"Migration 84a error details: {e}", exc_info=True)
+            else:
+                checkpoint("Migration 84a: purpose column already exists - skipping")
         
         # 84b: Add origin_module field to attachments
-        if check_table_exists('attachments') and not check_column_exists('attachments', 'origin_module'):
-            checkpoint("Migration 84b: Adding origin_module to attachments")
-            from sqlalchemy import text
-            try:
-                db.session.execute(text("""
-                    ALTER TABLE attachments 
-                    ADD COLUMN origin_module VARCHAR(50)
-                """))
-                
-                # Add index for efficient filtering
-                if not check_index_exists('idx_attachments_origin'):
+        if check_table_exists('attachments'):
+            if not check_column_exists('attachments', 'origin_module'):
+                checkpoint("Migration 84b: Adding origin_module to attachments")
+                from sqlalchemy import text
+                try:
                     db.session.execute(text("""
-                        CREATE INDEX idx_attachments_origin 
-                        ON attachments(business_id, origin_module)
+                        ALTER TABLE attachments 
+                        ADD COLUMN origin_module VARCHAR(50)
                     """))
-                
-                migrations_applied.append("add_origin_module_to_attachments")
-                checkpoint("✅ Migration 84b complete: origin_module added with index")
-            except Exception as e:
-                db.session.rollback()
-                checkpoint(f"⚠️ Migration 84b failed: {e}")
+                    db.session.commit()  # Commit immediately to persist the column
+                    
+                    # Add index for efficient filtering
+                    if not check_index_exists('idx_attachments_origin'):
+                        db.session.execute(text("""
+                            CREATE INDEX idx_attachments_origin 
+                            ON attachments(business_id, origin_module)
+                        """))
+                        db.session.commit()  # Commit index creation
+                    
+                    migrations_applied.append("add_origin_module_to_attachments")
+                    checkpoint("✅ Migration 84b complete: origin_module added with index")
+                except Exception as e:
+                    db.session.rollback()
+                    checkpoint(f"⚠️ Migration 84b failed: {e}")
+                    log.error(f"Migration 84b error details: {e}", exc_info=True)
+            else:
+                checkpoint("Migration 84b: origin_module column already exists - skipping")
         
         # 84c: Add email content fields to receipts
         if check_table_exists('receipts'):

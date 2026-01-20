@@ -384,8 +384,14 @@ export function ContractsPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        if (page > 1) {
+                          setPage((p) => Math.max(1, p - 1));
+                        }
+                      }}
                       disabled={page === 1}
-                      className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 active:bg-gray-100 touch-manipulation"
                     >
                       הקודם
                     </button>
@@ -394,8 +400,14 @@ export function ContractsPage() {
                     </span>
                     <button
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        if (page < totalPages) {
+                          setPage((p) => Math.min(totalPages, p + 1));
+                        }
+                      }}
                       disabled={page === totalPages}
-                      className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 active:bg-gray-100 touch-manipulation"
                     >
                       הבא
                     </button>
