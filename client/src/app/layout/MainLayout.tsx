@@ -23,7 +23,8 @@ import {
   Mail,
   BarChart3,
   FileText,
-  Package
+  Package,
+  Receipt
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -118,6 +119,13 @@ const menuItems = [
     to: '/app/assets',
     roles: ['system_admin', 'owner', 'admin', 'agent'],
     pageKey: 'assets'
+  },
+  { 
+    icon: Receipt, 
+    label: 'קבלות',
+    to: '/app/receipts',
+    roles: ['system_admin', 'owner', 'admin'],
+    pageKey: 'gmail_receipts'
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
   // { 
