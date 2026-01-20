@@ -744,13 +744,23 @@ def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
     if not html_content:
         return data
     
-    # Strip HTML tags to get plain text
-    import re
-    # Remove script and style elements
-    text = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    # Remove HTML tags
-    text = re.sub(r'<[^>]+>', ' ', text)
+    # Strip HTML tags to get plain text using BeautifulSoup (more secure than regex)
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+        # Remove script and style elements
+        for script in soup(['script', 'style']):
+            script.decompose()
+        text = soup.get_text(separator=' ')
+    except ImportError:
+        # Fallback to regex if BeautifulSoup not available
+        import re
+        # Best-effort regex to remove script/style tags with any whitespace in closing tag
+        text = re.sub(r'<script[^>]*>.*?</script[^>]*>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style[^>]*>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        # Remove other HTML tags
+        text = re.sub(r'<[^>]+>', ' ', text)
+    
     # Decode HTML entities
     try:
         import html
