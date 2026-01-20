@@ -532,14 +532,12 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     
     if detected_currency == 'USD' or (detected_currency is None and currency_scores['USD'] == max_score):
         # Try USD patterns first if USD detected or no clear currency
-        usd_patterns = [
-            r'\$\s*([\d,]+\.?\d*)',  # $100 or $100.50
-            r'([\d,]+\.?\d*)\s*\$',  # 100$ or 100.50$
-            r'(?:USD|usd)[:\s]+([\d,]+\.?\d*)',  # USD: 100
-            r'(?:total|amount|sum|subtotal|grand total)[:\s]*\$\s*([\d,]+\.?\d*)',  # Total: $100
+        # Priority 1: Total/Grand Total with $ (most reliable)
+        usd_patterns_priority = [
+            r'(?:total|grand total|amount due)[:\s]*\$\s*([\d,]+\.?\d*)',  # Total: $100
         ]
         
-        for pattern in usd_patterns:
+        for pattern in usd_patterns_priority:
             match = re.search(pattern, pdf_text, re.IGNORECASE)
             if match:
                 try:
@@ -550,17 +548,36 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
                     break
                 except (ValueError, IndexError):
                     pass
+        
+        # Priority 2: Other USD patterns
+        if not amount_found:
+            usd_patterns = [
+                r'\$\s*([\d,]+\.?\d*)',  # $100 or $100.50
+                r'([\d,]+\.?\d*)\s*\$',  # 100$ or 100.50$
+                r'([\d,]+\.?\d*)\s+(?:USD|usd)',  # 100 USD or 100 usd
+                r'(?:USD|usd)[:\s]*([\d,]+\.?\d*)',  # USD: 100 or USD 100
+            ]
+            
+            for pattern in usd_patterns:
+                match = re.search(pattern, pdf_text, re.IGNORECASE)
+                if match:
+                    try:
+                        amount_str = match.group(1).replace(',', '')
+                        data['amount'] = float(amount_str)
+                        data['currency'] = 'USD'
+                        amount_found = True
+                        break
+                    except (ValueError, IndexError):
+                        pass
     
     if not amount_found and (detected_currency == 'ILS' or detected_currency is None):
         # Try ILS patterns
-        ils_patterns = [
-            r'₪\s*([\d,]+\.?\d*)',  # ₪100 or ₪100.50
-            r'([\d,]+\.?\d*)\s*₪',  # 100₪ or 100.50₪
-            r'(?:ILS|ils|ש"ח)[:\s]+([\d,]+\.?\d*)',  # ILS: 100 or ש"ח: 100
-            r'(?:סה"כ|סהכ|לתשלום|סכום)[:\s]*₪?\s*([\d,]+\.?\d*)\s*₪?',  # Hebrew keywords with optional ₪
+        # Priority 1: Total keywords with ₪
+        ils_patterns_priority = [
+            r'(?:סה"כ|סהכ|לתשלום|total|amount due)[:\s]*₪?\s*([\d,]+\.?\d*)\s*₪',  # Hebrew/English keywords with ₪
         ]
         
-        for pattern in ils_patterns:
+        for pattern in ils_patterns_priority:
             match = re.search(pattern, pdf_text, re.IGNORECASE)
             if match:
                 try:
@@ -571,6 +588,27 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
                     break
                 except (ValueError, IndexError):
                     pass
+        
+        # Priority 2: Other ILS patterns
+        if not amount_found:
+            ils_patterns = [
+                r'₪\s*([\d,]+\.?\d*)',  # ₪100 or ₪100.50
+                r'([\d,]+\.?\d*)\s*₪',  # 100₪ or 100.50₪
+                r'(?:ILS|ils|ש"ח)[:\s]*([\d,]+\.?\d*)',  # ILS: 100 or ש"ח: 100
+                r'(?:סה"כ|סהכ|לתשלום|סכום)[:\s]*([\d,]+\.?\d*)',  # Hebrew keywords without ₪
+            ]
+        
+            for pattern in ils_patterns:
+                match = re.search(pattern, pdf_text, re.IGNORECASE)
+                if match:
+                    try:
+                        amount_str = match.group(1).replace(',', '')
+                        data['amount'] = float(amount_str)
+                        data['currency'] = 'ILS'
+                        amount_found = True
+                        break
+                    except (ValueError, IndexError):
+                        pass
     
     if not amount_found and detected_currency == 'EUR':
         # Try EUR patterns
