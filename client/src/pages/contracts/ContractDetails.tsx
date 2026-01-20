@@ -172,7 +172,12 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
       {showPreview && previewUrl && (
         <div className="border-t border-gray-200 p-4 bg-white">
           {file.mime_type === 'application/pdf' ? (
-            <iframe src={previewUrl} className="w-full h-96 rounded-lg border border-gray-300" title={file.filename} />
+            <iframe 
+              src={`${previewUrl}#view=FitH`} 
+              className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px] rounded-lg border border-gray-300" 
+              title={file.filename}
+              style={{ border: 'none', display: 'block' }}
+            />
           ) : file.mime_type.startsWith('image/') ? (
             <div className="flex justify-center">
               <img src={previewUrl} alt={file.filename} className="max-w-full max-h-96 rounded-lg border border-gray-300" />
