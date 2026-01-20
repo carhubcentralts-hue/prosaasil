@@ -294,6 +294,14 @@ def oauth_callback():
         email = userinfo.get('email')
         google_sub = userinfo.get('id')
         
+        # Encrypt tokens (will raise error if ENCRYPTION_KEY not set in production)
+        try:
+            encrypted_refresh_token = encrypt_token(refresh_token)
+        except ValueError as ve:
+            # Encryption key missing or invalid
+            logger.error(f"Token encryption failed: {ve}")
+            return redirect("/app/receipts?error=encryption_not_configured")
+        
         # Store connection
         existing = GmailConnection.query.filter_by(business_id=business_id).first()
         
@@ -301,7 +309,7 @@ def oauth_callback():
             # Update existing connection
             existing.email_address = email
             existing.google_sub = google_sub
-            existing.refresh_token_encrypted = encrypt_token(refresh_token)
+            existing.refresh_token_encrypted = encrypted_refresh_token
             existing.status = 'connected'
             existing.error_message = None
             existing.updated_at = datetime.utcnow()
@@ -311,13 +319,17 @@ def oauth_callback():
                 business_id=business_id,
                 email_address=email,
                 google_sub=google_sub,
-                refresh_token_encrypted=encrypt_token(refresh_token),
+                refresh_token_encrypted=encrypted_refresh_token,
                 status='connected'
             )
             db.session.add(connection)
         
         db.session.commit()
         logger.info(f"Gmail connected for business {business_id}: {email}")
+        
+        # Trigger initial sync in the background
+        # NOTE: Actual sync implementation should be done asynchronously
+        logger.info(f"Gmail connection established. Sync will start automatically.")
         
         return redirect("/app/receipts?connected=true")
         

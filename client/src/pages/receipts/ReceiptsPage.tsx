@@ -527,7 +527,7 @@ export function ReceiptsPage() {
   };
   
   // Handle sync
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     try {
       setSyncing(true);
       const res = await axios.post('/api/receipts/sync');
@@ -543,7 +543,7 @@ export function ReceiptsPage() {
     } finally {
       setSyncing(false);
     }
-  };
+  }, [fetchReceipts, fetchStats, fetchGmailStatus]);
   
   // Handle mark receipt
   const handleMark = async (receiptId: number, status: string) => {
@@ -583,16 +583,31 @@ export function ReceiptsPage() {
     
     if (params.get('connected') === 'true') {
       fetchGmailStatus();
+      // Auto-trigger sync after successful connection
+      handleSync();
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
     }
     
     const errorParam = params.get('error');
     if (errorParam) {
-      setError(`Gmail connection error: ${errorParam}`);
+      // Map error codes to user-friendly Hebrew messages
+      const errorMessages: Record<string, string> = {
+        'encryption_not_configured': 'שגיאת הגדרה: מפתח ההצפנה לא מוגדר. אנא פנה למנהל המערכת להגדרת ENCRYPTION_KEY.',
+        'token_exchange_failed': 'שגיאה בקבלת הרשאה מ-Google. אנא נסה שוב.',
+        'no_refresh_token': 'לא התקבל טוקן מ-Google. ייתכן שכבר אישרת את החיבור. נתק ונסה שוב.',
+        'userinfo_failed': 'שגיאה בקבלת מידע משתמש מ-Google. אנא נסה שוב.',
+        'invalid_state': 'שגיאת אבטחה: מצב לא תקין. ייתכן שניסיון תקיפה. נסה שוב.',
+        'session_expired': 'תוקף ההפעלה פג. אנא נסה שוב.',
+        'no_code': 'לא התקבל קוד אישור מ-Google. אנא נסה שוב.',
+        'server_error': 'שגיאת שרת. אנא נסה שוב מאוחר יותר.',
+      };
+      
+      const friendlyMessage = errorMessages[errorParam] || `שגיאה בחיבור Gmail: ${errorParam}`;
+      setError(friendlyMessage);
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, [fetchGmailStatus]);
+  }, [fetchGmailStatus, handleSync]);
   
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">

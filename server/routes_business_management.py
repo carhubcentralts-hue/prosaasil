@@ -1328,7 +1328,7 @@ def update_business_pages(business_id):
                     'added': list(set(new_pages) - set(old_pages)),
                     'removed': list(set(old_pages) - set(new_pages))
                 },
-                status='completed'
+                status='closed'  # Fixed: changed from 'completed' to 'closed' (valid status per CHECK constraint)
             )
             db.session.add(event)
             db.session.commit()
