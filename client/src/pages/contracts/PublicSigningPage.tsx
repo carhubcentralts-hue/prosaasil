@@ -71,6 +71,7 @@ function PDFSigningView({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [lastTapTime, setLastTapTime] = useState(0);
   const [signatureModeActive, setSignatureModeActive] = useState(false);
+  const [pageBeforeSignatureMode, setPageBeforeSignatureMode] = useState(0);
 
   // Load PDF info
   useEffect(() => {
@@ -276,8 +277,14 @@ function PDFSigningView({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              if (currentPage > 0) {
+                setCurrentPage(p => Math.max(0, p - 1));
+              }
+            }}
             disabled={currentPage === 0}
-            className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed active:bg-gray-300 touch-manipulation"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -286,8 +293,14 @@ function PDFSigningView({
           </span>
           <button
             onClick={() => setCurrentPage(p => Math.min(pdfInfo.page_count - 1, p + 1))}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              if (currentPage < pdfInfo.page_count - 1) {
+                setCurrentPage(p => Math.min(pdfInfo.page_count - 1, p + 1));
+              }
+            }}
             disabled={currentPage === pdfInfo.page_count - 1}
-            className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed active:bg-gray-300 touch-manipulation"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
@@ -308,7 +321,16 @@ function PDFSigningView({
             )}
           </div>
           <button
-            onClick={() => setSignatureModeActive(!signatureModeActive)}
+            onClick={() => {
+              if (!signatureModeActive) {
+                // Entering signature mode - save current page
+                setPageBeforeSignatureMode(currentPage);
+              } else {
+                // Exiting signature mode - restore previous page
+                setCurrentPage(pageBeforeSignatureMode);
+              }
+              setSignatureModeActive(!signatureModeActive);
+            }}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               signatureModeActive
                 ? 'bg-red-500 text-white hover:bg-red-600'
@@ -341,7 +363,11 @@ function PDFSigningView({
           {/* Transparent overlay for capturing double-clicks - ONLY when signature mode is active */}
           {signatureModeActive && (
             <div
-              className="absolute inset-0 cursor-crosshair bg-blue-50 bg-opacity-10"
+              className="absolute inset-0 cursor-crosshair"
+              style={{
+                backgroundColor: 'rgba(59, 130, 246, 0.05)', // Very light blue tint instead of bg-blue-50
+                pointerEvents: 'auto'
+              }}
               onDoubleClick={handlePdfDoubleClick}
               onTouchEnd={(e) => {
                 // Handle double-tap on mobile
