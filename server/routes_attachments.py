@@ -94,6 +94,9 @@ def upload_attachment():
         - multipart/form-data
         - file: File to upload
         - channel: Optional target channel (email/whatsapp/broadcast) for validation
+        - purpose: Optional purpose (default: general_upload)
+                   Values: general_upload, contract_original, contract_signed, 
+                          email_attachment, whatsapp_media, receipt_source, receipt_preview
     
     Response:
         - 201: Attachment created
@@ -134,6 +137,29 @@ def upload_attachment():
         if channel not in ['email', 'whatsapp', 'broadcast']:
             return jsonify({'error': 'Invalid channel'}), 400
         
+        # Get purpose (default: general_upload)
+        purpose = request.form.get('purpose', 'general_upload')
+        valid_purposes = [
+            'general_upload', 'contract_original', 'contract_signed',
+            'email_attachment', 'whatsapp_media', 'broadcast_media',
+            'receipt_source', 'receipt_preview'
+        ]
+        if purpose not in valid_purposes:
+            return jsonify({'error': f'Invalid purpose. Must be one of: {", ".join(valid_purposes)}'}), 400
+        
+        # Determine origin_module from purpose
+        purpose_to_origin = {
+            'general_upload': 'uploads',
+            'email_attachment': 'email',
+            'whatsapp_media': 'whatsapp',
+            'broadcast_media': 'broadcast',
+            'contract_original': 'contracts',
+            'contract_signed': 'contracts',
+            'receipt_source': 'receipts',
+            'receipt_preview': 'receipts'
+        }
+        origin_module = purpose_to_origin.get(purpose, 'uploads')
+        
         # Validate file
         attachment_service = get_attachment_service()
         is_valid, error_msg = attachment_service.validate_file(file, channel)
@@ -161,6 +187,8 @@ def upload_attachment():
             mime_type=mime_type,
             file_size=file_size,
             storage_path='',  # Will be set after we have the ID
+            purpose=purpose,  # Set purpose
+            origin_module=origin_module,  # Set origin module
             channel_compatibility=compatibility,
             meta_json={}
         )
@@ -168,8 +196,8 @@ def upload_attachment():
         db.session.add(attachment)
         db.session.flush()  # Get the ID
         
-        # Save file to storage
-        storage_path, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+        # Save file to storage with purpose
+        storage_path, actual_size = attachment_service.save_file(file, business_id, attachment.id, purpose)
         attachment.storage_path = storage_path
         
         db.session.commit()
@@ -182,7 +210,8 @@ def upload_attachment():
             'filename': filename,
             'mime_type': mime_type,
             'file_size': file_size,
-            'channel': channel
+            'channel': channel,
+            'purpose': purpose
         })
         
         return jsonify({
@@ -190,6 +219,7 @@ def upload_attachment():
             'filename': filename,
             'mime_type': mime_type,
             'file_size': file_size,
+            'purpose': purpose,
             'channel_compatibility': compatibility,
             'preview_url': preview_url,
             'created_at': attachment.created_at.isoformat()
@@ -205,21 +235,34 @@ def upload_attachment():
 @require_api_auth
 def list_attachments():
     """
-    List attachments for current business
+    List attachments for current business with MANDATORY context-based filtering
     
     Query params:
+        - context: RECOMMENDED - Context filter (email|whatsapp|broadcast|contracts|receipts|uploads)
+                   Automatically maps to appropriate purposes
+        - purpose: Filter by single purpose (e.g., 'receipt_source', 'general_upload')
+        - purposes: Filter by multiple purposes (comma-separated)
         - channel: Filter by channel compatibility (email/whatsapp/broadcast)
         - mime_type: Filter by mime type prefix (e.g., 'image/', 'video/')
         - page: Page number (default: 1)
         - per_page: Items per page (default: 30, max: 100)
-        - include_contracts: Include contract-related files (default: false)
-        - include_receipts: Include receipt-related files (default: false)
+    
+    Context Mapping (SECURITY):
+        - email → email_attachment only
+        - whatsapp → whatsapp_media only
+        - broadcast → broadcast_media, whatsapp_media
+        - contracts → contract_original, contract_signed
+        - receipts → receipt_source, receipt_preview
+        - uploads → general_upload only
+        - NO CONTEXT → general_upload only (SECURE DEFAULT)
     
     Response:
         - 200: List of attachments
     
-    Note: By default, attachments linked to contracts or receipts are excluded
-    to ensure proper separation between business documents and communication files.
+    Security:
+    - Multi-tenant isolation enforced (business_id)
+    - Default shows only general_upload (no mixing)
+    - Contract/receipt files NEVER appear in email/whatsapp contexts
     """
     try:
         business_id = get_current_business_id()
@@ -227,43 +270,52 @@ def list_attachments():
         if not business_id:
             return jsonify({'error': 'Business ID not found'}), 403
         
-        # Build query
+        # Build query with business isolation
         query = Attachment.query.filter_by(
             business_id=business_id,
             is_deleted=False
         )
         
-        # By default, exclude contract-related and receipt-related attachments
-        # These should only be visible in their respective sections (contracts/receipts)
-        include_contracts = request.args.get('include_contracts', 'false').lower() == 'true'
-        include_receipts = request.args.get('include_receipts', 'false').lower() == 'true'
+        # 🔒 SECURITY: Context-based filtering with secure defaults
+        context = request.args.get('context')
+        purpose = request.args.get('purpose')
+        purposes_param = request.args.get('purposes')
         
-        if not include_contracts:
-            # Exclude attachments that are linked to any contract file using EXISTS for better performance
-            query = query.filter(
-                ~db.session.query(ContractFile).filter(
-                    ContractFile.attachment_id == Attachment.id,
-                    ContractFile.business_id == business_id,
-                    ContractFile.deleted_at.is_(None)
-                ).exists()
-            )
-        
-        if not include_receipts:
-            # Exclude attachments that are linked to receipts
-            query = query.filter(
-                ~db.session.query(Receipt).filter(
-                    Receipt.attachment_id == Attachment.id,
-                    Receipt.business_id == business_id,
-                    Receipt.is_deleted == False
-                ).exists()
-            )
+        # Context mapping (recommended approach)
+        if context:
+            context_purpose_map = {
+                'email': ['email_attachment'],
+                'whatsapp': ['whatsapp_media'],
+                'broadcast': ['broadcast_media', 'whatsapp_media'],
+                'contracts': ['contract_original', 'contract_signed'],
+                'receipts': ['receipt_source', 'receipt_preview'],
+                'uploads': ['general_upload']
+            }
+            
+            allowed_purposes = context_purpose_map.get(context)
+            if not allowed_purposes:
+                return jsonify({'error': f'Invalid context: {context}'}), 400
+            
+            query = query.filter(Attachment.purpose.in_(allowed_purposes))
+            
+        elif purpose:
+            # Single purpose filter (explicit)
+            query = query.filter(Attachment.purpose == purpose)
+            
+        elif purposes_param:
+            # Multiple purposes filter (explicit, comma-separated)
+            purposes_list = [p.strip() for p in purposes_param.split(',') if p.strip()]
+            if purposes_list:
+                query = query.filter(Attachment.purpose.in_(purposes_list))
+        else:
+            # 🔒 SECURE DEFAULT: No context/purpose specified → only general_upload
+            # This prevents accidentally exposing sensitive files (contracts, receipts)
+            query = query.filter(Attachment.purpose == 'general_upload')
+            logger.info(f"[ATTACHMENTS] No context specified - defaulting to general_upload only (business_id={business_id})")
         
         # Filter by channel compatibility
         channel = request.args.get('channel')
         if channel and channel in ['email', 'whatsapp', 'broadcast']:
-            # Filter attachments where channel_compatibility[channel] = true
-            # 🔥 FIX: Use ->> operator to extract as text, not -> which returns JSON
-            # This prevents "operator does not exist: json = unknown" error
             from sqlalchemy import text
             query = query.filter(
                 text(f"channel_compatibility->>'{channel}' = 'true'")
@@ -297,6 +349,8 @@ def list_attachments():
                 'filename': att.filename_original,
                 'mime_type': att.mime_type,
                 'file_size': att.file_size,
+                'purpose': att.purpose,
+                'origin_module': att.origin_module,
                 'channel_compatibility': att.channel_compatibility,
                 'preview_url': preview_url,
                 'created_at': att.created_at.isoformat(),
@@ -308,7 +362,8 @@ def list_attachments():
             'page': page,
             'per_page': per_page,
             'total': paginated.total,
-            'pages': paginated.pages
+            'pages': paginated.pages,
+            'context_used': context or 'default (general_upload only)'
         }), 200
         
     except Exception as e:

@@ -693,9 +693,12 @@ def sync_receipts():
     """
     Trigger manual sync of receipts from Gmail
     
+    Body:
+    - mode: 'full' or 'incremental' (default: incremental)
+    - max_messages: Maximum messages to process (optional)
+    
     This fetches new emails that may contain receipts and processes them.
-    Returns immediately with status - actual sync happens asynchronously or synchronously
-    depending on configuration.
+    Returns immediately with status - sync happens synchronously.
     """
     business_id = get_current_business_id()
     
@@ -708,27 +711,42 @@ def sync_receipts():
             "error": "Gmail not connected. Please connect your Gmail account first."
         }), 400
     
+    # Get parameters
+    data = request.get_json() or {}
+    mode = data.get('mode', 'incremental')
+    max_messages = data.get('max_messages', None)
+    
+    if mode not in ['full', 'incremental']:
+        return jsonify({
+            "success": False,
+            "error": "Invalid mode. Must be 'full' or 'incremental'"
+        }), 400
+    
     # Import sync service
     try:
         from server.services.gmail_sync_service import sync_gmail_receipts
         
-        # Run sync synchronously for now (can be made async later)
-        result = sync_gmail_receipts(business_id)
+        # Run sync synchronously
+        result = sync_gmail_receipts(business_id, mode=mode, max_messages=max_messages)
         
-        # Update last sync time
-        connection.last_sync_at = datetime.utcnow()
-        if result.get('history_id'):
-            connection.last_history_id = result['history_id']
-        db.session.commit()
-        
-        log_audit('sync', 'gmail_receipts', details={'new_receipts': result.get('new_count', 0)})
+        log_audit('sync', 'gmail_receipts', details={
+            'mode': mode,
+            'new_receipts': result.get('new_count', 0),
+            'pages_scanned': result.get('pages_scanned', 0),
+            'messages_scanned': result.get('messages_scanned', 0)
+        })
         
         return jsonify({
             "success": True,
             "message": "Sync completed",
+            "mode": mode,
+            "sync_run_id": result.get('sync_run_id'),
             "new_receipts": result.get('new_count', 0),
             "processed": result.get('processed', 0),
-            "skipped": result.get('skipped', 0)
+            "skipped": result.get('skipped', 0),
+            "pages_scanned": result.get('pages_scanned', 0),
+            "messages_scanned": result.get('messages_scanned', 0),
+            "errors": result.get('errors', 0)
         })
         
     except ImportError:
@@ -738,10 +756,12 @@ def sync_receipts():
             "error": "Gmail sync service not available yet"
         }), 501
     except Exception as e:
-        logger.error(f"Sync error: {e}")
-        connection.status = 'error'
-        connection.error_message = str(e)[:500]
-        db.session.commit()
+        logger.error(f"Sync error: {e}", exc_info=True)
+        
+        if connection:
+            connection.status = 'error'
+            connection.error_message = str(e)[:500]
+            db.session.commit()
         
         return jsonify({
             "success": False,
@@ -792,5 +812,66 @@ def get_receipt_stats():
                 "rejected": status_dict.get('rejected', 0),
                 "not_receipt": status_dict.get('not_receipt', 0),
             }
+        }
+    })
+
+
+@receipts_bp.route('/sync/status', methods=['GET'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def get_sync_status():
+    """
+    Get status of current or most recent sync job
+    
+    Query params:
+    - run_id: Specific sync run ID (optional, defaults to most recent)
+    """
+    business_id = get_current_business_id()
+    from server.models_sql import ReceiptSyncRun
+    
+    # Get sync run
+    run_id = request.args.get('run_id', type=int)
+    
+    if run_id:
+        sync_run = ReceiptSyncRun.query.filter_by(
+            id=run_id,
+            business_id=business_id
+        ).first()
+    else:
+        # Get most recent sync run
+        sync_run = ReceiptSyncRun.query.filter_by(
+            business_id=business_id
+        ).order_by(ReceiptSyncRun.started_at.desc()).first()
+    
+    if not sync_run:
+        return jsonify({
+            "success": False,
+            "error": "No sync runs found"
+        }), 404
+    
+    # Calculate duration
+    duration_seconds = None
+    if sync_run.finished_at:
+        delta = sync_run.finished_at - sync_run.started_at
+        duration_seconds = int(delta.total_seconds())
+    
+    return jsonify({
+        "success": True,
+        "sync_run": {
+            "id": sync_run.id,
+            "mode": sync_run.mode,
+            "status": sync_run.status,
+            "started_at": sync_run.started_at.isoformat(),
+            "finished_at": sync_run.finished_at.isoformat() if sync_run.finished_at else None,
+            "duration_seconds": duration_seconds,
+            "progress": {
+                "pages_scanned": sync_run.pages_scanned,
+                "messages_scanned": sync_run.messages_scanned,
+                "candidate_receipts": sync_run.candidate_receipts,
+                "saved_receipts": sync_run.saved_receipts,
+                "preview_generated_count": sync_run.preview_generated_count,
+                "errors_count": sync_run.errors_count
+            },
+            "error_message": sync_run.error_message if sync_run.status == 'failed' else None
         }
     })

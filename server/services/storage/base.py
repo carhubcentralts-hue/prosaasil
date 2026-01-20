@@ -47,7 +47,7 @@ class AttachmentStorageProvider(ABC):
     
     @abstractmethod
     def upload(self, business_id: int, attachment_id: int, file: FileStorage, 
-               mime_type: str, filename: str) -> StorageResult:
+               mime_type: str, filename: str, purpose: str = 'general_upload') -> StorageResult:
         """
         Upload a file to storage
         
@@ -57,6 +57,7 @@ class AttachmentStorageProvider(ABC):
             file: File object to upload
             mime_type: MIME type of the file
             filename: Original filename
+            purpose: File purpose for path organization (e.g., 'receipt_source', 'contract_original')
             
         Returns:
             StorageResult with storage_key and metadata
@@ -103,16 +104,17 @@ class AttachmentStorageProvider(ABC):
         """
         pass
     
-    def get_storage_key(self, business_id: int, attachment_id: int, filename: str) -> str:
+    def get_storage_key(self, business_id: int, attachment_id: int, filename: str, purpose: str = 'general_upload') -> str:
         """
-        Generate standardized storage key
+        Generate standardized storage key with purpose-based path
         
-        Format: attachments/{business_id}/{yyyy}/{mm}/{attachment_id}.ext
+        Format: attachments/{business_id}/{purpose}/{yyyy}/{mm}/{attachment_id}.ext
         
         Args:
             business_id: Business ID
             attachment_id: Attachment ID
             filename: Original filename (for extension)
+            purpose: File purpose for organization
             
         Returns:
             Storage key string
@@ -130,7 +132,7 @@ class AttachmentStorageProvider(ABC):
         else:
             storage_filename = str(attachment_id)
         
-        return f"attachments/{business_id}/{year}/{month}/{storage_filename}"
+        return f"attachments/{business_id}/{purpose}/{year}/{month}/{storage_filename}"
 
 
 def get_storage_provider() -> AttachmentStorageProvider:

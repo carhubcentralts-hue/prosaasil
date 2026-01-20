@@ -93,10 +93,10 @@ class R2StorageProvider(AttachmentStorageProvider):
             raise ValueError(f"Cannot access R2 bucket '{self.bucket_name}'. Check credentials and bucket name.")
     
     def upload(self, business_id: int, attachment_id: int, file: FileStorage, 
-               mime_type: str, filename: str) -> StorageResult:
-        """Upload file to R2"""
-        # Generate storage key
-        storage_key = self.get_storage_key(business_id, attachment_id, filename)
+               mime_type: str, filename: str, purpose: str = 'general_upload') -> StorageResult:
+        """Upload file to R2 with purpose-based path"""
+        # Generate storage key with purpose
+        storage_key = self.get_storage_key(business_id, attachment_id, filename, purpose)
         
         try:
             # Read file content
@@ -117,11 +117,12 @@ class R2StorageProvider(AttachmentStorageProvider):
                 Metadata={
                     'business_id': str(business_id),
                     'attachment_id': str(attachment_id),
-                    'original_filename': filename
+                    'original_filename': filename,
+                    'purpose': purpose
                 }
             )
             
-            logger.info(f"[R2_STORAGE] ✅ Uploaded: {storage_key} ({file_size} bytes)")
+            logger.info(f"[R2_STORAGE] ✅ Uploaded: {storage_key} ({file_size} bytes) purpose={purpose}")
             
             return StorageResult(
                 storage_key=storage_key,
@@ -129,7 +130,8 @@ class R2StorageProvider(AttachmentStorageProvider):
                 size=file_size,
                 metadata={
                     'bucket': self.bucket_name,
-                    'endpoint': self.endpoint_url
+                    'endpoint': self.endpoint_url,
+                    'purpose': purpose
                 }
             )
             

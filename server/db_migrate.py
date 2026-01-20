@@ -3492,6 +3492,246 @@ def apply_migrations():
             else:
                 checkpoint("Migration 83: assets_use_ai column already exists - skipping")
         
+        # ============================================================================
+        # Migration 84: Gmail Receipts Enhanced - Purpose-Based File Separation
+        # ============================================================================
+        # Adds complete file separation system with purpose and origin tracking
+        # - purpose: Categorizes files (email_attachment, whatsapp_media, receipt_source, etc.)
+        # - origin_module: Tracks which system created the file
+        # - Email content fields for HTML→PNG preview generation
+        # - Sync tracking table for long-running Gmail syncs
+        # Security: Prevents contract/receipt files from appearing in email/whatsapp pickers
+        checkpoint("Migration 84: Gmail Receipts Enhanced - purpose-based file separation")
+        
+        # 84a: Add purpose field to attachments
+        if check_table_exists('attachments') and not check_column_exists('attachments', 'purpose'):
+            checkpoint("Migration 84a: Adding purpose to attachments")
+            from sqlalchemy import text
+            try:
+                db.session.execute(text("""
+                    ALTER TABLE attachments 
+                    ADD COLUMN purpose VARCHAR(50) NOT NULL DEFAULT 'general_upload'
+                """))
+                
+                # Add index for efficient filtering
+                if not check_index_exists('idx_attachments_purpose'):
+                    db.session.execute(text("""
+                        CREATE INDEX idx_attachments_purpose 
+                        ON attachments(business_id, purpose, created_at)
+                    """))
+                
+                migrations_applied.append("add_purpose_to_attachments")
+                checkpoint("✅ Migration 84a complete: purpose added with index")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"⚠️ Migration 84a failed: {e}")
+        
+        # 84b: Add origin_module field to attachments
+        if check_table_exists('attachments') and not check_column_exists('attachments', 'origin_module'):
+            checkpoint("Migration 84b: Adding origin_module to attachments")
+            from sqlalchemy import text
+            try:
+                db.session.execute(text("""
+                    ALTER TABLE attachments 
+                    ADD COLUMN origin_module VARCHAR(50)
+                """))
+                
+                # Add index for efficient filtering
+                if not check_index_exists('idx_attachments_origin'):
+                    db.session.execute(text("""
+                        CREATE INDEX idx_attachments_origin 
+                        ON attachments(business_id, origin_module)
+                    """))
+                
+                migrations_applied.append("add_origin_module_to_attachments")
+                checkpoint("✅ Migration 84b complete: origin_module added with index")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"⚠️ Migration 84b failed: {e}")
+        
+        # 84c: Add email content fields to receipts
+        if check_table_exists('receipts'):
+            checkpoint("Migration 84c: Adding email content fields to receipts")
+            from sqlalchemy import text
+            try:
+                fields_added = []
+                
+                # Add email_subject
+                if not check_column_exists('receipts', 'email_subject'):
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN email_subject VARCHAR(500)
+                    """))
+                    # Copy from existing subject field if available
+                    db.session.execute(text("""
+                        UPDATE receipts 
+                        SET email_subject = subject 
+                        WHERE subject IS NOT NULL
+                    """))
+                    fields_added.append('email_subject')
+                
+                # Add email_from
+                if not check_column_exists('receipts', 'email_from'):
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN email_from VARCHAR(255)
+                    """))
+                    # Copy from existing from_email field
+                    db.session.execute(text("""
+                        UPDATE receipts 
+                        SET email_from = from_email 
+                        WHERE from_email IS NOT NULL
+                    """))
+                    fields_added.append('email_from')
+                
+                # Add email_date
+                if not check_column_exists('receipts', 'email_date'):
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN email_date TIMESTAMP
+                    """))
+                    # Copy from existing received_at field
+                    db.session.execute(text("""
+                        UPDATE receipts 
+                        SET email_date = received_at 
+                        WHERE received_at IS NOT NULL
+                    """))
+                    fields_added.append('email_date')
+                
+                # Add email_html_snippet
+                if not check_column_exists('receipts', 'email_html_snippet'):
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN email_html_snippet TEXT
+                    """))
+                    fields_added.append('email_html_snippet')
+                
+                if fields_added:
+                    migrations_applied.append("add_email_fields_to_receipts")
+                    checkpoint(f"✅ Migration 84c complete: {', '.join(fields_added)} added")
+                else:
+                    checkpoint("Migration 84c: All email fields already exist")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"⚠️ Migration 84c failed: {e}")
+        
+        # 84d: Add preview_attachment_id to receipts
+        if check_table_exists('receipts') and not check_column_exists('receipts', 'preview_attachment_id'):
+            checkpoint("Migration 84d: Adding preview_attachment_id to receipts")
+            from sqlalchemy import text
+            try:
+                db.session.execute(text("""
+                    ALTER TABLE receipts 
+                    ADD COLUMN preview_attachment_id INTEGER 
+                    REFERENCES attachments(id) ON DELETE SET NULL
+                """))
+                
+                if not check_index_exists('idx_receipts_preview_attachment'):
+                    db.session.execute(text("""
+                        CREATE INDEX idx_receipts_preview_attachment 
+                        ON receipts(preview_attachment_id)
+                    """))
+                
+                migrations_applied.append("add_preview_attachment_id_to_receipts")
+                checkpoint("✅ Migration 84d complete: preview_attachment_id added")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"⚠️ Migration 84d failed: {e}")
+        
+        # 84e: Create receipt_sync_runs table
+        if not check_table_exists('receipt_sync_runs'):
+            checkpoint("Migration 84e: Creating receipt_sync_runs table")
+            from sqlalchemy import text
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE receipt_sync_runs (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        mode VARCHAR(20) NOT NULL DEFAULT 'incremental',
+                        status VARCHAR(20) NOT NULL DEFAULT 'running',
+                        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        finished_at TIMESTAMP,
+                        pages_scanned INTEGER DEFAULT 0,
+                        messages_scanned INTEGER DEFAULT 0,
+                        candidate_receipts INTEGER DEFAULT 0,
+                        saved_receipts INTEGER DEFAULT 0,
+                        preview_generated_count INTEGER DEFAULT 0,
+                        errors_count INTEGER DEFAULT 0,
+                        last_page_token VARCHAR(255),
+                        last_internal_date VARCHAR(50),
+                        error_message TEXT,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                
+                db.session.execute(text("""
+                    CREATE INDEX idx_receipt_sync_runs_business 
+                    ON receipt_sync_runs(business_id, started_at DESC)
+                """))
+                
+                db.session.execute(text("""
+                    CREATE INDEX idx_receipt_sync_runs_status 
+                    ON receipt_sync_runs(status, started_at DESC)
+                """))
+                
+                migrations_applied.append("create_receipt_sync_runs_table")
+                checkpoint("✅ Migration 84e complete: receipt_sync_runs table created")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"⚠️ Migration 84e failed: {e}")
+        
+        # 84f: Backfill existing attachments with purpose and origin
+        if check_table_exists('attachments') and check_column_exists('attachments', 'purpose'):
+            checkpoint("Migration 84f: Backfilling attachments with purpose/origin")
+            from sqlalchemy import text
+            try:
+                # Mark receipt attachments
+                result = db.session.execute(text("""
+                    UPDATE attachments a
+                    SET 
+                        purpose = 'receipt_source',
+                        origin_module = 'receipts'
+                    WHERE EXISTS (
+                        SELECT 1 FROM receipts r 
+                        WHERE r.attachment_id = a.id
+                    ) AND a.purpose = 'general_upload'
+                """))
+                receipt_count = result.rowcount
+                
+                # Mark contract attachments (if contract_files table exists)
+                contract_count = 0
+                if check_table_exists('contract_files'):
+                    result = db.session.execute(text("""
+                        UPDATE attachments a
+                        SET 
+                            purpose = CASE 
+                                WHEN cf.file_type = 'signed' THEN 'contract_signed'
+                                ELSE 'contract_original'
+                            END,
+                            origin_module = 'contracts'
+                        FROM contract_files cf
+                        WHERE cf.attachment_id = a.id
+                        AND a.purpose = 'general_upload'
+                    """))
+                    contract_count = result.rowcount
+                
+                # Set origin_module for remaining general uploads
+                db.session.execute(text("""
+                    UPDATE attachments
+                    SET origin_module = 'uploads'
+                    WHERE purpose = 'general_upload' AND origin_module IS NULL
+                """))
+                
+                migrations_applied.append("backfill_attachment_purpose_origin")
+                checkpoint(f"✅ Migration 84f complete: Backfilled {receipt_count} receipts, {contract_count} contracts")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"⚠️ Migration 84f failed: {e}")
+        
+        checkpoint("✅ Migration 84: Gmail Receipts Enhanced - Complete!")
+        checkpoint("   🔒 Security: Files now separated by purpose - contracts/receipts won't appear in email/whatsapp")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

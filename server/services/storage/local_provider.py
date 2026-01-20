@@ -35,10 +35,10 @@ class LocalStorageProvider(AttachmentStorageProvider):
         logger.info(f"[LOCAL_STORAGE] Initialized with root: {self.storage_root}")
     
     def upload(self, business_id: int, attachment_id: int, file: FileStorage, 
-               mime_type: str, filename: str) -> StorageResult:
-        """Upload file to local filesystem"""
-        # Generate storage key
-        storage_key = self.get_storage_key(business_id, attachment_id, filename)
+               mime_type: str, filename: str, purpose: str = 'general_upload') -> StorageResult:
+        """Upload file to local filesystem with purpose-based path"""
+        # Generate storage key with purpose
+        storage_key = self.get_storage_key(business_id, attachment_id, filename, purpose)
         
         # Convert storage key to filesystem path
         file_path = os.path.join(self.storage_root, storage_key)
@@ -52,13 +52,13 @@ class LocalStorageProvider(AttachmentStorageProvider):
         # Get file size
         file_size = os.path.getsize(file_path)
         
-        logger.info(f"[LOCAL_STORAGE] Uploaded: {storage_key} ({file_size} bytes)")
+        logger.info(f"[LOCAL_STORAGE] Uploaded: {storage_key} ({file_size} bytes) purpose={purpose}")
         
         return StorageResult(
             storage_key=storage_key,
             provider='local',
             size=file_size,
-            metadata={'path': file_path}
+            metadata={'path': file_path, 'purpose': purpose}
         )
     
     def delete(self, storage_key: str) -> bool:

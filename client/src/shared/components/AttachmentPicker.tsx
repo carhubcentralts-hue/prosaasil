@@ -6,6 +6,7 @@ interface Attachment {
   filename: string;
   mime_type: string;
   file_size: number;
+  purpose?: string;  // NEW: purpose field
   channel_compatibility: {
     email: boolean;
     whatsapp: boolean;
@@ -19,10 +20,17 @@ interface AttachmentPickerProps {
   channel: 'email' | 'whatsapp' | 'broadcast';
   onAttachmentSelect: (attachmentId: number | number[] | null) => void;
   selectedAttachmentId?: number | null;
-  mode?: 'single' | 'multi';  // NEW: support multiple selections
+  mode?: 'single' | 'multi';  // Support multiple selections
+  purposesAllowed?: string[];  // NEW: filter by purposes
 }
 
-export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachmentId, mode = 'single' }: AttachmentPickerProps) {
+export function AttachmentPicker({ 
+  channel, 
+  onAttachmentSelect, 
+  selectedAttachmentId, 
+  mode = 'single',
+  purposesAllowed 
+}: AttachmentPickerProps) {
   const [modeView, setModeView] = useState<'select' | 'upload'>('select');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [filter, setFilter] = useState<'all' | 'images' | 'documents' | 'videos'>('all');
@@ -35,7 +43,7 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
   // Load attachments on mount and when filter changes
   useEffect(() => {
     loadAttachments();
-  }, [filter, channel]);
+  }, [filter, channel, purposesAllowed]);
 
   const loadAttachments = async () => {
     setLoading(true);
@@ -44,6 +52,11 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
     try {
       const params = new URLSearchParams();
       params.append('channel', channel);
+      
+      // NEW: Add purpose filtering
+      if (purposesAllowed && purposesAllowed.length > 0) {
+        params.append('purposes', purposesAllowed.join(','));
+      }
       
       if (filter !== 'all') {
         if (filter === 'images') params.append('mime_type', 'image/');
@@ -87,6 +100,11 @@ export function AttachmentPicker({ channel, onAttachmentSelect, selectedAttachme
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('channel', channel);
+      
+      // NEW: Set purpose based on purposesAllowed
+      if (purposesAllowed && purposesAllowed.length > 0) {
+        formData.append('purpose', purposesAllowed[0]);
+      }
       
       const response = await fetch('/api/attachments/upload', {
         method: 'POST',
