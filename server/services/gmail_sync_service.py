@@ -26,7 +26,7 @@ import logging
 import base64
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from email.utils import parsedate_to_datetime
 
@@ -841,14 +841,13 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     received_at = None
                     if metadata.get('date'):
                         try:
-                            from email.utils import parsedate_to_datetime
                             received_at = parsedate_to_datetime(metadata['date'])
                         except Exception as e:
                             logger.warning(f"Failed to parse email date '{metadata.get('date')}': {e}")
-                            received_at = datetime.utcnow()
+                            received_at = datetime.now(timezone.utc)
                     else:
                         # Fallback to current time if no date header
-                        received_at = datetime.utcnow()
+                        received_at = datetime.now(timezone.utc)
                     
                     # Determine status based on confidence
                     status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
