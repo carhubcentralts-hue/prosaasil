@@ -44,6 +44,43 @@ ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', os.getenv('FERNET_KEY', ''))
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
 
+
+def sanitize_for_postgres(obj):
+    """
+    Recursively sanitize an object to remove NUL characters and other PostgreSQL-incompatible data
+    
+    PostgreSQL cannot store NUL (\\x00) characters in TEXT or JSON columns.
+    This function recursively cleans all strings in dicts, lists, and primitives.
+    
+    Args:
+        obj: Any Python object (dict, list, str, int, float, None, etc.)
+        
+    Returns:
+        Sanitized version of the object
+    """
+    if isinstance(obj, str):
+        # Remove NUL bytes and other problematic control characters
+        # Keep only printable characters and common whitespace (space, tab, newline, carriage return)
+        return obj.replace('\x00', '').replace('\ufffd', '')  # Remove NUL and replacement character
+    elif isinstance(obj, dict):
+        # Recursively sanitize all keys and values
+        return {sanitize_for_postgres(k): sanitize_for_postgres(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        # Recursively sanitize all items
+        result = [sanitize_for_postgres(item) for item in obj]
+        return tuple(result) if isinstance(obj, tuple) else result
+    elif isinstance(obj, (int, float, bool, type(None))):
+        # These types are safe
+        return obj
+    else:
+        # For other types (datetime, etc.), convert to string and sanitize
+        try:
+            return sanitize_for_postgres(str(obj))
+        except Exception:
+            # If conversion fails, return None
+            logger.warning(f"Failed to sanitize object of type {type(obj)}, returning None")
+            return None
+
 # Receipt detection keywords (Hebrew + English)
 RECEIPT_KEYWORDS = [
     # Hebrew
@@ -844,11 +881,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             page_token = None
                             break
                     
-                    # Check if already exists
-                    existing = Receipt.query.filter_by(
-                        business_id=business_id,
-                        gmail_message_id=message_id
-                    ).first()
+                    # Check if already exists (with no_autoflush to prevent SQLAlchemy warnings)
+                    with db.session.no_autoflush:
+                        existing = Receipt.query.filter_by(
+                            business_id=business_id,
+                            gmail_message_id=message_id
+                        ).first()
                     
                     if existing:
                         result['skipped'] += 1
@@ -979,7 +1017,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             except ValueError:
                                 pass
                         
-                        # Create receipt record
+                        # Create receipt record with sanitized JSON (no NUL characters for PostgreSQL)
+                        raw_json_data = {
+                            'metadata': metadata,
+                            'extracted': extracted,
+                            'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                        }
+                        # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
+                        sanitized_json = sanitize_for_postgres(raw_json_data)
+                        
                         receipt = Receipt(
                             business_id=business_id,
                             source='gmail',
@@ -998,11 +1044,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             invoice_number=extracted.get('invoice_number'),
                             invoice_date=invoice_date,
                             confidence=confidence,
-                            raw_extraction_json={
-                                'metadata': metadata,
-                                'extracted': extracted,
-                                'pdf_text_preview': pdf_text[:500] if pdf_text else None
-                            },
+                            raw_extraction_json=sanitized_json,
                             status=status,
                             attachment_id=attachment_id
                         )
@@ -1020,9 +1062,13 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             db.session.commit()
                         
                     except Exception as e:
-                        logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                        # Per-message error handling: rollback and continue to next message
+                        logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
+                        db.session.rollback()  # Rollback failed transaction
                         result['errors'] += 1
                         sync_run.errors_count = result['errors']
+                        sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                        # Continue to next message - don't fail entire sync
                 
                 if not page_token:
                     break
@@ -1175,11 +1221,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 page_token = None
                                 break
                         
-                        # Check if already processed
-                        existing = Receipt.query.filter_by(
-                            business_id=business_id,
-                            gmail_message_id=message_id
-                        ).first()
+                        # Check if already processed (with no_autoflush to prevent SQLAlchemy warnings)
+                        with db.session.no_autoflush:
+                            existing = Receipt.query.filter_by(
+                                business_id=business_id,
+                                gmail_message_id=message_id
+                            ).first()
                         
                         if existing:
                             result['skipped'] += 1
@@ -1311,7 +1358,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 except ValueError:
                                     pass
                             
-                            # Create receipt record
+                            # Create receipt record with sanitized JSON (no NUL characters for PostgreSQL)
+                            raw_json_data = {
+                                'metadata': metadata,
+                                'extracted': extracted,
+                                'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                            }
+                            # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
+                            sanitized_json = sanitize_for_postgres(raw_json_data)
+                            
                             receipt = Receipt(
                                 business_id=business_id,
                                 source='gmail',
@@ -1330,11 +1385,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 invoice_number=extracted.get('invoice_number'),
                                 invoice_date=invoice_date,
                                 confidence=confidence,
-                                raw_extraction_json={
-                                    'metadata': metadata,
-                                    'extracted': extracted,
-                                    'pdf_text_preview': pdf_text[:500] if pdf_text else None
-                                },
+                                raw_extraction_json=sanitized_json,
                                 status=status,
                                 attachment_id=attachment_id
                             )
@@ -1353,10 +1404,13 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 db.session.commit()
                             
                         except Exception as e:
-                            logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                            # Per-message error handling: rollback and continue to next message
+                            logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
+                            db.session.rollback()  # Rollback failed transaction
                             result['errors'] += 1
                             sync_run.errors_count = result['errors']
-                            # Don't crash - increment errors and continue
+                            sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                            # Continue to next message - don't fail entire sync
                     
                     # Check if should continue to next page
                     if not page_token:
@@ -1466,10 +1520,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             page_token = None
                             break
                     
-                    existing = Receipt.query.filter_by(
-                        business_id=business_id,
-                        gmail_message_id=message_id
-                    ).first()
+                    # Check if already processed (with no_autoflush to prevent SQLAlchemy warnings)
+                    with db.session.no_autoflush:
+                        existing = Receipt.query.filter_by(
+                            business_id=business_id,
+                            gmail_message_id=message_id
+                        ).first()
                     
                     if existing:
                         result['skipped'] += 1
@@ -1517,6 +1573,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             except ValueError:
                                 pass
                         
+                        # Create receipt record with sanitized JSON (no NUL characters for PostgreSQL)
+                        raw_json_data = {
+                            'metadata': metadata,
+                            'extracted': extracted,
+                            'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                        }
+                        # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
+                        sanitized_json = sanitize_for_postgres(raw_json_data)
+                        
                         receipt = Receipt(
                             business_id=business_id,
                             source='gmail',
@@ -1535,11 +1600,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             invoice_number=extracted.get('invoice_number'),
                             invoice_date=invoice_date,
                             confidence=confidence,
-                            raw_extraction_json={
-                                'metadata': metadata,
-                                'extracted': extracted,
-                                'pdf_text_preview': pdf_text[:500] if pdf_text else None
-                            },
+                            raw_extraction_json=sanitized_json,
                             status=status,
                             attachment_id=attachment_id
                         )
@@ -1554,9 +1615,13 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             db.session.commit()
                         
                     except Exception as e:
-                        logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                        # Per-message error handling: rollback and continue to next message
+                        logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
+                        db.session.rollback()  # Rollback failed transaction
                         result['errors'] += 1
                         sync_run.errors_count = result['errors']
+                        sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                        # Continue to next message - don't fail entire sync
                 
                 if not page_token:
                     break
@@ -1583,12 +1648,16 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             connection.last_sync_at = datetime.now(timezone.utc)
             db.session.commit()
         
-        # Mark sync run as completed
+        # Mark sync run as completed (even if there were errors)
+        # The UI will check errors_count to determine if there were issues
         sync_run.status = 'completed'
         sync_run.finished_at = datetime.now(timezone.utc)
         db.session.commit()
         
-        logger.info(f"Gmail sync complete: {result}")
+        if result['errors'] > 0:
+            logger.warning(f"Gmail sync completed with {result['errors']} errors: {result}")
+        else:
+            logger.info(f"Gmail sync completed successfully: {result}")
         
         return result
         
@@ -1763,11 +1832,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         page_token = None  # Stop pagination
                         break
                 
-                # Check if already processed
-                existing = Receipt.query.filter_by(
-                    business_id=business_id,
-                    gmail_message_id=message_id
-                ).first()
+                # Check if already processed (with no_autoflush to prevent SQLAlchemy warnings)
+                with db.session.no_autoflush:
+                    existing = Receipt.query.filter_by(
+                        business_id=business_id,
+                        gmail_message_id=message_id
+                    ).first()
                 
                 if existing:
                     result['skipped'] += 1
@@ -1923,7 +1993,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         except ValueError:
                             logger.warning(f"Invalid invoice date format: {extracted['invoice_date']}")
                     
-                    # Create receipt record with email content
+                    # Create receipt record with email content and sanitized JSON (no NUL characters for PostgreSQL)
+                    raw_json_data = {
+                        'metadata': metadata,
+                        'extracted': extracted,
+                        'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                    }
+                    # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
+                    sanitized_json = sanitize_for_postgres(raw_json_data)
+                    
                     receipt = Receipt(
                         business_id=business_id,
                         source='gmail',
@@ -1944,11 +2022,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         invoice_number=extracted.get('invoice_number'),
                         invoice_date=invoice_date,
                         confidence=confidence,
-                        raw_extraction_json={
-                            'metadata': metadata,
-                            'extracted': extracted,
-                            'pdf_text_preview': pdf_text[:500] if pdf_text else None
-                        },
+                        raw_extraction_json=sanitized_json,
                         status=status,
                         attachment_id=attachment_id
                     )
@@ -1986,9 +2060,13 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         db.session.commit()
                     
                 except Exception as e:
-                    logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                    # Per-message error handling: rollback and continue to next message
+                    logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
+                    db.session.rollback()  # Rollback failed transaction
                     result['errors'] += 1
                     sync_run.errors_count = result['errors']
+                    sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                    # Continue to next message - don't fail entire sync
             
             # Check if we should continue to next page
             if not page_token:
@@ -2018,12 +2096,16 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             connection.last_sync_at = datetime.now(timezone.utc)
             db.session.commit()
         
-        # Mark sync run as completed
+        # Mark sync run as completed (even if there were errors)
+        # The UI will check errors_count to determine if there were issues
         sync_run.status = 'completed'
         sync_run.finished_at = datetime.now(timezone.utc)
         db.session.commit()
         
-        logger.info(f"Gmail sync complete: {result}")
+        if result['errors'] > 0:
+            logger.warning(f"Gmail sync completed with {result['errors']} errors: {result}")
+        else:
+            logger.info(f"Gmail sync completed successfully: {result}")
         
         return result
         
