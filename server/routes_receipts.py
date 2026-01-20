@@ -893,7 +893,7 @@ def sync_receipts():
                 "status": "running"
             }), 409  # Conflict
         
-        # Start background thread
+        # Start background thread (non-daemon to prevent data loss on server restart)
         def run_sync_in_background():
             from server.db import db
             # Need app context for background thread
@@ -910,8 +910,8 @@ def sync_receipts():
                     )
                 except Exception as e:
                     logger.error(f"Background sync failed: {e}", exc_info=True)
-        
-        thread = threading.Thread(target=run_sync_in_background, daemon=True)
+
+        thread = threading.Thread(target=run_sync_in_background, daemon=False)
         thread.start()
         
         # Return immediately with 202 Accepted

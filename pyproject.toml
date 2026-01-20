@@ -23,6 +23,7 @@ dependencies = [
     "google-cloud-texttospeech>=2.31.0",
     "honcho>=2.0.0",
     "hypercorn>=0.17.3",
+    "lxml>=5.0.0",  # Secure HTML parser for BeautifulSoup
     "numpy>=2.3.4",
     "openai>=2.2.0",
     "openai-agents>=0.4.2",

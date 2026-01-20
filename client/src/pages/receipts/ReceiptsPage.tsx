@@ -810,11 +810,21 @@ export function ReceiptsPage() {
 
   // Handle purge all receipts
   const handlePurgeAllReceipts = async () => {
+    // Use window.confirm for better accessibility
+    const firstConfirm = window.confirm(
+      'פעולה זו תמחק את כל הקבלות! האם אתה בטוח?'
+    );
+    
+    if (!firstConfirm) {
+      return;
+    }
+    
     const confirmed = prompt(
-      'פעולה זו תמחק את כל הקבלות! הקלד "DELETE" לאישור:'
+      'אישור סופי: הקלד "DELETE" באנגלית:'
     );
     
     if (confirmed !== 'DELETE') {
+      alert('האישור בוטל - לא הוקלד "DELETE"');
       return;
     }
 

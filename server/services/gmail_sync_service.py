@@ -311,7 +311,7 @@ class GmailApiClient:
         return base64.urlsafe_b64decode(data)
 
 
-def extract_all_attachments(message):
+def extract_all_attachments(message: dict) -> list:
     """
     Recursively extract ALL attachments from Gmail message
     
@@ -339,8 +339,8 @@ def extract_all_attachments(message):
             size = body.get('size', 0)
             
             # Check if this is an attachment
-            # Either has filename OR has attachmentId
-            if attachment_id or (filename and size > 0):
+            # Either has filename OR has attachmentId (explicitly check for None)
+            if attachment_id is not None or (filename and size > 0):
                 attachments.append({
                     'id': attachment_id,
                     'filename': filename or 'attachment',
@@ -778,7 +778,8 @@ def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
     # Strip HTML tags to get plain text using BeautifulSoup (more secure than regex)
     try:
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_content, 'html.parser')
+        # Use lxml parser for better security against malicious HTML
+        soup = BeautifulSoup(html_content, 'lxml')
         # Remove script and style elements
         for script in soup(['script', 'style']):
             script.decompose()
