@@ -799,7 +799,9 @@ def get_current_business():
             "call_goal": getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only',
             "confirm_before_hangup": getattr(settings, 'confirm_before_hangup', True) if settings else True,
             # CRM Context-Aware Support: Customer service mode toggle
-            "enable_customer_service": getattr(settings, 'enable_customer_service', False) if settings else False
+            "enable_customer_service": getattr(settings, 'enable_customer_service', False) if settings else False,
+            # Assets Library AI Integration: Control whether AI can access assets tools
+            "assets_use_ai": getattr(settings, 'assets_use_ai', True) if settings else True
         })
         
     except Exception as e:
@@ -976,6 +978,17 @@ def update_current_business_settings():
         # CRM Context-Aware Support: Customer service mode toggle
         if 'enable_customer_service' in data:
             settings.enable_customer_service = bool(data['enable_customer_service'])
+        
+        # Assets Library AI Integration: Control whether AI can access assets tools
+        if 'assets_use_ai' in data:
+            settings.assets_use_ai = bool(data['assets_use_ai'])
+            # 🔄 Invalidate agent cache when assets AI setting changes
+            try:
+                from server.agent_tools.agent_factory import invalidate_agent_cache
+                invalidate_agent_cache(business_id)
+                logger.info(f"🔄 Agent cache cleared for business {business_id} due to assets_use_ai change")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to invalidate agent cache: {e}")
             
         # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
         al_user = session.get('al_user') or {}

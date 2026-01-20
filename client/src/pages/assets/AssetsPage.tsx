@@ -78,6 +78,10 @@ export default function AssetsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   
+  // AI Tools Toggle state
+  const [assetsUseAi, setAssetsUseAi] = useState(true);
+  const [savingAiToggle, setSavingAiToggle] = useState(false);
+  
   // Detail drawer state
   const [selectedAsset, setSelectedAsset] = useState<AssetDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -134,9 +138,52 @@ export default function AssetsPage() {
     }
   }, [searchQuery, categoryFilter, statusFilter, page]);
 
+  // Fetch AI tools setting
+  const fetchAiSetting = useCallback(async () => {
+    try {
+      const response = await fetch('/api/business/current', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAssetsUseAi(data.assets_use_ai !== false); // Default to true if not set
+      }
+    } catch (err) {
+      console.error('Error fetching AI setting:', err);
+    }
+  }, []);
+
+  // Update AI tools setting
+  const updateAiSetting = async (enabled: boolean) => {
+    try {
+      setSavingAiToggle(true);
+      const response = await fetch('/api/business/current/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assets_use_ai: enabled })
+      });
+      
+      if (!response.ok) {
+        throw new Error('שגיאה בשמירת ההגדרה');
+      }
+      
+      setAssetsUseAi(enabled);
+    } catch (err) {
+      console.error('Error updating AI setting:', err);
+      alert(err instanceof Error ? err.message : 'שגיאה בשמירת ההגדרה');
+      // Revert on error
+      setAssetsUseAi(!enabled);
+    } finally {
+      setSavingAiToggle(false);
+    }
+  };
+
   useEffect(() => {
     fetchAssets();
-  }, [fetchAssets]);
+    fetchAiSetting();
+  }, [fetchAssets, fetchAiSetting]);
 
   // Fetch asset details
   const fetchAssetDetail = async (assetId: number) => {
@@ -377,6 +424,28 @@ export default function AssetsPage() {
                 <h1 className="text-xl md:text-2xl font-bold text-slate-900">מאגר</h1>
                 <p className="text-sm text-slate-500">{total} פריטים</p>
               </div>
+            </div>
+            
+            {/* AI Tools Toggle */}
+            <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <Bot className="h-5 w-5 text-blue-600" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-900">גישת AI למאגר</p>
+                <p className="text-xs text-slate-600">כאשר מופעל, ה-AI יכול לחפש ולהציג פריטים מהמאגר</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={assetsUseAi}
+                  onChange={(e) => updateAiSetting(e.target.checked)}
+                  disabled={savingAiToggle}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                <span className="mr-3 text-sm font-medium text-slate-700">
+                  {savingAiToggle ? 'שומר...' : (assetsUseAi ? 'מופעל' : 'כבוי')}
+                </span>
+              </label>
             </div>
             
             {/* Desktop create button */}

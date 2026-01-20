@@ -3465,6 +3465,32 @@ def apply_migrations():
             checkpoint("  ℹ️ receipts table already exists - skipping")
         
         checkpoint("✅ Migration 82 completed - Gmail Receipts System tables created")
+        # ============================================================================
+        # Migration 83: Assets AI Toggle - Add assets_use_ai to BusinessSettings
+        # ============================================================================
+        # Adds assets_use_ai boolean column to business_settings table
+        # Controls whether AI can access assets tools during conversations
+        # Default: true (enabled for backward compatibility)
+        checkpoint("Migration 83: Adding assets_use_ai column to business_settings table")
+        if check_table_exists('business_settings') and not check_column_exists('business_settings', 'assets_use_ai'):
+            try:
+                checkpoint("  → Adding assets_use_ai column...")
+                db.session.execute(text("""
+                    ALTER TABLE business_settings
+                    ADD COLUMN assets_use_ai BOOLEAN NOT NULL DEFAULT TRUE
+                """))
+                checkpoint("  ✅ assets_use_ai column added (default: TRUE)")
+                migrations_applied.append('add_assets_use_ai_column')
+                checkpoint("✅ Applied migration 83: add_assets_use_ai_column - AI tools toggle for assets")
+            except Exception as e:
+                log.error(f"❌ Migration 83 (assets_use_ai) failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            if not check_table_exists('business_settings'):
+                checkpoint("Migration 83: business_settings table doesn't exist - skipping")
+            else:
+                checkpoint("Migration 83: assets_use_ai column already exists - skipping")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:

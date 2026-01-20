@@ -239,6 +239,10 @@ class BusinessSettings(db.Model):
     # When enabled, AI will use CRM context (lead notes, appointments) to provide personalized support
     enable_customer_service = db.Column(db.Boolean, default=False)  # Toggle for customer service mode
     
+    # 📦 Assets Library AI Integration: Control whether AI can access assets tools
+    # When enabled, AI can search and retrieve asset information during conversations
+    assets_use_ai = db.Column(db.Boolean, default=True)  # Toggle for AI access to assets library
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
