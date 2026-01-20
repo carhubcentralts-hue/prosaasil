@@ -736,19 +736,12 @@ def sync_receipts():
     if mode not in ['full_backfill', 'incremental', 'full']:  # Support legacy 'full' mode
         return jsonify({
             "success": False,
-            "error": "Invalid mode. Must be 'full_backfill' or 'incremental'"
+            "error": "Invalid mode. Must be 'full_backfill', 'full', or 'incremental'"
         }), 400
     
     # Map legacy 'full' to 'full_backfill'
     if mode == 'full':
         mode = 'full_backfill'
-    to_date = data.get('to_date', None)      # NEW: Support custom date range
-    
-    if mode not in ['full', 'incremental']:
-        return jsonify({
-            "success": False,
-            "error": "Invalid mode. Must be 'full' or 'incremental'"
-        }), 400
     
     # Validate date formats if provided
     if from_date:
