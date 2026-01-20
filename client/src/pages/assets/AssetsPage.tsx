@@ -22,7 +22,8 @@ import {
   Upload,
   Trash2,
   Star,
-  Loader2
+  Loader2,
+  Bot
 } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
 
