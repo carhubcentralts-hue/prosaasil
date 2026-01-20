@@ -687,6 +687,118 @@ def delete_receipt(receipt_id):
     })
 
 
+@receipts_bp.route('/purge', methods=['DELETE'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def purge_all_receipts():
+    """
+    Delete ALL receipts for the current business (admin/owner only)
+    
+    Requires double confirmation:
+    - Body must include: {"confirm": true, "typed": "DELETE"}
+    
+    Optionally deletes attachments from storage if delete_attachments=true
+    
+    Returns:
+    - deleted_receipts_count: Number of receipts deleted
+    - deleted_attachments_count: Number of attachments deleted (if requested)
+    """
+    business_id = get_current_business_id()
+    
+    # Check admin/owner permission
+    role = get_current_user_role()
+    if role not in ['system_admin', 'owner', 'admin']:
+        return jsonify({
+            "success": False,
+            "error": "Owner or admin permission required"
+        }), 403
+    
+    # Get confirmation
+    data = request.get_json() or {}
+    confirm = data.get('confirm', False)
+    typed = data.get('typed', '')
+    delete_attachments = data.get('delete_attachments', False)
+    
+    # Require double confirmation
+    if not confirm or typed != 'DELETE':
+        return jsonify({
+            "success": False,
+            "error": "Confirmation required. Send: {\"confirm\": true, \"typed\": \"DELETE\"}"
+        }), 400
+    
+    try:
+        # Find all receipts for this business
+        receipts = Receipt.query.filter_by(
+            business_id=business_id,
+            is_deleted=False
+        ).all()
+        
+        deleted_count = len(receipts)
+        deleted_attachments_count = 0
+        
+        # Collect attachment IDs if we need to delete them
+        attachment_ids_to_delete = set()
+        if delete_attachments:
+            for receipt in receipts:
+                if receipt.attachment_id:
+                    attachment_ids_to_delete.add(receipt.attachment_id)
+                if receipt.preview_attachment_id:
+                    attachment_ids_to_delete.add(receipt.preview_attachment_id)
+        
+        # Soft delete all receipts
+        for receipt in receipts:
+            receipt.is_deleted = True
+            receipt.deleted_at = datetime.utcnow()
+            receipt.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        # Delete attachments if requested
+        if delete_attachments and attachment_ids_to_delete:
+            from server.services.attachment_service import get_attachment_service
+            attachment_service = get_attachment_service()
+            
+            for att_id in attachment_ids_to_delete:
+                try:
+                    attachment = Attachment.query.get(att_id)
+                    if attachment and attachment.purpose in ('receipt_source', 'receipt_preview'):
+                        # Delete from storage (R2)
+                        try:
+                            attachment_service.delete_file(
+                                storage_key=attachment.storage_path
+                            )
+                        except Exception as storage_err:
+                            logger.warning(f"Failed to delete attachment {att_id} from storage: {storage_err}")
+                        
+                        # Delete from database
+                        db.session.delete(attachment)
+                        deleted_attachments_count += 1
+                except Exception as att_err:
+                    logger.error(f"Failed to delete attachment {att_id}: {att_err}")
+            
+            db.session.commit()
+        
+        log_audit('purge', 'receipts', business_id, {
+            'deleted_receipts': deleted_count,
+            'deleted_attachments': deleted_attachments_count
+        })
+        
+        return jsonify({
+            "success": True,
+            "message": f"Purged {deleted_count} receipts",
+            "deleted_receipts_count": deleted_count,
+            "deleted_attachments_count": deleted_attachments_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Receipt purge failed: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": f"Purge failed: {str(e)}"
+        }), 500
+
+
 @receipts_bp.route('/sync', methods=['POST'])
 @require_api_auth()
 @require_page_access('gmail_receipts')

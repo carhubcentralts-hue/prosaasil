@@ -61,7 +61,10 @@ def sanitize_for_postgres(obj):
     if isinstance(obj, str):
         # Remove NUL bytes and other problematic control characters
         # Keep only printable characters and common whitespace (space, tab, newline, carriage return)
-        return obj.replace('\x00', '').replace('\ufffd', '')  # Remove NUL and replacement character
+        sanitized = obj.replace('\x00', '').replace('\ufffd', '')  # Remove NUL and replacement character
+        # Also remove literal "\u0000" string sequences that may appear in JSON
+        sanitized = sanitized.replace('\\u0000', '').replace(r'\u0000', '')
+        return sanitized
     elif isinstance(obj, dict):
         # Recursively sanitize all keys and values
         return {sanitize_for_postgres(k): sanitize_for_postgres(v) for k, v in obj.items()}
@@ -717,6 +720,181 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     return data
 
 
+def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
+    """
+    Extract amount and currency from HTML email content
+    
+    This function strips HTML tags and applies the same extraction logic as PDF extraction.
+    Useful for emails without PDF attachments that contain receipt information in HTML.
+    
+    Args:
+        html_content: HTML content from email
+        metadata: Email metadata (for vendor detection)
+        
+    Returns:
+        dict with amount, currency, vendor_name
+    """
+    data = {
+        'vendor_name': None,
+        'amount': None,
+        'currency': None,
+        'amount_raw': None
+    }
+    
+    if not html_content:
+        return data
+    
+    # Strip HTML tags to get plain text
+    import re
+    # Remove script and style elements
+    text = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # Decode HTML entities
+    try:
+        import html
+        text = html.unescape(text)
+    except Exception:
+        pass
+    
+    # Try to extract vendor from sender domain
+    from_domain = metadata.get('from_domain', '')
+    if from_domain:
+        # Clean up domain to get vendor name
+        vendor = from_domain.replace('.co.il', '').replace('.com', '').replace('.net', '')
+        vendor = vendor.replace('.', ' ').title()
+        data['vendor_name'] = vendor
+    
+    # Detect currency FIRST
+    currency_scores = {
+        'ILS': 0,
+        'USD': 0,
+        'EUR': 0
+    }
+    
+    # Check for currency symbols
+    currency_scores['ILS'] += len(re.findall(r'₪', text)) * 10
+    currency_scores['USD'] += len(re.findall(r'\$', text)) * 10
+    currency_scores['EUR'] += len(re.findall(r'€', text)) * 10
+    
+    # Check for currency keywords
+    currency_scores['ILS'] += len(re.findall(r'\b(?:ILS|ils|ש"ח|שקל|שקלים|NIS)\b', text, re.IGNORECASE)) * 5
+    currency_scores['USD'] += len(re.findall(r'\b(?:USD|usd|dollar|dollars)\b', text, re.IGNORECASE)) * 5
+    currency_scores['EUR'] += len(re.findall(r'\b(?:EUR|eur|euro|euros)\b', text, re.IGNORECASE)) * 5
+    
+    # Determine most likely currency
+    detected_currency = None
+    max_score = max(currency_scores.values())
+    if max_score > 0:
+        detected_currency = max(currency_scores, key=currency_scores.get)
+    
+    # Extract amount based on detected currency
+    amount_found = False
+    
+    # Try USD patterns
+    if detected_currency == 'USD' or (detected_currency is None and currency_scores['USD'] == max_score):
+        usd_patterns = [
+            r'(?:total|grand total|amount due|amount|subtotal)[:\s]*\$\s*([\d,]+\.?\d*)',  # Total: $100
+            r'\$\s*([\d,]+\.?\d*)',  # $100
+            r'([\d,]+\.?\d*)\s*\$',  # 100$
+            r'([\d,]+\.?\d*)\s+(?:USD|usd)',  # 100 USD
+            r'(?:USD|usd)[:\s]*([\d,]+\.?\d*)',  # USD: 100
+        ]
+        
+        for pattern in usd_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount_val = float(amount_str)
+                    if amount_val > 0:
+                        data['amount'] = amount_val
+                        data['currency'] = 'USD'
+                        data['amount_raw'] = match.group(0)
+                        amount_found = True
+                        break
+                except (ValueError, IndexError):
+                    pass
+    
+    # Try ILS patterns
+    if not amount_found and (detected_currency == 'ILS' or detected_currency is None):
+        ils_patterns = [
+            r'(?:סה"כ|סהכ|לתשלום|total|amount due|amount)[:\s]*₪?\s*([\d,]+\.?\d*)\s*₪',  # Total: 100 ₪
+            r'₪\s*([\d,]+\.?\d*)',  # ₪100
+            r'([\d,]+\.?\d*)\s*₪',  # 100₪
+            r'(?:ILS|ils|ש"ח|NIS)[:\s]*([\d,]+\.?\d*)',  # ILS: 100
+            r'(?:סה"כ|סהכ|לתשלום|סכום)[:\s]*([\d,]+\.?\d*)',  # Hebrew keywords
+        ]
+        
+        for pattern in ils_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount_val = float(amount_str)
+                    if amount_val > 0:
+                        data['amount'] = amount_val
+                        data['currency'] = 'ILS'
+                        data['amount_raw'] = match.group(0)
+                        amount_found = True
+                        break
+                except (ValueError, IndexError):
+                    pass
+    
+    # Try EUR patterns
+    if not amount_found and detected_currency == 'EUR':
+        eur_patterns = [
+            r'€\s*([\d,]+\.?\d*)',  # €100
+            r'([\d,]+\.?\d*)\s*€',  # 100€
+            r'(?:EUR|eur)[:\s]+([\d,]+\.?\d*)',  # EUR: 100
+            r'(?:total|amount)[:\s]*€\s*([\d,]+\.?\d*)',  # Total: €100
+        ]
+        
+        for pattern in eur_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount_val = float(amount_str)
+                    if amount_val > 0:
+                        data['amount'] = amount_val
+                        data['currency'] = 'EUR'
+                        data['amount_raw'] = match.group(0)
+                        amount_found = True
+                        break
+                except (ValueError, IndexError):
+                    pass
+    
+    # Fallback: generic patterns without currency symbol
+    if not amount_found:
+        generic_patterns = [
+            r'(?:total|amount due|balance|subtotal|grand total)[:\s]+([\d,]+\.?\d*)',
+        ]
+        
+        for pattern in generic_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount_val = float(amount_str)
+                    if amount_val > 0:
+                        data['amount'] = amount_val
+                        data['amount_raw'] = match.group(0)
+                        # Infer currency from domain
+                        if from_domain and '.co.il' in from_domain:
+                            data['currency'] = 'ILS'
+                        elif detected_currency:
+                            data['currency'] = detected_currency
+                        # else leave as None
+                        amount_found = True
+                        break
+                except (ValueError, IndexError):
+                    pass
+    
+    return data
+
+
 def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_messages: int = None, 
                        from_date: str = None, to_date: str = None, months_back: int = 36) -> dict:
     """
@@ -911,13 +1089,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             result['skipped'] += 1
                             continue
                         
-                        # Process receipt (extract, save attachment, etc.)
-                        # ... (same logic as before)
+                        # Extract full HTML content (not just snippet)
                         email_html_snippet = extract_email_html(message)
                         attachment_id = None
+                        preview_attachment_id = None
                         pdf_text = ''
                         attachment_processed = False
+                        preview_generated = False
                         
+                        # Process attachments
                         for att in metadata.get('attachments', []):
                             if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
                                 try:
@@ -934,7 +1114,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                         pdf_confidence = calculate_pdf_confidence(pdf_text)
                                         confidence = min(confidence + pdf_confidence, 100)
                                     
-                                    # Save to storage
+                                    # Save source attachment to storage
                                     from werkzeug.datastructures import FileStorage
                                     from io import BytesIO
                                     
@@ -969,6 +1149,29 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                     attachment_id = attachment.id
                                     attachment_processed = True
                                     
+                                    # Generate preview from attachment
+                                    try:
+                                        from server.services.receipt_preview_service import generate_pdf_thumbnail, generate_image_thumbnail, save_preview_attachment
+                                        
+                                        preview_data = None
+                                        if att['mime_type'] == 'application/pdf':
+                                            preview_data = generate_pdf_thumbnail(att_data)
+                                        elif att['mime_type'].startswith('image/'):
+                                            preview_data = generate_image_thumbnail(att_data, att['mime_type'])
+                                        
+                                        if preview_data:
+                                            preview_attachment_id = save_preview_attachment(
+                                                preview_data=preview_data,
+                                                business_id=business_id,
+                                                original_filename=att['filename'] or 'receipt',
+                                                purpose='receipt_preview'
+                                            )
+                                            if preview_attachment_id:
+                                                preview_generated = True
+                                                logger.info(f"✅ Preview generated from attachment")
+                                    except Exception as preview_err:
+                                        logger.warning(f"⚠️ Preview generation failed: {preview_err}")
+                                    
                                     break  # Only process first attachment
                                     
                                 except Exception as e:
@@ -988,16 +1191,51 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 if screenshot_attachment_id:
                                     attachment_id = screenshot_attachment_id
                                     attachment_processed = True
+                                    # Screenshot serves as both source and preview
+                                    preview_attachment_id = screenshot_attachment_id
+                                    preview_generated = True
+                                    logger.info(f"✅ Screenshot generated as source and preview")
                             except Exception as e:
                                 logger.error(f"❌ Screenshot generation failed: {e}")
                         
-                        # Skip if no attachment and low confidence
+                        # Generate HTML preview if we have attachment but no preview yet
+                        if attachment_processed and not preview_generated and email_html_snippet:
+                            try:
+                                from server.services.receipt_preview_service import generate_html_preview, save_preview_attachment
+                                
+                                preview_data = generate_html_preview(email_html_snippet)
+                                if preview_data:
+                                    preview_attachment_id = save_preview_attachment(
+                                        preview_data=preview_data,
+                                        business_id=business_id,
+                                        original_filename='email_preview',
+                                        purpose='receipt_preview'
+                                    )
+                                    if preview_attachment_id:
+                                        preview_generated = True
+                                        logger.info(f"✅ HTML preview generated as fallback")
+                            except Exception as e:
+                                logger.warning(f"⚠️ HTML preview fallback failed: {e}")
+                        
+                        # Don't skip receipts with attachments even if confidence is low
+                        # Only skip if no attachment AND low confidence
                         if not attachment_processed and confidence < MIN_CONFIDENCE:
                             result['skipped'] += 1
                             continue
                         
-                        # Extract structured data
+                        # Extract structured data from PDF first, then fallback to HTML
                         extracted = extract_receipt_data(pdf_text, metadata)
+                        
+                        # If no amount found in PDF, try extracting from HTML
+                        if not extracted.get('amount') and email_html_snippet:
+                            html_extracted = extract_amount_from_html(email_html_snippet, metadata)
+                            # Merge HTML extraction with PDF extraction
+                            if html_extracted.get('amount'):
+                                extracted['amount'] = html_extracted['amount']
+                                extracted['currency'] = html_extracted.get('currency') or extracted.get('currency')
+                                extracted['amount_raw'] = html_extracted.get('amount_raw')
+                            if not extracted.get('vendor_name') and html_extracted.get('vendor_name'):
+                                extracted['vendor_name'] = html_extracted['vendor_name']
                         
                         # Parse received date
                         received_at = None
@@ -1024,10 +1262,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         raw_json_data = {
                             'metadata': metadata,
                             'extracted': extracted,
-                            'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                            'pdf_text_preview': pdf_text[:500] if pdf_text else None,
+                            'html_extraction': extract_amount_from_html(email_html_snippet, metadata) if email_html_snippet else None
                         }
-                        # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
-                        sanitized_json = sanitize_for_postgres(raw_json_data)
+                        # Sanitize to remove \x00 and literal \u0000 sequences
+                        try:
+                            sanitized_json = sanitize_for_postgres(raw_json_data)
+                        except Exception as sanitize_err:
+                            logger.error(f"⚠️ JSON sanitization failed, using None: {sanitize_err}")
+                            sanitized_json = None
                         
                         receipt = Receipt(
                             business_id=business_id,
@@ -1043,31 +1286,51 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             email_html_snippet=email_html_snippet,
                             vendor_name=extracted.get('vendor_name'),
                             amount=extracted.get('amount'),
-                            currency=extracted.get('currency', 'ILS'),
+                            currency=extracted.get('currency') or 'ILS',  # Default to ILS if None
                             invoice_number=extracted.get('invoice_number'),
                             invoice_date=invoice_date,
                             confidence=confidence,
                             raw_extraction_json=sanitized_json,
                             status=status,
-                            attachment_id=attachment_id
+                            attachment_id=attachment_id,
+                            preview_attachment_id=preview_attachment_id
                         )
                         
                         db.session.add(receipt)
+                        db.session.flush()  # Get receipt ID
                         result['new_count'] += 1
                         result['saved_receipts'] += 1
                         sync_run.saved_receipts = result['saved_receipts']
                         
-                        logger.info(f"✅ Receipt saved: {extracted.get('vendor_name')}, {extracted.get('amount')} {extracted.get('currency', 'ILS')}")
+                        # Enhanced logging per receipt
+                        preview_status = "ok" if preview_generated else "fail"
+                        source_type = "pdf" if pdf_text else ("html" if email_html_snippet else "none")
+                        logger.info(
+                            f"✅ receipt_saved id={receipt.id}, "
+                            f"amount={extracted.get('amount')}, "
+                            f"currency={extracted.get('currency')}, "
+                            f"preview={preview_status}, "
+                            f"source_attachment={source_type}"
+                        )
                         
-                        # Commit every 10 receipts
-                        if result['new_count'] % 10 == 0:
+                        # Rate limiting: Commit every 5 receipts and add 10-second delay
+                        if result['saved_receipts'] % 5 == 0:
+                            sync_run.updated_at = datetime.now(timezone.utc)
+                            db.session.commit()
+                            logger.info(f"💾 Committed {result['saved_receipts']} receipts, waiting 10s...")
+                            time.sleep(10)  # 10-second delay to prevent crashes with large syncs
+                        elif result['new_count'] % 10 == 0:
+                            # Fallback: commit every 10 new receipts if not triggered by saved_receipts
                             sync_run.updated_at = datetime.now(timezone.utc)
                             db.session.commit()
                         
                     except Exception as e:
                         # Per-message error handling: rollback and continue to next message
                         logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
-                        db.session.rollback()  # Rollback failed transaction
+                        try:
+                            db.session.rollback()  # Rollback failed transaction
+                        except Exception as rollback_err:
+                            logger.error(f"❌ Rollback failed: {rollback_err}")
                         result['errors'] += 1
                         sync_run.errors_count = result['errors']
                         sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
@@ -1256,8 +1519,10 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             
                             # Process attachments (same logic as before)
                             attachment_id = None
+                            preview_attachment_id = None
                             pdf_text = ''
                             attachment_processed = False
+                            preview_generated = False
                             
                             for att in metadata.get('attachments', []):
                                 if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
@@ -1310,6 +1575,29 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                         attachment_id = attachment.id
                                         attachment_processed = True
                                         
+                                        # Generate preview from attachment
+                                        try:
+                                            from server.services.receipt_preview_service import generate_pdf_thumbnail, generate_image_thumbnail, save_preview_attachment
+                                            
+                                            preview_data = None
+                                            if att['mime_type'] == 'application/pdf':
+                                                preview_data = generate_pdf_thumbnail(att_data)
+                                            elif att['mime_type'].startswith('image/'):
+                                                preview_data = generate_image_thumbnail(att_data, att['mime_type'])
+                                            
+                                            if preview_data:
+                                                preview_attachment_id = save_preview_attachment(
+                                                    preview_data=preview_data,
+                                                    business_id=business_id,
+                                                    original_filename=att['filename'] or 'receipt',
+                                                    purpose='receipt_preview'
+                                                )
+                                                if preview_attachment_id:
+                                                    preview_generated = True
+                                                    logger.info(f"✅ Preview generated from attachment")
+                                        except Exception as preview_err:
+                                            logger.warning(f"⚠️ Preview generation failed: {preview_err}")
+                                        
                                         break  # Only process first attachment
                                         
                                     except Exception as e:
@@ -1329,16 +1617,51 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                     if screenshot_attachment_id:
                                         attachment_id = screenshot_attachment_id
                                         attachment_processed = True
+                                        # Screenshot serves as both source and preview
+                                        preview_attachment_id = screenshot_attachment_id
+                                        preview_generated = True
+                                        logger.info(f"✅ Screenshot generated as source and preview")
                                 except Exception as e:
                                     logger.error(f"❌ Screenshot generation failed: {e}")
                             
-                            # Skip if no attachment and low confidence
+                            # Generate HTML preview if we have attachment but no preview yet
+                            if attachment_processed and not preview_generated and email_html_snippet:
+                                try:
+                                    from server.services.receipt_preview_service import generate_html_preview, save_preview_attachment
+                                    
+                                    preview_data = generate_html_preview(email_html_snippet)
+                                    if preview_data:
+                                        preview_attachment_id = save_preview_attachment(
+                                            preview_data=preview_data,
+                                            business_id=business_id,
+                                            original_filename='email_preview',
+                                            purpose='receipt_preview'
+                                        )
+                                        if preview_attachment_id:
+                                            preview_generated = True
+                                            logger.info(f"✅ HTML preview generated as fallback")
+                                except Exception as e:
+                                    logger.warning(f"⚠️ HTML preview fallback failed: {e}")
+                            
+                            # Don't skip receipts with attachments even if confidence is low
+                            # Only skip if no attachment AND low confidence
                             if not attachment_processed and confidence < MIN_CONFIDENCE:
                                 result['skipped'] += 1
                                 continue
                             
-                            # Extract structured data
+                            # Extract structured data from PDF first, then fallback to HTML
                             extracted = extract_receipt_data(pdf_text, metadata)
+                            
+                            # If no amount found in PDF, try extracting from HTML
+                            if not extracted.get('amount') and email_html_snippet:
+                                html_extracted = extract_amount_from_html(email_html_snippet, metadata)
+                                # Merge HTML extraction with PDF extraction
+                                if html_extracted.get('amount'):
+                                    extracted['amount'] = html_extracted['amount']
+                                    extracted['currency'] = html_extracted.get('currency') or extracted.get('currency')
+                                    extracted['amount_raw'] = html_extracted.get('amount_raw')
+                                if not extracted.get('vendor_name') and html_extracted.get('vendor_name'):
+                                    extracted['vendor_name'] = html_extracted['vendor_name']
                             
                             # Parse received date
                             received_at = None
@@ -1365,10 +1688,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             raw_json_data = {
                                 'metadata': metadata,
                                 'extracted': extracted,
-                                'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                                'pdf_text_preview': pdf_text[:500] if pdf_text else None,
+                                'html_extraction': extract_amount_from_html(email_html_snippet, metadata) if email_html_snippet else None
                             }
-                            # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
-                            sanitized_json = sanitize_for_postgres(raw_json_data)
+                            # Sanitize to remove \x00 and literal \u0000 sequences
+                            try:
+                                sanitized_json = sanitize_for_postgres(raw_json_data)
+                            except Exception as sanitize_err:
+                                logger.error(f"⚠️ JSON sanitization failed, using None: {sanitize_err}")
+                                sanitized_json = None
                             
                             receipt = Receipt(
                                 business_id=business_id,
@@ -1384,32 +1712,52 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 email_html_snippet=email_html_snippet,
                                 vendor_name=extracted.get('vendor_name'),
                                 amount=extracted.get('amount'),
-                                currency=extracted.get('currency', 'ILS'),
+                                currency=extracted.get('currency') or 'ILS',  # Default to ILS if None
                                 invoice_number=extracted.get('invoice_number'),
                                 invoice_date=invoice_date,
                                 confidence=confidence,
                                 raw_extraction_json=sanitized_json,
                                 status=status,
-                                attachment_id=attachment_id
+                                attachment_id=attachment_id,
+                                preview_attachment_id=preview_attachment_id
                             )
                             
                             db.session.add(receipt)
+                            db.session.flush()  # Get receipt ID
                             result['new_count'] += 1
                             result['saved_receipts'] += 1
                             month_receipts += 1
                             sync_run.saved_receipts = result['saved_receipts']
                             
-                            logger.info(f"✅ Receipt saved: {extracted.get('vendor_name')}, {extracted.get('amount')} {extracted.get('currency', 'ILS')}")
+                            # Enhanced logging per receipt
+                            preview_status = "ok" if preview_generated else "fail"
+                            source_type = "pdf" if pdf_text else ("html" if email_html_snippet else "none")
+                            logger.info(
+                                f"✅ receipt_saved id={receipt.id}, "
+                                f"amount={extracted.get('amount')}, "
+                                f"currency={extracted.get('currency')}, "
+                                f"preview={preview_status}, "
+                                f"source_attachment={source_type}"
+                            )
                             
-                            # Commit every 10 receipts
-                            if result['new_count'] % 10 == 0:
+                            # Rate limiting: Commit every 5 receipts and add 10-second delay
+                            if result['saved_receipts'] % 5 == 0:
+                                sync_run.updated_at = datetime.now(timezone.utc)
+                                db.session.commit()
+                                logger.info(f"💾 Committed {result['saved_receipts']} receipts, waiting 10s...")
+                                time.sleep(10)  # 10-second delay to prevent crashes with large syncs
+                            elif result['new_count'] % 10 == 0:
+                                # Fallback: commit every 10 new receipts if not triggered by saved_receipts
                                 sync_run.updated_at = datetime.now(timezone.utc)
                                 db.session.commit()
                             
                         except Exception as e:
                             # Per-message error handling: rollback and continue to next message
                             logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
-                            db.session.rollback()  # Rollback failed transaction
+                            try:
+                                db.session.rollback()  # Rollback failed transaction
+                            except Exception as rollback_err:
+                                logger.error(f"❌ Rollback failed: {rollback_err}")
                             result['errors'] += 1
                             sync_run.errors_count = result['errors']
                             sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
@@ -1867,8 +2215,10 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     
                     # Process first PDF or image attachment
                     attachment_id = None
+                    preview_attachment_id = None
                     pdf_text = ''
                     attachment_processed = False
+                    preview_generated = False
                     
                     for att in metadata.get('attachments', []):
                         if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
@@ -1936,6 +2286,29 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 
                                 logger.info(f"✅ Attachment saved: storage_key={storage_key}, size={file_size}")
                                 
+                                # Generate preview from attachment
+                                try:
+                                    from server.services.receipt_preview_service import generate_pdf_thumbnail, generate_image_thumbnail, save_preview_attachment
+                                    
+                                    preview_data = None
+                                    if att['mime_type'] == 'application/pdf':
+                                        preview_data = generate_pdf_thumbnail(att_data)
+                                    elif att['mime_type'].startswith('image/'):
+                                        preview_data = generate_image_thumbnail(att_data, att['mime_type'])
+                                    
+                                    if preview_data:
+                                        preview_attachment_id = save_preview_attachment(
+                                            preview_data=preview_data,
+                                            business_id=business_id,
+                                            original_filename=att['filename'] or 'receipt',
+                                            purpose='receipt_preview'
+                                        )
+                                        if preview_attachment_id:
+                                            preview_generated = True
+                                            logger.info(f"✅ Preview generated from attachment")
+                                except Exception as preview_err:
+                                    logger.warning(f"⚠️ Preview generation failed: {preview_err}")
+                                
                                 break  # Only process first attachment
                                 
                             except Exception as e:
@@ -1957,21 +2330,54 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 if screenshot_attachment_id:
                                     attachment_id = screenshot_attachment_id
                                     attachment_processed = True
-                                    logger.info(f"✅ Generated email screenshot as attachment: {screenshot_attachment_id}")
+                                    # Screenshot serves as both source and preview
+                                    preview_attachment_id = screenshot_attachment_id
+                                    preview_generated = True
+                                    logger.info(f"✅ Screenshot generated as source and preview")
                                 else:
                                     logger.warning(f"⚠️ Failed to generate email screenshot")
                             except Exception as e:
                                 logger.error(f"❌ Error generating email screenshot: {e}", exc_info=True)
                     
-                    # Don't skip if we have no attachment but good confidence from keywords
-                    # User wants to see ALL receipts, even without images
+                    # Generate HTML preview if we have attachment but no preview yet
+                    if attachment_processed and not preview_generated and email_html_snippet:
+                        try:
+                            from server.services.receipt_preview_service import generate_html_preview, save_preview_attachment
+                            
+                            preview_data = generate_html_preview(email_html_snippet)
+                            if preview_data:
+                                preview_attachment_id = save_preview_attachment(
+                                    preview_data=preview_data,
+                                    business_id=business_id,
+                                    original_filename='email_preview',
+                                    purpose='receipt_preview'
+                                )
+                                if preview_attachment_id:
+                                    preview_generated = True
+                                    logger.info(f"✅ HTML preview generated as fallback")
+                        except Exception as e:
+                            logger.warning(f"⚠️ HTML preview fallback failed: {e}")
+                    
+                    # Don't skip receipts with attachments even if confidence is low
+                    # Only skip if no attachment AND low confidence
                     if not attachment_processed and confidence < MIN_CONFIDENCE:
                         logger.info(f"⏭️ Skipping: no attachment and low confidence ({confidence})")
                         result['skipped'] += 1
                         continue
                     
-                    # Extract structured data
+                    # Extract structured data from PDF first, then fallback to HTML
                     extracted = extract_receipt_data(pdf_text, metadata)
+                    
+                    # If no amount found in PDF, try extracting from HTML
+                    if not extracted.get('amount') and email_html_snippet:
+                        html_extracted = extract_amount_from_html(email_html_snippet, metadata)
+                        # Merge HTML extraction with PDF extraction
+                        if html_extracted.get('amount'):
+                            extracted['amount'] = html_extracted['amount']
+                            extracted['currency'] = html_extracted.get('currency') or extracted.get('currency')
+                            extracted['amount_raw'] = html_extracted.get('amount_raw')
+                        if not extracted.get('vendor_name') and html_extracted.get('vendor_name'):
+                            extracted['vendor_name'] = html_extracted['vendor_name']
                     
                     # Parse received date from email header
                     received_at = None
@@ -2000,10 +2406,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     raw_json_data = {
                         'metadata': metadata,
                         'extracted': extracted,
-                        'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                        'pdf_text_preview': pdf_text[:500] if pdf_text else None,
+                        'html_extraction': extract_amount_from_html(email_html_snippet, metadata) if email_html_snippet else None
                     }
-                    # Sanitize to remove \x00 and other PostgreSQL-incompatible characters
-                    sanitized_json = sanitize_for_postgres(raw_json_data)
+                    # Sanitize to remove \x00 and literal \u0000 sequences
+                    try:
+                        sanitized_json = sanitize_for_postgres(raw_json_data)
+                    except Exception as sanitize_err:
+                        logger.error(f"⚠️ JSON sanitization failed, using None: {sanitize_err}")
+                        sanitized_json = None
                     
                     receipt = Receipt(
                         business_id=business_id,
@@ -2021,51 +2432,51 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         # Extracted data
                         vendor_name=extracted.get('vendor_name'),
                         amount=extracted.get('amount'),
-                        currency=extracted.get('currency', 'ILS'),
+                        currency=extracted.get('currency') or 'ILS',  # Default to ILS if None
                         invoice_number=extracted.get('invoice_number'),
                         invoice_date=invoice_date,
                         confidence=confidence,
                         raw_extraction_json=sanitized_json,
                         status=status,
-                        attachment_id=attachment_id
+                        attachment_id=attachment_id,
+                        preview_attachment_id=preview_attachment_id
                     )
                     
                     db.session.add(receipt)
+                    db.session.flush()  # Get receipt ID
                     result['new_count'] += 1
                     result['saved_receipts'] += 1
                     sync_run.saved_receipts = result['saved_receipts']
                     
+                    # Enhanced logging per receipt
+                    preview_status = "ok" if preview_generated else "fail"
+                    source_type = "pdf" if pdf_text else ("html" if email_html_snippet else "none")
                     logger.info(
-                        f"✅ Created receipt: id={message_id[:10]}..., "
-                        f"vendor={extracted.get('vendor_name')}, "
-                        f"amount={extracted.get('amount')} {extracted.get('currency', 'ILS')}, "
-                        f"invoice_num={extracted.get('invoice_number')}, "
-                        f"confidence={confidence}, "
-                        f"status={status}, "
-                        f"has_attachment={bool(attachment_id)}"
+                        f"✅ receipt_saved id={receipt.id}, "
+                        f"amount={extracted.get('amount')}, "
+                        f"currency={extracted.get('currency')}, "
+                        f"preview={preview_status}, "
+                        f"source_attachment={source_type}"
                     )
                     
-                    # Commit to get receipt ID
-                    db.session.flush()
-                    
-                    # Generate preview asynchronously (don't fail sync if preview fails)
-                    try:
-                        from server.services.receipt_preview_service import generate_receipt_preview
-                        if generate_receipt_preview(receipt.id):
-                            sync_run.preview_generated_count += 1
-                            logger.info(f"✅ Generated preview for receipt {receipt.id}")
-                    except Exception as preview_error:
-                        logger.warning(f"Preview generation failed for receipt {receipt.id}: {preview_error}")
-                    
-                    # Commit periodically (every 10 receipts)
-                    if result['new_count'] % 10 == 0:
+                    # Rate limiting: Commit every 5 receipts and add 10-second delay
+                    if result['saved_receipts'] % 5 == 0:
+                        sync_run.updated_at = datetime.now(timezone.utc)
+                        db.session.commit()
+                        logger.info(f"💾 Committed {result['saved_receipts']} receipts, waiting 10s...")
+                        time.sleep(10)  # 10-second delay to prevent crashes with large syncs
+                    elif result['new_count'] % 10 == 0:
+                        # Fallback: commit every 10 new receipts if not triggered by saved_receipts
                         sync_run.updated_at = datetime.now(timezone.utc)
                         db.session.commit()
                     
                 except Exception as e:
                     # Per-message error handling: rollback and continue to next message
                     logger.error(f"❌ Error processing message {message_id}: {e}", exc_info=True)
-                    db.session.rollback()  # Rollback failed transaction
+                    try:
+                        db.session.rollback()  # Rollback failed transaction
+                    except Exception as rollback_err:
+                        logger.error(f"❌ Rollback failed: {rollback_err}")
                     result['errors'] += 1
                     sync_run.errors_count = result['errors']
                     sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
