@@ -53,44 +53,38 @@ MAX_SECONDS_PER_RUN = 120   # Max 2 minutes per run
 playwright_semaphore = threading.Semaphore(2)  # Max 2 concurrent browsers
 
 
-def sanitize_for_postgres(obj):
+def strip_null_bytes(obj):
     """
-    Recursively sanitize an object to remove NUL characters and other PostgreSQL-incompatible data
+    Recursively strip NULL bytes (\x00) from all strings
     
-    PostgreSQL cannot store NUL (\\x00) characters in TEXT or JSON columns.
-    This function recursively cleans all strings in dicts, lists, and primitives.
+    This is CRITICAL - PostgreSQL cannot store \x00 in TEXT/JSON columns
+    and will crash with: psycopg2.errors.UntranslatableCharacter
     
     Args:
         obj: Any Python object (dict, list, str, int, float, None, etc.)
         
     Returns:
-        Sanitized version of the object
+        Cleaned version of the object with all \x00 removed
     """
+    if obj is None:
+        return None
     if isinstance(obj, str):
-        # Remove NUL bytes and other problematic control characters
-        # Keep only printable characters and common whitespace (space, tab, newline, carriage return)
-        sanitized = obj.replace('\x00', '').replace('\ufffd', '')  # Remove NUL and replacement character
-        # Also remove literal "\u0000" string sequences that may appear in JSON
-        sanitized = sanitized.replace('\\u0000', '').replace(r'\u0000', '')
-        return sanitized
-    elif isinstance(obj, dict):
-        # Recursively sanitize all keys and values
-        return {sanitize_for_postgres(k): sanitize_for_postgres(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        # Recursively sanitize all items
-        result = [sanitize_for_postgres(item) for item in obj]
-        return tuple(result) if isinstance(obj, tuple) else result
-    elif isinstance(obj, (int, float, bool, type(None))):
-        # These types are safe
+        # Remove NULL bytes and literal \u0000 sequences
+        return obj.replace('\x00', '').replace('\\u0000', '').replace('\ufffd', '')
+    if isinstance(obj, list):
+        return [strip_null_bytes(x) for x in obj]
+    if isinstance(obj, dict):
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in obj.items()}
+    if isinstance(obj, (int, float, bool)):
         return obj
-    else:
-        # For other types (datetime, etc.), convert to string and sanitize
-        try:
-            return sanitize_for_postgres(str(obj))
-        except Exception:
-            # If conversion fails, return None
-            logger.warning(f"Failed to sanitize object of type {type(obj)}, returning None")
-            return None
+    # For other types, try to convert to string and clean
+    try:
+        return strip_null_bytes(str(obj))
+    except Exception:
+        return None
+
+# Keep old name for compatibility but use new function
+sanitize_for_postgres = strip_null_bytes
 
 # Receipt detection keywords (Hebrew + English)
 RECEIPT_KEYWORDS = [
@@ -317,6 +311,55 @@ class GmailApiClient:
         return base64.urlsafe_b64decode(data)
 
 
+def extract_all_attachments(message):
+    """
+    Recursively extract ALL attachments from Gmail message
+    
+    Gmail uses nested multipart structure (multipart/alternative, multipart/related, etc.)
+    We need to recurse through ALL parts to find attachments.
+    
+    Args:
+        message: Gmail message object
+        
+    Returns:
+        List of attachment dicts with {id, filename, mime_type, size}
+    """
+    attachments = []
+    
+    def recurse_parts(parts):
+        """Recursively process message parts"""
+        if not parts:
+            return
+        
+        for part in parts:
+            mime_type = part.get('mimeType', '')
+            filename = part.get('filename', '')
+            body = part.get('body', {})
+            attachment_id = body.get('attachmentId')
+            size = body.get('size', 0)
+            
+            # Check if this is an attachment
+            # Either has filename OR has attachmentId
+            if attachment_id or (filename and size > 0):
+                attachments.append({
+                    'id': attachment_id,
+                    'filename': filename or 'attachment',
+                    'mime_type': mime_type,
+                    'size': size
+                })
+            
+            # Recurse into nested parts (multipart/alternative, etc.)
+            if 'parts' in part:
+                recurse_parts(part['parts'])
+    
+    # Start recursion from payload
+    payload = message.get('payload', {})
+    if 'parts' in payload:
+        recurse_parts(payload['parts'])
+    
+    return attachments
+
+
 def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     """
     Check if an email is likely to contain a receipt
@@ -351,37 +394,17 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     date_header = headers.get('date', '')
     metadata['date'] = date_header
     
-    # Check for attachments
-    has_pdf = False
-    has_image = False
+    
+    # Use recursive attachment extraction
+    attachments_list = extract_all_attachments(message)
     attachments = []
-    
-    def check_parts(parts):
-        nonlocal has_pdf, has_image
-        for part in parts:
-            mime_type = part.get('mimeType', '')
-            filename = part.get('filename', '')
-            
-            if part.get('body', {}).get('attachmentId'):
-                attachments.append({
-                    'id': part['body']['attachmentId'],
-                    'filename': filename,
-                    'mime_type': mime_type,
-                    'size': part.get('body', {}).get('size', 0)
-                })
-            
-            if mime_type == 'application/pdf':
+    for att in attachments_list:
+        if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
+            attachments.append(att)
+            if att['mime_type'] == 'application/pdf':
                 has_pdf = True
-            elif mime_type.startswith('image/'):
+            else:
                 has_image = True
-            
-            # Recurse into multipart
-            if 'parts' in part:
-                check_parts(part['parts'])
-    
-    payload = message.get('payload', {})
-    if 'parts' in payload:
-        check_parts(payload['parts'])
     
     metadata['attachments'] = attachments
     metadata['has_attachment'] = has_pdf or has_image
@@ -913,6 +936,91 @@ def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
     return data
 
 
+def extract_amount_merged(pdf_text: str, html_content: str, subject: str, metadata: dict) -> dict:
+    """
+    Merge amount extraction from multiple sources with priority order
+    
+    Priority:
+    1. PDF text (most reliable)
+    2. HTML body (Stripe, Replit, etc.)
+    3. Subject line (fallback)
+    
+    Args:
+        pdf_text: Extracted PDF text
+        html_content: Full HTML email content
+        subject: Email subject
+        metadata: Email metadata
+        
+    Returns:
+        dict with amount, currency, vendor_name, amount_raw
+    """
+    result = {
+        'vendor_name': None,
+        'amount': None,
+        'currency': None,
+        'amount_raw': None
+    }
+    
+    # Try PDF first (most reliable)
+    if pdf_text:
+        pdf_data = extract_receipt_data(pdf_text, metadata)
+        if pdf_data.get('amount'):
+            result['amount'] = pdf_data['amount']
+            result['currency'] = pdf_data.get('currency')
+            result['vendor_name'] = pdf_data.get('vendor_name')
+            result['amount_raw'] = f"PDF: {pdf_data.get('amount')} {pdf_data.get('currency', '')}"
+            return result  # Found in PDF - done!
+    
+    # Try HTML if no PDF or PDF didn't have amount
+    if html_content:
+        html_data = extract_amount_from_html(html_content, metadata)
+        if html_data.get('amount'):
+            result['amount'] = html_data['amount']
+            result['currency'] = html_data.get('currency')
+            if not result['vendor_name']:
+                result['vendor_name'] = html_data.get('vendor_name')
+            result['amount_raw'] = html_data.get('amount_raw') or f"HTML: {html_data.get('amount')} {html_data.get('currency', '')}"
+            return result  # Found in HTML - done!
+    
+    # Last resort: try subject line
+    if subject:
+        import re
+        # Try to find amount in subject
+        patterns = [
+            r'\$\s*([\d,]+\.?\d*)',  # $100
+            r'₪\s*([\d,]+\.?\d*)',   # ₪100
+            r'([\d,]+\.?\d*)\s*USD', # 100 USD
+            r'([\d,]+\.?\d*)\s*ILS', # 100 ILS
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, subject, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount_val = float(amount_str)
+                    if amount_val > 0:
+                        result['amount'] = amount_val
+                        if '$' in pattern or 'USD' in pattern:
+                            result['currency'] = 'USD'
+                        elif '₪' in pattern or 'ILS' in pattern:
+                            result['currency'] = 'ILS'
+                        result['amount_raw'] = f"Subject: {match.group(0)}"
+                        break
+                except (ValueError, IndexError):
+                    pass
+    
+    # If still no vendor, try domain
+    if not result['vendor_name']:
+        from_domain = metadata.get('from_domain', '')
+        if from_domain:
+            vendor = from_domain.replace('.co.il', '').replace('.com', '').replace('.net', '')
+            vendor = vendor.replace('.', ' ').title()
+            result['vendor_name'] = vendor
+    
+    return result
+
+
 def process_single_receipt_message(
     message_id: str,
     gmail,
@@ -978,14 +1086,20 @@ def process_single_receipt_message(
     
     # Extract full HTML content
     email_html_snippet = extract_email_html(message)
+    # CRITICAL: Strip NULL bytes to prevent PostgreSQL crashes
+    if email_html_snippet:
+        email_html_snippet = strip_null_bytes(email_html_snippet)
     attachment_id = None
     preview_attachment_id = None
     pdf_text = ''
     attachment_processed = False
     preview_generated = False
     
+    # Use recursive attachment extraction
+    all_attachments = extract_all_attachments(message)
+    
     # Process attachments
-    for att in metadata.get('attachments', []):
+    for att in all_attachments:
         if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
             try:
                 logger.info(f"📎 Downloading attachment: {att['filename']}")
@@ -1119,19 +1233,13 @@ def process_single_receipt_message(
         result['skipped'] += 1
         return None
     
-    # Extract structured data from PDF first, then fallback to HTML
-    extracted = extract_receipt_data(pdf_text, metadata)
-    
-    # If no amount found in PDF, try extracting from HTML
-    if not extracted.get('amount') and email_html_snippet:
-        html_extracted = extract_amount_from_html(email_html_snippet, metadata)
-        # Merge HTML extraction with PDF extraction
-        if html_extracted.get('amount'):
-            extracted['amount'] = html_extracted['amount']
-            extracted['currency'] = html_extracted.get('currency') or extracted.get('currency')
-            extracted['amount_raw'] = html_extracted.get('amount_raw')
-        if not extracted.get('vendor_name') and html_extracted.get('vendor_name'):
-            extracted['vendor_name'] = html_extracted['vendor_name']
+    # Use merged extraction (PDF + HTML + Subject priority)
+    extracted = extract_amount_merged(
+        pdf_text=pdf_text,
+        html_content=email_html_snippet,
+        subject=metadata.get('subject', ''),
+        metadata=metadata
+    )
     
     # Parse received date
     received_at = None
@@ -1161,23 +1269,25 @@ def process_single_receipt_message(
         'pdf_text_preview': pdf_text[:500] if pdf_text else None,
         'html_extraction': extract_amount_from_html(email_html_snippet, metadata) if email_html_snippet else None
     }
-    # Sanitize to remove \x00 and literal \u0000 sequences
+    # CRITICAL: Use robust NULL byte stripping
     try:
-        sanitized_json = sanitize_for_postgres(raw_json_data)
+        sanitized_json = strip_null_bytes(raw_json_data)
     except Exception as sanitize_err:
         logger.error(f"⚠️ JSON sanitization failed, using None: {sanitize_err}")
         sanitized_json = None
     
-    # Strict validation and failure tracking
+    # CRITICAL: Validation - track why extraction failed
     extraction_warnings = []
     
     # Check preview generation
-    if attachment_id and not preview_attachment_id:
+    if attachment_id and not preview_generated:
         extraction_warnings.append('preview_generation_failed')
+        logger.warning(f"⚠️ Receipt {message_id}: Preview generation failed despite having attachment")
     
     # Check amount extraction
     if (pdf_text or email_html_snippet) and not extracted.get('amount'):
         extraction_warnings.append('amount_not_extracted')
+        logger.warning(f"⚠️ Receipt {message_id}: Amount not extracted despite having content")
         # Don't auto-approve if amount missing
         if status == 'approved':
             status = 'pending_review'
@@ -1185,6 +1295,7 @@ def process_single_receipt_message(
     # Check currency
     if extracted.get('amount') and not extracted.get('currency'):
         extraction_warnings.append('currency_not_detected')
+        logger.warning(f"⚠️ Receipt {message_id}: Currency not detected")
     
     # Add warnings to raw_extraction_json
     if extraction_warnings and sanitized_json:
