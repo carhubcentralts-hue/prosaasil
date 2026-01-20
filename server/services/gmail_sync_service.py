@@ -320,10 +320,21 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
         check_parts(payload['parts'])
     
     metadata['attachments'] = attachments
+    metadata['has_attachment'] = has_pdf or has_image
     
-    # No attachments = not a receipt
-    if not has_pdf and not has_image:
-        return False, 0, metadata
+    # NEW LOGIC: Check for receipt keywords in subject/content first
+    subject_lower = subject.lower()
+    matched_keywords = []
+    
+    # Check subject for keywords
+    for keyword in RECEIPT_KEYWORDS:
+        if keyword.lower() in subject_lower:
+            matched_keywords.append(keyword)
+    
+    # If we have receipt keywords, it's likely a receipt even without attachment
+    if matched_keywords:
+        confidence += 40  # Strong indicator
+        metadata['matched_keywords'] = matched_keywords
     
     # PDF attachment is a strong indicator
     if has_pdf:
@@ -331,27 +342,32 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     elif has_image:
         confidence += 20  # Increased from 10 - images can be receipt photos
     
-    # Check subject for keywords
-    subject_lower = subject.lower()
-    matched_keywords = []
-    for keyword in RECEIPT_KEYWORDS:
-        if keyword.lower() in subject_lower:
-            matched_keywords.append(keyword)
-    
-    if matched_keywords:
-        confidence += 30  # Increased from 25
-    
     # Check sender domain
     if from_domain in KNOWN_RECEIPT_DOMAINS:
         confidence += 40  # Increased from 35
     
-    # Even with low confidence, if we have PDF/image, it's worth reviewing
+    # Extract email snippet for additional analysis
+    snippet = message.get('snippet', '').lower()
+    metadata['snippet'] = snippet
+    
+    # Check snippet for receipt indicators
+    snippet_indicators = ['total', 'amount', 'סכום', 'סה"כ', 'payment', 'תשלום', '₪', '$', 'paid', 'שולם']
+    for indicator in snippet_indicators:
+        if indicator in snippet:
+            confidence += 5
+            break
+    
+    # Even with low confidence, if we have keywords or attachment, it's worth reviewing
     # The worst case is user marks it as "not a receipt"
     if confidence < MIN_CONFIDENCE:
-        # Give minimum confidence if we have attachment
-        confidence = MIN_CONFIDENCE
+        # Give minimum confidence if we have keywords or attachment
+        if matched_keywords or has_pdf or has_image:
+            confidence = MIN_CONFIDENCE
     
-    return True, confidence, metadata
+    # Must have at least SOME indicator to be considered a receipt
+    is_receipt = confidence >= MIN_CONFIDENCE
+    
+    return is_receipt, confidence, metadata
 
 
 def extract_pdf_text(pdf_data: bytes, max_pages: int = 2) -> str:
@@ -529,7 +545,8 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     return data
 
 
-def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_messages: int = None) -> dict:
+def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_messages: int = None, 
+                       from_date: str = None, to_date: str = None) -> dict:
     """
     Sync receipts from Gmail for a business with full pagination support
     
@@ -537,6 +554,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         business_id: Business ID to sync
         mode: 'full' for full sync (all history) or 'incremental' for new messages only
         max_messages: Maximum total messages to process (None = unlimited)
+        from_date: Start date for sync in YYYY-MM-DD format (optional, overrides mode)
+        to_date: End date for sync in YYYY-MM-DD format (optional)
         
     Returns:
         Sync results with detailed counters
@@ -572,14 +591,36 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         gmail = get_gmail_service(business_id)
         connection = GmailConnection.query.filter_by(business_id=business_id).first()
         
-        # Build search query based on mode
-        if mode == 'full':
+        # Build search query based on date parameters or mode
+        query_parts = []
+        
+        # Priority 1: Use explicit date range if provided
+        if from_date or to_date:
+            if from_date:
+                try:
+                    # Convert YYYY-MM-DD to Gmail format YYYY/MM/DD
+                    from_dt = datetime.strptime(from_date, '%Y-%m-%d')
+                    date_str = from_dt.strftime('%Y/%m/%d')
+                    query_parts.append(f'after:{date_str}')
+                    logger.info(f"📅 Using custom from_date: {date_str}")
+                except ValueError:
+                    logger.warning(f"Invalid from_date format: {from_date}, ignoring")
+            
+            if to_date:
+                try:
+                    # Convert YYYY-MM-DD to Gmail format YYYY/MM/DD
+                    to_dt = datetime.strptime(to_date, '%Y-%m-%d')
+                    date_str = to_dt.strftime('%Y/%m/%d')
+                    query_parts.append(f'before:{date_str}')
+                    logger.info(f"📅 Using custom to_date: {date_str}")
+                except ValueError:
+                    logger.warning(f"Invalid to_date format: {to_date}, ignoring")
+        
+        # Priority 2: Use mode if no explicit dates
+        elif mode == 'full':
             # Full sync - broader query, go back as far as possible
-            # Don't use date filter - get ALL emails with attachments
-            # We'll filter by keywords and confidence scoring
-            query_parts = [
-                'has:attachment',
-            ]
+            # Don't use date filter - get ALL emails
+            logger.info("📅 Full sync mode - no date restrictions")
         else:
             # Incremental - check last sync time
             if connection and connection.last_sync_at:
@@ -587,26 +628,27 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                 from datetime import datetime, timedelta
                 cutoff = connection.last_sync_at - timedelta(days=30)  # 30 days overlap for safety
                 date_str = cutoff.strftime('%Y/%m/%d')
-                query_parts = [
-                    'has:attachment',
-                    f'after:{date_str}',
-                ]
+                query_parts.append(f'after:{date_str}')
+                logger.info(f"📅 Incremental sync from: {date_str}")
             else:
                 # No previous sync - go back 1 year to catch historical receipts
-                query_parts = [
-                    'has:attachment',
-                    'newer_than:1y',
-                ]
+                query_parts.append('newer_than:1y')
+                logger.info("📅 First sync - going back 1 year")
         
-        # Add keyword filters (broader for internal scoring)
-        # Using OR for flexibility - we'll score internally
-        # Also include common receipt sender patterns
+        # Add keyword filters for receipt/invoice detection
+        # Match in subject OR body for flexibility
         keyword_filter = ' OR '.join([
-            f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill']
+            f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill', 'billing']
+        ] + [
+            f'"{kw}"' for kw in ['קבלת תשלום', 'חשבונית מס', 'tax invoice', 'receipt of payment']
         ])
-        # Don't require subject keywords - rely on internal scoring instead
-        # This allows catching receipts with non-standard subject lines
-        query = f"{' '.join(query_parts)}"
+        
+        # Build final query - include emails WITH or WITHOUT attachments
+        # We'll detect receipts based on content, not just attachments
+        if query_parts:
+            query = f"{' '.join(query_parts)} ({keyword_filter})"
+        else:
+            query = f"({keyword_filter})"
         
         logger.info(f"Gmail query: {query}")
         
@@ -757,10 +799,30 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 result['errors'] += 1
                     
                     if not attachment_processed:
-                        logger.warning(f"⚠️ No attachments were successfully processed for message {message_id}")
+                        logger.info(f"📧 No file attachments found, will generate email screenshot")
+                        
+                        # NEW: Generate screenshot from email HTML if we have content
+                        if email_html_snippet:
+                            try:
+                                screenshot_attachment_id = generate_email_screenshot(
+                                    email_html=email_html_snippet,
+                                    business_id=business_id,
+                                    receipt_id=None  # Will be set after receipt creation
+                                )
+                                
+                                if screenshot_attachment_id:
+                                    attachment_id = screenshot_attachment_id
+                                    attachment_processed = True
+                                    logger.info(f"✅ Generated email screenshot as attachment: {screenshot_attachment_id}")
+                                else:
+                                    logger.warning(f"⚠️ Failed to generate email screenshot")
+                            except Exception as e:
+                                logger.error(f"❌ Error generating email screenshot: {e}", exc_info=True)
                     
-                    # Skip if confidence too low after full analysis
-                    if confidence < MIN_CONFIDENCE:
+                    # Don't skip if we have no attachment but good confidence from keywords
+                    # User wants to see ALL receipts, even without images
+                    if not attachment_processed and confidence < MIN_CONFIDENCE:
+                        logger.info(f"⏭️ Skipping: no attachment and low confidence ({confidence})")
                         result['skipped'] += 1
                         continue
                     
@@ -884,6 +946,164 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         db.session.commit()
         
         raise
+
+
+def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int = None) -> Optional[int]:
+    """
+    Generate a screenshot/image from email HTML content
+    Used when receipt has no PDF/image attachment
+    
+    Args:
+        email_html: HTML content of the email
+        business_id: Business ID for storage
+        receipt_id: Receipt ID for logging (optional)
+        
+    Returns:
+        Attachment ID if successful, None otherwise
+    """
+    try:
+        # Try using html2image if available
+        try:
+            from html2image import Html2Image
+            import tempfile
+            
+            logger.info(f"🖼️ Generating HTML screenshot for receipt {receipt_id or 'unknown'}")
+            
+            hti = Html2Image()
+            
+            # Create temp directory
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Generate screenshot
+                output_file = hti.screenshot(
+                    html_str=email_html,
+                    save_as='receipt_screenshot.png',
+                    size=(800, 1200)
+                )
+                
+                if output_file and len(output_file) > 0:
+                    screenshot_path = output_file[0]
+                    
+                    # Read the file
+                    with open(screenshot_path, 'rb') as f:
+                        screenshot_data = f.read()
+                    
+                    # Save to storage
+                    from server.services.attachment_service import get_attachment_service
+                    from server.models_sql import Attachment
+                    from server.db import db
+                    from werkzeug.datastructures import FileStorage
+                    from io import BytesIO
+                    
+                    attachment_service = get_attachment_service()
+                    
+                    file_storage = FileStorage(
+                        stream=BytesIO(screenshot_data),
+                        filename='email_screenshot.png',
+                        content_type='image/png'
+                    )
+                    
+                    # Create attachment record
+                    attachment = Attachment(
+                        business_id=business_id,
+                        filename_original='email_screenshot.png',
+                        mime_type='image/png',
+                        file_size=0,
+                        storage_path='',
+                        purpose='receipt_source',
+                        origin_module='receipts',
+                        channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
+                    )
+                    db.session.add(attachment)
+                    db.session.flush()
+                    
+                    # Save file
+                    storage_key, file_size = attachment_service.save_file(
+                        file=file_storage,
+                        business_id=business_id,
+                        attachment_id=attachment.id,
+                        purpose='receipt_source'
+                    )
+                    
+                    attachment.storage_path = storage_key
+                    attachment.file_size = file_size
+                    db.session.commit()
+                    
+                    logger.info(f"✅ Email screenshot generated: attachment_id={attachment.id}")
+                    return attachment.id
+                    
+        except ImportError:
+            logger.debug("html2image not available, trying alternative methods")
+        except Exception as e:
+            logger.warning(f"html2image screenshot failed: {e}")
+        
+        # Fallback: Try using weasyprint for HTML to PNG
+        try:
+            from weasyprint import HTML as WeasyprintHTML
+            import io
+            
+            logger.info(f"🖼️ Generating HTML screenshot with weasyprint for receipt {receipt_id or 'unknown'}")
+            
+            # Generate PNG from HTML
+            html_obj = WeasyprintHTML(string=email_html)
+            png_bytes = html_obj.write_png()
+            
+            if png_bytes:
+                # Save to storage
+                from server.services.attachment_service import get_attachment_service
+                from server.models_sql import Attachment
+                from server.db import db
+                from werkzeug.datastructures import FileStorage
+                from io import BytesIO
+                
+                attachment_service = get_attachment_service()
+                
+                file_storage = FileStorage(
+                    stream=BytesIO(png_bytes),
+                    filename='email_screenshot.png',
+                    content_type='image/png'
+                )
+                
+                # Create attachment record
+                attachment = Attachment(
+                    business_id=business_id,
+                    filename_original='email_screenshot.png',
+                    mime_type='image/png',
+                    file_size=0,
+                    storage_path='',
+                    purpose='receipt_source',
+                    origin_module='receipts',
+                    channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
+                )
+                db.session.add(attachment)
+                db.session.flush()
+                
+                # Save file
+                storage_key, file_size = attachment_service.save_file(
+                    file=file_storage,
+                    business_id=business_id,
+                    attachment_id=attachment.id,
+                    purpose='receipt_source'
+                )
+                
+                attachment.storage_path = storage_key
+                attachment.file_size = file_size
+                db.session.commit()
+                
+                logger.info(f"✅ Email screenshot generated with weasyprint: attachment_id={attachment.id}")
+                return attachment.id
+                
+        except ImportError:
+            logger.debug("weasyprint not available")
+        except Exception as e:
+            logger.warning(f"weasyprint screenshot failed: {e}")
+        
+        # If all methods fail, return None
+        logger.warning(f"⚠️ Could not generate email screenshot - no suitable library available")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Email screenshot generation failed: {e}", exc_info=True)
+        return None
 
 
 def extract_email_html(message: dict) -> str:
