@@ -305,23 +305,38 @@ def assets_get_media_impl(business_id: int, asset_id: int) -> AssetsGetMediaOutp
 
 def is_assets_enabled(business_id: int) -> bool:
     """
-    Check if assets feature is enabled for the business
+    Check if assets feature is enabled for the business AND if AI can use assets tools
     
     Args:
         business_id: Business ID to check
     
     Returns:
-        True if 'assets' is in enabled_pages, False otherwise
+        True if BOTH conditions are met:
+        1. 'assets' is in enabled_pages (page is accessible)
+        2. assets_use_ai is True in business_settings (AI can use tools)
+        
+        False otherwise
     """
     try:
-        from server.models_sql import Business
+        from server.models_sql import Business, BusinessSettings
         
         business = Business.query.get(business_id)
         if not business:
             return False
         
+        # Check if assets page is enabled
         enabled_pages = business.enabled_pages or []
-        return 'assets' in enabled_pages
+        if 'assets' not in enabled_pages:
+            logger.info(f"[ASSETS_TOOL] Assets page not enabled for business={business_id}")
+            return False
+        
+        # Check if AI is allowed to use assets tools
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if not settings or not getattr(settings, 'assets_use_ai', True):
+            logger.info(f"[ASSETS_TOOL] AI tools disabled for assets in business={business_id}")
+            return False
+        
+        return True
         
     except Exception as e:
         logger.warning(f"[ASSETS_TOOL] Could not check assets permission: {e}")

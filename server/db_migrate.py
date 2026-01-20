@@ -3372,6 +3372,33 @@ def apply_migrations():
         else:
             checkpoint("✅ Migration 81 completed - Assets Library tables created")
         
+        # ============================================================================
+        # Migration 82: Assets AI Toggle - Add assets_use_ai to BusinessSettings
+        # ============================================================================
+        # Adds assets_use_ai boolean column to business_settings table
+        # Controls whether AI can access assets tools during conversations
+        # Default: true (enabled for backward compatibility)
+        checkpoint("Migration 82: Adding assets_use_ai column to business_settings table")
+        if check_table_exists('business_settings') and not check_column_exists('business_settings', 'assets_use_ai'):
+            try:
+                checkpoint("  → Adding assets_use_ai column...")
+                db.session.execute(text("""
+                    ALTER TABLE business_settings
+                    ADD COLUMN assets_use_ai BOOLEAN NOT NULL DEFAULT TRUE
+                """))
+                checkpoint("  ✅ assets_use_ai column added (default: TRUE)")
+                migrations_applied.append('add_assets_use_ai_column')
+                checkpoint("✅ Applied migration 82: add_assets_use_ai_column - AI tools toggle for assets")
+            except Exception as e:
+                log.error(f"❌ Migration 82 (assets_use_ai) failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            if not check_table_exists('business_settings'):
+                checkpoint("Migration 82: business_settings table doesn't exist - skipping")
+            else:
+                checkpoint("Migration 82: assets_use_ai column already exists - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
