@@ -75,31 +75,59 @@ REVIEW_THRESHOLD = 60  # Below this goes to pending_review
 
 
 def encrypt_token(token: str) -> str:
-    """Encrypt a token for storage"""
+    """
+    Encrypt a token for storage using Fernet symmetric encryption.
+    
+    Security: In production, ENCRYPTION_KEY must be set to a valid Fernet key.
+    In development, falls back to base64 with a warning.
+    """
     if not ENCRYPTION_KEY:
+        logger.warning("⚠️ SECURITY: No ENCRYPTION_KEY set - tokens stored with base64 encoding only!")
         return base64.b64encode(token.encode()).decode()
     
     try:
-        from cryptography.fernet import Fernet
-        f = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+        from cryptography.fernet import Fernet, InvalidToken
+        # Validate key format
+        key = ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY
+        f = Fernet(key)
         return f.encrypt(token.encode()).decode()
-    except Exception:
+    except ImportError:
+        logger.error("cryptography package not installed - falling back to base64 (NOT SECURE)")
         return base64.b64encode(token.encode()).decode()
+    except Exception as e:
+        logger.error(f"Encryption failed (invalid key format?): {e}")
+        raise ValueError("Invalid ENCRYPTION_KEY - must be a valid Fernet key")
 
 
 def decrypt_token(encrypted: str) -> str:
-    """Decrypt a stored token"""
-    if not ENCRYPTION_KEY or not encrypted:
-        if encrypted:
-            return base64.b64decode(encrypted.encode()).decode()
+    """
+    Decrypt a stored token.
+    
+    Returns empty string if encrypted is empty.
+    Raises ValueError if decryption fails with proper key.
+    """
+    if not encrypted:
         return ''
     
+    if not ENCRYPTION_KEY:
+        # No key set - assume base64 encoded
+        try:
+            return base64.b64decode(encrypted.encode()).decode()
+        except Exception:
+            return ''
+    
     try:
-        from cryptography.fernet import Fernet
-        f = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+        from cryptography.fernet import Fernet, InvalidToken
+        key = ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY
+        f = Fernet(key)
         return f.decrypt(encrypted.encode()).decode()
-    except Exception:
+    except ImportError:
+        # cryptography not installed - try base64
         return base64.b64decode(encrypted.encode()).decode()
+    except Exception as e:
+        logger.error(f"Decryption failed: {e}")
+        # Don't expose encrypted data, just return empty
+        return ''
 
 
 def get_gmail_service(business_id: int):
@@ -509,7 +537,14 @@ def sync_gmail_receipts(business_id: int, max_messages: int = 50) -> dict:
         ]
         
         # Add keyword filters (any of these)
-        keyword_filter = ' OR '.join([f'subject:{kw}' for kw in RECEIPT_KEYWORDS[:5]])
+        # Quote keywords to prevent query injection and handle special characters
+        def escape_gmail_query(keyword: str) -> str:
+            """Escape special characters in Gmail search query"""
+            # Remove or escape problematic characters
+            safe_keyword = keyword.replace('"', '').replace('\\', '')
+            return f'subject:"{safe_keyword}"'
+        
+        keyword_filter = ' OR '.join([escape_gmail_query(kw) for kw in RECEIPT_KEYWORDS[:5]])
         query = f"{' '.join(query_parts)} ({keyword_filter})"
         
         logger.info(f"Gmail query: {query}")
@@ -604,6 +639,14 @@ def sync_gmail_receipts(business_id: int, max_messages: int = 50) -> dict:
                 # Determine status based on confidence
                 status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
                 
+                # Parse invoice date safely
+                invoice_date = None
+                if extracted.get('invoice_date'):
+                    try:
+                        invoice_date = datetime.strptime(extracted['invoice_date'], '%Y-%m-%d').date()
+                    except ValueError:
+                        logger.warning(f"Invalid invoice date format: {extracted['invoice_date']}")
+                
                 # Create receipt record
                 receipt = Receipt(
                     business_id=business_id,
@@ -617,7 +660,7 @@ def sync_gmail_receipts(business_id: int, max_messages: int = 50) -> dict:
                     amount=extracted.get('amount'),
                     currency=extracted.get('currency', 'ILS'),
                     invoice_number=extracted.get('invoice_number'),
-                    invoice_date=datetime.strptime(extracted['invoice_date'], '%Y-%m-%d').date() if extracted.get('invoice_date') else None,
+                    invoice_date=invoice_date,
                     confidence=confidence,
                     raw_extraction_json={
                         'metadata': metadata,

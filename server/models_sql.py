@@ -1598,9 +1598,9 @@ class Receipt(db.Model):
     attachment = db.relationship("Attachment", backref=db.backref("receipts", lazy="dynamic"))
     
     # Indexes for efficient querying
+    # Note: PostgreSQL allows multiple NULLs in unique constraint by default,
+    # but we use a partial unique index in migration for explicit control
     __table_args__ = (
-        # Unique constraint: prevent duplicate receipts per business
-        db.UniqueConstraint('business_id', 'gmail_message_id', name='uq_receipt_business_gmail_message'),
         db.Index('idx_receipts_business_received', 'business_id', 'received_at'),
         db.Index('idx_receipts_business_status', 'business_id', 'status'),
         db.CheckConstraint("status IN ('pending_review', 'approved', 'rejected', 'not_receipt')", name='chk_receipt_status'),

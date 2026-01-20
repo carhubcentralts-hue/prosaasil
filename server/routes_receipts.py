@@ -35,9 +35,14 @@ from urllib.parse import urlencode
 logger = logging.getLogger(__name__)
 
 # Gmail OAuth Configuration
+# IMPORTANT: Set these environment variables in production:
+# - GOOGLE_CLIENT_ID: Your Google OAuth Client ID
+# - GOOGLE_CLIENT_SECRET: Your Google OAuth Client Secret
+# - GOOGLE_REDIRECT_URI: https://prosaas.pro/api/gmail/oauth/callback
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
-GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', '')
+# Default production redirect URI for prosaas.pro
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'https://prosaas.pro/api/gmail/oauth/callback')
 
 # OAuth scopes - minimal required for reading emails and attachments
 GMAIL_SCOPES = [
@@ -49,6 +54,7 @@ GMAIL_SCOPES = [
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', os.getenv('FERNET_KEY', ''))
 
 # Create blueprints
+# The callback endpoint will be at: https://prosaas.pro/api/gmail/oauth/callback
 gmail_oauth_bp = Blueprint("gmail_oauth", __name__, url_prefix="/api/gmail/oauth")
 receipts_bp = Blueprint("receipts", __name__, url_prefix="/api/receipts")
 
@@ -85,43 +91,61 @@ def check_admin_permission():
 
 
 def encrypt_token(token: str) -> str:
-    """Encrypt a token for storage"""
+    """
+    Encrypt a token for storage using Fernet symmetric encryption.
+    
+    Security: In production, ENCRYPTION_KEY must be set to a valid Fernet key.
+    In development only, falls back to base64 with a warning.
+    """
+    import os
+    IS_PRODUCTION = os.getenv('PRODUCTION', '0') == '1'
+    
     if not ENCRYPTION_KEY:
-        logger.warning("No encryption key configured - using base64 encoding (NOT SECURE)")
+        if IS_PRODUCTION:
+            raise ValueError("ENCRYPTION_KEY must be set in production for secure token storage")
+        logger.warning("⚠️ DEV ONLY: No ENCRYPTION_KEY - using base64 encoding (NOT SECURE)")
         import base64
         return base64.b64encode(token.encode()).decode()
     
     try:
         from cryptography.fernet import Fernet
-        f = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+        key = ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY
+        f = Fernet(key)
         return f.encrypt(token.encode()).decode()
     except ImportError:
-        logger.error("cryptography package not installed - using base64 encoding")
+        if IS_PRODUCTION:
+            raise ValueError("cryptography package required for production deployment")
+        logger.error("cryptography package not installed - using base64 encoding (DEV ONLY)")
         import base64
         return base64.b64encode(token.encode()).decode()
     except Exception as e:
         logger.error(f"Encryption failed: {e}")
-        import base64
-        return base64.b64encode(token.encode()).decode()
+        raise ValueError(f"Encryption failed - check ENCRYPTION_KEY format: {e}")
 
 
 def decrypt_token(encrypted: str) -> str:
     """Decrypt a stored token"""
+    if not encrypted:
+        return ''
+    
     if not ENCRYPTION_KEY:
         import base64
-        return base64.b64decode(encrypted.encode()).decode()
+        try:
+            return base64.b64decode(encrypted.encode()).decode()
+        except Exception:
+            return ''
     
     try:
         from cryptography.fernet import Fernet
-        f = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+        key = ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY
+        f = Fernet(key)
         return f.decrypt(encrypted.encode()).decode()
     except ImportError:
         import base64
         return base64.b64decode(encrypted.encode()).decode()
     except Exception as e:
         logger.error(f"Decryption failed: {e}")
-        import base64
-        return base64.b64decode(encrypted.encode()).decode()
+        return ''
 
 
 def log_audit(action: str, resource_type: str, resource_id: int = None, details: dict = None):
@@ -166,11 +190,11 @@ def oauth_start():
     session['gmail_oauth_state'] = state
     session['gmail_oauth_business_id'] = business_id
     
-    # Determine redirect URI
+    # Determine redirect URI - uses GOOGLE_REDIRECT_URI env var or default to prosaas.pro
     redirect_uri = GOOGLE_REDIRECT_URI
-    if not redirect_uri:
-        # Auto-detect from request
-        redirect_uri = f"{request.host_url.rstrip('/')}/api/gmail/oauth/callback"
+    
+    # Log the redirect URI being used
+    logger.info(f"Gmail OAuth redirect URI: {redirect_uri}")
     
     # Build OAuth URL
     params = {
@@ -227,9 +251,9 @@ def oauth_callback():
     try:
         import requests
         
+        # Use the same redirect URI that was used to start the OAuth flow
         redirect_uri = GOOGLE_REDIRECT_URI
-        if not redirect_uri:
-            redirect_uri = f"{request.host_url.rstrip('/')}/api/gmail/oauth/callback"
+        logger.info(f"Gmail OAuth callback using redirect URI: {redirect_uri}")
         
         token_response = requests.post(
             'https://oauth2.googleapis.com/token',
@@ -433,6 +457,7 @@ def list_receipts():
         'status': Receipt.status,
     }.get(sort_field, Receipt.received_at)
     
+    # Note: nullslast/nullsfirst are PostgreSQL-specific but this codebase requires PostgreSQL
     if sort_order == 'asc':
         query = query.order_by(sort_column.asc().nullslast())
     else:

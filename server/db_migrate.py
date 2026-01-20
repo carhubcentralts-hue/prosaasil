@@ -3437,10 +3437,15 @@ def apply_migrations():
                         deleted_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        CONSTRAINT uq_receipt_business_gmail_message UNIQUE (business_id, gmail_message_id),
                         CONSTRAINT chk_receipt_status CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt')),
                         CONSTRAINT chk_receipt_source CHECK (source IN ('gmail', 'manual', 'upload'))
                     )
+                """))
+                # Use partial unique index to allow NULL gmail_message_id (for manual uploads)
+                db.session.execute(text("""
+                    CREATE UNIQUE INDEX uq_receipt_business_gmail_message 
+                    ON receipts(business_id, gmail_message_id) 
+                    WHERE gmail_message_id IS NOT NULL
                 """))
                 db.session.execute(text("""
                     CREATE INDEX idx_receipts_business ON receipts(business_id);

@@ -101,7 +101,12 @@ const formatCurrency = (amount: number | null, currency: string = 'ILS') => {
   };
   
   const symbol = symbols[currency] || currency;
-  return `${symbol}${amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}`;
+  // Use 'he' as primary locale with fallback to 'en-US'
+  try {
+    return `${symbol}${amount.toLocaleString('he', { minimumFractionDigits: 2 })}`;
+  } catch {
+    return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  }
 };
 
 // Format date in Hebrew locale
@@ -110,11 +115,20 @@ const formatDate = (dateStr: string | null) => {
   
   try {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('he-IL', { 
-      day: 'numeric', 
-      month: 'short', 
-      year: 'numeric' 
-    });
+    // Use 'he' as primary locale with fallback
+    try {
+      return date.toLocaleDateString('he', { 
+        day: 'numeric', 
+        month: 'short',
+        year: 'numeric' 
+      });
+    } catch {
+      return date.toLocaleDateString('en-US', { 
+        day: 'numeric', 
+        month: 'short', 
+        year: 'numeric' 
+      });
+    }
   } catch {
     return dateStr;
   }
