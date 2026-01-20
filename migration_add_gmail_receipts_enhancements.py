@@ -1,19 +1,34 @@
 """
-Migration: Gmail Receipts System Enhancements
+Migration: Gmail Receipts System Enhancements + Complete File Separation
 - Add purpose field to attachments table for file separation
+- Add origin_module field to track where files came from
 - Add email content fields to receipts table for HTML→PNG rendering
 - Add preview_attachment_id to receipts for thumbnails
 - Create receipt_sync_runs table for sync job tracking
 - Update gmail_connections with last_synced_at (already exists)
 
-Purpose values:
+Purpose values (STRICT):
 - general_upload: Default for user uploads
+- email_attachment: Email attachments only
+- whatsapp_media: WhatsApp media files only
+- broadcast_media: Broadcast media files
 - contract_original: Original contract documents
 - contract_signed: Signed contract documents
-- email_attachment: Email attachments
-- whatsapp_media: WhatsApp media files
 - receipt_source: Original receipt attachments (PDF/images from Gmail)
 - receipt_preview: Generated thumbnails/previews for receipts
+
+Origin Module values:
+- uploads: General user uploads
+- email: Email system
+- whatsapp: WhatsApp messages
+- broadcast: Broadcast messages
+- contracts: Contract management
+- receipts: Receipt management
+
+Security:
+- API must filter by purpose/context - NO DEFAULT "show all"
+- Multi-tenant isolation enforced at all levels
+- UI must specify context to prevent mixing
 
 Run with: python migration_add_gmail_receipts_enhancements.py
 """
@@ -28,11 +43,12 @@ from server.db import db
 from sqlalchemy import text
 
 def run_migration():
-    """Add Gmail receipts enhancements to database"""
+    """Add Gmail receipts enhancements to database with complete file separation"""
     app = get_process_app()
     
     with app.app_context():
         print("🔧 Running Gmail receipts enhancements migration...")
+        print("   This adds purpose-based file separation for security")
         
         try:
             # 1. Add purpose to attachments table
@@ -60,8 +76,31 @@ def run_migration():
                 END $$;
             """))
             
-            # 2. Add email content fields to receipts
-            print("2️⃣ Adding email content fields to receipts...")
+            # 2. Add origin_module to attachments table
+            print("2️⃣ Adding origin_module field to attachments...")
+            db.session.execute(text("""
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='attachments' 
+                        AND column_name='origin_module'
+                    ) THEN
+                        ALTER TABLE attachments 
+                        ADD COLUMN origin_module VARCHAR(50);
+                        
+                        CREATE INDEX idx_attachments_origin 
+                        ON attachments(business_id, origin_module);
+                        
+                        RAISE NOTICE 'Added origin_module column to attachments';
+                    ELSE
+                        RAISE NOTICE 'origin_module column already exists';
+                    END IF;
+                END $$;
+            """))
+            
+            # 3. Add email content fields to receipts
+            print("3️⃣ Adding email content fields to receipts...")
             db.session.execute(text("""
                 DO $$ 
                 BEGIN
@@ -130,8 +169,8 @@ def run_migration():
                 END $$;
             """))
             
-            # 3. Add preview_attachment_id to receipts
-            print("3️⃣ Adding preview_attachment_id to receipts...")
+            # 4. Add preview_attachment_id to receipts
+            print("4️⃣ Adding preview_attachment_id to receipts...")
             db.session.execute(text("""
                 DO $$ 
                 BEGIN
@@ -154,8 +193,8 @@ def run_migration():
                 END $$;
             """))
             
-            # 4. Create receipt_sync_runs table for tracking long-running syncs
-            print("4️⃣ Creating receipt_sync_runs table...")
+            # 5. Create receipt_sync_runs table for tracking long-running syncs
+            print("5️⃣ Creating receipt_sync_runs table...")
             db.session.execute(text("""
                 CREATE TABLE IF NOT EXISTS receipt_sync_runs (
                     id SERIAL PRIMARY KEY,
@@ -197,20 +236,51 @@ def run_migration():
             """))
             print("   ✓ Created receipt_sync_runs table")
             
-            # 5. Update existing attachments with purpose based on context
-            print("5️⃣ Updating existing attachments with purpose...")
-            db.session.execute(text("""
-                -- Mark receipt attachments
+            # 6. Backfill existing attachments with purpose based on usage
+            print("6️⃣ Backfilling existing attachments with purpose and origin...")
+            
+            # Mark receipt attachments
+            result = db.session.execute(text("""
                 UPDATE attachments a
-                SET purpose = 'receipt_source'
+                SET 
+                    purpose = 'receipt_source',
+                    origin_module = 'receipts'
                 WHERE EXISTS (
                     SELECT 1 FROM receipts r 
                     WHERE r.attachment_id = a.id
-                ) AND a.purpose = 'general_upload';
-                
-                -- Note: Other purposes (contracts, emails, whatsapp) will be set
-                -- as those features are updated to use the new purpose field
+                ) AND a.purpose = 'general_upload'
+                RETURNING a.id;
             """))
+            receipt_count = len(result.fetchall())
+            print(f"   ✓ Updated {receipt_count} receipt attachments")
+            
+            # Mark contract attachments (if contract_files table exists)
+            result = db.session.execute(text("""
+                DO $$ 
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='contract_files') THEN
+                        UPDATE attachments a
+                        SET 
+                            purpose = CASE 
+                                WHEN cf.file_type = 'signed' THEN 'contract_signed'
+                                ELSE 'contract_original'
+                            END,
+                            origin_module = 'contracts'
+                        FROM contract_files cf
+                        WHERE cf.attachment_id = a.id
+                        AND a.purpose = 'general_upload';
+                    END IF;
+                END $$;
+            """))
+            print("   ✓ Updated contract attachments (if any)")
+            
+            # Set origin_module for remaining general uploads
+            db.session.execute(text("""
+                UPDATE attachments
+                SET origin_module = 'uploads'
+                WHERE purpose = 'general_upload' AND origin_module IS NULL;
+            """))
+            print("   ✓ Set origin_module for general uploads")
             
             db.session.commit()
             
@@ -218,15 +288,22 @@ def run_migration():
             print("")
             print("Summary of changes:")
             print("  • Added 'purpose' field to attachments for file separation")
+            print("  • Added 'origin_module' field to track source system")
             print("  • Added email content fields to receipts (subject, from, date, html_snippet)")
             print("  • Added preview_attachment_id to receipts for thumbnails")
             print("  • Created receipt_sync_runs table for sync job tracking")
-            print("  • Updated existing receipt attachments with 'receipt_source' purpose")
+            print("  • Backfilled existing attachments with appropriate purpose/origin")
+            print("")
+            print("🔒 SECURITY NOTES:")
+            print("  • API now requires context parameter to filter attachments")
+            print("  • Default behavior is secure: only general_upload without context")
+            print("  • Contract/receipt files are isolated and won't appear in email/whatsapp")
             print("")
             print("Next steps:")
-            print("  1. Update gmail_sync_service.py to implement pagination")
-            print("  2. Create receipt_preview_service.py for thumbnail generation")
-            print("  3. Update AttachmentPicker.tsx to filter by purpose")
+            print("  1. API already updated to enforce purpose filtering")
+            print("  2. AttachmentPicker already updated to use purposesAllowed")
+            print("  3. Test the sync: POST /api/receipts/sync {\"mode\": \"full\"}")
+            print("  4. Verify file separation in AttachmentPicker")
             
         except Exception as e:
             print(f"❌ Migration failed: {e}")

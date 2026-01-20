@@ -682,6 +682,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                     file_size=0,  # Will be updated after save
                                     storage_path='',  # Will be updated after save
                                     purpose='receipt_source',  # Mark as receipt source
+                                    origin_module='receipts',  # Set origin
                                     channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
                                 )
                                 db.session.add(attachment)

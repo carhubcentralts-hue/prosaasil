@@ -1389,8 +1389,14 @@ class Attachment(db.Model):
     - Secure file storage with tenant-isolated paths
     - Channel compatibility tracking (email/whatsapp/broadcast)
     - Purpose-based file separation (receipts/contracts/emails/whatsapp/general)
+    - Origin module tracking for security and audit
     - Soft delete support
     - Audit trail (uploaded_by, created_at)
+    
+    Security Model:
+    - Purpose + origin_module provide double-verification
+    - API must filter by purpose/context - no "show all" default
+    - Multi-tenant isolation enforced at all queries
     """
     __tablename__ = "attachments"
     
@@ -1407,10 +1413,14 @@ class Attachment(db.Model):
     storage_path = db.Column(db.String(512), nullable=False)  # Relative path: {business_id}/{purpose}/{yyyy}/{mm}/{attachment_id}.ext
     public_url = db.Column(db.String(512), nullable=True)  # Temporary signed URL (if applicable)
     
-    # Purpose - file categorization for separation
-    # Values: general_upload, contract_original, contract_signed, email_attachment, 
-    #         whatsapp_media, receipt_source, receipt_preview
+    # Purpose - file categorization for separation (SECURITY CRITICAL)
+    # Values: general_upload, email_attachment, whatsapp_media, broadcast_media,
+    #         contract_original, contract_signed, receipt_source, receipt_preview
     purpose = db.Column(db.String(50), nullable=False, default='general_upload', index=True)
+    
+    # Origin module - tracks which system created this file (AUDIT/SECURITY)
+    # Values: uploads, email, whatsapp, broadcast, contracts, receipts
+    origin_module = db.Column(db.String(50), nullable=True, index=True)
     
     # Channel compatibility - which channels support this file type/size
     channel_compatibility = db.Column(db.JSON, default={"email": True, "whatsapp": True, "broadcast": True})
@@ -1439,6 +1449,7 @@ class Attachment(db.Model):
         db.Index('idx_attachments_business', 'business_id', 'created_at'),
         db.Index('idx_attachments_uploader', 'uploaded_by', 'created_at'),
         db.Index('idx_attachments_purpose', 'business_id', 'purpose', 'created_at'),
+        db.Index('idx_attachments_origin', 'business_id', 'origin_module'),
     )
 
 
