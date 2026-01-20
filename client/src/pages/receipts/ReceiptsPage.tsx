@@ -534,6 +534,8 @@ export function ReceiptsPage() {
   const handleSync = useCallback(async () => {
     try {
       setSyncing(true);
+      setError(null); // Clear any previous errors
+      
       const res = await axios.post('/api/receipts/sync', {}, {
         headers: {
           'Content-Type': 'application/json'
@@ -541,9 +543,28 @@ export function ReceiptsPage() {
       });
       
       if (res.data.success) {
+        // Always refresh data after sync
         await fetchReceipts();
         await fetchStats();
         await fetchGmailStatus();
+        
+        // Show sync results
+        const newCount = res.data.new_receipts || 0;
+        const processed = res.data.processed || 0;
+        const errors = res.data.errors || 0;
+        
+        if (errors > 0 && newCount === 0) {
+          setError(`סנכרון הסתיים עם ${errors} שגיאות. לא נמצאו קבלות חדשות.`);
+        } else if (newCount > 0) {
+          // Success message will clear after 5 seconds
+          const successMsg = `✅ נמצאו ${newCount} קבלות חדשות מתוך ${processed} הודעות שנסרקו`;
+          setError(successMsg);
+          setTimeout(() => setError(null), 5000);
+        } else {
+          const successMsg = `✅ הסנכרון הסתיים - סרקנו ${processed} הודעות, לא נמצאו קבלות חדשות`;
+          setError(successMsg);
+          setTimeout(() => setError(null), 5000);
+        }
       }
     } catch (err: unknown) {
       const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Sync failed';
@@ -813,18 +834,28 @@ export function ReceiptsPage() {
         )}
       </div>
       
-      {/* Error message */}
+      {/* Error/Success message */}
       {error && (
         <div className="max-w-7xl mx-auto px-4 mb-4">
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start">
-            <AlertCircle className="w-5 h-5 ml-2 flex-shrink-0 mt-0.5" />
+          <div className={`border px-4 py-3 rounded-lg flex items-start ${
+            error.startsWith('✅') 
+              ? 'bg-green-50 border-green-200 text-green-700' 
+              : 'bg-red-50 border-red-200 text-red-700'
+          }`}>
+            {error.startsWith('✅') ? (
+              <CheckCircle className="w-5 h-5 ml-2 flex-shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-5 h-5 ml-2 flex-shrink-0 mt-0.5" />
+            )}
             <div className="flex-1">
-              <p className="font-medium">שגיאה</p>
+              <p className="font-medium">
+                {error.startsWith('✅') ? 'הצלחה' : 'שגיאה'}
+              </p>
               <p className="text-sm">{error}</p>
             </div>
             <button 
               onClick={() => setError(null)}
-              className="text-red-500 hover:text-red-700"
+              className={error.startsWith('✅') ? 'text-green-500 hover:text-green-700' : 'text-red-500 hover:text-red-700'}
             >
               <X className="w-5 h-5" />
             </button>
