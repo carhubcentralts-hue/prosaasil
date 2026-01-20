@@ -472,6 +472,10 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     """
     Extract structured data from receipt
     
+    IMPROVED: Detects currency FIRST by looking for symbols/keywords,
+    then extracts amount based on detected currency.
+    This prevents USD receipts from being incorrectly labeled as ILS.
+    
     Args:
         pdf_text: Extracted PDF text
         metadata: Email metadata
@@ -482,7 +486,7 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     data = {
         'vendor_name': None,
         'amount': None,
-        'currency': 'ILS',
+        'currency': None,  # Changed: Don't default to ILS
         'invoice_number': None,
         'invoice_date': None
     }
@@ -498,43 +502,121 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     if not pdf_text:
         return data
     
-    # Extract amount (ILS first, then USD, then EUR)
-    # Try multiple patterns for ILS
-    ils_patterns = [
-        r'(?:סה"כ|total|לתשלום|amount|סכום)[:\s]*₪?\s*([\d,]+\.?\d*)\s*₪?',
-        r'₪\s*([\d,]+\.?\d*)',
-        r'([\d,]+\.?\d*)\s*₪',
-        r'(?:ILS|ils|ש"ח)[:\s]*([\d,]+\.?\d*)'
-    ]
+    # NEW LOGIC: Detect currency FIRST by scanning for currency symbols/keywords
+    # Count occurrences of each currency indicator
+    currency_scores = {
+        'ILS': 0,
+        'USD': 0,
+        'EUR': 0
+    }
     
-    for pattern in ils_patterns:
-        ils_match = re.search(pattern, pdf_text, re.IGNORECASE)
-        if ils_match:
-            try:
-                amount_str = ils_match.group(1).replace(',', '')
-                data['amount'] = float(amount_str)
-                data['currency'] = 'ILS'
-                break
-            except (ValueError, IndexError):
-                pass
+    # Check for currency symbols (most reliable)
+    currency_scores['ILS'] += len(re.findall(r'₪', pdf_text)) * 10
+    currency_scores['USD'] += len(re.findall(r'\$', pdf_text)) * 10
+    currency_scores['EUR'] += len(re.findall(r'€', pdf_text)) * 10
     
-    # Try USD if ILS not found
-    if not data['amount']:
+    # Check for currency keywords
+    currency_scores['ILS'] += len(re.findall(r'\b(?:ILS|ils|ש"ח|שקל|שקלים)\b', pdf_text, re.IGNORECASE)) * 5
+    currency_scores['USD'] += len(re.findall(r'\b(?:USD|usd|dollar|dollars)\b', pdf_text, re.IGNORECASE)) * 5
+    currency_scores['EUR'] += len(re.findall(r'\b(?:EUR|eur|euro|euros)\b', pdf_text, re.IGNORECASE)) * 5
+    
+    # Determine most likely currency
+    detected_currency = None
+    max_score = max(currency_scores.values())
+    if max_score > 0:
+        detected_currency = max(currency_scores, key=currency_scores.get)
+        logger.debug(f"Currency detection scores: {currency_scores} -> detected: {detected_currency}")
+    
+    # Extract amount based on detected currency
+    amount_found = False
+    
+    if detected_currency == 'USD' or (detected_currency is None and currency_scores['USD'] == max_score):
+        # Try USD patterns first if USD detected or no clear currency
         usd_patterns = [
-            r'(?:total|amount|sum)[:\s]*\$?\s*([\d,]+\.?\d*)',
-            r'\$\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d*)\s*\$',
-            r'(?:USD|usd)[:\s]*([\d,]+\.?\d*)'
+            r'\$\s*([\d,]+\.?\d*)',  # $100 or $100.50
+            r'([\d,]+\.?\d*)\s*\$',  # 100$ or 100.50$
+            r'(?:USD|usd)[:\s]+([\d,]+\.?\d*)',  # USD: 100
+            r'(?:total|amount|sum|subtotal|grand total)[:\s]*\$\s*([\d,]+\.?\d*)',  # Total: $100
         ]
         
         for pattern in usd_patterns:
-            usd_match = re.search(pattern, pdf_text, re.IGNORECASE)
-            if usd_match:
+            match = re.search(pattern, pdf_text, re.IGNORECASE)
+            if match:
                 try:
-                    amount_str = usd_match.group(1).replace(',', '')
+                    amount_str = match.group(1).replace(',', '')
                     data['amount'] = float(amount_str)
                     data['currency'] = 'USD'
+                    amount_found = True
                     break
+                except (ValueError, IndexError):
+                    pass
+    
+    if not amount_found and (detected_currency == 'ILS' or detected_currency is None):
+        # Try ILS patterns
+        ils_patterns = [
+            r'₪\s*([\d,]+\.?\d*)',  # ₪100 or ₪100.50
+            r'([\d,]+\.?\d*)\s*₪',  # 100₪ or 100.50₪
+            r'(?:ILS|ils|ש"ח)[:\s]+([\d,]+\.?\d*)',  # ILS: 100 or ש"ח: 100
+            r'(?:סה"כ|סהכ|לתשלום|סכום)[:\s]*₪?\s*([\d,]+\.?\d*)\s*₪?',  # Hebrew keywords with optional ₪
+        ]
+        
+        for pattern in ils_patterns:
+            match = re.search(pattern, pdf_text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    data['amount'] = float(amount_str)
+                    data['currency'] = 'ILS'
+                    amount_found = True
+                    break
+                except (ValueError, IndexError):
+                    pass
+    
+    if not amount_found and detected_currency == 'EUR':
+        # Try EUR patterns
+        eur_patterns = [
+            r'€\s*([\d,]+\.?\d*)',  # €100 or €100.50
+            r'([\d,]+\.?\d*)\s*€',  # 100€ or 100.50€
+            r'(?:EUR|eur)[:\s]+([\d,]+\.?\d*)',  # EUR: 100
+            r'(?:total|amount|sum|subtotal|grand total)[:\s]*€\s*([\d,]+\.?\d*)',  # Total: €100
+        ]
+        
+        for pattern in eur_patterns:
+            match = re.search(pattern, pdf_text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    data['amount'] = float(amount_str)
+                    data['currency'] = 'EUR'
+                    amount_found = True
+                    break
+                except (ValueError, IndexError):
+                    pass
+    
+    # Fallback: If no amount found but we have English keywords, try generic amount patterns
+    if not amount_found and detected_currency is None:
+        # Try generic patterns without currency symbol (only if no currency detected)
+        generic_patterns = [
+            r'(?:total|amount due|balance|subtotal|grand total)[:\s]+([\d,]+\.?\d*)',
+        ]
+        
+        for pattern in generic_patterns:
+            match = re.search(pattern, pdf_text, re.IGNORECASE)
+            if match:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount_val = float(amount_str)
+                    # Only use if amount looks reasonable (> 0)
+                    if amount_val > 0:
+                        data['amount'] = amount_val
+                        # Try to infer currency from domain
+                        if from_domain and '.co.il' in from_domain:
+                            data['currency'] = 'ILS'
+                        else:
+                            # Don't assume - leave as None
+                            data['currency'] = None
+                        amount_found = True
+                        break
                 except (ValueError, IndexError):
                     pass
     

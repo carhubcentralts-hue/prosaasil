@@ -444,6 +444,11 @@ export function ReceiptsPage() {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   
+  // Sync date range (separate from filter date range)
+  const [syncFromDate, setSyncFromDate] = useState<string>('');
+  const [syncToDate, setSyncToDate] = useState<string>('');
+  const [showSyncOptions, setShowSyncOptions] = useState(false);
+  
   // Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -536,7 +541,20 @@ export function ReceiptsPage() {
       setSyncing(true);
       setError(null); // Clear any previous errors
       
-      const res = await axios.post('/api/receipts/sync', {}, {
+      // Build sync request body with date range if specified
+      const syncParams: {
+        from_date?: string;
+        to_date?: string;
+      } = {};
+      
+      if (syncFromDate) {
+        syncParams.from_date = syncFromDate;
+      }
+      if (syncToDate) {
+        syncParams.to_date = syncToDate;
+      }
+      
+      const res = await axios.post('/api/receipts/sync', syncParams, {
         headers: {
           'Content-Type': 'application/json'
         }
@@ -548,22 +566,34 @@ export function ReceiptsPage() {
         await fetchStats();
         await fetchGmailStatus();
         
-        // Show sync results
+        // Show sync results with date range info
         const newCount = res.data.new_receipts || 0;
         const processed = res.data.processed || 0;
+        const messagesScanned = res.data.messages_scanned || 0;
         const errors = res.data.errors || 0;
         
+        let dateRangeMsg = '';
+        if (syncFromDate || syncToDate) {
+          if (syncFromDate && syncToDate) {
+            dateRangeMsg = ` (תאריכים: ${syncFromDate} עד ${syncToDate})`;
+          } else if (syncFromDate) {
+            dateRangeMsg = ` (מתאריך: ${syncFromDate})`;
+          } else {
+            dateRangeMsg = ` (עד תאריך: ${syncToDate})`;
+          }
+        }
+        
         if (errors > 0 && newCount === 0) {
-          setError(`סנכרון הסתיים עם ${errors} שגיאות. לא נמצאו קבלות חדשות.`);
+          setError(`סנכרון הסתיים עם ${errors} שגיאות. לא נמצאו קבלות חדשות${dateRangeMsg}.`);
         } else if (newCount > 0) {
-          // Success message will clear after 5 seconds
-          const successMsg = `✅ נמצאו ${newCount} קבלות חדשות מתוך ${processed} הודעות שנסרקו`;
+          // Success message will clear after 10 seconds for long syncs
+          const successMsg = `✅ נמצאו ${newCount} קבלות חדשות מתוך ${messagesScanned} הודעות שנסרקו${dateRangeMsg}`;
           setError(successMsg);
-          setTimeout(() => setError(null), 5000);
+          setTimeout(() => setError(null), 10000);
         } else {
-          const successMsg = `✅ הסנכרון הסתיים - סרקנו ${processed} הודעות, לא נמצאו קבלות חדשות`;
+          const successMsg = `✅ הסנכרון הסתיים - סרקנו ${messagesScanned} הודעות, לא נמצאו קבלות חדשות${dateRangeMsg}`;
           setError(successMsg);
-          setTimeout(() => setError(null), 5000);
+          setTimeout(() => setError(null), 10000);
         }
       }
     } catch (err: unknown) {
@@ -572,7 +602,7 @@ export function ReceiptsPage() {
     } finally {
       setSyncing(false);
     }
-  }, [fetchReceipts, fetchStats, fetchGmailStatus]);
+  }, [syncFromDate, syncToDate, fetchReceipts, fetchStats, fetchGmailStatus]);
   
   // Handle mark receipt
   const handleMark = async (receiptId: number, status: string) => {
@@ -677,17 +707,144 @@ export function ReceiptsPage() {
               
               {/* Sync button */}
               {gmailStatus?.connected && (
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 ml-2 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing ? 'מסנכרן...' : 'סנכרן'}
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowSyncOptions(!showSyncOptions)}
+                    className="flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                    title="אפשרויות סנכרון"
+                  >
+                    <Calendar className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSync}
+                    disabled={syncing}
+                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ml-2 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? 'מסנכרן...' : 'סנכרן'}
+                  </button>
+                </>
               )}
             </div>
           </div>
+          
+          {/* Sync options panel */}
+          {gmailStatus?.connected && showSyncOptions && (
+            <div className="mt-4 bg-blue-50 rounded-lg border border-blue-200 p-4">
+              <h3 className="text-sm font-medium text-gray-900 mb-3">בחר טווח תאריכים לסנכרון</h3>
+              <p className="text-xs text-gray-600 mb-3">
+                השאר ריק לסנכרון רגיל (חודש אחרון). מלא תאריכים לייצוא קבלות מטווח ספציפי.
+              </p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">מתאריך</label>
+                  <input
+                    type="date"
+                    value={syncFromDate}
+                    onChange={(e) => setSyncFromDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">עד תאריך</label>
+                  <input
+                    type="date"
+                    value={syncToDate}
+                    onChange={(e) => setSyncToDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={() => {
+                      setSyncFromDate('');
+                      setSyncToDate('');
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                  >
+                    נקה
+                  </button>
+                </div>
+              </div>
+              
+              {/* Quick preset buttons */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                    setSyncFromDate(lastMonth.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  חודש אחרון
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+                    setSyncFromDate(threeMonthsAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  3 חודשים
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+                    setSyncFromDate(sixMonthsAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  6 חודשים
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                    setSyncFromDate(oneYearAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  שנה שלמה
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const threeYearsAgo = new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+                    setSyncFromDate(threeYearsAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  3 שנים
+                </button>
+                <button
+                  onClick={() => {
+                    // All time - leave from_date empty, set to_date to today
+                    setSyncFromDate('');
+                    const now = new Date();
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 transition-colors font-medium"
+                >
+                  כל התקופה
+                </button>
+              </div>
+              
+              {(syncFromDate || syncToDate) && (
+                <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-xs text-blue-800">
+                  ⚠️ סנכרון עם טווח תאריכים יכול לקחת מספר דקות. המערכת תעבוד על כל ההודעות בטווח שבחרת.
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Last sync time */}
           {gmailStatus?.last_sync_at && (
