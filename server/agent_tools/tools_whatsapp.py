@@ -104,78 +104,95 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
             )
         
         # 🖼️ Send media attachments first (if provided)
+        media_sent_count = 0
         if input.attachment_ids and len(input.attachment_ids) > 0:
             try:
                 from server.models_sql import Attachment
                 from server.services.attachment_service import get_attachment_service
+                from flask import g
                 import base64
                 
-                attachment_service = get_attachment_service()
-                media_sent = 0
+                # Get current business_id for multi-tenant validation
+                current_business_id = None
+                if hasattr(g, 'tenant') and g.tenant:
+                    current_business_id = g.tenant
+                elif hasattr(g, 'user') and g.user and isinstance(g.user, dict):
+                    current_business_id = g.user.get('business_id')
                 
-                for attachment_id in input.attachment_ids[:5]:  # Limit to 5 images to avoid spam
-                    try:
-                        # Fetch attachment from database
-                        attachment = Attachment.query.get(attachment_id)
-                        if not attachment or attachment.is_deleted:
-                            logger.warning(f"⚠️ Attachment {attachment_id} not found or deleted")
-                            continue
-                        
-                        # Get attachment content
-                        content = attachment_service.get_attachment_content(attachment.id, attachment.storage_path)
-                        if not content:
-                            logger.warning(f"⚠️ Could not read attachment {attachment_id}")
-                            continue
-                        
-                        # Convert to base64
-                        base64_data = base64.b64encode(content).decode('utf-8')
-                        
-                        # Determine media type
-                        media_type = 'document'
-                        if attachment.mime_type and attachment.mime_type.startswith('image/'):
-                            media_type = 'image'
-                        elif attachment.mime_type and attachment.mime_type.startswith('video/'):
-                            media_type = 'video'
-                        elif attachment.mime_type and attachment.mime_type.startswith('audio/'):
-                            media_type = 'audio'
-                        
-                        # Prepare media dict
-                        media_dict = {
-                            'data': base64_data,
-                            'mimetype': attachment.mime_type,
-                            'filename': attachment.filename_original or f'file_{attachment_id}'
-                        }
-                        
-                        # Send media with caption (first image gets the message)
-                        caption = input.message if media_sent == 0 else ""
-                        media_result = wa_service.send_media_message(
-                            to=recipient_phone,
-                            caption=caption,
-                            media=media_dict,
-                            media_type=media_type
-                        )
-                        
-                        if media_result.get('status') == 'sent':
-                            media_sent += 1
-                            logger.info(f"✅ Sent media attachment {attachment_id} ({media_type})")
-                        else:
-                            logger.warning(f"⚠️ Failed to send media {attachment_id}: {media_result.get('error')}")
-                    
-                    except Exception as media_error:
-                        logger.error(f"❌ Error sending media {attachment_id}: {media_error}")
-                        continue
-                
-                if media_sent > 0:
-                    logger.info(f"✅ Successfully sent {media_sent} media attachments")
-                    # Return success if at least one media was sent
-                    return SendWhatsAppOutput(
-                        status='sent',
-                        provider=wa_service.get_provider_name() if hasattr(wa_service, 'get_provider_name') else 'whatsapp',
-                        message_id=f"media_{media_sent}",
-                        error=None
-                    )
+                if not current_business_id:
+                    logger.warning(f"⚠️ Cannot send media: business_id not found in context")
                 else:
-                    logger.warning(f"⚠️ No media attachments could be sent")
+                    attachment_service = get_attachment_service()
+                    
+                    for attachment_id in input.attachment_ids[:5]:  # Limit to 5 images to avoid spam
+                        try:
+                            # 🔒 SECURITY: Fetch attachment with business_id validation (multi-tenant)
+                            attachment = Attachment.query.filter_by(
+                                id=attachment_id,
+                                business_id=current_business_id,
+                                is_deleted=False
+                            ).first()
+                            
+                            if not attachment:
+                                logger.warning(f"⚠️ Attachment {attachment_id} not found or not accessible for business {current_business_id}")
+                                continue
+                            
+                            # Get attachment content
+                            content = attachment_service.get_attachment_content(attachment.id, attachment.storage_path)
+                            if not content:
+                                logger.warning(f"⚠️ Could not read attachment {attachment_id}")
+                                continue
+                            
+                            # Convert to base64
+                            base64_data = base64.b64encode(content).decode('utf-8')
+                            
+                            # Determine media type
+                            media_type = 'document'
+                            if attachment.mime_type and attachment.mime_type.startswith('image/'):
+                                media_type = 'image'
+                            elif attachment.mime_type and attachment.mime_type.startswith('video/'):
+                                media_type = 'video'
+                            elif attachment.mime_type and attachment.mime_type.startswith('audio/'):
+                                media_type = 'audio'
+                            
+                            # Prepare media dict
+                            media_dict = {
+                                'data': base64_data,
+                                'mimetype': attachment.mime_type,
+                                'filename': attachment.filename_original or f'file_{attachment_id}'
+                            }
+                            
+                            # Send media with caption (first image gets the message)
+                            caption = input.message if media_sent_count == 0 else ""
+                            media_result = wa_service.send_media_message(
+                                to=recipient_phone,
+                                caption=caption,
+                                media=media_dict,
+                                media_type=media_type
+                            )
+                            
+                            if media_result.get('status') == 'sent':
+                                media_sent_count += 1
+                                logger.info(f"✅ Sent media attachment {attachment_id} ({media_type})")
+                            else:
+                                logger.warning(f"⚠️ Failed to send media {attachment_id}: {media_result.get('error')}")
+                        
+                        except Exception as media_error:
+                            logger.error(f"❌ Error sending media {attachment_id}: {media_error}")
+                            continue
+                    
+                    if media_sent_count > 0:
+                        logger.info(f"✅ Successfully sent {media_sent_count} media attachments")
+                        # Media sent successfully - return success
+                        # Note: Text message was already included as caption on first media
+                        return SendWhatsAppOutput(
+                            status='sent',
+                            provider=wa_service.get_provider_name() if hasattr(wa_service, 'get_provider_name') else 'whatsapp',
+                            message_id=f"media_{media_sent_count}",
+                            error=None
+                        )
+                    else:
+                        logger.warning(f"⚠️ No media attachments could be sent - falling back to text message")
                     
             except Exception as media_error:
                 logger.error(f"❌ Error processing media attachments: {media_error}")
