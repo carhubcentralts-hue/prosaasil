@@ -40,7 +40,15 @@ interface ReceiptItem {
   confidence: number | null;
   status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt';
   attachment_id: number | null;
+  preview_attachment_id: number | null;
   attachment?: {
+    id: number;
+    filename: string;
+    mime_type: string;
+    size: number;
+    signed_url?: string;
+  };
+  preview_attachment?: {
     id: number;
     filename: string;
     mime_type: string;
@@ -67,6 +75,21 @@ interface ReceiptStats {
     rejected: number;
     not_receipt: number;
   };
+}
+
+interface SyncStatus {
+  id: number;
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | 'partial';
+  mode: string;
+  started_at: string;
+  finished_at: string | null;
+  pages_scanned: number;
+  messages_scanned: number;
+  candidate_receipts: number;
+  saved_receipts: number;
+  errors_count: number;
+  error_message: string | null;
+  progress_percentage: number;
 }
 
 // API Response interfaces
@@ -180,10 +203,23 @@ const ReceiptCard: React.FC<{
   receipt: ReceiptItem;
   onView: () => void;
   onMark: (status: string) => void;
-}> = ({ receipt, onView, onMark }) => {
+  onDelete: () => void;
+}> = ({ receipt, onView, onMark, onDelete }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
-      {/* Header row: Vendor + Amount */}
+      {/* Preview Image */}
+      {receipt.preview_attachment?.signed_url && (
+        <div className="mb-3 -mx-4 -mt-4">
+          <img 
+            src={receipt.preview_attachment.signed_url}
+            alt={receipt.vendor_name || 'Receipt preview'}
+            className="w-full h-48 object-contain bg-gray-50 rounded-t-xl"
+            loading="lazy"
+          />
+        </div>
+      )}
+      
+      {/* Header row: Vendor + Amount + Delete */}
       <div className="flex justify-between items-start mb-2">
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-gray-900 truncate">
@@ -191,10 +227,19 @@ const ReceiptCard: React.FC<{
           </h3>
           <p className="text-xs text-gray-500 truncate">{receipt.from_email || ''}</p>
         </div>
-        <div className="text-left mr-3">
-          <p className="font-bold text-lg text-gray-900">
-            {formatCurrency(receipt.amount, receipt.currency)}
-          </p>
+        <div className="flex items-center gap-2">
+          <div className="text-left mr-3">
+            <p className="font-bold text-lg text-gray-900">
+              {formatCurrency(receipt.amount, receipt.currency)}
+            </p>
+          </div>
+          <button
+            onClick={onDelete}
+            className="p-2 hover:bg-red-50 rounded text-red-600 transition"
+            title="מחק קבלה"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
       </div>
       
@@ -457,6 +502,11 @@ export function ReceiptsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptItem | null>(null);
   
+  // New state variables for sync progress
+  const [syncInProgress, setSyncInProgress] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -527,6 +577,30 @@ export function ReceiptsPage() {
       console.error('Failed to fetch stats:', err);
     }
   }, []);
+  
+  // Poll sync status for background sync
+  const pollSyncStatus = useCallback(async () => {
+    try {
+      const response = await axios.get('/api/receipts/sync/status', {
+        headers: { Authorization: `Bearer ${user?.token}` }
+      });
+      
+      if (response.data.success && response.data.sync_run) {
+        const status = response.data.sync_run;
+        setSyncStatus(status);
+        
+        // Stop polling if sync is done
+        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
+          setSyncInProgress(false);
+          // Reload receipts
+          await fetchReceipts();
+          await fetchStats();
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch sync status:', error);
+    }
+  }, [user?.token, fetchReceipts, fetchStats]);
   
   // Initial load
   useEffect(() => {
@@ -615,10 +689,17 @@ export function ReceiptsPage() {
   
   // Handle sync
   const handleSync = useCallback(async () => {
+    if (syncInProgress) {
+      alert('סנכרון כבר רץ ברקע. אנא המתן לסיום.');
+      return;
+    }
+
     try {
       setSyncing(true);
-      setError(null); // Clear any previous errors
-      setSyncProgress(null); // Reset progress
+      setError(null);
+      setSyncError(null);
+      setSyncInProgress(true);
+      setSyncProgress(null);
       
       // Build sync request body with date range if specified
       const syncParams: {
@@ -632,86 +713,40 @@ export function ReceiptsPage() {
       if (syncToDate) {
         syncParams.to_date = syncToDate;
       }
-      
-      // Start the sync - this returns immediately with sync_run_id
-      const res = await axios.post<ApiResponse<{
-        message: string;
-        sync_run_id: number;
-        new_receipts: number;
-        messages_scanned: number;
-      }>>('/api/receipts/sync', syncParams, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 300000 // 5 minute timeout
+
+      const response = await axios.post('/api/receipts/sync', syncParams, {
+        headers: { Authorization: `Bearer ${user?.token}` }
       });
-      
-      // Handle new format: {"ok": true, "data": {...}} or old format for compatibility
-      const isOk = res.data.ok !== undefined ? res.data.ok : (res.data as any).success;
-      const responseData = res.data.data || res.data;
-      
-      if (isOk && responseData.sync_run_id) {
-        // Store sync run ID to start polling
-        setActiveSyncRunId(responseData.sync_run_id);
-        
-        // Show starting message
-        let dateRangeMsg = '';
-        if (syncFromDate || syncToDate) {
-          if (syncFromDate && syncToDate) {
-            dateRangeMsg = ` (${syncFromDate} עד ${syncToDate})`;
-          } else if (syncFromDate) {
-            dateRangeMsg = ` (מ-${syncFromDate})`;
-          } else {
-            dateRangeMsg = ` (עד ${syncToDate})`;
-          }
-        }
-        setError(`🔄 מסנכרן קבלות${dateRangeMsg}...`);
-      } else {
-        // Error in response
-        const errorObj = res.data.error;
-        const errorMsg = errorObj?.message || (res.data as any).error || 'שגיאה לא ידועה';
-        const errorHint = errorObj?.hint;
-        
-        // Display error with hint if available
-        let fullErrorMsg = errorMsg;
-        if (errorHint) {
-          fullErrorMsg += `\n💡 ${errorHint}`;
-        }
-        setError(fullErrorMsg);
-        setSyncing(false);
-        setActiveSyncRunId(null);
+
+      // Backend now returns 202 Accepted immediately
+      if (response.status === 202) {
+        // Start polling for status
+        const pollInterval = setInterval(async () => {
+          await pollSyncStatus();
+        }, 2000); // Poll every 2 seconds
+
+        // Stop polling after 10 minutes max
+        setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
+
+        // Initial status fetch
+        await pollSyncStatus();
+      } else if (response.status === 409) {
+        // Sync already in progress
+        alert('סנכרון כבר רץ. ממשיך לעקוב אחר ההתקדמות...');
+        setSyncInProgress(true);
+        // Start polling
+        const pollInterval = setInterval(pollSyncStatus, 2000);
+        setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
       }
-    } catch (err: unknown) {
-      // Handle HTTP error responses with proper typing
-      const axiosError = err as AxiosErrorResponse;
-      const responseData = axiosError.response?.data;
-      
-      let errorMsg = 'שגיאה בסנכרון';
-      let errorHint = '';
-      
-      if (responseData) {
-        if (responseData.ok === false && responseData.error) {
-          // New format: {"ok": false, "error": {"code": "...", "message": "...", "hint": "..."}}
-          errorMsg = responseData.error.message || errorMsg;
-          errorHint = responseData.error.hint || '';
-        } else if ((responseData as any).error && typeof (responseData as any).error === 'string') {
-          // Old format: {"success": false, "error": "..."}
-          errorMsg = (responseData as any).error;
-        }
-      }
-      
-      // Display error with hint
-      let fullErrorMsg = errorMsg;
-      if (errorHint) {
-        fullErrorMsg += `\n💡 ${errorHint}`;
-      }
-      
-      setError(fullErrorMsg);
+
+    } catch (error: any) {
+      console.error('Sync error:', error);
+      setSyncError(error.response?.data?.error || 'שגיאה בסנכרון');
+      setSyncInProgress(false);
+    } finally {
       setSyncing(false);
-      setActiveSyncRunId(null);
-      setSyncProgress(null);
     }
-  }, [syncFromDate, syncToDate]);
+  }, [syncFromDate, syncToDate, user?.token, syncInProgress, pollSyncStatus]);
   
   // Handle cancel sync
   const handleCancelSync = useCallback(async () => {
@@ -745,6 +780,58 @@ export function ReceiptsPage() {
     } catch (err: unknown) {
       const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to update status';
       setError(errorMsg);
+    }
+  };
+  
+  // Handle delete receipt
+  const handleDeleteReceipt = async (receiptId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק קבלה זו?')) {
+      return;
+    }
+
+    try {
+      await axios.delete(`/api/receipts/${receiptId}`, {
+        headers: { Authorization: `Bearer ${user?.token}` }
+      });
+      
+      // Reload receipts
+      await fetchReceipts();
+      await fetchStats();
+      alert('הקבלה נמחקה בהצלחה');
+    } catch (error: any) {
+      console.error('Delete error:', error);
+      alert(error.response?.data?.error || 'שגיאה במחיקת הקבלה');
+    }
+  };
+
+  // Handle purge all receipts
+  const handlePurgeAllReceipts = async () => {
+    const confirmed = prompt(
+      'פעולה זו תמחק את כל הקבלות! הקלד "DELETE" לאישור:'
+    );
+    
+    if (confirmed !== 'DELETE') {
+      return;
+    }
+
+    try {
+      const response = await axios.delete('/api/receipts/purge', {
+        headers: { Authorization: `Bearer ${user?.token}` },
+        data: {
+          confirm: true,
+          typed: 'DELETE',
+          delete_attachments: false
+        }
+      });
+      
+      if (response.data.success) {
+        await fetchReceipts();
+        await fetchStats();
+        alert(`נמחקו ${response.data.deleted_receipts_count} קבלות בהצלחה`);
+      }
+    } catch (error: any) {
+      console.error('Purge error:', error);
+      alert(error.response?.data?.error || 'שגיאה במחיקת הקבלות');
     }
   };
   
@@ -791,6 +878,55 @@ export function ReceiptsPage() {
     }
   }, [fetchGmailStatus, handleSync]);
   
+  // Sync Progress Display Component
+  const SyncProgressDisplay = () => {
+    if (!syncInProgress || !syncStatus) return null;
+
+    return (
+      <div className="fixed bottom-4 left-4 bg-white rounded-lg shadow-2xl border-2 border-blue-500 p-4 z-50 max-w-sm">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
+            סנכרון רץ...
+          </h3>
+          {syncStatus.status === 'partial' && (
+            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded">חלקי</span>
+          )}
+        </div>
+        
+        {/* Progress bar */}
+        <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+          <div 
+            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+            style={{ width: `${syncStatus.progress_percentage}%` }}
+          ></div>
+        </div>
+        
+        {/* Stats */}
+        <div className="text-sm text-gray-600 space-y-1">
+          <div className="flex justify-between">
+            <span>הודעות נסרקו:</span>
+            <span className="font-medium">{syncStatus.messages_scanned}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>קבלות נשמרו:</span>
+            <span className="font-medium text-green-600">{syncStatus.saved_receipts}</span>
+          </div>
+          {syncStatus.errors_count > 0 && (
+            <div className="flex justify-between text-red-600">
+              <span>שגיאות:</span>
+              <span className="font-medium">{syncStatus.errors_count}</span>
+            </div>
+          )}
+        </div>
+        
+        <div className="text-xs text-gray-500 mt-2">
+          {syncStatus.progress_percentage}% הושלם
+        </div>
+      </div>
+    );
+  };
+  
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       {/* Header */}
@@ -831,6 +967,16 @@ export function ReceiptsPage() {
               {/* Sync button */}
               {gmailStatus?.connected && (
                 <>
+                  {/* Purge All Button */}
+                  <button
+                    onClick={handlePurgeAllReceipts}
+                    className="flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                    title="מחק את כל הקבלות"
+                  >
+                    <X className="w-4 h-4 sm:ml-2" />
+                    <span className="hidden sm:inline">מחק הכל</span>
+                  </button>
+                  
                   <button
                     onClick={() => setShowSyncOptions(!showSyncOptions)}
                     className="flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
@@ -840,11 +986,11 @@ export function ReceiptsPage() {
                   </button>
                   <button
                     onClick={handleSync}
-                    disabled={syncing}
+                    disabled={syncing || syncInProgress}
                     className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
                   >
-                    <RefreshCw className={`w-4 h-4 ml-2 ${syncing ? 'animate-spin' : ''}`} />
-                    {syncing ? 'מסנכרן...' : 'סנכרן'}
+                    <RefreshCw className={`w-4 h-4 ml-2 ${(syncing || syncInProgress) ? 'animate-spin' : ''}`} />
+                    {syncInProgress ? 'רץ...' : syncing ? 'מסנכרן...' : 'סנכרן'}
                   </button>
                 </>
               )}
@@ -1222,6 +1368,7 @@ export function ReceiptsPage() {
                   receipt={receipt}
                   onView={() => handleViewReceipt(receipt)}
                   onMark={(status) => handleMark(receipt.id, status)}
+                  onDelete={() => handleDeleteReceipt(receipt.id)}
                 />
               ))}
             </div>
@@ -1303,6 +1450,13 @@ export function ReceiptsPage() {
                               </button>
                             </>
                           )}
+                          <button
+                            onClick={() => handleDeleteReceipt(receipt.id)}
+                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
+                            title="מחק"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1347,6 +1501,9 @@ export function ReceiptsPage() {
           }
         }}
       />
+      
+      {/* Sync Progress Display */}
+      <SyncProgressDisplay />
     </div>
   );
 }
