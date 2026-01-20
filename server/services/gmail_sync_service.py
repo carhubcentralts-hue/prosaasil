@@ -788,8 +788,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         page_token = None
         total_processed = 0
         
-        # Pagination loop - continue until no more pages or max_messages reached
+        # Pagination loop - continue until no more pages or max_messages reached or cancelled
         while True:
+            # Check for cancellation at start of each page
+            db.session.refresh(sync_run)
+            if sync_run.status == 'cancelled':
+                logger.info(f"⛔ Sync {sync_run.id} cancelled by user")
+                result['cancelled'] = True
+                break
+            
             result['pages_scanned'] += 1
             sync_run.pages_scanned = result['pages_scanned']
             
@@ -819,6 +826,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     logger.info(f"Reached max_messages limit ({max_messages})")
                     page_token = None  # Stop pagination
                     break
+                
+                # Check for cancellation every 10 messages to avoid excessive DB queries
+                if result['messages_scanned'] % 10 == 0:
+                    db.session.refresh(sync_run)
+                    if sync_run.status == 'cancelled':
+                        logger.info(f"⛔ Sync {sync_run.id} cancelled by user (during message processing)")
+                        result['cancelled'] = True
+                        page_token = None  # Stop pagination
+                        break
                 
                 # Check if already processed
                 existing = Receipt.query.filter_by(
@@ -1060,6 +1076,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         
         # Final commit
         db.session.commit()
+        
+        # Check if sync was cancelled
+        if result.get('cancelled'):
+            # Mark sync run as cancelled (don't override with 'completed')
+            sync_run.status = 'cancelled'
+            sync_run.finished_at = datetime.now(timezone.utc)
+            db.session.commit()
+            logger.info(f"Gmail sync cancelled by user: {result}")
+            return result
         
         # Update connection last sync time
         if connection:

@@ -449,6 +449,14 @@ export function ReceiptsPage() {
   const [syncToDate, setSyncToDate] = useState<string>('');
   const [showSyncOptions, setShowSyncOptions] = useState(false);
   
+  // Sync progress tracking
+  const [activeSyncRunId, setActiveSyncRunId] = useState<number | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{
+    messages_scanned: number;
+    saved_receipts: number;
+    pages_scanned: number;
+  } | null>(null);
+  
   // Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -507,6 +515,56 @@ export function ReceiptsPage() {
     fetchStats();
   }, [fetchGmailStatus, fetchReceipts, fetchStats]);
   
+  // Poll sync progress while sync is running
+  useEffect(() => {
+    if (!activeSyncRunId || !syncing) {
+      return;
+    }
+    
+    const pollProgress = async () => {
+      try {
+        const res = await axios.get(`/api/receipts/sync/status?run_id=${activeSyncRunId}`);
+        if (res.data.success && res.data.sync_run) {
+          const run = res.data.sync_run;
+          setSyncProgress(run.progress);
+          
+          // If sync completed, cancelled, or failed, stop polling
+          if (run.status !== 'running') {
+            setActiveSyncRunId(null);
+            setSyncing(false);
+            setSyncProgress(null);
+            
+            // Refresh data
+            await fetchReceipts();
+            await fetchStats();
+            await fetchGmailStatus();
+            
+            // Show completion message
+            if (run.status === 'completed') {
+              const successMsg = `✅ הסנכרון הושלם - ${run.progress.saved_receipts} קבלות נשמרו מתוך ${run.progress.messages_scanned} הודעות`;
+              setError(successMsg);
+              setTimeout(() => setError(null), 10000);
+            } else if (run.status === 'cancelled') {
+              const cancelMsg = `⚠️ הסנכרון בוטל - ${run.progress.saved_receipts} קבלות נשמרו עד כה`;
+              setError(cancelMsg);
+              setTimeout(() => setError(null), 10000);
+            } else if (run.status === 'failed') {
+              setError(`❌ שגיאה בסנכרון: ${run.error_message || 'Unknown error'}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch sync progress:', err);
+      }
+    };
+    
+    // Poll every 2 seconds
+    const interval = setInterval(pollProgress, 2000);
+    pollProgress(); // Initial poll
+    
+    return () => clearInterval(interval);
+  }, [activeSyncRunId, syncing, fetchReceipts, fetchStats, fetchGmailStatus]);
+  
   // Handle Gmail connect
   const handleConnect = async () => {
     try {
@@ -540,6 +598,7 @@ export function ReceiptsPage() {
     try {
       setSyncing(true);
       setError(null); // Clear any previous errors
+      setSyncProgress(null); // Reset progress
       
       // Build sync request body with date range if specified
       const syncParams: {
@@ -554,55 +613,53 @@ export function ReceiptsPage() {
         syncParams.to_date = syncToDate;
       }
       
+      // Start the sync - this returns immediately with sync_run_id
       const res = await axios.post('/api/receipts/sync', syncParams, {
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 300000 // 5 minute timeout
       });
       
-      if (res.data.success) {
-        // Always refresh data after sync
-        await fetchReceipts();
-        await fetchStats();
-        await fetchGmailStatus();
+      if (res.data.success && res.data.sync_run_id) {
+        // Store sync run ID to start polling
+        setActiveSyncRunId(res.data.sync_run_id);
         
-        // Show sync results with date range info
-        const newCount = res.data.new_receipts || 0;
-        const processed = res.data.processed || 0;
-        const messagesScanned = res.data.messages_scanned || 0;
-        const errors = res.data.errors || 0;
-        
+        // Show starting message
         let dateRangeMsg = '';
         if (syncFromDate || syncToDate) {
           if (syncFromDate && syncToDate) {
-            dateRangeMsg = ` (תאריכים: ${syncFromDate} עד ${syncToDate})`;
+            dateRangeMsg = ` (${syncFromDate} עד ${syncToDate})`;
           } else if (syncFromDate) {
-            dateRangeMsg = ` (מתאריך: ${syncFromDate})`;
+            dateRangeMsg = ` (מ-${syncFromDate})`;
           } else {
-            dateRangeMsg = ` (עד תאריך: ${syncToDate})`;
+            dateRangeMsg = ` (עד ${syncToDate})`;
           }
         }
-        
-        if (errors > 0 && newCount === 0) {
-          setError(`סנכרון הסתיים עם ${errors} שגיאות. לא נמצאו קבלות חדשות${dateRangeMsg}.`);
-        } else if (newCount > 0) {
-          // Success message will clear after 10 seconds for long syncs
-          const successMsg = `✅ נמצאו ${newCount} קבלות חדשות מתוך ${messagesScanned} הודעות שנסרקו${dateRangeMsg}`;
-          setError(successMsg);
-          setTimeout(() => setError(null), 10000);
-        } else {
-          const successMsg = `✅ הסנכרון הסתיים - סרקנו ${messagesScanned} הודעות, לא נמצאו קבלות חדשות${dateRangeMsg}`;
-          setError(successMsg);
-          setTimeout(() => setError(null), 10000);
-        }
+        setError(`🔄 מסנכרן קבלות${dateRangeMsg}...`);
       }
     } catch (err: unknown) {
       const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Sync failed';
       setError(errorMsg);
-    } finally {
       setSyncing(false);
+      setActiveSyncRunId(null);
+      setSyncProgress(null);
     }
-  }, [syncFromDate, syncToDate, fetchReceipts, fetchStats, fetchGmailStatus]);
+  }, [syncFromDate, syncToDate]);
+  
+  // Handle cancel sync
+  const handleCancelSync = useCallback(async () => {
+    if (!activeSyncRunId) return;
+    
+    try {
+      await axios.post(`/api/receipts/sync/${activeSyncRunId}/cancel`);
+      setError('⏸️ מבטל סנכרון...');
+      // The polling will detect the cancelled status and update UI
+    } catch (err: unknown) {
+      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to cancel sync';
+      setError(errorMsg);
+    }
+  }, [activeSyncRunId]);
   
   // Handle mark receipt
   const handleMark = async (receiptId: number, status: string) => {
@@ -846,8 +903,42 @@ export function ReceiptsPage() {
             </div>
           )}
           
+          {/* Sync progress bar */}
+          {syncing && syncProgress && (
+            <div className="mt-4 bg-white rounded-lg border border-blue-300 shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="w-5 h-5 text-blue-600 animate-spin" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">מסנכרן קבלות...</p>
+                    <p className="text-xs text-gray-600">
+                      {syncProgress.messages_scanned} הודעות נסרקו · {syncProgress.saved_receipts} קבלות נמצאו
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCancelSync}
+                  className="flex items-center px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium text-sm min-h-[44px] touch-manipulation"
+                  title="עצור סנכרון"
+                >
+                  <X className="w-4 h-4 ml-1" />
+                  <span className="hidden sm:inline">ביטול</span>
+                </button>
+              </div>
+              
+              {/* Progress bar - indeterminate animation */}
+              <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-600 animate-pulse" style={{ width: '70%' }}></div>
+              </div>
+              
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                תהליך זה עשוי לקחת מספר דקות עבור סנכרון של תקופה ארוכה
+              </p>
+            </div>
+          )}
+          
           {/* Last sync time */}
-          {gmailStatus?.last_sync_at && (
+          {gmailStatus?.last_sync_at && !syncing && (
             <p className="text-xs text-gray-500 mt-2">
               סונכרן לאחרונה: {formatRelativeTime(gmailStatus.last_sync_at)}
             </p>
