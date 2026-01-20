@@ -69,6 +69,7 @@ function PDFSigningView({
   const [currentSignatureData, setCurrentSignatureData] = useState<string | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [lastTapTime, setLastTapTime] = useState(0);
 
   // Load PDF info
   useEffect(() => {
@@ -159,11 +160,6 @@ function PDFSigningView({
   };
 
   const handlePdfDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Prevent if clicking inside iframe directly - let overlay handle it
-    if (e.target !== e.currentTarget && (e.target as HTMLElement).tagName !== 'IFRAME') {
-      return;
-    }
-    
     if (!pdfContainerRef.current) return;
     const rect = pdfContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -323,8 +319,7 @@ function PDFSigningView({
             onTouchEnd={(e) => {
               // Handle double-tap on mobile
               const now = Date.now();
-              const lastTap = (e.currentTarget as any).lastTap || 0;
-              const timeDiff = now - lastTap;
+              const timeDiff = now - lastTapTime;
               
               if (timeDiff < 300 && timeDiff > 0) {
                 // Double tap detected
@@ -350,9 +345,9 @@ function PDFSigningView({
                 setPendingPlacement({ pageNumber: currentPage, x: pdfX, y: pdfY });
                 setShowSignatureModal(true);
                 
-                (e.currentTarget as any).lastTap = 0; // Reset
+                setLastTapTime(0); // Reset after double-tap
               } else {
-                (e.currentTarget as any).lastTap = now;
+                setLastTapTime(now);
               }
             }}
             title="לחץ לחיצה כפולה להוספת חתימה"

@@ -20,7 +20,7 @@ Security:
 from flask import Blueprint, jsonify, request, send_file, g
 from werkzeug.utils import secure_filename
 from server.auth_api import require_api_auth
-from server.models_sql import Attachment, User, ContractFile
+from server.models_sql import Attachment, User, ContractFile, Receipt
 from server.db import db
 from server.services.attachment_service import get_attachment_service
 from datetime import datetime
@@ -250,7 +250,6 @@ def list_attachments():
         
         if not include_receipts:
             # Exclude attachments that are linked to receipts
-            from server.models_sql import Receipt
             query = query.filter(
                 ~db.session.query(Receipt).filter(
                     Receipt.attachment_id == Attachment.id,
