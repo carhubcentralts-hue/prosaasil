@@ -486,7 +486,7 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     data = {
         'vendor_name': None,
         'amount': None,
-        'currency': None,  # Changed: Don't default to ILS
+        'currency': None,  # Don't default to any currency - will be detected or left as None
         'invoice_number': None,
         'invoice_date': None
     }
