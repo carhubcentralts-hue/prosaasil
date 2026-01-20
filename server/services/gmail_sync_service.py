@@ -26,7 +26,7 @@ import logging
 import base64
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from email.utils import parsedate_to_datetime
 
@@ -295,6 +295,10 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     
     metadata['from_email'] = from_email
     metadata['from_domain'] = from_domain
+    
+    # Extract received date from email
+    date_header = headers.get('date', '')
+    metadata['date'] = date_header
     
     # Check for attachments
     has_pdf = False
@@ -833,6 +837,18 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     # Extract structured data
                     extracted = extract_receipt_data(pdf_text, metadata)
                     
+                    # Parse received date from email header
+                    received_at = None
+                    if metadata.get('date'):
+                        try:
+                            received_at = parsedate_to_datetime(metadata['date'])
+                        except Exception as e:
+                            logger.warning(f"Failed to parse email date '{metadata.get('date')}': {e}")
+                            received_at = datetime.now(timezone.utc)
+                    else:
+                        # Fallback to current time if no date header
+                        received_at = datetime.now(timezone.utc)
+                    
                     # Determine status based on confidence
                     status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
                     
@@ -903,7 +919,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     
                     # Commit periodically (every 10 receipts)
                     if result['new_count'] % 10 == 0:
-                        sync_run.updated_at = datetime.utcnow()
+                        sync_run.updated_at = datetime.now(timezone.utc)
                         db.session.commit()
                     
                 except Exception as e:
@@ -917,7 +933,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             
             # Update sync run with progress
             sync_run.last_page_token = page_token
-            sync_run.updated_at = datetime.utcnow()
+            sync_run.updated_at = datetime.now(timezone.utc)
             db.session.commit()
             
             logger.info(f"Progress: pages={result['pages_scanned']}, messages={result['messages_scanned']}, receipts={result['saved_receipts']}")
@@ -927,12 +943,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         
         # Update connection last sync time
         if connection:
-            connection.last_sync_at = datetime.utcnow()
+            connection.last_sync_at = datetime.now(timezone.utc)
             db.session.commit()
         
         # Mark sync run as completed
         sync_run.status = 'completed'
-        sync_run.finished_at = datetime.utcnow()
+        sync_run.finished_at = datetime.now(timezone.utc)
         db.session.commit()
         
         logger.info(f"Gmail sync complete: {result}")
@@ -945,7 +961,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         # Mark sync run as failed
         sync_run.status = 'failed'
         sync_run.error_message = str(e)[:500]
-        sync_run.finished_at = datetime.utcnow()
+        sync_run.finished_at = datetime.now(timezone.utc)
         sync_run.errors_count = result['errors'] + 1
         db.session.commit()
         
