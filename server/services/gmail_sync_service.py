@@ -962,12 +962,93 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
         Attachment ID if successful, None otherwise
     """
     try:
-        # Try using html2image if available
+        # Method 1: Try using Playwright (already available in dependencies)
+        try:
+            from playwright.sync_api import sync_playwright
+            import tempfile
+            import os
+            
+            logger.info(f"🖼️ Generating HTML screenshot with Playwright for receipt {receipt_id or 'unknown'}")
+            
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(viewport={'width': 800, 'height': 1200})
+                
+                # Set HTML content
+                page.set_content(email_html)
+                
+                # Wait for content to load
+                page.wait_for_load_state('networkidle')
+                
+                # Create temp file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+                    screenshot_path = tmp.name
+                
+                # Take screenshot
+                page.screenshot(path=screenshot_path, full_page=True)
+                browser.close()
+                
+                # Read the screenshot
+                with open(screenshot_path, 'rb') as f:
+                    screenshot_data = f.read()
+                
+                # Clean up temp file
+                os.unlink(screenshot_path)
+                
+                if screenshot_data:
+                    # Save to storage
+                    from server.services.attachment_service import get_attachment_service
+                    from server.models_sql import Attachment
+                    from server.db import db
+                    from werkzeug.datastructures import FileStorage
+                    from io import BytesIO
+                    
+                    attachment_service = get_attachment_service()
+                    
+                    file_storage = FileStorage(
+                        stream=BytesIO(screenshot_data),
+                        filename='email_screenshot.png',
+                        content_type='image/png'
+                    )
+                    
+                    # Create attachment record
+                    attachment = Attachment(
+                        business_id=business_id,
+                        filename_original='email_screenshot.png',
+                        mime_type='image/png',
+                        file_size=0,
+                        storage_path='',
+                        purpose='receipt_source',
+                        origin_module='receipts',
+                        channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
+                    )
+                    db.session.add(attachment)
+                    db.session.flush()
+                    
+                    # Save file
+                    storage_key, file_size = attachment_service.save_file(
+                        file=file_storage,
+                        business_id=business_id,
+                        attachment_id=attachment.id,
+                        purpose='receipt_source'
+                    )
+                    
+                    attachment.storage_path = storage_key
+                    attachment.file_size = file_size
+                    db.session.commit()
+                    
+                    logger.info(f"✅ Email screenshot generated with Playwright: attachment_id={attachment.id}, size={file_size}")
+                    return attachment.id
+                    
+        except Exception as e:
+            logger.warning(f"Playwright screenshot failed: {e}")
+        
+        # Method 2: Try using html2image
         try:
             from html2image import Html2Image
             import tempfile
             
-            logger.info(f"🖼️ Generating HTML screenshot for receipt {receipt_id or 'unknown'}")
+            logger.info(f"🖼️ Generating HTML screenshot with html2image for receipt {receipt_id or 'unknown'}")
             
             hti = Html2Image()
             
@@ -1028,18 +1109,17 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     attachment.file_size = file_size
                     db.session.commit()
                     
-                    logger.info(f"✅ Email screenshot generated: attachment_id={attachment.id}")
+                    logger.info(f"✅ Email screenshot generated with html2image: attachment_id={attachment.id}")
                     return attachment.id
                     
         except ImportError:
-            logger.debug("html2image not available, trying alternative methods")
+            logger.debug("html2image not available")
         except Exception as e:
             logger.warning(f"html2image screenshot failed: {e}")
         
-        # Fallback: Try using weasyprint for HTML to PNG
+        # Method 3: Try using weasyprint for HTML to PNG
         try:
             from weasyprint import HTML as WeasyprintHTML
-            import io
             
             logger.info(f"🖼️ Generating HTML screenshot with weasyprint for receipt {receipt_id or 'unknown'}")
             
