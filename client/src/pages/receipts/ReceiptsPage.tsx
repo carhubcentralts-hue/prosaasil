@@ -621,9 +621,13 @@ export function ReceiptsPage() {
         timeout: 300000 // 5 minute timeout
       });
       
-      if (res.data.success && res.data.sync_run_id) {
+      // Handle new format: {"ok": true, "data": {...}} or old format for compatibility
+      const isOk = res.data.ok !== undefined ? res.data.ok : res.data.success;
+      const responseData = res.data.data || res.data;
+      
+      if (isOk && responseData.sync_run_id) {
         // Store sync run ID to start polling
-        setActiveSyncRunId(res.data.sync_run_id);
+        setActiveSyncRunId(responseData.sync_run_id);
         
         // Show starting message
         let dateRangeMsg = '';
@@ -637,10 +641,47 @@ export function ReceiptsPage() {
           }
         }
         setError(`🔄 מסנכרן קבלות${dateRangeMsg}...`);
+      } else {
+        // Error in response
+        const errorObj = res.data.error || {};
+        const errorMsg = errorObj.message || res.data.error || 'שגיאה לא ידועה';
+        const errorHint = errorObj.hint;
+        
+        // Display error with hint if available
+        let fullErrorMsg = errorMsg;
+        if (errorHint) {
+          fullErrorMsg += `\n💡 ${errorHint}`;
+        }
+        setError(fullErrorMsg);
+        setSyncing(false);
+        setActiveSyncRunId(null);
       }
     } catch (err: unknown) {
-      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Sync failed';
-      setError(errorMsg);
+      // Handle HTTP error responses
+      const response = (err as { response?: { data?: { ok?: boolean; error?: { code?: string; message?: string; hint?: string } | string } } })?.response;
+      const responseData = response?.data;
+      
+      let errorMsg = 'שגיאה בסנכרון';
+      let errorHint = '';
+      
+      if (responseData) {
+        if (responseData.ok === false && typeof responseData.error === 'object') {
+          // New format: {"ok": false, "error": {"code": "...", "message": "...", "hint": "..."}}
+          errorMsg = responseData.error.message || errorMsg;
+          errorHint = responseData.error.hint || '';
+        } else if (typeof responseData.error === 'string') {
+          // Old format: {"success": false, "error": "..."}
+          errorMsg = responseData.error;
+        }
+      }
+      
+      // Display error with hint
+      let fullErrorMsg = errorMsg;
+      if (errorHint) {
+        fullErrorMsg += `\n💡 ${errorHint}`;
+      }
+      
+      setError(fullErrorMsg);
       setSyncing(false);
       setActiveSyncRunId(null);
       setSyncProgress(null);
