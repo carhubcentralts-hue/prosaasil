@@ -257,7 +257,7 @@ export function InboundCallsPage() {
   const recentCallsPageSize = 50;
   
   const { data: recentCallsData, isLoading: recentCallsLoading, refetch: refetchRecentCalls } = useQuery({
-    queryKey: ['/api/outbound/recent-calls', recentCallsPage, recentCallsSearch, activeRunId],
+    queryKey: ['/api/inbound/recent-calls', recentCallsPage, recentCallsSearch],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(recentCallsPage),
@@ -267,17 +267,12 @@ export function InboundCallsPage() {
       if (recentCallsSearch) {
         params.append('search', recentCallsSearch);
       }
-      
-      // Filter by active run if available
-      if (activeRunId) {
-        params.append('run_id', String(activeRunId));
-      }
 
-      return await http.get(`/api/outbound/recent-calls?${params.toString()}`);
+      return await http.get(`/api/inbound/recent-calls?${params.toString()}`);
     },
     enabled: activeTab === 'recent',
     retry: 1,
-    refetchInterval: activeTab === 'recent' && activeRunId ? 5000 : false, // Auto-refresh when viewing active run
+    refetchInterval: false, // No auto-refresh for inbound calls
   });
 
   const recentCalls: RecentCall[] = recentCallsData?.items || [];
@@ -1053,20 +1048,6 @@ export function InboundCallsPage() {
                     data-testid="input-recent-calls-search"
                   />
                 </div>
-                {activeRunId && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setActiveRunId(null);
-                      refetchRecentCalls();
-                    }}
-                    data-testid="button-show-all-calls"
-                    className="w-full sm:w-auto"
-                  >
-                    הצג את כל השיחות
-                  </Button>
-                )}
               </div>
             </div>
 
