@@ -69,6 +69,26 @@ interface ReceiptStats {
   };
 }
 
+// API Response interfaces
+interface ApiError {
+  code: string;
+  message: string;
+  hint?: string;
+}
+
+interface ApiResponse<T = any> {
+  ok: boolean;
+  data?: T;
+  error?: ApiError;
+}
+
+// Axios error response interface
+interface AxiosErrorResponse {
+  response?: {
+    data?: ApiResponse;
+  };
+}
+
 // Status badge component
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const statusConfig: Record<string, { icon: React.ElementType; color: string; label: string }> = {
@@ -614,16 +634,25 @@ export function ReceiptsPage() {
       }
       
       // Start the sync - this returns immediately with sync_run_id
-      const res = await axios.post('/api/receipts/sync', syncParams, {
+      const res = await axios.post<ApiResponse<{
+        message: string;
+        sync_run_id: number;
+        new_receipts: number;
+        messages_scanned: number;
+      }>>('/api/receipts/sync', syncParams, {
         headers: {
           'Content-Type': 'application/json'
         },
         timeout: 300000 // 5 minute timeout
       });
       
-      if (res.data.success && res.data.sync_run_id) {
+      // Handle new format: {"ok": true, "data": {...}} or old format for compatibility
+      const isOk = res.data.ok !== undefined ? res.data.ok : (res.data as any).success;
+      const responseData = res.data.data || res.data;
+      
+      if (isOk && responseData.sync_run_id) {
         // Store sync run ID to start polling
-        setActiveSyncRunId(res.data.sync_run_id);
+        setActiveSyncRunId(responseData.sync_run_id);
         
         // Show starting message
         let dateRangeMsg = '';
@@ -637,10 +666,47 @@ export function ReceiptsPage() {
           }
         }
         setError(`🔄 מסנכרן קבלות${dateRangeMsg}...`);
+      } else {
+        // Error in response
+        const errorObj = res.data.error;
+        const errorMsg = errorObj?.message || (res.data as any).error || 'שגיאה לא ידועה';
+        const errorHint = errorObj?.hint;
+        
+        // Display error with hint if available
+        let fullErrorMsg = errorMsg;
+        if (errorHint) {
+          fullErrorMsg += `\n💡 ${errorHint}`;
+        }
+        setError(fullErrorMsg);
+        setSyncing(false);
+        setActiveSyncRunId(null);
       }
     } catch (err: unknown) {
-      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Sync failed';
-      setError(errorMsg);
+      // Handle HTTP error responses with proper typing
+      const axiosError = err as AxiosErrorResponse;
+      const responseData = axiosError.response?.data;
+      
+      let errorMsg = 'שגיאה בסנכרון';
+      let errorHint = '';
+      
+      if (responseData) {
+        if (responseData.ok === false && responseData.error) {
+          // New format: {"ok": false, "error": {"code": "...", "message": "...", "hint": "..."}}
+          errorMsg = responseData.error.message || errorMsg;
+          errorHint = responseData.error.hint || '';
+        } else if ((responseData as any).error && typeof (responseData as any).error === 'string') {
+          // Old format: {"success": false, "error": "..."}
+          errorMsg = (responseData as any).error;
+        }
+      }
+      
+      // Display error with hint
+      let fullErrorMsg = errorMsg;
+      if (errorHint) {
+        fullErrorMsg += `\n💡 ${errorHint}`;
+      }
+      
+      setError(fullErrorMsg);
       setSyncing(false);
       setActiveSyncRunId(null);
       setSyncProgress(null);

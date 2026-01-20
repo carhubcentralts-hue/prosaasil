@@ -789,29 +789,46 @@ def sync_receipts():
         })
         
         return jsonify({
-            "success": True,
-            "message": "Sync completed",
-            "mode": mode,
-            "from_date": from_date,
-            "to_date": to_date,
-            "months_back": months_back,
-            "sync_run_id": result.get('sync_run_id'),
-            "new_receipts": result.get('new_count', 0),
-            "processed": result.get('processed', 0),
-            "skipped": result.get('skipped', 0),
-            "pages_scanned": result.get('pages_scanned', 0),
-            "messages_scanned": result.get('messages_scanned', 0),
-            "months_processed": result.get('months_processed', 0),
-            "total_months": result.get('total_months', 0),
-            "errors": result.get('errors', 0)
+            "ok": True,
+            "data": {
+                "message": "Sync completed",
+                "mode": mode,
+                "from_date": from_date,
+                "to_date": to_date,
+                "months_back": months_back,
+                "sync_run_id": result.get('sync_run_id'),
+                "new_receipts": result.get('new_count', 0),
+                "processed": result.get('processed', 0),
+                "skipped": result.get('skipped', 0),
+                "pages_scanned": result.get('pages_scanned', 0),
+                "messages_scanned": result.get('messages_scanned', 0),
+                "months_processed": result.get('months_processed', 0),
+                "total_months": result.get('total_months', 0),
+                "errors": result.get('errors', 0)
+            }
         })
         
     except ImportError:
         logger.warning("Gmail sync service not yet implemented")
         return jsonify({
-            "success": False,
-            "error": "Gmail sync service not available yet"
+            "ok": False,
+            "error": {
+                "code": "SERVICE_NOT_AVAILABLE",
+                "message": "Gmail sync service not available yet",
+                "hint": "The Gmail sync feature is not yet implemented on this server"
+            }
         }), 501
+    except ValueError as e:
+        # Invalid date format or other validation errors
+        logger.warning(f"Validation error: {e}")
+        return jsonify({
+            "ok": False,
+            "error": {
+                "code": "INVALID_DATE_FORMAT",
+                "message": str(e),
+                "hint": "Use YYYY-MM-DD format for dates (e.g., 2023-01-01)"
+            }
+        }), 400
     except Exception as e:
         logger.error(f"Sync error: {e}", exc_info=True)
         
@@ -827,9 +844,43 @@ def sync_receipts():
                 logger.error(f"Failed to update connection status: {commit_err}")
                 db.session.rollback()
         
+        # Determine error code and hint based on exception type and message
+        error_code = "SYNC_FAILED"
+        hint = "Please try again later. If the problem persists, contact support."
+        error_message = str(e)
+        
+        # Check for specific error types using exception classes and patterns
+        from sqlalchemy.exc import OperationalError, ProgrammingError
+        import re
+        
+        if isinstance(e, (OperationalError, ProgrammingError)):
+            # Database errors
+            if re.search(r'(UndefinedColumn|column.*does not exist)', error_message, re.IGNORECASE):
+                error_code = "DB_MIGRATION_MISSING_COLUMN"
+                hint = "Database schema needs to be updated. Please run migrations: python -m server.db_migrate"
+            elif re.search(r'(relation.*does not exist|table.*does not exist)', error_message, re.IGNORECASE):
+                error_code = "DB_MIGRATION_MISSING_TABLE"
+                hint = "Database tables are missing. Please run migrations: python -m server.db_migrate"
+        elif re.search(r'(permission|unauthorized|401|403)', error_message, re.IGNORECASE):
+            # Permission/auth errors
+            error_code = "GMAIL_PERMISSION_DENIED"
+            hint = "Gmail access token expired or permissions revoked. Try disconnecting and reconnecting Gmail."
+        elif re.search(r'(rate.*limit|429|quota.*exceeded)', error_message, re.IGNORECASE):
+            # Rate limiting errors
+            error_code = "GMAIL_RATE_LIMIT"
+            hint = "Gmail API rate limit exceeded. Please wait a few minutes and try again."
+        elif re.search(r'(timeout|timed out)', error_message, re.IGNORECASE):
+            # Timeout errors
+            error_code = "SYNC_TIMEOUT"
+            hint = "Sync operation timed out. Try syncing a smaller date range or contact support."
+        
         return jsonify({
-            "success": False,
-            "error": "Sync failed. Please try again later."
+            "ok": False,
+            "error": {
+                "code": error_code,
+                "message": error_message[:500],
+                "hint": hint
+            }
         }), 500
 
 
