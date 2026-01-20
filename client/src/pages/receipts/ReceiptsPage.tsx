@@ -928,8 +928,15 @@ export function ReceiptsPage() {
               
               {/* Progress bar - indeterminate animation */}
               <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-blue-600 animate-pulse" style={{ width: '70%' }}></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400 animate-shimmer" style={{ width: '200%', animation: 'shimmer 2s infinite' }}></div>
               </div>
+              
+              <style>{`
+                @keyframes shimmer {
+                  0% { transform: translateX(-50%); }
+                  100% { transform: translateX(0%); }
+                }
+              `}</style>
               
               <p className="text-xs text-gray-500 mt-2 text-center">
                 תהליך זה עשוי לקחת מספר דקות עבור סנכרון של תקופה ארוכה

@@ -953,8 +953,8 @@ def cancel_sync(run_id):
     
     # Mark as cancelled - the sync loop will detect this and stop
     sync_run.status = 'cancelled'
-    sync_run.cancelled_at = datetime.utcnow()
-    sync_run.updated_at = datetime.utcnow()
+    sync_run.cancelled_at = datetime.now(timezone.utc)
+    sync_run.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     
     log_audit('cancel', 'receipt_sync_run', run_id, {
