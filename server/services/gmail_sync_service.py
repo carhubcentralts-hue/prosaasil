@@ -69,8 +69,8 @@ PDF_RECEIPT_INDICATORS = [
     'thank you for your purchase'
 ]
 
-# Minimum confidence to save as receipt
-MIN_CONFIDENCE = 40
+# Minimum confidence to save as receipt (lowered to catch more receipts)
+MIN_CONFIDENCE = 20  # Lower threshold to catch more potential receipts
 REVIEW_THRESHOLD = 60  # Below this goes to pending_review
 
 
@@ -327,24 +327,29 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     
     # PDF attachment is a strong indicator
     if has_pdf:
-        confidence += 30
+        confidence += 40  # Increased from 30 - PDFs are strong receipt indicators
     elif has_image:
-        confidence += 10
+        confidence += 20  # Increased from 10 - images can be receipt photos
     
     # Check subject for keywords
     subject_lower = subject.lower()
+    matched_keywords = []
     for keyword in RECEIPT_KEYWORDS:
         if keyword.lower() in subject_lower:
-            confidence += 25
-            break
+            matched_keywords.append(keyword)
+    
+    if matched_keywords:
+        confidence += 30  # Increased from 25
     
     # Check sender domain
     if from_domain in KNOWN_RECEIPT_DOMAINS:
-        confidence += 35
+        confidence += 40  # Increased from 35
     
-    # If confidence is too low, skip
+    # Even with low confidence, if we have PDF/image, it's worth reviewing
+    # The worst case is user marks it as "not a receipt"
     if confidence < MIN_CONFIDENCE:
-        return False, confidence, metadata
+        # Give minimum confidence if we have attachment
+        confidence = MIN_CONFIDENCE
     
     return True, confidence, metadata
 
@@ -465,22 +470,45 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
     if not pdf_text:
         return data
     
-    # Extract amount (ILS first, then USD)
-    ils_match = re.search(r'(?:סה"כ|total|לתשלום)[:\s]*₪?\s*([\d,]+\.?\d*)', pdf_text, re.IGNORECASE)
-    if ils_match:
-        try:
-            data['amount'] = float(ils_match.group(1).replace(',', ''))
-            data['currency'] = 'ILS'
-        except ValueError:
-            pass
-    else:
-        usd_match = re.search(r'(?:total|amount)[:\s]*\$?\s*([\d,]+\.?\d*)', pdf_text, re.IGNORECASE)
-        if usd_match:
+    # Extract amount (ILS first, then USD, then EUR)
+    # Try multiple patterns for ILS
+    ils_patterns = [
+        r'(?:סה"כ|total|לתשלום|amount|סכום)[:\s]*₪?\s*([\d,]+\.?\d*)\s*₪?',
+        r'₪\s*([\d,]+\.?\d*)',
+        r'([\d,]+\.?\d*)\s*₪',
+        r'(?:ILS|ils|ש"ח)[:\s]*([\d,]+\.?\d*)'
+    ]
+    
+    for pattern in ils_patterns:
+        ils_match = re.search(pattern, pdf_text, re.IGNORECASE)
+        if ils_match:
             try:
-                data['amount'] = float(usd_match.group(1).replace(',', ''))
-                data['currency'] = 'USD'
-            except ValueError:
+                amount_str = ils_match.group(1).replace(',', '')
+                data['amount'] = float(amount_str)
+                data['currency'] = 'ILS'
+                break
+            except (ValueError, IndexError):
                 pass
+    
+    # Try USD if ILS not found
+    if not data['amount']:
+        usd_patterns = [
+            r'(?:total|amount|sum)[:\s]*\$?\s*([\d,]+\.?\d*)',
+            r'\$\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d*)\s*\$',
+            r'(?:USD|usd)[:\s]*([\d,]+\.?\d*)'
+        ]
+        
+        for pattern in usd_patterns:
+            usd_match = re.search(pattern, pdf_text, re.IGNORECASE)
+            if usd_match:
+                try:
+                    amount_str = usd_match.group(1).replace(',', '')
+                    data['amount'] = float(amount_str)
+                    data['currency'] = 'USD'
+                    break
+                except (ValueError, IndexError):
+                    pass
     
     # Extract invoice number
     inv_match = re.search(r'(?:invoice|receipt|חשבונית|קבלה)\s*#?\s*:?\s*(\d+)', pdf_text, re.IGNORECASE)
@@ -546,35 +574,39 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         
         # Build search query based on mode
         if mode == 'full':
-            # Full sync - broader query, go back further
+            # Full sync - broader query, go back as far as possible
+            # Don't use date filter - get ALL emails with attachments
+            # We'll filter by keywords and confidence scoring
             query_parts = [
                 'has:attachment',
-                'newer_than:5y',  # Last 5 years
             ]
         else:
             # Incremental - check last sync time
             if connection and connection.last_sync_at:
-                # Use last sync date
+                # Use last sync date with 30-day overlap to catch missed emails
                 from datetime import datetime, timedelta
-                cutoff = connection.last_sync_at - timedelta(days=1)  # 1 day overlap for safety
+                cutoff = connection.last_sync_at - timedelta(days=30)  # 30 days overlap for safety
                 date_str = cutoff.strftime('%Y/%m/%d')
                 query_parts = [
                     'has:attachment',
                     f'after:{date_str}',
                 ]
             else:
-                # No previous sync - default to last 30 days
+                # No previous sync - go back 1 year to catch historical receipts
                 query_parts = [
                     'has:attachment',
-                    'newer_than:30d',
+                    'newer_than:1y',
                 ]
         
         # Add keyword filters (broader for internal scoring)
         # Using OR for flexibility - we'll score internally
+        # Also include common receipt sender patterns
         keyword_filter = ' OR '.join([
-            f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment']
+            f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill']
         ])
-        query = f"{' '.join(query_parts)} ({keyword_filter})"
+        # Don't require subject keywords - rely on internal scoring instead
+        # This allows catching receipts with non-standard subject lines
+        query = f"{' '.join(query_parts)}"
         
         logger.info(f"Gmail query: {query}")
         
@@ -650,19 +682,31 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     # Process first PDF or image attachment
                     attachment_id = None
                     pdf_text = ''
+                    attachment_processed = False
                     
                     for att in metadata.get('attachments', []):
                         if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
                             try:
+                                logger.info(f"📎 Downloading attachment: {att['filename']} ({att['mime_type']}, {att['size']} bytes)")
+                                
                                 # Download attachment
                                 att_data = gmail.get_attachment(message_id, att['id'])
+                                
+                                if not att_data:
+                                    logger.warning(f"⚠️ Empty attachment data for {att['filename']}")
+                                    continue
+                                
+                                logger.info(f"✅ Downloaded {len(att_data)} bytes")
                                 
                                 # Extract text if PDF
                                 if att['mime_type'] == 'application/pdf':
                                     pdf_text = extract_pdf_text(att_data)
+                                    logger.info(f"📄 Extracted {len(pdf_text)} chars from PDF")
+                                    
                                     # Calculate additional confidence from PDF content
                                     pdf_confidence = calculate_pdf_confidence(pdf_text)
                                     confidence = min(confidence + pdf_confidence, 100)
+                                    logger.info(f"📊 PDF confidence boost: +{pdf_confidence} -> total {confidence}")
                                 
                                 # Save to storage with purpose
                                 from werkzeug.datastructures import FileStorage
@@ -688,6 +732,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 db.session.add(attachment)
                                 db.session.flush()  # Get attachment ID
                                 
+                                logger.info(f"💾 Saving attachment to storage (attachment_id={attachment.id})")
+                                
                                 # Save file via attachment service
                                 storage_key, file_size = attachment_service.save_file(
                                     file=file_storage,
@@ -700,12 +746,18 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 attachment.storage_path = storage_key
                                 attachment.file_size = file_size
                                 attachment_id = attachment.id
+                                attachment_processed = True
+                                
+                                logger.info(f"✅ Attachment saved: storage_key={storage_key}, size={file_size}")
                                 
                                 break  # Only process first attachment
                                 
                             except Exception as e:
-                                logger.warning(f"Failed to process attachment: {e}")
+                                logger.error(f"❌ Failed to process attachment {att['filename']}: {e}", exc_info=True)
                                 result['errors'] += 1
+                    
+                    if not attachment_processed:
+                        logger.warning(f"⚠️ No attachments were successfully processed for message {message_id}")
                     
                     # Skip if confidence too low after full analysis
                     if confidence < MIN_CONFIDENCE:
@@ -761,7 +813,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     result['saved_receipts'] += 1
                     sync_run.saved_receipts = result['saved_receipts']
                     
-                    logger.info(f"Created receipt: vendor={extracted.get('vendor_name')}, confidence={confidence}, status={status}")
+                    logger.info(
+                        f"✅ Created receipt: id={message_id[:10]}..., "
+                        f"vendor={extracted.get('vendor_name')}, "
+                        f"amount={extracted.get('amount')} {extracted.get('currency', 'ILS')}, "
+                        f"invoice_num={extracted.get('invoice_number')}, "
+                        f"confidence={confidence}, "
+                        f"status={status}, "
+                        f"has_attachment={bool(attachment_id)}"
+                    )
                     
                     # Commit to get receipt ID
                     db.session.flush()
