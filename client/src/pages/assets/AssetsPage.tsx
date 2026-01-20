@@ -192,8 +192,7 @@ export default function AssetsPage() {
       // Upload files if any
       if (uploadingFiles.length > 0) {
         setUploadProgress(true);
-        for (let i = 0; i < uploadingFiles.length; i++) {
-          const file = uploadingFiles[i];
+        const uploadPromises = uploadingFiles.map(async (file, i) => {
           try {
             // Upload file to attachments service
             const uploadFormData = new FormData();
@@ -207,7 +206,8 @@ export default function AssetsPage() {
             });
             
             if (!uploadResponse.ok) {
-              throw new Error(`Failed to upload ${file.name}`);
+              const errorData = await uploadResponse.json().catch(() => ({}));
+              throw new Error(`Failed to upload ${file.name}: ${errorData.error || uploadResponse.statusText}`);
             }
             
             const attachmentData = await uploadResponse.json();
@@ -225,13 +225,26 @@ export default function AssetsPage() {
             });
             
             if (!linkResponse.ok) {
-              console.warn(`Failed to link ${file.name} to asset`);
+              const linkError = await linkResponse.json().catch(() => ({}));
+              console.warn(`Failed to link ${file.name} to asset:`, linkError.error || linkResponse.statusText);
             }
+            
+            return { success: true, filename: file.name };
           } catch (fileErr) {
             console.error(`Error uploading file ${file.name}:`, fileErr);
-            // Continue with other files
+            return { success: false, filename: file.name, error: fileErr instanceof Error ? fileErr.message : String(fileErr) };
           }
+        });
+        
+        // Wait for all uploads to complete
+        const results = await Promise.all(uploadPromises);
+        const failedUploads = results.filter(r => !r.success);
+        
+        if (failedUploads.length > 0) {
+          const failedNames = failedUploads.map(f => f.filename).join(', ');
+          alert(`חלק מהקבצים לא הועלו בהצלחה: ${failedNames}`);
         }
+        
         setUploadProgress(false);
       }
       
