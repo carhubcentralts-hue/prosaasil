@@ -527,7 +527,7 @@ export function ReceiptsPage() {
   };
   
   // Handle sync
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     try {
       setSyncing(true);
       const res = await axios.post('/api/receipts/sync');
@@ -543,7 +543,7 @@ export function ReceiptsPage() {
     } finally {
       setSyncing(false);
     }
-  };
+  }, [fetchReceipts, fetchStats, fetchGmailStatus]);
   
   // Handle mark receipt
   const handleMark = async (receiptId: number, status: string) => {
@@ -607,8 +607,7 @@ export function ReceiptsPage() {
       setError(friendlyMessage);
       window.history.replaceState({}, '', window.location.pathname);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchGmailStatus]); // handleSync called once on mount, not reactive
+  }, [fetchGmailStatus, handleSync]);
   
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
