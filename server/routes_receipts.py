@@ -25,7 +25,7 @@ from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import GmailConnection, Receipt, Attachment, User
 from server.db import db
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import os
 import json
@@ -801,10 +801,17 @@ def sync_receipts():
     except Exception as e:
         logger.error(f"Sync error: {e}", exc_info=True)
         
+        # 🔥 CRITICAL FIX: Always rollback on exception to prevent PendingRollbackError
+        db.session.rollback()
+        
         if connection:
             connection.status = 'error'
             connection.error_message = str(e)[:500]
-            db.session.commit()
+            try:
+                db.session.commit()
+            except Exception as commit_err:
+                logger.error(f"Failed to update connection status: {commit_err}")
+                db.session.rollback()
         
         return jsonify({
             "success": False,

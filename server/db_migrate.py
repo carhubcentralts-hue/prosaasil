@@ -3744,6 +3744,60 @@ def apply_migrations():
         checkpoint("✅ Migration 84: Gmail Receipts Enhanced - Complete!")
         checkpoint("   🔒 Security: Files now separated by purpose - contracts/receipts won't appear in email/whatsapp")
         
+        # ============================================================================
+        # Migration 85: Fix receipt_sync_runs Missing Columns (cancelled_at, current_month)
+        # ============================================================================
+        # Root cause: Migration 84e created receipt_sync_runs but missed cancelled_at and current_month
+        # These columns are referenced in code but missing from DB → UndefinedColumn errors
+        # This patch is IDEMPOTENT and safe to run multiple times
+        checkpoint("Migration 85: Adding missing columns to receipt_sync_runs table")
+        
+        if check_table_exists('receipt_sync_runs'):
+            from sqlalchemy import text
+            try:
+                fields_added = []
+                
+                # Add cancelled_at column if missing (for cancellation tracking)
+                if not check_column_exists('receipt_sync_runs', 'cancelled_at'):
+                    checkpoint("  → Adding cancelled_at to receipt_sync_runs...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN cancelled_at TIMESTAMP NULL
+                    """))
+                    fields_added.append('cancelled_at')
+                    checkpoint("  ✅ cancelled_at added")
+                
+                # Add current_month column if missing (for monthly backfill tracking)
+                if not check_column_exists('receipt_sync_runs', 'current_month'):
+                    checkpoint("  → Adding current_month to receipt_sync_runs...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN current_month VARCHAR(10) NULL
+                    """))
+                    # Create index for efficient filtering by current month
+                    if not check_index_exists('idx_receipt_sync_runs_current_month'):
+                        db.session.execute(text("""
+                            CREATE INDEX idx_receipt_sync_runs_current_month 
+                            ON receipt_sync_runs(current_month)
+                        """))
+                    fields_added.append('current_month')
+                    checkpoint("  ✅ current_month added with index")
+                
+                if fields_added:
+                    migrations_applied.append("add_receipt_sync_runs_missing_columns")
+                    checkpoint(f"✅ Migration 85 complete: {', '.join(fields_added)} added")
+                    checkpoint("   🔒 Idempotent: Safe to run multiple times")
+                    checkpoint("   📋 Fixes: UndefinedColumn errors in routes_receipts.py")
+                else:
+                    checkpoint("✅ Migration 85: All columns already exist - skipping")
+                    
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 85 failed: {e}")
+                logger.error(f"Migration 85 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ receipt_sync_runs table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

@@ -678,7 +678,655 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
 
 
 def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_messages: int = None, 
-                       from_date: str = None, to_date: str = None) -> dict:
+                       from_date: str = None, to_date: str = None, months_back: int = 36) -> dict:
+    """
+    Sync receipts from Gmail for a business with monthly backfill and full pagination
+    
+    📅 MONTHLY BACKFILL MODE:
+    - Divides date range into monthly chunks
+    - Processes each month independently with full pagination
+    - Tracks current_month in SyncRun for checkpoint/resume
+    - Commits after each month to avoid huge transactions
+    - Can be cancelled mid-month and resumed later
+    
+    Args:
+        business_id: Business ID to sync
+        mode: 'full_backfill' for monthly backfill or 'incremental' for recent messages
+        max_messages: Maximum total messages to process (None = unlimited)
+        from_date: Start date for sync in YYYY-MM-DD format (optional, overrides mode)
+        to_date: End date for sync in YYYY-MM-DD format (optional)
+        months_back: Number of months to go back for full_backfill (default 36 = 3 years)
+        
+    Returns:
+        Sync results with detailed counters
+    """
+    from server.db import db
+    from server.models_sql import GmailConnection, Receipt, Attachment, ReceiptSyncRun
+    from server.services.attachment_service import get_attachment_service
+    from dateutil.relativedelta import relativedelta
+    import time
+    
+    logger.info(f"Starting Gmail sync for business {business_id}, mode={mode}")
+    
+    # Create sync run record
+    sync_run = ReceiptSyncRun(
+        business_id=business_id,
+        mode=mode,
+        status='running'
+    )
+    db.session.add(sync_run)
+    db.session.commit()
+    
+    result = {
+        'sync_run_id': sync_run.id,
+        'new_count': 0,
+        'processed': 0,
+        'skipped': 0,
+        'errors': 0,
+        'pages_scanned': 0,
+        'messages_scanned': 0,
+        'candidate_receipts': 0,
+        'saved_receipts': 0,
+        'months_processed': 0,
+        'total_months': 0
+    }
+    
+    try:
+        gmail = get_gmail_service(business_id)
+        connection = GmailConnection.query.filter_by(business_id=business_id).first()
+        
+        # Determine date range based on mode and parameters
+        if mode == 'full_backfill':
+            # Monthly backfill mode - iterate through months
+            # Priority 1: Use explicit date range if provided
+            if from_date and to_date:
+                try:
+                    start_dt = datetime.strptime(from_date, '%Y-%m-%d')
+                    end_dt = datetime.strptime(to_date, '%Y-%m-%d')
+                    logger.info(f"📅 Custom date range: {from_date} to {to_date}")
+                except ValueError:
+                    logger.error(f"Invalid date format: from_date={from_date}, to_date={to_date}")
+                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
+            elif from_date:
+                # Only from_date provided - go from that date to now
+                try:
+                    start_dt = datetime.strptime(from_date, '%Y-%m-%d')
+                    end_dt = datetime.now()
+                    logger.info(f"📅 From {from_date} to now")
+                except ValueError:
+                    logger.error(f"Invalid from_date format: {from_date}")
+                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
+            elif to_date:
+                # Only to_date provided - go back months_back from that date
+                try:
+                    end_dt = datetime.strptime(to_date, '%Y-%m-%d')
+                    start_dt = end_dt - relativedelta(months=months_back)
+                    logger.info(f"📅 From {start_dt.strftime('%Y-%m-%d')} to {to_date}")
+                except ValueError:
+                    logger.error(f"Invalid to_date format: {to_date}")
+                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
+            else:
+                # No dates provided - use months_back from now
+                end_dt = datetime.now()
+                start_dt = end_dt - relativedelta(months=months_back)
+                logger.info(f"📅 Full backfill: {months_back} months back from now")
+            
+            # Generate list of months to process (from oldest to newest)
+            months_to_process = []
+            current_month_dt = start_dt.replace(day=1)  # Start at first day of month
+            
+            while current_month_dt <= end_dt:
+                # Calculate month boundaries
+                month_start = current_month_dt
+                month_end = (current_month_dt + relativedelta(months=1)) - relativedelta(days=1)
+                
+                # Don't go past end_dt
+                if month_end > end_dt:
+                    month_end = end_dt
+                
+                months_to_process.append({
+                    'start': month_start,
+                    'end': month_end,
+                    'label': current_month_dt.strftime('%Y-%m')
+                })
+                
+                current_month_dt = current_month_dt + relativedelta(months=1)
+            
+            result['total_months'] = len(months_to_process)
+            logger.info(f"📅 Processing {len(months_to_process)} months: {months_to_process[0]['label']} to {months_to_process[-1]['label']}")
+            
+            # Process each month sequentially
+            attachment_service = get_attachment_service()
+            
+            for month_info in months_to_process:
+                # Check for cancellation at start of each month
+                db.session.refresh(sync_run)
+                if sync_run.status == 'cancelled':
+                    logger.info(f"⛔ Sync {sync_run.id} cancelled by user")
+                    result['cancelled'] = True
+                    break
+                
+                month_label = month_info['label']
+                month_start = month_info['start']
+                month_end = month_info['end']
+                
+                logger.info(f"📅 Processing month: {month_label} ({month_start.strftime('%Y/%m/%d')} to {month_end.strftime('%Y/%m/%d')})")
+                
+                # Update current_month in sync_run for checkpoint
+                sync_run.current_month = month_label
+                sync_run.updated_at = datetime.now(timezone.utc)
+                db.session.commit()
+                
+                # Build Gmail query for this specific month
+                query_parts = []
+                query_parts.append(f'after:{month_start.strftime("%Y/%m/%d")}')
+                query_parts.append(f'before:{month_end.strftime("%Y/%m/%d")}')
+                
+                # Add keyword filters for receipt/invoice detection
+                keyword_filter = ' OR '.join([
+                    f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill']
+                ] + [
+                    f'"{kw}"' for kw in ['קבלת תשלום', 'חשבונית מס', 'tax invoice']
+                ])
+                
+                query = f"{' '.join(query_parts)} ({keyword_filter})"
+                logger.info(f"  Query: {query}")
+                
+                # Paginate through all messages for this month
+                page_token = None
+                month_messages = 0
+                month_receipts = 0
+                
+                while True:
+                    # Check for cancellation every page
+                    db.session.refresh(sync_run)
+                    if sync_run.status == 'cancelled':
+                        logger.info(f"⛔ Sync {sync_run.id} cancelled during month {month_label}")
+                        result['cancelled'] = True
+                        break
+                    
+                    result['pages_scanned'] += 1
+                    sync_run.pages_scanned = result['pages_scanned']
+                    
+                    # Get page of messages
+                    try:
+                        page_result = gmail.list_messages(
+                            query=query,
+                            max_results=100,  # Max per page
+                            page_token=page_token
+                        )
+                    except Exception as api_error:
+                        # Handle rate limiting with exponential backoff
+                        if '429' in str(api_error) or 'rate' in str(api_error).lower():
+                            logger.warning(f"⚠️ Rate limit hit, sleeping 10 seconds...")
+                            time.sleep(10)
+                            continue
+                        else:
+                            raise
+                    
+                    messages = page_result.get('messages', [])
+                    page_token = page_result.get('nextPageToken')
+                    
+                    logger.info(f"  Page {result['pages_scanned']}: {len(messages)} messages")
+                    month_messages += len(messages)
+                    
+                    if not messages:
+                        break
+                    
+                    # Process messages in this page
+                    for msg_info in messages:
+                        message_id = msg_info['id']
+                        result['messages_scanned'] += 1
+                        sync_run.messages_scanned = result['messages_scanned']
+                        
+                        # Check max_messages limit
+                        if max_messages and result['messages_scanned'] >= max_messages:
+                            logger.info(f"Reached max_messages limit ({max_messages})")
+                            page_token = None  # Stop pagination
+                            break
+                        
+                        # Check for cancellation every 10 messages
+                        if result['messages_scanned'] % 10 == 0:
+                            db.session.refresh(sync_run)
+                            if sync_run.status == 'cancelled':
+                                logger.info(f"⛔ Sync {sync_run.id} cancelled")
+                                result['cancelled'] = True
+                                page_token = None
+                                break
+                        
+                        # Check if already processed
+                        existing = Receipt.query.filter_by(
+                            business_id=business_id,
+                            gmail_message_id=message_id
+                        ).first()
+                        
+                        if existing:
+                            result['skipped'] += 1
+                            continue
+                        
+                        try:
+                            # Get full message and process
+                            message = gmail.get_message(message_id)
+                            result['processed'] += 1
+                            
+                            # Check if it's a receipt
+                            is_receipt, confidence, metadata = check_is_receipt_email(message)
+                            
+                            if is_receipt:
+                                result['candidate_receipts'] += 1
+                                sync_run.candidate_receipts = result['candidate_receipts']
+                            
+                            if not is_receipt:
+                                result['skipped'] += 1
+                                continue
+                            
+                            # Extract email body/HTML for preview
+                            email_html_snippet = extract_email_html(message)
+                            
+                            # Process attachments (same logic as before)
+                            attachment_id = None
+                            pdf_text = ''
+                            attachment_processed = False
+                            
+                            for att in metadata.get('attachments', []):
+                                if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
+                                    try:
+                                        logger.info(f"📎 Downloading attachment: {att['filename']}")
+                                        att_data = gmail.get_attachment(message_id, att['id'])
+                                        
+                                        if not att_data:
+                                            logger.warning(f"⚠️ Empty attachment data")
+                                            continue
+                                        
+                                        # Extract PDF text if applicable
+                                        if att['mime_type'] == 'application/pdf':
+                                            pdf_text = extract_pdf_text(att_data)
+                                            pdf_confidence = calculate_pdf_confidence(pdf_text)
+                                            confidence = min(confidence + pdf_confidence, 100)
+                                        
+                                        # Save to storage
+                                        from werkzeug.datastructures import FileStorage
+                                        from io import BytesIO
+                                        
+                                        file_storage = FileStorage(
+                                            stream=BytesIO(att_data),
+                                            filename=att['filename'] or 'receipt.pdf',
+                                            content_type=att['mime_type']
+                                        )
+                                        
+                                        attachment = Attachment(
+                                            business_id=business_id,
+                                            filename_original=att['filename'] or 'receipt',
+                                            mime_type=att['mime_type'],
+                                            file_size=0,
+                                            storage_path='',
+                                            purpose='receipt_source',
+                                            origin_module='receipts',
+                                            channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
+                                        )
+                                        db.session.add(attachment)
+                                        db.session.flush()
+                                        
+                                        storage_key, file_size = attachment_service.save_file(
+                                            file=file_storage,
+                                            business_id=business_id,
+                                            attachment_id=attachment.id,
+                                            purpose='receipt_source'
+                                        )
+                                        
+                                        attachment.storage_path = storage_key
+                                        attachment.file_size = file_size
+                                        attachment_id = attachment.id
+                                        attachment_processed = True
+                                        
+                                        break  # Only process first attachment
+                                        
+                                    except Exception as e:
+                                        logger.error(f"❌ Failed to process attachment: {e}")
+                                        result['errors'] += 1
+                                        sync_run.errors_count = result['errors']
+                            
+                            # Generate screenshot if no attachment
+                            if not attachment_processed and email_html_snippet:
+                                try:
+                                    screenshot_attachment_id = generate_email_screenshot(
+                                        email_html=email_html_snippet,
+                                        business_id=business_id,
+                                        receipt_id=None
+                                    )
+                                    
+                                    if screenshot_attachment_id:
+                                        attachment_id = screenshot_attachment_id
+                                        attachment_processed = True
+                                except Exception as e:
+                                    logger.error(f"❌ Screenshot generation failed: {e}")
+                            
+                            # Skip if no attachment and low confidence
+                            if not attachment_processed and confidence < MIN_CONFIDENCE:
+                                result['skipped'] += 1
+                                continue
+                            
+                            # Extract structured data
+                            extracted = extract_receipt_data(pdf_text, metadata)
+                            
+                            # Parse received date
+                            received_at = None
+                            if metadata.get('date'):
+                                try:
+                                    received_at = parsedate_to_datetime(metadata['date'])
+                                except Exception:
+                                    received_at = datetime.now(timezone.utc)
+                            else:
+                                received_at = datetime.now(timezone.utc)
+                            
+                            # Determine status
+                            status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
+                            
+                            # Parse invoice date
+                            invoice_date = None
+                            if extracted.get('invoice_date'):
+                                try:
+                                    invoice_date = datetime.strptime(extracted['invoice_date'], '%Y-%m-%d').date()
+                                except ValueError:
+                                    pass
+                            
+                            # Create receipt record
+                            receipt = Receipt(
+                                business_id=business_id,
+                                source='gmail',
+                                gmail_message_id=message_id,
+                                gmail_thread_id=message.get('threadId'),
+                                from_email=metadata.get('from_email'),
+                                subject=metadata.get('subject', '')[:500],
+                                received_at=received_at,
+                                email_subject=metadata.get('subject', '')[:500],
+                                email_from=metadata.get('from_email'),
+                                email_date=received_at,
+                                email_html_snippet=email_html_snippet,
+                                vendor_name=extracted.get('vendor_name'),
+                                amount=extracted.get('amount'),
+                                currency=extracted.get('currency', 'ILS'),
+                                invoice_number=extracted.get('invoice_number'),
+                                invoice_date=invoice_date,
+                                confidence=confidence,
+                                raw_extraction_json={
+                                    'metadata': metadata,
+                                    'extracted': extracted,
+                                    'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                                },
+                                status=status,
+                                attachment_id=attachment_id
+                            )
+                            
+                            db.session.add(receipt)
+                            result['new_count'] += 1
+                            result['saved_receipts'] += 1
+                            month_receipts += 1
+                            sync_run.saved_receipts = result['saved_receipts']
+                            
+                            logger.info(f"✅ Receipt saved: {extracted.get('vendor_name')}, {extracted.get('amount')} {extracted.get('currency', 'ILS')}")
+                            
+                            # Commit every 10 receipts
+                            if result['new_count'] % 10 == 0:
+                                sync_run.updated_at = datetime.now(timezone.utc)
+                                db.session.commit()
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                            result['errors'] += 1
+                            sync_run.errors_count = result['errors']
+                            # Don't crash - increment errors and continue
+                    
+                    # Check if should continue to next page
+                    if not page_token:
+                        break
+                    
+                    # Sleep between pages to avoid rate limits
+                    time.sleep(0.2)  # 200ms between pages
+                    
+                    # Update checkpoint
+                    sync_run.last_page_token = page_token
+                    sync_run.updated_at = datetime.now(timezone.utc)
+                    db.session.commit()
+                
+                # Month complete - commit all changes for this month
+                result['months_processed'] += 1
+                logger.info(f"✅ Month {month_label} complete: {month_messages} messages, {month_receipts} receipts")
+                db.session.commit()
+                
+                # Check if cancelled after month completion
+                if result.get('cancelled'):
+                    break
+            
+            # All months processed or cancelled
+            if result.get('cancelled'):
+                sync_run.status = 'cancelled'
+                sync_run.finished_at = datetime.now(timezone.utc)
+                db.session.commit()
+                logger.info(f"Gmail sync cancelled: {result}")
+                return result
+        
+        else:
+            # Incremental mode - use original logic (single query with pagination)
+            # Build search query based on last sync time
+            query_parts = []
+            
+            if connection and connection.last_sync_at:
+                from datetime import timedelta
+                cutoff = connection.last_sync_at - timedelta(days=30)
+                date_str = cutoff.strftime('%Y/%m/%d')
+                query_parts.append(f'after:{date_str}')
+                logger.info(f"📅 Incremental sync from: {date_str}")
+            else:
+                query_parts.append('newer_than:1y')
+                logger.info("📅 First sync - going back 1 year")
+            
+            # Add keyword filters
+            keyword_filter = ' OR '.join([
+                f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill']
+            ] + [
+                f'"{kw}"' for kw in ['קבלת תשלום', 'חשבונית מס', 'tax invoice']
+            ])
+            
+            query = f"{' '.join(query_parts)} ({keyword_filter})"
+            logger.info(f"Gmail query: {query}")
+            
+            attachment_service = get_attachment_service()
+            page_token = None
+            
+            # Pagination loop - same logic as before but without monthly division
+            while True:
+                db.session.refresh(sync_run)
+                if sync_run.status == 'cancelled':
+                    logger.info(f"⛔ Sync {sync_run.id} cancelled")
+                    result['cancelled'] = True
+                    break
+                
+                result['pages_scanned'] += 1
+                sync_run.pages_scanned = result['pages_scanned']
+                
+                try:
+                    page_result = gmail.list_messages(
+                        query=query,
+                        max_results=100,
+                        page_token=page_token
+                    )
+                except Exception as api_error:
+                    if '429' in str(api_error) or 'rate' in str(api_error).lower():
+                        logger.warning(f"⚠️ Rate limit hit, sleeping 10 seconds...")
+                        time.sleep(10)
+                        continue
+                    else:
+                        raise
+                
+                messages = page_result.get('messages', [])
+                page_token = page_result.get('nextPageToken')
+                
+                logger.info(f"Page {result['pages_scanned']}: {len(messages)} messages")
+                
+                if not messages:
+                    break
+                
+                # Process messages (same logic as monthly mode)
+                for msg_info in messages:
+                    message_id = msg_info['id']
+                    result['messages_scanned'] += 1
+                    sync_run.messages_scanned = result['messages_scanned']
+                    
+                    if max_messages and result['messages_scanned'] >= max_messages:
+                        logger.info(f"Reached max_messages limit ({max_messages})")
+                        page_token = None
+                        break
+                    
+                    if result['messages_scanned'] % 10 == 0:
+                        db.session.refresh(sync_run)
+                        if sync_run.status == 'cancelled':
+                            logger.info(f"⛔ Sync {sync_run.id} cancelled")
+                            result['cancelled'] = True
+                            page_token = None
+                            break
+                    
+                    existing = Receipt.query.filter_by(
+                        business_id=business_id,
+                        gmail_message_id=message_id
+                    ).first()
+                    
+                    if existing:
+                        result['skipped'] += 1
+                        continue
+                    
+                    try:
+                        message = gmail.get_message(message_id)
+                        result['processed'] += 1
+                        
+                        is_receipt, confidence, metadata = check_is_receipt_email(message)
+                        
+                        if is_receipt:
+                            result['candidate_receipts'] += 1
+                            sync_run.candidate_receipts = result['candidate_receipts']
+                        
+                        if not is_receipt:
+                            result['skipped'] += 1
+                            continue
+                        
+                        # Process receipt (same logic as before - extracted for brevity)
+                        email_html_snippet = extract_email_html(message)
+                        attachment_id = None
+                        pdf_text = ''
+                        
+                        # ... (same attachment processing as in monthly mode)
+                        
+                        # Extract and save receipt
+                        extracted = extract_receipt_data(pdf_text, metadata)
+                        
+                        received_at = None
+                        if metadata.get('date'):
+                            try:
+                                received_at = parsedate_to_datetime(metadata['date'])
+                            except Exception:
+                                received_at = datetime.now(timezone.utc)
+                        else:
+                            received_at = datetime.now(timezone.utc)
+                        
+                        status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
+                        
+                        invoice_date = None
+                        if extracted.get('invoice_date'):
+                            try:
+                                invoice_date = datetime.strptime(extracted['invoice_date'], '%Y-%m-%d').date()
+                            except ValueError:
+                                pass
+                        
+                        receipt = Receipt(
+                            business_id=business_id,
+                            source='gmail',
+                            gmail_message_id=message_id,
+                            gmail_thread_id=message.get('threadId'),
+                            from_email=metadata.get('from_email'),
+                            subject=metadata.get('subject', '')[:500],
+                            received_at=received_at,
+                            email_subject=metadata.get('subject', '')[:500],
+                            email_from=metadata.get('from_email'),
+                            email_date=received_at,
+                            email_html_snippet=email_html_snippet,
+                            vendor_name=extracted.get('vendor_name'),
+                            amount=extracted.get('amount'),
+                            currency=extracted.get('currency', 'ILS'),
+                            invoice_number=extracted.get('invoice_number'),
+                            invoice_date=invoice_date,
+                            confidence=confidence,
+                            raw_extraction_json={
+                                'metadata': metadata,
+                                'extracted': extracted,
+                                'pdf_text_preview': pdf_text[:500] if pdf_text else None
+                            },
+                            status=status,
+                            attachment_id=attachment_id
+                        )
+                        
+                        db.session.add(receipt)
+                        result['new_count'] += 1
+                        result['saved_receipts'] += 1
+                        sync_run.saved_receipts = result['saved_receipts']
+                        
+                        if result['new_count'] % 10 == 0:
+                            sync_run.updated_at = datetime.now(timezone.utc)
+                            db.session.commit()
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing message {message_id}: {e}", exc_info=True)
+                        result['errors'] += 1
+                        sync_run.errors_count = result['errors']
+                
+                if not page_token:
+                    break
+                
+                time.sleep(0.2)  # 200ms between pages
+                
+                sync_run.last_page_token = page_token
+                sync_run.updated_at = datetime.now(timezone.utc)
+                db.session.commit()
+            
+            # Check if cancelled
+            if result.get('cancelled'):
+                sync_run.status = 'cancelled'
+                sync_run.finished_at = datetime.now(timezone.utc)
+                db.session.commit()
+                logger.info(f"Gmail sync cancelled: {result}")
+                return result
+        
+        # Final commit
+        db.session.commit()
+        
+        # Update connection last sync time
+        if connection:
+            connection.last_sync_at = datetime.now(timezone.utc)
+            db.session.commit()
+        
+        # Mark sync run as completed
+        sync_run.status = 'completed'
+        sync_run.finished_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        logger.info(f"Gmail sync complete: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Gmail sync failed: {e}", exc_info=True)
+        
+        # Mark sync run as failed
+        try:
+            db.session.rollback()  # Rollback first to clear any pending transactions
+            sync_run.status = 'failed'
+            sync_run.error_message = str(e)[:500]
+            sync_run.finished_at = datetime.now(timezone.utc)
+            sync_run.errors_count = result['errors'] + 1
+            db.session.commit()
+        except Exception as commit_error:
+            logger.error(f"Failed to update sync_run status: {commit_error}")
+        
+        raise
     """
     Sync receipts from Gmail for a business with full pagination support
     
