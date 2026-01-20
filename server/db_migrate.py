@@ -3718,7 +3718,7 @@ def apply_migrations():
                         UPDATE attachments a
                         SET 
                             purpose = CASE 
-                                WHEN cf.file_type = 'signed' THEN 'contract_signed'
+                                WHEN cf.purpose = 'signed' THEN 'contract_signed'
                                 ELSE 'contract_original'
                             END,
                             origin_module = 'contracts'

@@ -507,9 +507,9 @@ def list_receipts():
         if receipt.attachment_id and receipt.attachment:
             item["attachment"] = {
                 "id": receipt.attachment.id,
-                "filename": receipt.attachment.original_filename,
+                "filename": receipt.attachment.filename_original,
                 "mime_type": receipt.attachment.mime_type,
-                "size": receipt.attachment.size,
+                "size": receipt.attachment.file_size,
             }
         
         items.append(item)
@@ -581,18 +581,19 @@ def get_receipt(receipt_id):
         
         signed_url = None
         try:
-            signed_url = attachment_service.get_signed_url(
-                receipt.attachment.storage_path,
-                ttl=3600  # 1 hour
+            signed_url = attachment_service.generate_signed_url(
+                attachment_id=receipt.attachment.id,
+                storage_key=receipt.attachment.storage_path,
+                ttl_minutes=60  # 1 hour
             )
         except Exception as e:
             logger.warning(f"Failed to generate signed URL: {e}")
         
         result["attachment"] = {
             "id": receipt.attachment.id,
-            "filename": receipt.attachment.original_filename,
+            "filename": receipt.attachment.filename_original,
             "mime_type": receipt.attachment.mime_type,
-            "size": receipt.attachment.size,
+            "size": receipt.attachment.file_size,
             "signed_url": signed_url
         }
     
