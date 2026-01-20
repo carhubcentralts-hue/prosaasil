@@ -94,6 +94,10 @@ export default function AssetsPage() {
     custom_fields: {} as Record<string, any>
   });
   const [saving, setSaving] = useState(false);
+  
+  // File upload state
+  const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(false);
 
   // Fetch assets
   const fetchAssets = useCallback(async () => {
@@ -162,6 +166,8 @@ export default function AssetsPage() {
     
     try {
       setSaving(true);
+      
+      // Create asset first
       const response = await fetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -180,14 +186,65 @@ export default function AssetsPage() {
         throw new Error(error.error || 'שגיאה ביצירת פריט');
       }
       
+      const asset = await response.json();
+      const assetId = asset.id;
+      
+      // Upload files if any
+      if (uploadingFiles.length > 0) {
+        setUploadProgress(true);
+        for (let i = 0; i < uploadingFiles.length; i++) {
+          const file = uploadingFiles[i];
+          try {
+            // Upload file to attachments service
+            const uploadFormData = new FormData();
+            uploadFormData.append('file', file);
+            uploadFormData.append('channel', 'assets');
+            
+            const uploadResponse = await fetch('/api/attachments/upload', {
+              method: 'POST',
+              credentials: 'include',
+              body: uploadFormData
+            });
+            
+            if (!uploadResponse.ok) {
+              throw new Error(`Failed to upload ${file.name}`);
+            }
+            
+            const attachmentData = await uploadResponse.json();
+            
+            // Link attachment to asset
+            const linkResponse = await fetch(`/api/assets/${assetId}/media`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                attachment_id: attachmentData.id,
+                role: i === 0 ? 'cover' : 'gallery',
+                sort_order: i
+              })
+            });
+            
+            if (!linkResponse.ok) {
+              console.warn(`Failed to link ${file.name} to asset`);
+            }
+          } catch (fileErr) {
+            console.error(`Error uploading file ${file.name}:`, fileErr);
+            // Continue with other files
+          }
+        }
+        setUploadProgress(false);
+      }
+      
       setModalOpen(false);
       resetForm();
+      setUploadingFiles([]);
       fetchAssets();
     } catch (err) {
       console.error('Error creating asset:', err);
       alert(err instanceof Error ? err.message : 'שגיאה ביצירת פריט');
     } finally {
       setSaving(false);
+      setUploadProgress(false);
     }
   };
 
@@ -265,6 +322,7 @@ export default function AssetsPage() {
       tags: [],
       custom_fields: {}
     });
+    setUploadingFiles([]);
   };
 
   const openEditModal = (asset: AssetDetail) => {
@@ -680,6 +738,56 @@ export default function AssetsPage() {
                     className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
+                
+                {/* File Upload Section */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    תמונות ומדיה
+                  </label>
+                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*,video/*,application/pdf"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          setUploadingFiles(Array.from(e.target.files));
+                        }
+                      }}
+                      className="hidden"
+                      id="asset-file-upload"
+                    />
+                    <label
+                      htmlFor="asset-file-upload"
+                      className="cursor-pointer flex flex-col items-center"
+                    >
+                      <Upload className="h-8 w-8 text-slate-400 mb-2" />
+                      <span className="text-sm text-slate-600 mb-1">העלה תמונות ומדיה</span>
+                      <span className="text-xs text-slate-400">תמונות, סרטונים, PDF</span>
+                    </label>
+                    
+                    {uploadingFiles.length > 0 && (
+                      <div className="mt-3 text-right space-y-1">
+                        <p className="text-sm font-medium text-slate-700">קבצים נבחרו:</p>
+                        {uploadingFiles.map((file, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 px-2 py-1 rounded">
+                            <span>{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setUploadingFiles(files => files.filter((_, index) => index !== i))}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    התמונה הראשונה תהיה תמונת הקאבר של הפריט
+                  </p>
+                </div>
               </div>
             </div>
             
@@ -693,11 +801,11 @@ export default function AssetsPage() {
               </button>
               <button
                 onClick={editingAsset ? handleUpdate : handleCreate}
-                disabled={saving || !formData.title.trim()}
+                disabled={saving || uploadProgress || !formData.title.trim()}
                 className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                {editingAsset ? 'שמור שינויים' : 'צור פריט'}
+                {(saving || uploadProgress) && <Loader2 className="h-4 w-4 animate-spin" />}
+                {uploadProgress ? 'מעלה קבצים...' : (editingAsset ? 'שמור שינויים' : 'צור פריט')}
               </button>
             </div>
           </div>
