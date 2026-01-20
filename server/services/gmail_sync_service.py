@@ -7,12 +7,14 @@ Features:
 - PDF text extraction for confidence scoring
 - Integration with unified attachment service
 - Rate limiting and error handling
+- Screenshot generation for emails without attachments
 
 Receipt Detection Algorithm:
-1. Quick filter: Only emails with PDF/image attachments
+1. Quick filter: Emails with OR without attachments
 2. Subject/sender keyword matching (קבלה, חשבונית, invoice, receipt)
 3. Known vendor domain matching
 4. PDF text extraction for confidence scoring
+5. Auto-screenshot generation if no attachment
 
 Security:
 - Encrypted refresh tokens
@@ -27,6 +29,13 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from email.utils import parsedate_to_datetime
+
+# Try importing Playwright at module level for efficiency
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -359,10 +368,9 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     
     # Even with low confidence, if we have keywords or attachment, it's worth reviewing
     # The worst case is user marks it as "not a receipt"
-    if confidence < MIN_CONFIDENCE:
-        # Give minimum confidence if we have keywords or attachment
-        if matched_keywords or has_pdf or has_image:
-            confidence = MIN_CONFIDENCE
+    if confidence < MIN_CONFIDENCE and (matched_keywords or has_pdf or has_image):
+        # Give minimum confidence if we have indicators
+        confidence = MIN_CONFIDENCE
     
     # Must have at least SOME indicator to be considered a receipt
     is_receipt = confidence >= MIN_CONFIDENCE
@@ -714,11 +722,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         result['skipped'] += 1
                         continue
                     
-                    # Get email date
-                    internal_date = int(message.get('internalDate', 0)) / 1000
-                    received_at = datetime.fromtimestamp(internal_date) if internal_date else None
-                    
-                    # Extract email body/HTML for preview generation
+                    # Extract email body/HTML for preview generation and screenshots
                     email_html_snippet = extract_email_html(message)
                     
                     # Process first PDF or image attachment
@@ -963,85 +967,87 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
     """
     try:
         # Method 1: Try using Playwright (already available in dependencies)
-        try:
-            from playwright.sync_api import sync_playwright
-            import tempfile
-            import os
-            
-            logger.info(f"🖼️ Generating HTML screenshot with Playwright for receipt {receipt_id or 'unknown'}")
-            
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page(viewport={'width': 800, 'height': 1200})
+        if PLAYWRIGHT_AVAILABLE:
+            try:
+                import tempfile
+                import os
                 
-                # Set HTML content
-                page.set_content(email_html)
+                logger.info(f"🖼️ Generating HTML screenshot with Playwright for receipt {receipt_id or 'unknown'}")
                 
-                # Wait for content to load
-                page.wait_for_load_state('networkidle')
-                
-                # Create temp file
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-                    screenshot_path = tmp.name
-                
-                # Take screenshot
-                page.screenshot(path=screenshot_path, full_page=True)
-                browser.close()
-                
-                # Read the screenshot
-                with open(screenshot_path, 'rb') as f:
-                    screenshot_data = f.read()
-                
-                # Clean up temp file
-                os.unlink(screenshot_path)
-                
-                if screenshot_data:
-                    # Save to storage
-                    from server.services.attachment_service import get_attachment_service
-                    from server.models_sql import Attachment
-                    from server.db import db
-                    from werkzeug.datastructures import FileStorage
-                    from io import BytesIO
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    page = browser.new_page(viewport={'width': 800, 'height': 1200})
                     
-                    attachment_service = get_attachment_service()
+                    # Set HTML content
+                    page.set_content(email_html)
                     
-                    file_storage = FileStorage(
-                        stream=BytesIO(screenshot_data),
-                        filename='email_screenshot.png',
-                        content_type='image/png'
-                    )
+                    # Wait for content to load
+                    page.wait_for_load_state('networkidle')
                     
-                    # Create attachment record
-                    attachment = Attachment(
-                        business_id=business_id,
-                        filename_original='email_screenshot.png',
-                        mime_type='image/png',
-                        file_size=0,
-                        storage_path='',
-                        purpose='receipt_source',
-                        origin_module='receipts',
-                        channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
-                    )
-                    db.session.add(attachment)
-                    db.session.flush()
+                    # Create temp file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+                        screenshot_path = tmp.name
                     
-                    # Save file
-                    storage_key, file_size = attachment_service.save_file(
-                        file=file_storage,
-                        business_id=business_id,
-                        attachment_id=attachment.id,
-                        purpose='receipt_source'
-                    )
+                    # Take screenshot
+                    page.screenshot(path=screenshot_path, full_page=True)
+                    browser.close()
                     
-                    attachment.storage_path = storage_key
-                    attachment.file_size = file_size
-                    db.session.commit()
+                    # Read the screenshot
+                    with open(screenshot_path, 'rb') as f:
+                        screenshot_data = f.read()
                     
-                    logger.info(f"✅ Email screenshot generated with Playwright: attachment_id={attachment.id}, size={file_size}")
-                    return attachment.id
+                    # Clean up temp file
+                    os.unlink(screenshot_path)
                     
-        except Exception as e:
-            logger.warning(f"Playwright screenshot failed: {e}")
+                    if screenshot_data:
+                        # Save to storage
+                        from server.services.attachment_service import get_attachment_service
+                        from server.models_sql import Attachment
+                        from server.db import db
+                        from werkzeug.datastructures import FileStorage
+                        from io import BytesIO
+                        
+                        attachment_service = get_attachment_service()
+                        
+                        file_storage = FileStorage(
+                            stream=BytesIO(screenshot_data),
+                            filename='email_screenshot.png',
+                            content_type='image/png'
+                        )
+                        
+                        # Create attachment record
+                        attachment = Attachment(
+                            business_id=business_id,
+                            filename_original='email_screenshot.png',
+                            mime_type='image/png',
+                            file_size=0,
+                            storage_path='',
+                            purpose='receipt_source',
+                            origin_module='receipts',
+                            channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
+                        )
+                        db.session.add(attachment)
+                        db.session.flush()
+                        
+                        # Save file
+                        storage_key, file_size = attachment_service.save_file(
+                            file=file_storage,
+                            business_id=business_id,
+                            attachment_id=attachment.id,
+                            purpose='receipt_source'
+                        )
+                        
+                        attachment.storage_path = storage_key
+                        attachment.file_size = file_size
+                        db.session.commit()
+                        
+                        logger.info(f"✅ Email screenshot generated with Playwright: attachment_id={attachment.id}, size={file_size}")
+                        return attachment.id
+                        
+            except Exception as e:
+                logger.warning(f"Playwright screenshot failed: {e}")
+        else:
+            logger.debug("Playwright not available, trying alternative methods")
         
         # Method 2: Try using html2image
         try:
