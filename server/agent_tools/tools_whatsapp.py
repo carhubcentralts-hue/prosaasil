@@ -10,6 +10,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Configuration constants
+MAX_ATTACHMENTS_PER_MESSAGE = 5  # Limit attachments to avoid spam and API limits
+
 # ================================================================================
 # INPUT/OUTPUT SCHEMAS
 # ================================================================================
@@ -124,7 +127,7 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
                 else:
                     attachment_service = get_attachment_service()
                     
-                    for attachment_id in input.attachment_ids[:5]:  # Limit to 5 images to avoid spam
+                    for attachment_id in input.attachment_ids[:MAX_ATTACHMENTS_PER_MESSAGE]:  # Limit attachments
                         try:
                             # 🔒 SECURITY: Fetch attachment with business_id validation (multi-tenant)
                             attachment = Attachment.query.filter_by(
