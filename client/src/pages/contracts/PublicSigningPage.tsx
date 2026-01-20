@@ -288,17 +288,17 @@ function PDFSigningView({
       </div>
 
       {/* PDF Preview with double-click signature placement */}
-      <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden bg-white">
+      <div className="relative border-2 border-gray-300 rounded-lg overflow-auto bg-white max-h-[600px] md:max-h-[800px]">
         <div
           ref={pdfContainerRef}
           onDoubleClick={handlePdfDoubleClick}
           className="relative cursor-pointer"
-          style={{ minHeight: '800px' }}
+          style={{ minHeight: '600px' }}
           title="לחץ לחיצה כפולה להוספת חתימה"
         >
           <iframe
             src={`${file.download_url}#page=${currentPage + 1}`}
-            className="w-full h-[800px] pointer-events-none"
+            className="w-full h-[600px] md:h-[800px]"
             title={file.filename}
           />
           
@@ -307,7 +307,7 @@ function PDFSigningView({
             {currentPageSignatures.map((sig) => {
               const pageInfo = pdfInfo.pages[currentPage];
               const containerWidth = pdfContainerRef.current?.offsetWidth || 800;
-              const containerHeight = 800;
+              const containerHeight = pdfContainerRef.current?.offsetHeight || 600;
               const scaleX = containerWidth / pageInfo.width;
               const scaleY = containerHeight / pageInfo.height;
               
@@ -861,10 +861,10 @@ export function PublicSigningPage() {
               {signedResult?.signed_document_url ? (
                 <>
                   {/* PDF Preview */}
-                  <div className="border-2 border-gray-200 rounded-lg overflow-hidden mb-4">
+                  <div className="border-2 border-gray-200 rounded-lg overflow-auto max-h-[600px] md:max-h-[800px] mb-4">
                     <iframe
                       src={signedResult.signed_document_url}
-                      className="w-full h-[800px]"
+                      className="w-full h-[600px] md:h-[800px]"
                       title="Signed Contract Preview"
                     />
                   </div>
