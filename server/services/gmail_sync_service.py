@@ -296,6 +296,10 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     metadata['from_email'] = from_email
     metadata['from_domain'] = from_domain
     
+    # Extract received date from email
+    date_header = headers.get('date', '')
+    metadata['date'] = date_header
+    
     # Check for attachments
     has_pdf = False
     has_image = False
@@ -832,6 +836,19 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     
                     # Extract structured data
                     extracted = extract_receipt_data(pdf_text, metadata)
+                    
+                    # Parse received date from email header
+                    received_at = None
+                    if metadata.get('date'):
+                        try:
+                            from email.utils import parsedate_to_datetime
+                            received_at = parsedate_to_datetime(metadata['date'])
+                        except Exception as e:
+                            logger.warning(f"Failed to parse email date '{metadata.get('date')}': {e}")
+                            received_at = datetime.utcnow()
+                    else:
+                        # Fallback to current time if no date header
+                        received_at = datetime.utcnow()
                     
                     # Determine status based on confidence
                     status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'

@@ -441,6 +441,8 @@ export function ReceiptsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -467,6 +469,8 @@ export function ReceiptsPage() {
       
       if (statusFilter) params.status = statusFilter;
       if (searchQuery) params.vendor = searchQuery;
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
       
       const res = await axios.get('/api/receipts', { params });
       
@@ -479,7 +483,7 @@ export function ReceiptsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, searchQuery]);
+  }, [page, statusFilter, searchQuery, fromDate, toDate]);
   
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -721,7 +725,7 @@ export function ReceiptsPage() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center px-3 py-2 border rounded-lg transition-colors ${
-              showFilters || statusFilter ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-gray-200 text-gray-600'
+              showFilters || statusFilter || fromDate || toDate ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-gray-200 text-gray-600'
             }`}
           >
             <Filter className="w-4 h-4 ml-1" />
@@ -732,40 +736,78 @@ export function ReceiptsPage() {
         
         {/* Filter panel */}
         {showFilters && (
-          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => { setStatusFilter(''); setPage(1); }}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  !statusFilter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                הכל
-              </button>
-              <button
-                onClick={() => { setStatusFilter('pending_review'); setPage(1); }}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  statusFilter === 'pending_review' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                לבדיקה
-              </button>
-              <button
-                onClick={() => { setStatusFilter('approved'); setPage(1); }}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  statusFilter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                מאושרות
-              </button>
-              <button
-                onClick={() => { setStatusFilter('rejected'); setPage(1); }}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  statusFilter === 'rejected' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                נדחו
-              </button>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 space-y-4">
+            {/* Status filters */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">סינון לפי סטטוס</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { setStatusFilter(''); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    !statusFilter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  הכל
+                </button>
+                <button
+                  onClick={() => { setStatusFilter('pending_review'); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    statusFilter === 'pending_review' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  לבדיקה
+                </button>
+                <button
+                  onClick={() => { setStatusFilter('approved'); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    statusFilter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  מאושרות
+                </button>
+                <button
+                  onClick={() => { setStatusFilter('rejected'); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    statusFilter === 'rejected' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  נדחו
+                </button>
+              </div>
+            </div>
+            
+            {/* Date filters */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">סינון לפי תאריך</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">מתאריך</label>
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">עד תאריך</label>
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => { setToDate(e.target.value); setPage(1); }}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+              </div>
+              {(fromDate || toDate) && (
+                <button
+                  onClick={() => { setFromDate(''); setToDate(''); setPage(1); }}
+                  className="mt-2 text-sm text-blue-600 hover:text-blue-700 flex items-center"
+                >
+                  <X className="w-3 h-3 ml-1" />
+                  נקה תאריכים
+                </button>
+              )}
             </div>
           </div>
         )}
