@@ -3322,13 +3322,55 @@ def apply_migrations():
                 
                 checkpoint("  ✅ asset_item_media table created")
                 migrations_applied.append('create_asset_item_media_table')
-                checkpoint("✅ Migration 81 completed - Assets Library tables created")
             except Exception as e:
                 log.error(f"❌ Migration 81 (asset_item_media) failed: {e}")
                 db.session.rollback()
                 raise
         else:
             checkpoint("  ℹ️ asset_item_media table already exists - skipping")
+        
+        # 🔥 CRITICAL: Enable 'assets' page for all businesses
+        # This ensures the Assets Library appears in sidebar for all businesses
+        if check_table_exists('business') and check_column_exists('business', 'enabled_pages'):
+            try:
+                checkpoint("  → Enabling 'assets' page for all businesses...")
+                
+                # Add 'assets' to enabled_pages for businesses that don't have it yet
+                # Using JSONB || operator for performance
+                result = db.session.execute(text("""
+                    UPDATE business
+                    SET enabled_pages = enabled_pages::jsonb || '["assets"]'::jsonb
+                    WHERE enabled_pages IS NOT NULL
+                      AND NOT (enabled_pages::jsonb ? 'assets')
+                """))
+                updated_count = result.rowcount
+                
+                if updated_count > 0:
+                    checkpoint(f"  ✅ Enabled 'assets' page for {updated_count} businesses")
+                else:
+                    checkpoint("  ℹ️ All businesses already have 'assets' page enabled")
+                
+                # For businesses with NULL or empty enabled_pages, set default pages including assets
+                result2 = db.session.execute(text("""
+                    UPDATE business
+                    SET enabled_pages = '["dashboard","crm_leads","crm_customers","calls_inbound","calls_outbound","whatsapp_inbox","whatsapp_broadcast","emails","calendar","statistics","invoices","contracts","assets","settings","users"]'::jsonb
+                    WHERE enabled_pages IS NULL
+                       OR enabled_pages::text = '[]'
+                       OR jsonb_array_length(enabled_pages::jsonb) = 0
+                """))
+                updated_count2 = result2.rowcount
+                
+                if updated_count2 > 0:
+                    checkpoint(f"  ✅ Set default pages (including assets) for {updated_count2} businesses with empty pages")
+                
+                migrations_applied.append('enable_assets_page_for_businesses')
+                checkpoint("✅ Migration 81 completed - Assets Library tables created and page enabled")
+            except Exception as e:
+                log.error(f"❌ Failed to enable assets page for businesses: {e}")
+                # Don't fail the entire migration if this fails
+                checkpoint("⚠️ Assets tables created but page enablement may need manual fix")
+        else:
+            checkpoint("✅ Migration 81 completed - Assets Library tables created")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:
