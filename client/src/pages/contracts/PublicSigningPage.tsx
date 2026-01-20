@@ -70,6 +70,7 @@ function PDFSigningView({
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [lastTapTime, setLastTapTime] = useState(0);
+  const [signatureModeActive, setSignatureModeActive] = useState(false);
 
   // Load PDF info
   useEffect(() => {
@@ -154,6 +155,9 @@ function PDFSigningView({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // Clear the canvas completely (makes it transparent)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Fill with white background for signature drawing
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     setCurrentSignatureData(null);
@@ -295,64 +299,87 @@ function PDFSigningView({
 
       {/* Instructions */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-blue-800 text-sm">
-        <strong>הוראות:</strong> לחץ <strong>לחיצה כפולה</strong> על המסמך במקום בו תרצה להוסיף חתימה. ניתן להוסיף מספר חתימות על עמודים שונים.
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <strong>הוראות:</strong> {signatureModeActive ? (
+              <>לחץ <strong>לחיצה כפולה</strong> על המסמך במקום בו תרצה להוסיף חתימה.</>
+            ) : (
+              <>גלול וקרא את המסמך. לחץ על "הוסף חתימה" כדי להתחיל לחתום.</>
+            )}
+          </div>
+          <button
+            onClick={() => setSignatureModeActive(!signatureModeActive)}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              signatureModeActive
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : 'bg-green-500 text-white hover:bg-green-600'
+            }`}
+          >
+            {signatureModeActive ? 'סגור מצב חתימה' : 'הוסף חתימה'}
+          </button>
+        </div>
       </div>
 
       {/* PDF Preview with double-click signature placement */}
-      <div className="relative border-2 border-gray-300 rounded-lg overflow-auto bg-white max-h-[600px] md:max-h-[800px]">
+      <div className="relative border-2 border-gray-300 rounded-lg bg-white">
         <div
           ref={pdfContainerRef}
-          className="relative"
-          style={{ minHeight: '600px' }}
+          className="relative w-full"
+          style={{ minHeight: '400px' }}
         >
           <iframe
             ref={iframeRef}
-            src={`${file.download_url}#page=${currentPage + 1}`}
-            className="w-full h-[600px] md:h-[800px]"
+            src={`${file.download_url}#page=${currentPage + 1}&view=FitH`}
+            className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
             title={file.filename}
+            style={{ 
+              border: 'none',
+              display: 'block'
+            }}
           />
           
-          {/* Transparent overlay for capturing double-clicks (works on desktop and mobile) */}
-          <div
-            className="absolute inset-0 cursor-pointer"
-            onDoubleClick={handlePdfDoubleClick}
-            onTouchEnd={(e) => {
-              // Handle double-tap on mobile
-              const now = Date.now();
-              const timeDiff = now - lastTapTime;
-              
-              if (timeDiff < 300 && timeDiff > 0) {
-                // Double tap detected
-                const touch = e.changedTouches[0];
-                const rect = pdfContainerRef.current?.getBoundingClientRect();
-                if (!rect) return;
+          {/* Transparent overlay for capturing double-clicks - ONLY when signature mode is active */}
+          {signatureModeActive && (
+            <div
+              className="absolute inset-0 cursor-crosshair bg-blue-50 bg-opacity-10"
+              onDoubleClick={handlePdfDoubleClick}
+              onTouchEnd={(e) => {
+                // Handle double-tap on mobile
+                const now = Date.now();
+                const timeDiff = now - lastTapTime;
                 
-                const x = touch.clientX - rect.left;
-                const y = touch.clientY - rect.top;
-                
-                // Convert screen coordinates to PDF coordinates
-                const pageInfo = pdfInfo?.pages[currentPage];
-                if (!pageInfo) return;
-                
-                const containerWidth = rect.width;
-                const containerHeight = rect.height;
-                const scaleX = pageInfo.width / containerWidth;
-                const scaleY = pageInfo.height / containerHeight;
-                
-                const pdfX = x * scaleX;
-                const pdfY = (containerHeight - y) * scaleY;
-                
-                setPendingPlacement({ pageNumber: currentPage, x: pdfX, y: pdfY });
-                setShowSignatureModal(true);
-                
-                setLastTapTime(0); // Reset after double-tap
-              } else {
-                setLastTapTime(now);
-              }
-            }}
-            title="לחץ לחיצה כפולה להוספת חתימה"
-            style={{ pointerEvents: 'auto' }}
-          />
+                if (timeDiff < 300 && timeDiff > 0) {
+                  // Double tap detected
+                  const touch = e.changedTouches[0];
+                  const rect = pdfContainerRef.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  
+                  const x = touch.clientX - rect.left;
+                  const y = touch.clientY - rect.top;
+                  
+                  // Convert screen coordinates to PDF coordinates
+                  const pageInfo = pdfInfo?.pages[currentPage];
+                  if (!pageInfo) return;
+                  
+                  const containerWidth = rect.width;
+                  const containerHeight = rect.height;
+                  const scaleX = pageInfo.width / containerWidth;
+                  const scaleY = pageInfo.height / containerHeight;
+                  
+                  const pdfX = x * scaleX;
+                  const pdfY = (containerHeight - y) * scaleY;
+                  
+                  setPendingPlacement({ pageNumber: currentPage, x: pdfX, y: pdfY });
+                  setShowSignatureModal(true);
+                  
+                  setLastTapTime(0); // Reset after double-tap
+                } else {
+                  setLastTapTime(now);
+                }
+              }}
+              title="לחץ לחיצה כפולה להוספת חתימה"
+            />
+          )}
           
           {/* Overlay for signature placements on current page */}
           <div className="absolute inset-0 pointer-events-none">
@@ -588,9 +615,10 @@ function SigningFilePreview({ file, formatFileSize }: {
         <div className="mt-4 border-2 border-gray-300 rounded-lg overflow-hidden">
           {isPdf ? (
             <iframe
-              src={file.download_url}
-              className="w-full h-[800px]"
+              src={`${file.download_url}#view=FitH`}
+              className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
               title={`Preview: ${file.filename}`}
+              style={{ border: 'none', display: 'block' }}
             />
           ) : isImage ? (
             <div className="flex justify-center p-4 bg-white">
@@ -789,7 +817,11 @@ export function PublicSigningPage() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
+    // Clear the canvas completely
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Fill with white background for signature drawing
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     setSignatureDataUrl(null);
   };
 
@@ -913,11 +945,12 @@ export function PublicSigningPage() {
               {signedResult?.signed_document_url ? (
                 <>
                   {/* PDF Preview */}
-                  <div className="border-2 border-gray-200 rounded-lg overflow-auto max-h-[600px] md:max-h-[800px] mb-4">
+                  <div className="border-2 border-gray-200 rounded-lg overflow-hidden mb-4">
                     <iframe
-                      src={signedResult.signed_document_url}
-                      className="w-full h-[600px] md:h-[800px]"
+                      src={`${signedResult.signed_document_url}#view=FitH`}
+                      className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
                       title="Signed Contract Preview"
+                      style={{ border: 'none', display: 'block' }}
                     />
                   </div>
                   
