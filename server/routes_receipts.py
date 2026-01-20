@@ -785,13 +785,27 @@ def sync_receipts():
             'pages_scanned': result.get('pages_scanned', 0),
             'messages_scanned': result.get('messages_scanned', 0),
             'months_processed': result.get('months_processed', 0),
-            'total_months': result.get('total_months', 0)
+            'total_months': result.get('total_months', 0),
+            'errors': result.get('errors', 0)
         })
+        
+        # Determine success message based on error count
+        error_count = result.get('errors', 0)
+        saved_count = result.get('new_count', 0)
+        
+        if error_count > 0 and saved_count > 0:
+            message = f"Sync completed with {saved_count} receipts saved and {error_count} errors"
+        elif error_count > 0:
+            message = f"Sync completed with {error_count} errors, no new receipts"
+        elif saved_count > 0:
+            message = f"Sync completed successfully, {saved_count} receipts saved"
+        else:
+            message = "Sync completed, no new receipts found"
         
         return jsonify({
             "ok": True,
             "data": {
-                "message": "Sync completed",
+                "message": message,
                 "mode": mode,
                 "from_date": from_date,
                 "to_date": to_date,
@@ -804,7 +818,8 @@ def sync_receipts():
                 "messages_scanned": result.get('messages_scanned', 0),
                 "months_processed": result.get('months_processed', 0),
                 "total_months": result.get('total_months', 0),
-                "errors": result.get('errors', 0)
+                "errors_count": result.get('errors', 0),
+                "has_errors": result.get('errors', 0) > 0
             }
         })
         
