@@ -19,6 +19,7 @@ class SendWhatsAppInput(BaseModel):
     to: Optional[str] = Field(None, description="Recipient phone in E.164 format (+972...). Leave empty to auto-use customer from context.")
     message: str = Field(..., description="Message text to send", min_length=1, max_length=4000)
     provider: Optional[str] = Field(None, description="Provider to use (baileys/twilio/auto)")
+    attachment_ids: Optional[list[int]] = Field(None, description="List of attachment IDs to send as images (from assets_get_media or direct attachment IDs)")
 
 class SendWhatsAppOutput(BaseModel):
     """WhatsApp send result"""
@@ -34,11 +35,17 @@ class SendWhatsAppOutput(BaseModel):
 @function_tool
 def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
     """
-    Send WhatsApp message
+    Send WhatsApp message with optional media attachments
     
     Recipient (to):
     - If provided: use it
     - If not provided: auto-use customer_phone from context (conversation partner)
+    
+    Media attachments (attachment_ids):
+    - Optional list of attachment IDs (from assets_get_media or direct attachment IDs)
+    - Sends images/videos/documents from the system
+    - Limit: 5 attachments per message
+    - First image/media will include the message as caption
     
     Provider logic:
     - Auto: tries Baileys first, falls back to Twilio
@@ -96,7 +103,85 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
                 error='שירות WhatsApp לא זמין כרגע'
             )
         
-        # Send message (with timeout protection)
+        # 🖼️ Send media attachments first (if provided)
+        if input.attachment_ids and len(input.attachment_ids) > 0:
+            try:
+                from server.models_sql import Attachment
+                from server.services.attachment_service import get_attachment_service
+                import base64
+                
+                attachment_service = get_attachment_service()
+                media_sent = 0
+                
+                for attachment_id in input.attachment_ids[:5]:  # Limit to 5 images to avoid spam
+                    try:
+                        # Fetch attachment from database
+                        attachment = Attachment.query.get(attachment_id)
+                        if not attachment or attachment.is_deleted:
+                            logger.warning(f"⚠️ Attachment {attachment_id} not found or deleted")
+                            continue
+                        
+                        # Get attachment content
+                        content = attachment_service.get_attachment_content(attachment.id, attachment.storage_path)
+                        if not content:
+                            logger.warning(f"⚠️ Could not read attachment {attachment_id}")
+                            continue
+                        
+                        # Convert to base64
+                        base64_data = base64.b64encode(content).decode('utf-8')
+                        
+                        # Determine media type
+                        media_type = 'document'
+                        if attachment.mime_type and attachment.mime_type.startswith('image/'):
+                            media_type = 'image'
+                        elif attachment.mime_type and attachment.mime_type.startswith('video/'):
+                            media_type = 'video'
+                        elif attachment.mime_type and attachment.mime_type.startswith('audio/'):
+                            media_type = 'audio'
+                        
+                        # Prepare media dict
+                        media_dict = {
+                            'data': base64_data,
+                            'mimetype': attachment.mime_type,
+                            'filename': attachment.filename_original or f'file_{attachment_id}'
+                        }
+                        
+                        # Send media with caption (first image gets the message)
+                        caption = input.message if media_sent == 0 else ""
+                        media_result = wa_service.send_media_message(
+                            to=recipient_phone,
+                            caption=caption,
+                            media=media_dict,
+                            media_type=media_type
+                        )
+                        
+                        if media_result.get('status') == 'sent':
+                            media_sent += 1
+                            logger.info(f"✅ Sent media attachment {attachment_id} ({media_type})")
+                        else:
+                            logger.warning(f"⚠️ Failed to send media {attachment_id}: {media_result.get('error')}")
+                    
+                    except Exception as media_error:
+                        logger.error(f"❌ Error sending media {attachment_id}: {media_error}")
+                        continue
+                
+                if media_sent > 0:
+                    logger.info(f"✅ Successfully sent {media_sent} media attachments")
+                    # Return success if at least one media was sent
+                    return SendWhatsAppOutput(
+                        status='sent',
+                        provider=wa_service.get_provider_name() if hasattr(wa_service, 'get_provider_name') else 'whatsapp',
+                        message_id=f"media_{media_sent}",
+                        error=None
+                    )
+                else:
+                    logger.warning(f"⚠️ No media attachments could be sent")
+                    
+            except Exception as media_error:
+                logger.error(f"❌ Error processing media attachments: {media_error}")
+                # Continue to send text message even if media fails
+        
+        # Send text message (with timeout protection)
         try:
             result = wa_service.send_message(to=recipient_phone, message=input.message)
         except Exception as send_error:
