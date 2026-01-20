@@ -567,7 +567,7 @@ function PDFSigningView({
             
             <div className="border-2 border-gray-300 rounded-lg bg-white mb-4 shadow-inner">
               <div className="p-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-300 flex justify-between items-center">
-                <span className="text-sm text-gray-700 font-medium">צייר את חתימתך כאן (רקע שקוף)</span>
+                <span className="text-sm text-gray-700 font-medium">צייר את חתימתך כאן</span>
                 <button 
                   onClick={clearSignature} 
                   className="text-sm text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1 rounded-lg transition-all flex items-center gap-1 font-medium active:scale-95"
@@ -576,28 +576,22 @@ function PDFSigningView({
                   נקה
                 </button>
               </div>
-              <canvas
-                ref={canvasRef}
-                width={450}
-                height={150}
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                onTouchStart={startDrawing}
-                onTouchMove={draw}
-                onTouchEnd={stopDrawing}
-                className="w-full cursor-crosshair touch-none"
-                style={{ 
-                  maxWidth: '100%', 
-                  height: '150px', 
-                  display: 'block',
-                  backgroundColor: 'transparent',
-                  backgroundImage: 'linear-gradient(45deg, #f0f0f0 25%, transparent 25%, transparent 75%, #f0f0f0 75%, #f0f0f0), linear-gradient(45deg, #f0f0f0 25%, transparent 25%, transparent 75%, #f0f0f0 75%, #f0f0f0)',
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 10px 10px'
-                }}
-              />
+              <div className="relative">
+                <canvas
+                  ref={canvasRef}
+                  width={450}
+                  height={150}
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                  className="w-full cursor-crosshair touch-none signature-canvas-transparent"
+                  style={{ maxWidth: '100%', height: '150px', display: 'block' }}
+                />
+              </div>
             </div>
 
             <div className="flex gap-3">

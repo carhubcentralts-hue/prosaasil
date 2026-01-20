@@ -63,9 +63,16 @@ def create_signature_overlay(
         # Load signature image from bytes
         sig_image = Image.open(io.BytesIO(signature.signature_image))
         
-        # PRESERVE TRANSPARENCY - do NOT convert RGBA to RGB with white background
-        # Keep RGBA mode for transparent signatures
-        if sig_image.mode != 'RGBA' and sig_image.mode != 'RGB':
+        # PRESERVE TRANSPARENCY - keep RGBA mode for transparent signatures
+        # Only convert if the mode is not already RGB/RGBA
+        if sig_image.mode == 'RGBA':
+            # Keep RGBA as-is for transparency
+            pass
+        elif sig_image.mode == 'RGB':
+            # Convert RGB to RGBA to support potential transparency from mask
+            sig_image = sig_image.convert('RGBA')
+        else:
+            # Convert other modes (L, P, etc.) to RGBA
             sig_image = sig_image.convert('RGBA')
         
         # Save to buffer
