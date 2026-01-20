@@ -530,7 +530,11 @@ export function ReceiptsPage() {
   const handleSync = useCallback(async () => {
     try {
       setSyncing(true);
-      const res = await axios.post('/api/receipts/sync');
+      const res = await axios.post('/api/receipts/sync', {}, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       
       if (res.data.success) {
         await fetchReceipts();

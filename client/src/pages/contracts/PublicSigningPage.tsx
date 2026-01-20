@@ -311,13 +311,24 @@ function PDFSigningView({
       </div>
 
       {/* Instructions */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-blue-800 text-sm">
+      <div className={`rounded-lg p-4 text-sm transition-all ${
+        signatureModeActive 
+          ? 'bg-green-50 border-2 border-green-400 shadow-md' 
+          : 'bg-blue-50 border border-blue-200'
+      }`}>
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <strong>הוראות:</strong> {signatureModeActive ? (
-              <>לחץ <strong>לחיצה כפולה</strong> על המסמך במקום בו תרצה להוסיף חתימה.</>
+          <div className={signatureModeActive ? 'text-green-900 font-medium' : 'text-blue-800'}>
+            {signatureModeActive ? (
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                <span>
+                  <strong>מצב חתימה פעיל!</strong> לחץ <strong>לחיצה כפולה</strong> על המסמך להוספת חתימה בעמוד {currentPage + 1}
+                </span>
+              </div>
             ) : (
-              <>גלול וקרא את המסמך. לחץ על "הוסף חתימה" כדי להתחיל לחתום.</>
+              <span>
+                <strong>הוראות:</strong> גלול וקרא את המסמך. לחץ על "הוסף חתימה" כדי להתחיל לחתום.
+              </span>
             )}
           </div>
           <button
@@ -331,13 +342,13 @@ function PDFSigningView({
               }
               setSignatureModeActive(!signatureModeActive);
             }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            className={`px-4 py-2 md:px-6 md:py-3 rounded-lg font-bold transition-all text-sm md:text-base shadow-md hover:shadow-lg active:scale-95 touch-manipulation ${
               signatureModeActive
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-green-500 text-white hover:bg-green-600'
+                ? 'bg-red-500 text-white hover:bg-red-600 ring-2 ring-red-300'
+                : 'bg-green-500 text-white hover:bg-green-600 ring-2 ring-green-300'
             }`}
           >
-            {signatureModeActive ? 'סגור מצב חתימה' : 'הוסף חתימה'}
+            {signatureModeActive ? '✕ סגור מצב חתימה' : '✓ הוסף חתימה'}
           </button>
         </div>
       </div>
@@ -363,10 +374,12 @@ function PDFSigningView({
           {/* Transparent overlay for capturing double-clicks - ONLY when signature mode is active */}
           {signatureModeActive && (
             <div
-              className="absolute inset-0 cursor-crosshair"
+              className="absolute inset-0 cursor-crosshair transition-all"
               style={{
-                backgroundColor: 'rgba(59, 130, 246, 0.05)', // Very light blue tint instead of bg-blue-50
-                pointerEvents: 'auto'
+                backgroundColor: 'rgba(34, 197, 94, 0.08)', // Green tint for signature mode
+                pointerEvents: 'auto',
+                backgroundImage: 'radial-gradient(circle, rgba(34, 197, 94, 0.15) 1px, transparent 1px)',
+                backgroundSize: '20px 20px'
               }}
               onDoubleClick={handlePdfDoubleClick}
               onTouchEnd={(e) => {
@@ -403,8 +416,13 @@ function PDFSigningView({
                   setLastTapTime(now);
                 }
               }}
-              title="לחץ לחיצה כפולה להוספת חתימה"
-            />
+              title={`לחץ לחיצה כפולה להוספת חתימה בעמוד ${currentPage + 1}`}
+            >
+              {/* Visual feedback for signature mode */}
+              <div className="absolute top-2 right-2 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg animate-pulse">
+                מצב חתימה - עמוד {currentPage + 1}
+              </div>
+            </div>
           )}
           
           {/* Overlay for signature placements on current page */}
@@ -457,17 +475,29 @@ function PDFSigningView({
 
       {/* Signature list */}
       {signaturePlacements.length > 0 && (
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-2">חתימות שנוספו:</h4>
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border-2 border-green-200 shadow-md">
+          <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+            חתימות שנוספו ({signaturePlacements.length}):
+          </h4>
           <div className="space-y-2">
             {signaturePlacements.map((sig, index) => (
-              <div key={sig.id} className="flex items-center justify-between bg-white p-2 rounded border">
-                <span className="text-sm">חתימה {index + 1} - עמוד {sig.pageNumber + 1}</span>
+              <div key={sig.id} className="flex items-center justify-between bg-white p-3 rounded-lg border-2 border-green-200 hover:border-green-400 transition-all shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center justify-center w-8 h-8 bg-green-100 rounded-full text-green-700 font-bold text-sm">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <span className="font-medium text-gray-900">חתימה {index + 1}</span>
+                    <span className="text-sm text-gray-600 block">עמוד {sig.pageNumber + 1}</span>
+                  </div>
+                </div>
                 <button
                   onClick={() => removeSignature(sig.id)}
-                  className="text-red-600 hover:text-red-700 p-1"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-all active:scale-95"
+                  title="הסר חתימה"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-5 h-5" />
                 </button>
               </div>
             ))}
@@ -479,27 +509,48 @@ function PDFSigningView({
       <Button
         onClick={handleSubmitSignatures}
         disabled={signing || signaturePlacements.length === 0}
-        className="w-full flex items-center justify-center gap-2"
+        className="w-full flex items-center justify-center gap-3 text-base md:text-lg py-4 md:py-5 shadow-lg hover:shadow-xl transition-all active:scale-95 touch-manipulation"
       >
-        <CheckCircle className="w-5 h-5" />
-        {signing ? 'חותם על המסמך...' : `אשר ${signaturePlacements.length} חתימות וחתום על המסמך`}
+        <CheckCircle className="w-6 h-6 md:w-7 md:h-7" />
+        {signing ? (
+          <span>חותם על המסמך...</span>
+        ) : (
+          <span className="font-bold">
+            {signaturePlacements.length === 0 
+              ? 'הוסף חתימה כדי להמשיך' 
+              : `אשר ${signaturePlacements.length} חתימות וחתום על המסמך`
+            }
+          </span>
+        )}
       </Button>
 
       {/* Signature Modal */}
       {showSignatureModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" dir="rtl">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-4 md:p-6 m-4" dir="rtl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">צייר את חתימתך</h3>
-              <button onClick={() => { setShowSignatureModal(false); clearSignature(); }} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X className="w-5 h-5" />
+              <div>
+                <h3 className="text-lg md:text-xl font-bold text-gray-900">צייר את חתימתך</h3>
+                <p className="text-xs md:text-sm text-gray-600 mt-1">
+                  החתימה תתווסף לעמוד {(pendingPlacement?.pageNumber ?? 0) + 1}
+                </p>
+              </div>
+              <button 
+                onClick={() => { setShowSignatureModal(false); clearSignature(); }} 
+                className="p-2 hover:bg-gray-100 rounded-lg transition-all active:scale-95"
+                title="סגור"
+              >
+                <X className="w-5 h-5 md:w-6 md:h-6" />
               </button>
             </div>
             
-            <div className="border-2 border-gray-300 rounded-lg bg-white mb-4">
-              <div className="p-2 bg-gray-50 border-b border-gray-300 flex justify-between items-center">
-                <span className="text-sm text-gray-600">צייר את חתימתך כאן</span>
-                <button onClick={clearSignature} className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1">
+            <div className="border-2 border-gray-300 rounded-lg bg-white mb-4 shadow-inner">
+              <div className="p-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-300 flex justify-between items-center">
+                <span className="text-sm text-gray-700 font-medium">צייר את חתימתך כאן</span>
+                <button 
+                  onClick={clearSignature} 
+                  className="text-sm text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1 rounded-lg transition-all flex items-center gap-1 font-medium active:scale-95"
+                >
                   <X className="w-4 h-4" />
                   נקה
                 </button>
@@ -516,7 +567,7 @@ function PDFSigningView({
                 onTouchMove={draw}
                 onTouchEnd={stopDrawing}
                 className="w-full cursor-crosshair touch-none"
-                style={{ maxWidth: '100%', height: '150px' }}
+                style={{ maxWidth: '100%', height: '150px', display: 'block' }}
               />
             </div>
 
@@ -524,14 +575,15 @@ function PDFSigningView({
               <Button
                 onClick={confirmSignaturePlacement}
                 disabled={!currentSignatureData}
-                className="flex-1"
+                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-bold touch-manipulation active:scale-95"
               >
-                <Plus className="w-4 h-4 ml-2" />
+                <Plus className="w-5 h-5" />
                 הוסף חתימה
               </Button>
               <Button
                 onClick={() => { setShowSignatureModal(false); clearSignature(); }}
                 variant="secondary"
+                className="px-6 py-3 text-base font-medium touch-manipulation active:scale-95"
               >
                 ביטול
               </Button>
