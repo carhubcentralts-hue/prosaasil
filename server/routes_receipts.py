@@ -23,13 +23,14 @@ Security:
 from flask import Blueprint, jsonify, request, g, redirect, url_for, session
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
-from server.models_sql import GmailConnection, Receipt, Attachment, User
+from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun
 from server.db import db
 from datetime import datetime, timezone
 import logging
 import os
 import json
 import secrets
+import threading
 from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
@@ -878,62 +879,48 @@ def sync_receipts():
     try:
         from server.services.gmail_sync_service import sync_gmail_receipts
         
-        # Run sync synchronously with date parameters and months_back
-        result = sync_gmail_receipts(
-            business_id, 
-            mode=mode, 
-            max_messages=max_messages,
-            from_date=from_date,
-            to_date=to_date,
-            months_back=months_back
-        )
+        # Check for existing running sync (prevent double-click)
+        existing_run = ReceiptSyncRun.query.filter_by(
+            business_id=business_id,
+            status='running'
+        ).first()
         
-        log_audit('sync', 'gmail_receipts', details={
-            'mode': mode,
-            'from_date': from_date,
-            'to_date': to_date,
-            'months_back': months_back,
-            'new_receipts': result.get('new_count', 0),
-            'pages_scanned': result.get('pages_scanned', 0),
-            'messages_scanned': result.get('messages_scanned', 0),
-            'months_processed': result.get('months_processed', 0),
-            'total_months': result.get('total_months', 0),
-            'errors': result.get('errors', 0)
-        })
+        if existing_run:
+            return jsonify({
+                "success": True,
+                "message": "Sync already in progress",
+                "sync_run_id": existing_run.id,
+                "status": "running"
+            }), 409  # Conflict
         
-        # Determine success message based on error count
-        error_count = result.get('errors', 0)
-        saved_count = result.get('new_count', 0)
+        # Start background thread
+        def run_sync_in_background():
+            from server.db import db
+            # Need app context for background thread
+            from flask import current_app
+            with current_app.app_context():
+                try:
+                    sync_gmail_receipts(
+                        business_id=business_id,
+                        mode=mode,
+                        max_messages=max_messages,
+                        from_date=from_date,
+                        to_date=to_date,
+                        months_back=months_back
+                    )
+                except Exception as e:
+                    logger.error(f"Background sync failed: {e}", exc_info=True)
         
-        if error_count > 0 and saved_count > 0:
-            message = f"Sync completed with {saved_count} receipts saved and {error_count} errors"
-        elif error_count > 0:
-            message = f"Sync completed with {error_count} errors, no new receipts"
-        elif saved_count > 0:
-            message = f"Sync completed successfully, {saved_count} receipts saved"
-        else:
-            message = "Sync completed, no new receipts found"
+        thread = threading.Thread(target=run_sync_in_background, daemon=True)
+        thread.start()
         
+        # Return immediately with 202 Accepted
         return jsonify({
-            "ok": True,
-            "data": {
-                "message": message,
-                "mode": mode,
-                "from_date": from_date,
-                "to_date": to_date,
-                "months_back": months_back,
-                "sync_run_id": result.get('sync_run_id'),
-                "new_receipts": result.get('new_count', 0),
-                "processed": result.get('processed', 0),
-                "skipped": result.get('skipped', 0),
-                "pages_scanned": result.get('pages_scanned', 0),
-                "messages_scanned": result.get('messages_scanned', 0),
-                "months_processed": result.get('months_processed', 0),
-                "total_months": result.get('total_months', 0),
-                "errors_count": result.get('errors', 0),
-                "has_errors": result.get('errors', 0) > 0
-            }
-        })
+            "success": True,
+            "message": "Sync started in background",
+            "sync_run_id": None,  # Will be created by sync function
+            "status": "starting"
+        }), 202
         
     except ImportError:
         logger.warning("Gmail sync service not yet implemented")
@@ -1097,6 +1084,14 @@ def get_sync_status():
         delta = sync_run.finished_at - sync_run.started_at
         duration_seconds = int(delta.total_seconds())
     
+    # Calculate progress percentage
+    progress_pct = 0
+    if sync_run.status == 'completed':
+        progress_pct = 100
+    elif sync_run.messages_scanned > 0:
+        # Rough estimate based on saved receipts vs scanned messages
+        progress_pct = min(95, (sync_run.saved_receipts / max(1, sync_run.messages_scanned)) * 100)
+    
     return jsonify({
         "success": True,
         "sync_run": {
@@ -1106,6 +1101,7 @@ def get_sync_status():
             "started_at": sync_run.started_at.isoformat(),
             "finished_at": sync_run.finished_at.isoformat() if sync_run.finished_at else None,
             "duration_seconds": duration_seconds,
+            "progress_percentage": progress_pct,
             "progress": {
                 "pages_scanned": sync_run.pages_scanned,
                 "messages_scanned": sync_run.messages_scanned,
