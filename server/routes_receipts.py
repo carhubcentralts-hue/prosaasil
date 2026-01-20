@@ -697,6 +697,13 @@ def sync_receipts():
     Body (optional):
     - mode: 'full' or 'incremental' (default: incremental)
     - max_messages: Maximum messages to process (optional)
+    - from_date: Start date in YYYY-MM-DD format (optional, overrides mode)
+    - to_date: End date in YYYY-MM-DD format (optional)
+    
+    Date range examples:
+    - {"from_date": "2023-01-01", "to_date": "2023-12-31"} - Sync all of 2023
+    - {"from_date": "2020-01-01"} - Sync from 2020 onwards
+    - {"to_date": "2024-12-31"} - Sync everything up to end of 2024
     
     This fetches new emails that may contain receipts and processes them.
     Returns immediately with status - sync happens synchronously.
@@ -720,6 +727,8 @@ def sync_receipts():
     
     mode = data.get('mode', 'incremental')
     max_messages = data.get('max_messages', None)
+    from_date = data.get('from_date', None)  # NEW: Support custom date range
+    to_date = data.get('to_date', None)      # NEW: Support custom date range
     
     if mode not in ['full', 'incremental']:
         return jsonify({
@@ -727,15 +736,42 @@ def sync_receipts():
             "error": "Invalid mode. Must be 'full' or 'incremental'"
         }), 400
     
+    # Validate date formats if provided
+    if from_date:
+        try:
+            datetime.strptime(from_date, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({
+                "success": False,
+                "error": "Invalid from_date format. Use YYYY-MM-DD (e.g., 2023-01-01)"
+            }), 400
+    
+    if to_date:
+        try:
+            datetime.strptime(to_date, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({
+                "success": False,
+                "error": "Invalid to_date format. Use YYYY-MM-DD (e.g., 2023-12-31)"
+            }), 400
+    
     # Import sync service
     try:
         from server.services.gmail_sync_service import sync_gmail_receipts
         
-        # Run sync synchronously
-        result = sync_gmail_receipts(business_id, mode=mode, max_messages=max_messages)
+        # Run sync synchronously with date parameters
+        result = sync_gmail_receipts(
+            business_id, 
+            mode=mode, 
+            max_messages=max_messages,
+            from_date=from_date,
+            to_date=to_date
+        )
         
         log_audit('sync', 'gmail_receipts', details={
             'mode': mode,
+            'from_date': from_date,
+            'to_date': to_date,
             'new_receipts': result.get('new_count', 0),
             'pages_scanned': result.get('pages_scanned', 0),
             'messages_scanned': result.get('messages_scanned', 0)
@@ -745,6 +781,8 @@ def sync_receipts():
             "success": True,
             "message": "Sync completed",
             "mode": mode,
+            "from_date": from_date,
+            "to_date": to_date,
             "sync_run_id": result.get('sync_run_id'),
             "new_receipts": result.get('new_count', 0),
             "processed": result.get('processed', 0),
