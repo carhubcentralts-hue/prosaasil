@@ -762,6 +762,18 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     
                     logger.info(f"Created receipt: vendor={extracted.get('vendor_name')}, confidence={confidence}, status={status}")
                     
+                    # Commit to get receipt ID
+                    db.session.flush()
+                    
+                    # Generate preview asynchronously (don't fail sync if preview fails)
+                    try:
+                        from server.services.receipt_preview_service import generate_receipt_preview
+                        if generate_receipt_preview(receipt.id):
+                            sync_run.preview_generated_count += 1
+                            logger.info(f"✅ Generated preview for receipt {receipt.id}")
+                    except Exception as preview_error:
+                        logger.warning(f"Preview generation failed for receipt {receipt.id}: {preview_error}")
+                    
                     # Commit periodically (every 10 receipts)
                     if result['new_count'] % 10 == 0:
                         sync_run.updated_at = datetime.utcnow()
