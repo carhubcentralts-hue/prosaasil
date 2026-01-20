@@ -213,9 +213,13 @@ def list_attachments():
         - page: Page number (default: 1)
         - per_page: Items per page (default: 30, max: 100)
         - include_contracts: Include contract-related files (default: false)
+        - include_receipts: Include receipt-related files (default: false)
     
     Response:
         - 200: List of attachments
+    
+    Note: By default, attachments linked to contracts or receipts are excluded
+    to ensure proper separation between business documents and communication files.
     """
     try:
         business_id = get_current_business_id()
@@ -229,9 +233,11 @@ def list_attachments():
             is_deleted=False
         )
         
-        # By default, exclude contract-related attachments (digital signatures, signed PDFs)
-        # These should only be visible in the contracts section
+        # By default, exclude contract-related and receipt-related attachments
+        # These should only be visible in their respective sections (contracts/receipts)
         include_contracts = request.args.get('include_contracts', 'false').lower() == 'true'
+        include_receipts = request.args.get('include_receipts', 'false').lower() == 'true'
+        
         if not include_contracts:
             # Exclude attachments that are linked to any contract file using EXISTS for better performance
             query = query.filter(
@@ -239,6 +245,17 @@ def list_attachments():
                     ContractFile.attachment_id == Attachment.id,
                     ContractFile.business_id == business_id,
                     ContractFile.deleted_at.is_(None)
+                ).exists()
+            )
+        
+        if not include_receipts:
+            # Exclude attachments that are linked to receipts
+            from server.models_sql import Receipt
+            query = query.filter(
+                ~db.session.query(Receipt).filter(
+                    Receipt.attachment_id == Attachment.id,
+                    Receipt.business_id == business_id,
+                    Receipt.is_deleted == False
                 ).exists()
             )
         

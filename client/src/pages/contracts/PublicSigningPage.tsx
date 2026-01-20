@@ -68,6 +68,7 @@ function PDFSigningView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentSignatureData, setCurrentSignatureData] = useState<string | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Load PDF info
   useEffect(() => {
@@ -101,6 +102,15 @@ function PDFSigningView({
       }
     }
   }, [showSignatureModal]);
+
+  // Update iframe src when page changes
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (iframe && pdfInfo) {
+      // Force iframe reload with new page number
+      iframe.src = `${file.download_url}#page=${currentPage + 1}`;
+    }
+  }, [currentPage, file.download_url, pdfInfo]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     setSignatureDrawing(true);
@@ -149,6 +159,11 @@ function PDFSigningView({
   };
 
   const handlePdfDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Prevent if clicking inside iframe directly - let overlay handle it
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).tagName !== 'IFRAME') {
+      return;
+    }
+    
     if (!pdfContainerRef.current) return;
     const rect = pdfContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -291,15 +306,57 @@ function PDFSigningView({
       <div className="relative border-2 border-gray-300 rounded-lg overflow-auto bg-white max-h-[600px] md:max-h-[800px]">
         <div
           ref={pdfContainerRef}
-          onDoubleClick={handlePdfDoubleClick}
-          className="relative cursor-pointer"
+          className="relative"
           style={{ minHeight: '600px' }}
-          title="לחץ לחיצה כפולה להוספת חתימה"
         >
           <iframe
+            ref={iframeRef}
             src={`${file.download_url}#page=${currentPage + 1}`}
             className="w-full h-[600px] md:h-[800px]"
             title={file.filename}
+          />
+          
+          {/* Transparent overlay for capturing double-clicks (works on desktop and mobile) */}
+          <div
+            className="absolute inset-0 cursor-pointer"
+            onDoubleClick={handlePdfDoubleClick}
+            onTouchEnd={(e) => {
+              // Handle double-tap on mobile
+              const now = Date.now();
+              const lastTap = (e.currentTarget as any).lastTap || 0;
+              const timeDiff = now - lastTap;
+              
+              if (timeDiff < 300 && timeDiff > 0) {
+                // Double tap detected
+                const touch = e.changedTouches[0];
+                const rect = pdfContainerRef.current?.getBoundingClientRect();
+                if (!rect) return;
+                
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                
+                // Convert screen coordinates to PDF coordinates
+                const pageInfo = pdfInfo?.pages[currentPage];
+                if (!pageInfo) return;
+                
+                const containerWidth = rect.width;
+                const containerHeight = rect.height;
+                const scaleX = pageInfo.width / containerWidth;
+                const scaleY = pageInfo.height / containerHeight;
+                
+                const pdfX = x * scaleX;
+                const pdfY = (containerHeight - y) * scaleY;
+                
+                setPendingPlacement({ pageNumber: currentPage, x: pdfX, y: pdfY });
+                setShowSignatureModal(true);
+                
+                (e.currentTarget as any).lastTap = 0; // Reset
+              } else {
+                (e.currentTarget as any).lastTap = now;
+              }
+            }}
+            title="לחץ לחיצה כפולה להוספת חתימה"
+            style={{ pointerEvents: 'auto' }}
           />
           
           {/* Overlay for signature placements on current page */}
