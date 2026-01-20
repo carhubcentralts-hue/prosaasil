@@ -3251,6 +3251,85 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 81: Assets Library (מאגר) - Create asset_items and asset_item_media tables
+        # 🎯 PURPOSE: Add Assets Library feature for managing items with images
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 81: Assets Library - Creating asset_items and asset_item_media tables")
+        
+        if not check_table_exists('asset_items'):
+            try:
+                checkpoint("  → Creating asset_items table...")
+                db.session.execute(text("""
+                    CREATE TABLE asset_items (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        title VARCHAR(160) NOT NULL,
+                        description TEXT,
+                        tags JSON DEFAULT '[]',
+                        category VARCHAR(64),
+                        status VARCHAR(16) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+                        custom_fields JSON,
+                        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for efficient querying
+                db.session.execute(text("""
+                    CREATE INDEX idx_asset_items_business_updated ON asset_items(business_id, updated_at DESC)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_asset_items_business_status_category ON asset_items(business_id, status, category)
+                """))
+                
+                checkpoint("  ✅ asset_items table created")
+                migrations_applied.append('create_asset_items_table')
+            except Exception as e:
+                log.error(f"❌ Migration 81 (asset_items) failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ asset_items table already exists - skipping")
+        
+        if not check_table_exists('asset_item_media'):
+            try:
+                checkpoint("  → Creating asset_item_media table...")
+                db.session.execute(text("""
+                    CREATE TABLE asset_item_media (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        asset_item_id INTEGER NOT NULL REFERENCES asset_items(id) ON DELETE CASCADE,
+                        attachment_id INTEGER NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+                        role VARCHAR(32) NOT NULL DEFAULT 'gallery' CHECK (role IN ('cover', 'gallery', 'floorplan', 'other')),
+                        sort_order INTEGER DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                
+                # Create indexes for efficient querying
+                db.session.execute(text("""
+                    CREATE INDEX idx_asset_item_media_item ON asset_item_media(asset_item_id)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_asset_item_media_sort ON asset_item_media(asset_item_id, sort_order)
+                """))
+                db.session.execute(text("""
+                    CREATE INDEX idx_asset_item_media_attachment ON asset_item_media(attachment_id)
+                """))
+                
+                checkpoint("  ✅ asset_item_media table created")
+                migrations_applied.append('create_asset_item_media_table')
+                checkpoint("✅ Migration 81 completed - Assets Library tables created")
+            except Exception as e:
+                log.error(f"❌ Migration 81 (asset_item_media) failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ asset_item_media table already exists - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

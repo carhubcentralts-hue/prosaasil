@@ -193,6 +193,18 @@ PAGE_REGISTRY: Dict[str, PageConfig] = {
         description="ניהול חוזים"
     ),
     
+    # Assets Library (מאגר)
+    "assets": PageConfig(
+        page_key="assets",
+        title_he="מאגר",
+        route="/app/assets",
+        min_role="agent",
+        category="crm",
+        api_tags=["assets", "inventory"],
+        icon="Package",
+        description="ניהול פריטים, מלאי ותמונות"
+    ),
+    
     # Settings & Management
     "settings": PageConfig(
         page_key="settings",

@@ -44,6 +44,7 @@ const EmailsPage = lazy(() => import('../pages/emails/EmailsPage').then(m => ({ 
 const StatisticsPage = lazy(() => import('../pages/statistics/StatisticsPage').then(m => ({ default: m.StatisticsPage })));
 const ContractsPage = lazy(() => import('../pages/contracts/ContractsPage').then(m => ({ default: m.ContractsPage })));
 const PublicSigningPage = lazy(() => import('../pages/contracts/PublicSigningPage').then(m => ({ default: m.PublicSigningPage })));
+const AssetsPage = lazy(() => import('../pages/assets/AssetsPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -299,6 +300,20 @@ export function AppRoutes() {
               <PageGuard pageKey="contracts">
                 <Suspense fallback={<PageLoader />}>
                   <ContractsPage />
+                </Suspense>
+              </PageGuard>
+            </RoleGuard>
+          }
+        />
+
+        {/* Assets Library Routes (מאגר) */}
+        <Route
+          path="assets"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
+              <PageGuard pageKey="assets">
+                <Suspense fallback={<PageLoader />}>
+                  <AssetsPage />
                 </Suspense>
               </PageGuard>
             </RoleGuard>
