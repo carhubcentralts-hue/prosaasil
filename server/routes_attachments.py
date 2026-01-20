@@ -94,6 +94,9 @@ def upload_attachment():
         - multipart/form-data
         - file: File to upload
         - channel: Optional target channel (email/whatsapp/broadcast) for validation
+        - purpose: Optional purpose (default: general_upload)
+                   Values: general_upload, contract_original, contract_signed, 
+                          email_attachment, whatsapp_media, receipt_source, receipt_preview
     
     Response:
         - 201: Attachment created
@@ -134,6 +137,15 @@ def upload_attachment():
         if channel not in ['email', 'whatsapp', 'broadcast']:
             return jsonify({'error': 'Invalid channel'}), 400
         
+        # Get purpose (default: general_upload)
+        purpose = request.form.get('purpose', 'general_upload')
+        valid_purposes = [
+            'general_upload', 'contract_original', 'contract_signed',
+            'email_attachment', 'whatsapp_media', 'receipt_source', 'receipt_preview'
+        ]
+        if purpose not in valid_purposes:
+            return jsonify({'error': f'Invalid purpose. Must be one of: {", ".join(valid_purposes)}'}), 400
+        
         # Validate file
         attachment_service = get_attachment_service()
         is_valid, error_msg = attachment_service.validate_file(file, channel)
@@ -161,6 +173,7 @@ def upload_attachment():
             mime_type=mime_type,
             file_size=file_size,
             storage_path='',  # Will be set after we have the ID
+            purpose=purpose,  # Set purpose
             channel_compatibility=compatibility,
             meta_json={}
         )
@@ -168,8 +181,8 @@ def upload_attachment():
         db.session.add(attachment)
         db.session.flush()  # Get the ID
         
-        # Save file to storage
-        storage_path, actual_size = attachment_service.save_file(file, business_id, attachment.id)
+        # Save file to storage with purpose
+        storage_path, actual_size = attachment_service.save_file(file, business_id, attachment.id, purpose)
         attachment.storage_path = storage_path
         
         db.session.commit()
@@ -182,7 +195,8 @@ def upload_attachment():
             'filename': filename,
             'mime_type': mime_type,
             'file_size': file_size,
-            'channel': channel
+            'channel': channel,
+            'purpose': purpose
         })
         
         return jsonify({
@@ -190,6 +204,7 @@ def upload_attachment():
             'filename': filename,
             'mime_type': mime_type,
             'file_size': file_size,
+            'purpose': purpose,
             'channel_compatibility': compatibility,
             'preview_url': preview_url,
             'created_at': attachment.created_at.isoformat()
@@ -208,18 +223,19 @@ def list_attachments():
     List attachments for current business
     
     Query params:
+        - purpose: Filter by single purpose (e.g., 'receipt_source', 'general_upload')
+        - purposes: Filter by multiple purposes (comma-separated, e.g., 'receipt_source,receipt_preview')
         - channel: Filter by channel compatibility (email/whatsapp/broadcast)
         - mime_type: Filter by mime type prefix (e.g., 'image/', 'video/')
         - page: Page number (default: 1)
         - per_page: Items per page (default: 30, max: 100)
-        - include_contracts: Include contract-related files (default: false)
-        - include_receipts: Include receipt-related files (default: false)
+        - include_contracts: Include contract-related files (default: false) - DEPRECATED, use purpose filter
+        - include_receipts: Include receipt-related files (default: false) - DEPRECATED, use purpose filter
     
     Response:
         - 200: List of attachments
     
-    Note: By default, attachments linked to contracts or receipts are excluded
-    to ensure proper separation between business documents and communication files.
+    Note: By default, shows general_upload attachments. Use purpose/purposes to filter specific types.
     """
     try:
         business_id = get_current_business_id()
@@ -233,30 +249,36 @@ def list_attachments():
             is_deleted=False
         )
         
-        # By default, exclude contract-related and receipt-related attachments
-        # These should only be visible in their respective sections (contracts/receipts)
-        include_contracts = request.args.get('include_contracts', 'false').lower() == 'true'
-        include_receipts = request.args.get('include_receipts', 'false').lower() == 'true'
+        # Filter by purpose (new, recommended way)
+        purpose = request.args.get('purpose')
+        purposes_param = request.args.get('purposes')
         
-        if not include_contracts:
-            # Exclude attachments that are linked to any contract file using EXISTS for better performance
-            query = query.filter(
-                ~db.session.query(ContractFile).filter(
-                    ContractFile.attachment_id == Attachment.id,
-                    ContractFile.business_id == business_id,
-                    ContractFile.deleted_at.is_(None)
-                ).exists()
-            )
-        
-        if not include_receipts:
-            # Exclude attachments that are linked to receipts
-            query = query.filter(
-                ~db.session.query(Receipt).filter(
-                    Receipt.attachment_id == Attachment.id,
-                    Receipt.business_id == business_id,
-                    Receipt.is_deleted == False
-                ).exists()
-            )
+        if purpose:
+            # Single purpose filter
+            query = query.filter(Attachment.purpose == purpose)
+        elif purposes_param:
+            # Multiple purposes filter (comma-separated)
+            purposes_list = [p.strip() for p in purposes_param.split(',') if p.strip()]
+            if purposes_list:
+                query = query.filter(Attachment.purpose.in_(purposes_list))
+        else:
+            # Default: exclude specialized purposes unless explicitly requested
+            # This prevents mixing general uploads with receipts/contracts/etc.
+            # Legacy support for include_contracts/include_receipts flags
+            include_contracts = request.args.get('include_contracts', 'false').lower() == 'true'
+            include_receipts = request.args.get('include_receipts', 'false').lower() == 'true'
+            
+            excluded_purposes = []
+            if not include_contracts:
+                excluded_purposes.extend(['contract_original', 'contract_signed'])
+            if not include_receipts:
+                excluded_purposes.extend(['receipt_source', 'receipt_preview'])
+            
+            # Also exclude email and whatsapp attachments by default
+            excluded_purposes.extend(['email_attachment', 'whatsapp_media'])
+            
+            if excluded_purposes:
+                query = query.filter(~Attachment.purpose.in_(excluded_purposes))
         
         # Filter by channel compatibility
         channel = request.args.get('channel')
@@ -297,6 +319,7 @@ def list_attachments():
                 'filename': att.filename_original,
                 'mime_type': att.mime_type,
                 'file_size': att.file_size,
+                'purpose': att.purpose,  # Add purpose to response
                 'channel_compatibility': att.channel_compatibility,
                 'preview_url': preview_url,
                 'created_at': att.created_at.isoformat(),
