@@ -94,25 +94,26 @@ function PDFSigningView({
     loadPdfInfo();
   }, [file.id, token, onError]);
 
-  // Initialize canvas
+  // Initialize canvas - NO WHITE BACKGROUND for transparency
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas && showSignatureModal) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Clear canvas to transparent - DO NOT fill with white
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     }
   }, [showSignatureModal]);
 
-  // Update iframe src when page changes
+  // Update iframe src when page changes - with mobile fix
   useEffect(() => {
     const iframe = iframeRef.current;
     if (iframe && pdfInfo) {
-      // Directly set the src to navigate to the correct page
-      // The key prop on the iframe will force a reload when the page changes
-      iframe.src = `${file.download_url}#page=${currentPage + 1}`;
+      // Force complete reload on mobile to ensure page changes
+      // Add timestamp to bust any caching
+      const timestamp = Date.now();
+      iframe.src = `${file.download_url}#page=${currentPage + 1}&t=${timestamp}`;
     }
   }, [currentPage, file.download_url, pdfInfo]);
 
@@ -166,11 +167,8 @@ function PDFSigningView({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    // Clear the canvas completely (makes it transparent)
+    // Clear the canvas completely to transparent - NO WHITE BACKGROUND
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Fill with white background for signature drawing
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
     setCurrentSignatureData(null);
   };
 
@@ -207,7 +205,7 @@ function PDFSigningView({
       id: `sig-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       pageNumber: pendingPlacement.pageNumber,
       x: pendingPlacement.x,
-      y: pendingPlacement.y - 50, // Adjust for signature height
+      y: pendingPlacement.y, // Use exact click position - NO offset adjustment
       width: 150,
       height: 50,
       signatureDataUrl: currentSignatureData,
@@ -578,20 +576,22 @@ function PDFSigningView({
                   נקה
                 </button>
               </div>
-              <canvas
-                ref={canvasRef}
-                width={450}
-                height={150}
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                onTouchStart={startDrawing}
-                onTouchMove={draw}
-                onTouchEnd={stopDrawing}
-                className="w-full cursor-crosshair touch-none"
-                style={{ maxWidth: '100%', height: '150px', display: 'block' }}
-              />
+              <div className="relative">
+                <canvas
+                  ref={canvasRef}
+                  width={450}
+                  height={150}
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                  className="w-full cursor-crosshair touch-none signature-canvas-transparent"
+                  style={{ maxWidth: '100%', height: '150px', display: 'block' }}
+                />
+              </div>
             </div>
 
             <div className="flex gap-3">
@@ -775,14 +775,14 @@ export function PublicSigningPage() {
     }
   }, [contract]);
 
-  // Initialize canvas with white background
+  // Initialize canvas with transparent background - NO WHITE FILL
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas && showDigitalSignature) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Clear to transparent - DO NOT fill with white
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     }
   }, [showDigitalSignature]);
@@ -918,11 +918,8 @@ export function PublicSigningPage() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Clear the canvas completely
+    // Clear the canvas completely to transparent - NO WHITE FILL
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Fill with white background for signature drawing
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
     setSignatureDataUrl(null);
   };
 

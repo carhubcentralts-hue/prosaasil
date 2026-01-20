@@ -63,21 +63,24 @@ def create_signature_overlay(
         # Load signature image from bytes
         sig_image = Image.open(io.BytesIO(signature.signature_image))
         
-        # Convert RGBA to RGB if needed (for PDF compatibility)
+        # PRESERVE TRANSPARENCY - keep RGBA mode for transparent signatures
+        # Only convert if the mode is not already RGB/RGBA
         if sig_image.mode == 'RGBA':
-            # Create white background and paste the image
-            background = Image.new('RGB', sig_image.size, (255, 255, 255))
-            background.paste(sig_image, mask=sig_image.split()[3])
-            sig_image = background
-        elif sig_image.mode != 'RGB':
-            sig_image = sig_image.convert('RGB')
+            # Keep RGBA as-is for transparency
+            pass
+        elif sig_image.mode == 'RGB':
+            # Convert RGB to RGBA to support potential transparency from mask
+            sig_image = sig_image.convert('RGBA')
+        else:
+            # Convert other modes (L, P, etc.) to RGBA
+            sig_image = sig_image.convert('RGBA')
         
         # Save to buffer
         img_buffer = io.BytesIO()
         sig_image.save(img_buffer, format='PNG')
         img_buffer.seek(0)
         
-        # Draw the signature on the canvas
+        # Draw the signature on the canvas with transparency support
         img_reader = ImageReader(img_buffer)
         c.drawImage(
             img_reader,
@@ -86,7 +89,7 @@ def create_signature_overlay(
             width=signature.width,
             height=signature.height,
             preserveAspectRatio=True,
-            mask='auto'
+            mask='auto'  # This enables transparency support
         )
         
         # Optionally add signer name below the signature
