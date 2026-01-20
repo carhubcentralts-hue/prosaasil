@@ -17,6 +17,7 @@ Security:
 """
 
 from flask import Blueprint, jsonify, request, g
+from functools import wraps
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import AssetItem, AssetItemMedia, Attachment, Business
@@ -28,6 +29,52 @@ import logging
 logger = logging.getLogger(__name__)
 
 assets_bp = Blueprint("assets", __name__, url_prefix="/api/assets")
+
+
+def require_assets_enabled(f):
+    """
+    Decorator to check if assets feature is enabled for the business.
+    Returns 403 if assets are disabled (either page not enabled or AI toggle off).
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Get business_id from context
+        business_id = None
+        if hasattr(g, 'tenant') and g.tenant:
+            business_id = g.tenant
+        elif hasattr(g, 'user') and g.user and isinstance(g.user, dict):
+            business_id = g.user.get('business_id')
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Check if assets feature is enabled
+        from server.agent_tools.tools_assets import is_assets_enabled
+        if not is_assets_enabled(business_id):
+            logger.warning(f"[ASSETS] Access denied: assets disabled for business_id={business_id}")
+            return jsonify({'error': 'Assets feature is not enabled for this business'}), 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def clean_str(value):
+    """
+    Safely clean string values from JSON input.
+    Handles None, empty strings, and strips whitespace.
+    
+    Args:
+        value: Any value (None, str, int, etc.)
+    
+    Returns:
+        Cleaned string or None if value is None/empty
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
 
 
 def get_current_user_id():
@@ -49,6 +96,7 @@ def get_current_business_id():
 @assets_bp.route('', methods=['GET'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def list_assets():
     """
     List assets for current business with filtering
@@ -182,6 +230,7 @@ def list_assets():
 @assets_bp.route('', methods=['POST'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def create_asset():
     """
     Create a new asset
@@ -208,9 +257,9 @@ def create_asset():
         data = request.get_json() or {}
         
         # Validate required fields
-        title = data.get('title', '').strip()
+        title = clean_str(data.get('title'))
         if not title:
-            return jsonify({'error': 'Title is required'}), 400
+            return jsonify({'error': 'title_required'}), 400
         
         if len(title) > 160:
             return jsonify({'error': 'Title must be 160 characters or less'}), 400
@@ -219,9 +268,9 @@ def create_asset():
         asset = AssetItem(
             business_id=business_id,
             title=title,
-            description=data.get('description', '').strip() or None,
+            description=clean_str(data.get('description')),
             tags=data.get('tags', []),
-            category=data.get('category', '').strip() or None,
+            category=clean_str(data.get('category')),
             custom_fields=data.get('custom_fields'),
             status='active',
             created_by=user_id,
@@ -253,6 +302,7 @@ def create_asset():
 @assets_bp.route('/<int:asset_id>', methods=['GET'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def get_asset(asset_id):
     """
     Get asset details with full media list
@@ -325,6 +375,7 @@ def get_asset(asset_id):
 @assets_bp.route('/<int:asset_id>', methods=['PATCH'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def update_asset(asset_id):
     """
     Update asset fields (allowlist: title, description, tags, category, status, custom_fields)
@@ -362,21 +413,21 @@ def update_asset(asset_id):
                 
                 # Validate specific fields
                 if field == 'title':
-                    if not value or not value.strip():
+                    value = clean_str(value)
+                    if not value:
                         return jsonify({'error': 'Title cannot be empty'}), 400
                     if len(value) > 160:
                         return jsonify({'error': 'Title must be 160 characters or less'}), 400
-                    value = value.strip()
                 
                 elif field == 'status':
                     if value not in ['active', 'archived']:
                         return jsonify({'error': 'Status must be active or archived'}), 400
                 
                 elif field == 'description':
-                    value = value.strip() if value else None
+                    value = clean_str(value)
                 
                 elif field == 'category':
-                    value = value.strip() if value else None
+                    value = clean_str(value)
                 
                 setattr(asset, field, value)
         
@@ -407,6 +458,7 @@ def update_asset(asset_id):
 @assets_bp.route('/<int:asset_id>/media', methods=['POST'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def add_asset_media(asset_id):
     """
     Add media to asset (links existing attachment)
@@ -522,6 +574,7 @@ def add_asset_media(asset_id):
 @assets_bp.route('/<int:asset_id>/media/<int:media_id>', methods=['DELETE'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def remove_asset_media(asset_id, media_id):
     """
     Remove media from asset (deletes the association, not the attachment)
@@ -576,6 +629,7 @@ def remove_asset_media(asset_id, media_id):
 @assets_bp.route('/<int:asset_id>', methods=['DELETE'])
 @require_api_auth
 @require_page_access('assets')
+@require_assets_enabled
 def archive_asset(asset_id):
     """
     Archive asset (soft delete - sets status to 'archived')
