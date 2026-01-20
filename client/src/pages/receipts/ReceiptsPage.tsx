@@ -24,6 +24,10 @@ import {
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
 
+// Constants
+const SYNC_POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
+const SYNC_MAX_POLL_DURATION_MS = 10 * 60 * 1000; // Stop polling after 10 minutes
+
 // Receipt interface
 interface ReceiptItem {
   id: number;
@@ -652,8 +656,8 @@ export function ReceiptsPage() {
       }
     };
     
-    // Poll every 2 seconds
-    const interval = setInterval(pollProgress, 2000);
+    // Poll at regular interval
+    const interval = setInterval(pollProgress, SYNC_POLL_INTERVAL_MS);
     pollProgress(); // Initial poll
     
     return () => clearInterval(interval);
@@ -723,10 +727,10 @@ export function ReceiptsPage() {
         // Start polling for status
         const pollInterval = setInterval(async () => {
           await pollSyncStatus();
-        }, 2000); // Poll every 2 seconds
+        }, SYNC_POLL_INTERVAL_MS);
 
-        // Stop polling after 10 minutes max
-        setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
+        // Stop polling after max duration
+        setTimeout(() => clearInterval(pollInterval), SYNC_MAX_POLL_DURATION_MS);
 
         // Initial status fetch
         await pollSyncStatus();
@@ -735,8 +739,8 @@ export function ReceiptsPage() {
         alert('סנכרון כבר רץ. ממשיך לעקוב אחר ההתקדמות...');
         setSyncInProgress(true);
         // Start polling
-        const pollInterval = setInterval(pollSyncStatus, 2000);
-        setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
+        const pollInterval = setInterval(pollSyncStatus, SYNC_POLL_INTERVAL_MS);
+        setTimeout(() => clearInterval(pollInterval), SYNC_MAX_POLL_DURATION_MS);
       }
 
     } catch (error: any) {
