@@ -152,6 +152,15 @@ function PDFSigningView({
     }
   };
 
+  const navigateToPage = (newPage: number) => {
+    if (newPage >= 0 && newPage < (pdfInfo?.page_count || 0) && newPage !== currentPage) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
+      }
+      setCurrentPage(newPage);
+    }
+  };
+
   const clearSignature = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -289,22 +298,10 @@ function PDFSigningView({
       <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border-2 border-blue-200 shadow-sm">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              const newPage = Math.max(0, currentPage - 1);
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
-              }
-              setCurrentPage(newPage);
-            }}
+            onClick={() => navigateToPage(Math.max(0, currentPage - 1))}
             onTouchEnd={(e) => {
               e.preventDefault();
-              if (currentPage > 0) {
-                const newPage = Math.max(0, currentPage - 1);
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
-                }
-                setCurrentPage(newPage);
-              }
+              navigateToPage(Math.max(0, currentPage - 1));
             }}
             disabled={currentPage === 0}
             className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed active:bg-blue-200 touch-manipulation shadow-sm border border-blue-200"
@@ -318,22 +315,10 @@ function PDFSigningView({
             </span>
           </div>
           <button
-            onClick={() => {
-              const newPage = Math.min(pdfInfo.page_count - 1, currentPage + 1);
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`[PDF_NAV] Navigating from page ${currentPage + 1} to page ${newPage + 1}`);
-              }
-              setCurrentPage(newPage);
-            }}
+            onClick={() => navigateToPage(Math.min(pdfInfo.page_count - 1, currentPage + 1))}
             onTouchEnd={(e) => {
               e.preventDefault();
-              if (currentPage < pdfInfo.page_count - 1) {
-                const newPage = Math.min(pdfInfo.page_count - 1, currentPage + 1);
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`[PDF_NAV] Touch navigating from page ${currentPage + 1} to page ${newPage + 1}`);
-                }
-                setCurrentPage(newPage);
-              }
+              navigateToPage(Math.min(pdfInfo.page_count - 1, currentPage + 1));
             }}
             disabled={currentPage === pdfInfo.page_count - 1}
             className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed active:bg-blue-200 touch-manipulation shadow-sm border border-blue-200"
