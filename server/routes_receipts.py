@@ -695,12 +695,14 @@ def sync_receipts():
     Trigger manual sync of receipts from Gmail
     
     Body (optional):
-    - mode: 'full' or 'incremental' (default: incremental)
+    - mode: 'full_backfill' or 'incremental' (default: incremental)
     - max_messages: Maximum messages to process (optional)
     - from_date: Start date in YYYY-MM-DD format (optional, overrides mode)
     - to_date: End date in YYYY-MM-DD format (optional)
+    - months_back: Number of months to go back for full_backfill (default: 36)
     
     Date range examples:
+    - {"mode": "full_backfill", "months_back": 60} - Sync last 60 months (5 years)
     - {"from_date": "2023-01-01", "to_date": "2023-12-31"} - Sync all of 2023
     - {"from_date": "2020-01-01"} - Sync from 2020 onwards
     - {"to_date": "2024-12-31"} - Sync everything up to end of 2024
@@ -728,6 +730,18 @@ def sync_receipts():
     mode = data.get('mode', 'incremental')
     max_messages = data.get('max_messages', None)
     from_date = data.get('from_date', None)  # NEW: Support custom date range
+    to_date = data.get('to_date', None)      # NEW: Support custom date range
+    months_back = data.get('months_back', 36)  # NEW: Support configurable backfill depth
+    
+    if mode not in ['full_backfill', 'incremental', 'full']:  # Support legacy 'full' mode
+        return jsonify({
+            "success": False,
+            "error": "Invalid mode. Must be 'full_backfill' or 'incremental'"
+        }), 400
+    
+    # Map legacy 'full' to 'full_backfill'
+    if mode == 'full':
+        mode = 'full_backfill'
     to_date = data.get('to_date', None)      # NEW: Support custom date range
     
     if mode not in ['full', 'incremental']:
@@ -759,22 +773,26 @@ def sync_receipts():
     try:
         from server.services.gmail_sync_service import sync_gmail_receipts
         
-        # Run sync synchronously with date parameters
+        # Run sync synchronously with date parameters and months_back
         result = sync_gmail_receipts(
             business_id, 
             mode=mode, 
             max_messages=max_messages,
             from_date=from_date,
-            to_date=to_date
+            to_date=to_date,
+            months_back=months_back
         )
         
         log_audit('sync', 'gmail_receipts', details={
             'mode': mode,
             'from_date': from_date,
             'to_date': to_date,
+            'months_back': months_back,
             'new_receipts': result.get('new_count', 0),
             'pages_scanned': result.get('pages_scanned', 0),
-            'messages_scanned': result.get('messages_scanned', 0)
+            'messages_scanned': result.get('messages_scanned', 0),
+            'months_processed': result.get('months_processed', 0),
+            'total_months': result.get('total_months', 0)
         })
         
         return jsonify({
@@ -783,12 +801,15 @@ def sync_receipts():
             "mode": mode,
             "from_date": from_date,
             "to_date": to_date,
+            "months_back": months_back,
             "sync_run_id": result.get('sync_run_id'),
             "new_receipts": result.get('new_count', 0),
             "processed": result.get('processed', 0),
             "skipped": result.get('skipped', 0),
             "pages_scanned": result.get('pages_scanned', 0),
             "messages_scanned": result.get('messages_scanned', 0),
+            "months_processed": result.get('months_processed', 0),
+            "total_months": result.get('total_months', 0),
             "errors": result.get('errors', 0)
         })
         

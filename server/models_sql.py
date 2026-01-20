@@ -1673,6 +1673,7 @@ class ReceiptSyncRun(db.Model):
     # State for resumable syncs
     last_page_token = db.Column(db.String(255), nullable=True)
     last_internal_date = db.Column(db.String(50), nullable=True)
+    current_month = db.Column(db.String(10), nullable=True)  # For monthly backfill tracking (YYYY-MM format)
     
     # Error tracking
     error_message = db.Column(db.Text, nullable=True)
@@ -1688,6 +1689,6 @@ class ReceiptSyncRun(db.Model):
     __table_args__ = (
         db.Index('idx_receipt_sync_runs_business', 'business_id', 'started_at'),
         db.Index('idx_receipt_sync_runs_status', 'status', 'started_at'),
-        db.CheckConstraint("mode IN ('full', 'incremental')", name='chk_receipt_sync_mode'),
+                db.CheckConstraint("mode IN ('full', 'full_backfill', 'incremental')", name='chk_receipt_sync_mode'),
         db.CheckConstraint("status IN ('running', 'completed', 'failed', 'cancelled')", name='chk_receipt_sync_status'),
     )
