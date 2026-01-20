@@ -444,6 +444,19 @@ export function ReceiptsPage() {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   
+  // Sync date range (separate from filter date range)
+  const [syncFromDate, setSyncFromDate] = useState<string>('');
+  const [syncToDate, setSyncToDate] = useState<string>('');
+  const [showSyncOptions, setShowSyncOptions] = useState(false);
+  
+  // Sync progress tracking
+  const [activeSyncRunId, setActiveSyncRunId] = useState<number | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{
+    messages_scanned: number;
+    saved_receipts: number;
+    pages_scanned: number;
+  } | null>(null);
+  
   // Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -502,6 +515,56 @@ export function ReceiptsPage() {
     fetchStats();
   }, [fetchGmailStatus, fetchReceipts, fetchStats]);
   
+  // Poll sync progress while sync is running
+  useEffect(() => {
+    if (!activeSyncRunId || !syncing) {
+      return;
+    }
+    
+    const pollProgress = async () => {
+      try {
+        const res = await axios.get(`/api/receipts/sync/status?run_id=${activeSyncRunId}`);
+        if (res.data.success && res.data.sync_run) {
+          const run = res.data.sync_run;
+          setSyncProgress(run.progress);
+          
+          // If sync completed, cancelled, or failed, stop polling
+          if (run.status !== 'running') {
+            setActiveSyncRunId(null);
+            setSyncing(false);
+            setSyncProgress(null);
+            
+            // Refresh data
+            await fetchReceipts();
+            await fetchStats();
+            await fetchGmailStatus();
+            
+            // Show completion message
+            if (run.status === 'completed') {
+              const successMsg = `✅ הסנכרון הושלם - ${run.progress.saved_receipts} קבלות נשמרו מתוך ${run.progress.messages_scanned} הודעות`;
+              setError(successMsg);
+              setTimeout(() => setError(null), 10000);
+            } else if (run.status === 'cancelled') {
+              const cancelMsg = `⚠️ הסנכרון בוטל - ${run.progress.saved_receipts} קבלות נשמרו עד כה`;
+              setError(cancelMsg);
+              setTimeout(() => setError(null), 10000);
+            } else if (run.status === 'failed') {
+              setError(`❌ שגיאה בסנכרון: ${run.error_message || 'Unknown error'}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch sync progress:', err);
+      }
+    };
+    
+    // Poll every 2 seconds
+    const interval = setInterval(pollProgress, 2000);
+    pollProgress(); // Initial poll
+    
+    return () => clearInterval(interval);
+  }, [activeSyncRunId, syncing, fetchReceipts, fetchStats, fetchGmailStatus]);
+  
   // Handle Gmail connect
   const handleConnect = async () => {
     try {
@@ -535,44 +598,68 @@ export function ReceiptsPage() {
     try {
       setSyncing(true);
       setError(null); // Clear any previous errors
+      setSyncProgress(null); // Reset progress
       
-      const res = await axios.post('/api/receipts/sync', {}, {
+      // Build sync request body with date range if specified
+      const syncParams: {
+        from_date?: string;
+        to_date?: string;
+      } = {};
+      
+      if (syncFromDate) {
+        syncParams.from_date = syncFromDate;
+      }
+      if (syncToDate) {
+        syncParams.to_date = syncToDate;
+      }
+      
+      // Start the sync - this returns immediately with sync_run_id
+      const res = await axios.post('/api/receipts/sync', syncParams, {
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 300000 // 5 minute timeout
       });
       
-      if (res.data.success) {
-        // Always refresh data after sync
-        await fetchReceipts();
-        await fetchStats();
-        await fetchGmailStatus();
+      if (res.data.success && res.data.sync_run_id) {
+        // Store sync run ID to start polling
+        setActiveSyncRunId(res.data.sync_run_id);
         
-        // Show sync results
-        const newCount = res.data.new_receipts || 0;
-        const processed = res.data.processed || 0;
-        const errors = res.data.errors || 0;
-        
-        if (errors > 0 && newCount === 0) {
-          setError(`סנכרון הסתיים עם ${errors} שגיאות. לא נמצאו קבלות חדשות.`);
-        } else if (newCount > 0) {
-          // Success message will clear after 5 seconds
-          const successMsg = `✅ נמצאו ${newCount} קבלות חדשות מתוך ${processed} הודעות שנסרקו`;
-          setError(successMsg);
-          setTimeout(() => setError(null), 5000);
-        } else {
-          const successMsg = `✅ הסנכרון הסתיים - סרקנו ${processed} הודעות, לא נמצאו קבלות חדשות`;
-          setError(successMsg);
-          setTimeout(() => setError(null), 5000);
+        // Show starting message
+        let dateRangeMsg = '';
+        if (syncFromDate || syncToDate) {
+          if (syncFromDate && syncToDate) {
+            dateRangeMsg = ` (${syncFromDate} עד ${syncToDate})`;
+          } else if (syncFromDate) {
+            dateRangeMsg = ` (מ-${syncFromDate})`;
+          } else {
+            dateRangeMsg = ` (עד ${syncToDate})`;
+          }
         }
+        setError(`🔄 מסנכרן קבלות${dateRangeMsg}...`);
       }
     } catch (err: unknown) {
       const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Sync failed';
       setError(errorMsg);
-    } finally {
       setSyncing(false);
+      setActiveSyncRunId(null);
+      setSyncProgress(null);
     }
-  }, [fetchReceipts, fetchStats, fetchGmailStatus]);
+  }, [syncFromDate, syncToDate]);
+  
+  // Handle cancel sync
+  const handleCancelSync = useCallback(async () => {
+    if (!activeSyncRunId) return;
+    
+    try {
+      await axios.post(`/api/receipts/sync/${activeSyncRunId}/cancel`);
+      setError('⏸️ מבטל סנכרון...');
+      // The polling will detect the cancelled status and update UI
+    } catch (err: unknown) {
+      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to cancel sync';
+      setError(errorMsg);
+    }
+  }, [activeSyncRunId]);
   
   // Handle mark receipt
   const handleMark = async (receiptId: number, status: string) => {
@@ -677,20 +764,188 @@ export function ReceiptsPage() {
               
               {/* Sync button */}
               {gmailStatus?.connected && (
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 ml-2 ${syncing ? 'animate-spin' : ''}`} />
-                  {syncing ? 'מסנכרן...' : 'סנכרן'}
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowSyncOptions(!showSyncOptions)}
+                    className="flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                    title="אפשרויות סנכרון"
+                  >
+                    <Calendar className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSync}
+                    disabled={syncing}
+                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ml-2 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? 'מסנכרן...' : 'סנכרן'}
+                  </button>
+                </>
               )}
             </div>
           </div>
           
+          {/* Sync options panel */}
+          {gmailStatus?.connected && showSyncOptions && (
+            <div className="mt-4 bg-blue-50 rounded-lg border border-blue-200 p-4">
+              <h3 className="text-sm font-medium text-gray-900 mb-3">בחר טווח תאריכים לסנכרון</h3>
+              <p className="text-xs text-gray-600 mb-3">
+                השאר ריק לסנכרון רגיל (חודש אחרון). מלא תאריכים לייצוא קבלות מטווח ספציפי.
+              </p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">מתאריך</label>
+                  <input
+                    type="date"
+                    value={syncFromDate}
+                    onChange={(e) => setSyncFromDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">עד תאריך</label>
+                  <input
+                    type="date"
+                    value={syncToDate}
+                    onChange={(e) => setSyncToDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={() => {
+                      setSyncFromDate('');
+                      setSyncToDate('');
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 bg-white rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                  >
+                    נקה
+                  </button>
+                </div>
+              </div>
+              
+              {/* Quick preset buttons */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                    setSyncFromDate(lastMonth.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  חודש אחרון
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+                    setSyncFromDate(threeMonthsAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  3 חודשים
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+                    setSyncFromDate(sixMonthsAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  6 חודשים
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                    setSyncFromDate(oneYearAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  שנה שלמה
+                </button>
+                <button
+                  onClick={() => {
+                    const now = new Date();
+                    const threeYearsAgo = new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+                    setSyncFromDate(threeYearsAgo.toISOString().split('T')[0]);
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                >
+                  3 שנים
+                </button>
+                <button
+                  onClick={() => {
+                    // All time - leave from_date empty, set to_date to today
+                    setSyncFromDate('');
+                    const now = new Date();
+                    setSyncToDate(now.toISOString().split('T')[0]);
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 transition-colors font-medium"
+                >
+                  כל התקופה
+                </button>
+              </div>
+              
+              {(syncFromDate || syncToDate) && (
+                <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-xs text-blue-800">
+                  ⚠️ סנכרון עם טווח תאריכים יכול לקחת מספר דקות. המערכת תעבוד על כל ההודעות בטווח שבחרת.
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Sync progress bar */}
+          {syncing && syncProgress && (
+            <div className="mt-4 bg-white rounded-lg border border-blue-300 shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="w-5 h-5 text-blue-600 animate-spin" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">מסנכרן קבלות...</p>
+                    <p className="text-xs text-gray-600">
+                      {syncProgress.messages_scanned} הודעות נסרקו · {syncProgress.saved_receipts} קבלות נמצאו
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCancelSync}
+                  className="flex items-center px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium text-sm min-h-[44px] touch-manipulation"
+                  title="עצור סנכרון"
+                >
+                  <X className="w-4 h-4 ml-1" />
+                  <span className="hidden sm:inline">ביטול</span>
+                </button>
+              </div>
+              
+              {/* Progress bar - indeterminate animation */}
+              <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400 animate-shimmer" style={{ width: '200%', animation: 'shimmer 2s infinite' }}></div>
+              </div>
+              
+              <style>{`
+                @keyframes shimmer {
+                  0% { transform: translateX(-50%); }
+                  100% { transform: translateX(0%); }
+                }
+              `}</style>
+              
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                תהליך זה עשוי לקחת מספר דקות עבור סנכרון של תקופה ארוכה
+              </p>
+            </div>
+          )}
+          
           {/* Last sync time */}
-          {gmailStatus?.last_sync_at && (
+          {gmailStatus?.last_sync_at && !syncing && (
             <p className="text-xs text-gray-500 mt-2">
               סונכרן לאחרונה: {formatRelativeTime(gmailStatus.last_sync_at)}
             </p>

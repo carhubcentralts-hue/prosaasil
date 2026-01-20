@@ -918,3 +918,56 @@ def get_sync_status():
             "error_message": sync_run.error_message if sync_run.status == 'failed' else None
         }
     })
+
+
+@receipts_bp.route('/sync/<int:run_id>/cancel', methods=['POST'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def cancel_sync(run_id):
+    """
+    Cancel a running sync job
+    
+    Sets the status to 'cancelled' which will be detected by the sync loop
+    and cause it to stop gracefully after finishing the current message.
+    """
+    business_id = get_current_business_id()
+    from server.models_sql import ReceiptSyncRun
+    
+    sync_run = ReceiptSyncRun.query.filter_by(
+        id=run_id,
+        business_id=business_id
+    ).first()
+    
+    if not sync_run:
+        return jsonify({
+            "success": False,
+            "error": "Sync run not found"
+        }), 404
+    
+    # Can only cancel running syncs
+    if sync_run.status != 'running':
+        return jsonify({
+            "success": False,
+            "error": f"Cannot cancel sync with status '{sync_run.status}'"
+        }), 400
+    
+    # Mark as cancelled - the sync loop will detect this and stop
+    sync_run.status = 'cancelled'
+    sync_run.cancelled_at = datetime.now(timezone.utc)
+    sync_run.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    
+    log_audit('cancel', 'receipt_sync_run', run_id, {
+        'messages_scanned': sync_run.messages_scanned,
+        'receipts_saved': sync_run.saved_receipts
+    })
+    
+    return jsonify({
+        "success": True,
+        "message": "Sync cancellation requested. It will stop after finishing the current message.",
+        "sync_run": {
+            "id": sync_run.id,
+            "status": sync_run.status,
+            "cancelled_at": sync_run.cancelled_at.isoformat() if sync_run.cancelled_at else None
+        }
+    })

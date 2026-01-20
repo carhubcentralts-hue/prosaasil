@@ -1657,9 +1657,10 @@ class ReceiptSyncRun(db.Model):
     mode = db.Column(db.String(20), nullable=False, default='incremental')  # full|incremental
     
     # Progress tracking
-    status = db.Column(db.String(20), nullable=False, default='running')  # running|completed|failed
+    status = db.Column(db.String(20), nullable=False, default='running')  # running|completed|failed|cancelled
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     finished_at = db.Column(db.DateTime, nullable=True)
+    cancelled_at = db.Column(db.DateTime, nullable=True)  # When cancellation was requested
     
     # Counters
     pages_scanned = db.Column(db.Integer, default=0)
@@ -1688,5 +1689,5 @@ class ReceiptSyncRun(db.Model):
         db.Index('idx_receipt_sync_runs_business', 'business_id', 'started_at'),
         db.Index('idx_receipt_sync_runs_status', 'status', 'started_at'),
         db.CheckConstraint("mode IN ('full', 'incremental')", name='chk_receipt_sync_mode'),
-        db.CheckConstraint("status IN ('running', 'completed', 'failed')", name='chk_receipt_sync_status'),
+        db.CheckConstraint("status IN ('running', 'completed', 'failed', 'cancelled')", name='chk_receipt_sync_status'),
     )
