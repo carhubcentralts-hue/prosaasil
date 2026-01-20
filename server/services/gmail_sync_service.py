@@ -1112,7 +1112,6 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             query_parts = []
             
             if connection and connection.last_sync_at:
-                from datetime import timedelta
                 cutoff = connection.last_sync_at - timedelta(days=30)
                 date_str = cutoff.strftime('%Y/%m/%d')
                 query_parts.append(f'after:{date_str}')
@@ -1405,7 +1404,6 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             # Incremental - check last sync time
             if connection and connection.last_sync_at:
                 # Use last sync date with 30-day overlap to catch missed emails
-                from datetime import datetime, timedelta
                 cutoff = connection.last_sync_at - timedelta(days=30)  # 30 days overlap for safety
                 date_str = cutoff.strftime('%Y/%m/%d')
                 query_parts.append(f'after:{date_str}')
