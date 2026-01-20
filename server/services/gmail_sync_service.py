@@ -119,6 +119,9 @@ PDF_RECEIPT_INDICATORS = [
 MIN_CONFIDENCE = 20  # Lower threshold to catch more potential receipts
 REVIEW_THRESHOLD = 60  # Below this goes to pending_review
 
+# Error message truncation (to fit in DB error_message column)
+ERROR_MESSAGE_MAX_LENGTH = 450  # Leave room for message_id prefix
+
 
 def encrypt_token(token: str) -> str:
     """
@@ -1067,7 +1070,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         db.session.rollback()  # Rollback failed transaction
                         result['errors'] += 1
                         sync_run.errors_count = result['errors']
-                        sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                        sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
                         # Continue to next message - don't fail entire sync
                 
                 if not page_token:
@@ -1409,7 +1412,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             db.session.rollback()  # Rollback failed transaction
                             result['errors'] += 1
                             sync_run.errors_count = result['errors']
-                            sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                            sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
                             # Continue to next message - don't fail entire sync
                     
                     # Check if should continue to next page
@@ -1620,7 +1623,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         db.session.rollback()  # Rollback failed transaction
                         result['errors'] += 1
                         sync_run.errors_count = result['errors']
-                        sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                        sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
                         # Continue to next message - don't fail entire sync
                 
                 if not page_token:
@@ -2065,7 +2068,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     db.session.rollback()  # Rollback failed transaction
                     result['errors'] += 1
                     sync_run.errors_count = result['errors']
-                    sync_run.error_message = f"{message_id}: {str(e)[:450]}"  # Track last error
+                    sync_run.error_message = f"{message_id}: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"  # Track last error
                     # Continue to next message - don't fail entire sync
             
             # Check if we should continue to next page
