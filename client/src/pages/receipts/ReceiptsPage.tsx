@@ -69,6 +69,26 @@ interface ReceiptStats {
   };
 }
 
+// API Response interfaces
+interface ApiError {
+  code: string;
+  message: string;
+  hint?: string;
+}
+
+interface ApiResponse<T = any> {
+  ok: boolean;
+  data?: T;
+  error?: ApiError;
+}
+
+// Axios error response interface
+interface AxiosErrorResponse {
+  response?: {
+    data?: ApiResponse;
+  };
+}
+
 // Status badge component
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const statusConfig: Record<string, { icon: React.ElementType; color: string; label: string }> = {
@@ -614,7 +634,12 @@ export function ReceiptsPage() {
       }
       
       // Start the sync - this returns immediately with sync_run_id
-      const res = await axios.post('/api/receipts/sync', syncParams, {
+      const res = await axios.post<ApiResponse<{
+        message: string;
+        sync_run_id: number;
+        new_receipts: number;
+        messages_scanned: number;
+      }>>('/api/receipts/sync', syncParams, {
         headers: {
           'Content-Type': 'application/json'
         },
@@ -622,7 +647,7 @@ export function ReceiptsPage() {
       });
       
       // Handle new format: {"ok": true, "data": {...}} or old format for compatibility
-      const isOk = res.data.ok !== undefined ? res.data.ok : res.data.success;
+      const isOk = res.data.ok !== undefined ? res.data.ok : (res.data as any).success;
       const responseData = res.data.data || res.data;
       
       if (isOk && responseData.sync_run_id) {
@@ -643,9 +668,9 @@ export function ReceiptsPage() {
         setError(`🔄 מסנכרן קבלות${dateRangeMsg}...`);
       } else {
         // Error in response
-        const errorObj = res.data.error || {};
-        const errorMsg = errorObj.message || res.data.error || 'שגיאה לא ידועה';
-        const errorHint = errorObj.hint;
+        const errorObj = res.data.error;
+        const errorMsg = errorObj?.message || (res.data as any).error || 'שגיאה לא ידועה';
+        const errorHint = errorObj?.hint;
         
         // Display error with hint if available
         let fullErrorMsg = errorMsg;
@@ -657,21 +682,21 @@ export function ReceiptsPage() {
         setActiveSyncRunId(null);
       }
     } catch (err: unknown) {
-      // Handle HTTP error responses
-      const response = (err as { response?: { data?: { ok?: boolean; error?: { code?: string; message?: string; hint?: string } | string } } })?.response;
-      const responseData = response?.data;
+      // Handle HTTP error responses with proper typing
+      const axiosError = err as AxiosErrorResponse;
+      const responseData = axiosError.response?.data;
       
       let errorMsg = 'שגיאה בסנכרון';
       let errorHint = '';
       
       if (responseData) {
-        if (responseData.ok === false && typeof responseData.error === 'object') {
+        if (responseData.ok === false && responseData.error) {
           // New format: {"ok": false, "error": {"code": "...", "message": "...", "hint": "..."}}
           errorMsg = responseData.error.message || errorMsg;
           errorHint = responseData.error.hint || '';
-        } else if (typeof responseData.error === 'string') {
+        } else if ((responseData as any).error && typeof (responseData as any).error === 'string') {
           // Old format: {"success": false, "error": "..."}
-          errorMsg = responseData.error;
+          errorMsg = (responseData as any).error;
         }
       }
       

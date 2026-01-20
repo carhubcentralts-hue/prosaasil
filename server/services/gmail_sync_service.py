@@ -747,33 +747,26 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         if use_custom_dates:
             logger.info(f"📅 Custom date range detected - will use exact dates (ignoring mode={mode})")
             
-            # Parse dates
+            # Parse and determine date range
+            # Case 1: Both dates provided
             if from_date and to_date:
-                try:
-                    start_dt = datetime.strptime(from_date, '%Y-%m-%d')
-                    end_dt = datetime.strptime(to_date, '%Y-%m-%d')
-                    logger.info(f"📅 Date range: {from_date} to {to_date}")
-                except ValueError as e:
-                    logger.error(f"Invalid date format: {e}")
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
+                start_dt = datetime.strptime(from_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(to_date, '%Y-%m-%d')
+                logger.info(f"📅 Date range: {from_date} to {to_date}")
+            # Case 2: Only from_date - go to today
             elif from_date:
-                # Only from_date - go to today
-                try:
-                    start_dt = datetime.strptime(from_date, '%Y-%m-%d')
-                    end_dt = datetime.now()
-                    logger.info(f"📅 From {from_date} to now")
-                except ValueError as e:
-                    logger.error(f"Invalid from_date: {e}")
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
+                start_dt = datetime.strptime(from_date, '%Y-%m-%d')
+                end_dt = datetime.now()
+                logger.info(f"📅 From {from_date} to now")
+            # Case 3: Only to_date - go back 1 year (configurable via months_back param)
             else:  # only to_date
-                # Go back 1 year from to_date
-                try:
-                    end_dt = datetime.strptime(to_date, '%Y-%m-%d')
-                    start_dt = end_dt - relativedelta(years=1)
-                    logger.info(f"📅 Last year up to {to_date}")
-                except ValueError as e:
-                    logger.error(f"Invalid to_date: {e}")
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
+                end_dt = datetime.strptime(to_date, '%Y-%m-%d')
+                # Default: go back 12 months from to_date
+                # Note: When only to_date is specified, we default to 1 year of history
+                # to avoid accidentally syncing the entire Gmail history. 
+                # Use from_date=None, to_date=X, mode='full_backfill', months_back=N for custom depth.
+                start_dt = end_dt - relativedelta(months=12)
+                logger.info(f"📅 Last year up to {to_date} (only to_date specified, defaulting to 12 months back)")
             
             # Build Gmail query with custom dates
             query_parts = []
