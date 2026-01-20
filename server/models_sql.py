@@ -1382,12 +1382,13 @@ class SecurityEvent(db.Model):
 class Attachment(db.Model):
     """
     Unified Attachments System - Single source for all file attachments
-    Used by: Email, WhatsApp messages, Broadcasts
+    Used by: Email, WhatsApp messages, Broadcasts, Receipts, Contracts
     
     Features:
     - Multi-tenant isolation (business_id)
     - Secure file storage with tenant-isolated paths
     - Channel compatibility tracking (email/whatsapp/broadcast)
+    - Purpose-based file separation (receipts/contracts/emails/whatsapp/general)
     - Soft delete support
     - Audit trail (uploaded_by, created_at)
     """
@@ -1403,8 +1404,13 @@ class Attachment(db.Model):
     file_size = db.Column(db.Integer, nullable=False)  # bytes
     
     # Storage
-    storage_path = db.Column(db.String(512), nullable=False)  # Relative path: {business_id}/{yyyy}/{mm}/{attachment_id}.ext
+    storage_path = db.Column(db.String(512), nullable=False)  # Relative path: {business_id}/{purpose}/{yyyy}/{mm}/{attachment_id}.ext
     public_url = db.Column(db.String(512), nullable=True)  # Temporary signed URL (if applicable)
+    
+    # Purpose - file categorization for separation
+    # Values: general_upload, contract_original, contract_signed, email_attachment, 
+    #         whatsapp_media, receipt_source, receipt_preview
+    purpose = db.Column(db.String(50), nullable=False, default='general_upload', index=True)
     
     # Channel compatibility - which channels support this file type/size
     channel_compatibility = db.Column(db.JSON, default={"email": True, "whatsapp": True, "broadcast": True})
@@ -1432,6 +1438,7 @@ class Attachment(db.Model):
     __table_args__ = (
         db.Index('idx_attachments_business', 'business_id', 'created_at'),
         db.Index('idx_attachments_uploader', 'uploaded_by', 'created_at'),
+        db.Index('idx_attachments_purpose', 'business_id', 'purpose', 'created_at'),
     )
 
 
@@ -1553,6 +1560,10 @@ class Receipt(db.Model):
     Receipts extracted from Gmail
     Stores metadata about receipts and links to attachment storage
     Multi-tenant with unique constraint on gmail_message_id per business
+    
+    New Features:
+    - Email content storage for HTML→PNG rendering
+    - Preview attachment ID for thumbnails
     """
     __tablename__ = "receipts"
     
@@ -1564,10 +1575,16 @@ class Receipt(db.Model):
     gmail_message_id = db.Column(db.String(255), nullable=True, index=True)  # Unique Gmail message ID
     gmail_thread_id = db.Column(db.String(255), nullable=True)
     
-    # Email metadata
+    # Email metadata (legacy fields - kept for backward compatibility)
     from_email = db.Column(db.String(255), nullable=True)
     subject = db.Column(db.String(500), nullable=True)
     received_at = db.Column(db.DateTime, nullable=True, index=True)
+    
+    # Email content for preview generation
+    email_subject = db.Column(db.String(500), nullable=True)
+    email_from = db.Column(db.String(255), nullable=True)
+    email_date = db.Column(db.DateTime, nullable=True)
+    email_html_snippet = db.Column(db.Text, nullable=True)  # HTML content for HTML→PNG rendering
     
     # Extracted receipt data
     vendor_name = db.Column(db.String(255), nullable=True)
@@ -1585,8 +1602,9 @@ class Receipt(db.Model):
     reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     
-    # Attachment reference (via unified attachments system)
-    attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Attachment references (via unified attachments system)
+    attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)  # Original attachment
+    preview_attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)  # Preview/thumbnail
     
     # Soft delete
     is_deleted = db.Column(db.Boolean, default=False, index=True)
@@ -1599,7 +1617,8 @@ class Receipt(db.Model):
     # Relationships
     business = db.relationship("Business", backref=db.backref("receipts", lazy="dynamic"))
     reviewer = db.relationship("User", backref=db.backref("reviewed_receipts", lazy="dynamic"))
-    attachment = db.relationship("Attachment", backref=db.backref("receipts", lazy="dynamic"))
+    attachment = db.relationship("Attachment", backref=db.backref("receipts", lazy="dynamic"), foreign_keys=[attachment_id])
+    preview_attachment = db.relationship("Attachment", foreign_keys=[preview_attachment_id])
     
     # Indexes for efficient querying
     # Note: PostgreSQL allows multiple NULLs in unique constraint by default,
@@ -1607,6 +1626,56 @@ class Receipt(db.Model):
     __table_args__ = (
         db.Index('idx_receipts_business_received', 'business_id', 'received_at'),
         db.Index('idx_receipts_business_status', 'business_id', 'status'),
+        db.Index('idx_receipts_preview_attachment', 'preview_attachment_id'),
         db.CheckConstraint("status IN ('pending_review', 'approved', 'rejected', 'not_receipt')", name='chk_receipt_status'),
         db.CheckConstraint("source IN ('gmail', 'manual', 'upload')", name='chk_receipt_source'),
+    )
+
+
+class ReceiptSyncRun(db.Model):
+    """
+    Receipt Sync Run tracking for long-running Gmail sync jobs
+    Allows monitoring progress and resuming interrupted syncs
+    """
+    __tablename__ = "receipt_sync_runs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Sync configuration
+    mode = db.Column(db.String(20), nullable=False, default='incremental')  # full|incremental
+    
+    # Progress tracking
+    status = db.Column(db.String(20), nullable=False, default='running')  # running|completed|failed
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    
+    # Counters
+    pages_scanned = db.Column(db.Integer, default=0)
+    messages_scanned = db.Column(db.Integer, default=0)
+    candidate_receipts = db.Column(db.Integer, default=0)
+    saved_receipts = db.Column(db.Integer, default=0)
+    preview_generated_count = db.Column(db.Integer, default=0)
+    errors_count = db.Column(db.Integer, default=0)
+    
+    # State for resumable syncs
+    last_page_token = db.Column(db.String(255), nullable=True)
+    last_internal_date = db.Column(db.String(50), nullable=True)
+    
+    # Error tracking
+    error_message = db.Column(db.Text, nullable=True)
+    
+    # Audit
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("receipt_sync_runs", lazy="dynamic"))
+    
+    # Indexes
+    __table_args__ = (
+        db.Index('idx_receipt_sync_runs_business', 'business_id', 'started_at'),
+        db.Index('idx_receipt_sync_runs_status', 'status', 'started_at'),
+        db.CheckConstraint("mode IN ('full', 'incremental')", name='chk_receipt_sync_mode'),
+        db.CheckConstraint("status IN ('running', 'completed', 'failed')", name='chk_receipt_sync_status'),
     )

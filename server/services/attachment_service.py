@@ -165,7 +165,7 @@ class AttachmentService:
         
         return compatibility
     
-    def save_file(self, file: FileStorage, business_id: int, attachment_id: int) -> Tuple[str, int]:
+    def save_file(self, file: FileStorage, business_id: int, attachment_id: int, purpose: str = 'general_upload') -> Tuple[str, int]:
         """
         Save file to storage (using configured storage provider)
         
@@ -173,6 +173,7 @@ class AttachmentService:
             file: Werkzeug FileStorage object
             business_id: Business ID for tenant isolation
             attachment_id: Attachment ID for path generation
+            purpose: File purpose for categorization (e.g., 'receipt_source', 'contract_original')
             
         Returns:
             (storage_key, file_size)
@@ -181,16 +182,17 @@ class AttachmentService:
         mime_type = file.content_type or 'application/octet-stream'
         filename = secure_filename(file.filename)
         
-        # Upload via storage provider
+        # Upload via storage provider with purpose in path
         result = self.storage.upload(
             business_id=business_id,
             attachment_id=attachment_id,
             file=file,
             mime_type=mime_type,
-            filename=filename
+            filename=filename,
+            purpose=purpose  # Pass purpose to storage provider
         )
         
-        logger.info(f"Saved attachment {attachment_id} via {result.provider} ({result.size} bytes)")
+        logger.info(f"Saved attachment {attachment_id} via {result.provider} ({result.size} bytes) purpose={purpose}")
         
         return result.storage_key, result.size
     
