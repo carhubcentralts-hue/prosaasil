@@ -1052,39 +1052,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         # PRIORITY 2: Mode-based logic (only if no custom dates)
         # ========================================================================
         elif mode == 'full_backfill':
-            # Monthly backfill mode - iterate through months
-            # Priority 1: Use explicit date range if provided
-            if from_date and to_date:
-                try:
-                    start_dt = datetime.strptime(from_date, '%Y-%m-%d')
-                    end_dt = datetime.strptime(to_date, '%Y-%m-%d')
-                    logger.info(f"📅 Custom date range: {from_date} to {to_date}")
-                except ValueError:
-                    logger.error(f"Invalid date format: from_date={from_date}, to_date={to_date}")
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
-            elif from_date:
-                # Only from_date provided - go from that date to now
-                try:
-                    start_dt = datetime.strptime(from_date, '%Y-%m-%d')
-                    end_dt = datetime.now()
-                    logger.info(f"📅 From {from_date} to now")
-                except ValueError:
-                    logger.error(f"Invalid from_date format: {from_date}")
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
-            elif to_date:
-                # Only to_date provided - go back months_back from that date
-                try:
-                    end_dt = datetime.strptime(to_date, '%Y-%m-%d')
-                    start_dt = end_dt - relativedelta(months=months_back)
-                    logger.info(f"📅 From {start_dt.strftime('%Y-%m-%d')} to {to_date}")
-                except ValueError:
-                    logger.error(f"Invalid to_date format: {to_date}")
-                    raise ValueError("Invalid date format. Use YYYY-MM-DD")
-            else:
-                # No dates provided - use months_back from now
-                end_dt = datetime.now()
-                start_dt = end_dt - relativedelta(months=months_back)
-                logger.info(f"📅 Full backfill: {months_back} months back from now")
+            # Monthly backfill mode without custom dates - use months_back
+            logger.info(f"📅 Full backfill mode: going back {months_back} months")
+            
+            end_dt = datetime.now()
+            start_dt = end_dt - relativedelta(months=months_back)
+            logger.info(f"📅 Date range: {start_dt.strftime('%Y-%m-%d')} to {end_dt.strftime('%Y-%m-%d')}")
             
             # Generate list of months to process (from oldest to newest)
             months_to_process = []
