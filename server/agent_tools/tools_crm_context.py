@@ -139,6 +139,13 @@ class GetLeadContextOutput(BaseModel):
     recent_calls_count: int = 0
 
 
+class StructuredNoteData(BaseModel):
+    """Structured data for lead notes - explicit schema for strict mode compatibility"""
+    sentiment: Optional[str] = Field(None, description="Call sentiment (positive/neutral/negative)")
+    outcome: Optional[str] = Field(None, description="Call outcome or result")
+    next_step_date: Optional[str] = Field(None, description="Next follow-up date if scheduled")
+
+
 class CreateLeadNoteInput(BaseModel):
     """Input for creating a lead note"""
     business_id: int = Field(..., description="Business ID (tenant_id) - REQUIRED for multi-tenant security", ge=1)
@@ -146,11 +153,10 @@ class CreateLeadNoteInput(BaseModel):
     note_type: str = Field("call_summary", description="Type of note: 'manual' (free notes), 'customer_service_ai' (AI context), 'call_summary' (AI call summary), or 'system'")
     content: str = Field(..., description="Note content (sensitive data will be redacted)", max_length=10000)
     call_id: Optional[int] = Field(None, description="Optional call ID to link the note to")
-    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
-    # Now accepts None or a dict as Python object (no strict schema enforcement)
-    structured_data: Optional[dict] = Field(
+    # 🔥 FIX: Use explicit StructuredNoteData model instead of bare dict to avoid additionalProperties schema error
+    structured_data: Optional[StructuredNoteData] = Field(
         None, 
-        description="Optional structured data: {sentiment, outcome, next_step_date}"
+        description="Optional structured data: sentiment, outcome, next_step_date"
     )
 
 
@@ -161,21 +167,24 @@ class CreateLeadNoteOutput(BaseModel):
     message: str
 
 
+class LeadFieldsPatch(BaseModel):
+    """Patch data for lead fields - explicit schema for strict mode compatibility"""
+    status: Optional[str] = Field(None, description="Lead status (e.g., 'new', 'contacted', 'qualified')")
+    tags: Optional[List[str]] = Field(None, description="List of tags")
+    notes: Optional[str] = Field(None, description="Additional notes text")
+    summary: Optional[str] = Field(None, description="Brief summary")
+    service_type: Optional[str] = Field(None, description="Type of service needed")
+    city: Optional[str] = Field(None, description="City/location")
+
+
 class UpdateLeadFieldsInput(BaseModel):
     """Input for updating lead fields - only allowed fields can be updated"""
     business_id: int = Field(..., description="Business ID (tenant_id) - REQUIRED for multi-tenant security", ge=1)
     lead_id: int = Field(..., description="Lead ID to update", ge=1)
-    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
-    patch: dict = Field(
+    # 🔥 FIX: Use explicit LeadFieldsPatch model instead of bare dict to avoid additionalProperties schema error
+    patch: LeadFieldsPatch = Field(
         ..., 
-        description="""Fields to update. Allowed fields:
-        - status: Lead status (e.g., 'new', 'contacted', 'qualified')
-        - tags: List of tags
-        - notes: Additional notes text
-        - summary: Brief summary
-        - service_type: Type of service needed
-        - city: City/location
-        """
+        description="Fields to update (only allowed fields will be applied)"
     )
 
 
@@ -441,7 +450,7 @@ def create_lead_note(input: CreateLeadNoteInput) -> CreateLeadNoteOutput:
             note_type=note_type,
             content=redacted_content,
             call_id=input.call_id,
-            structured_data=input.structured_data,
+            structured_data=input.structured_data.model_dump() if input.structured_data else None,
             created_at=datetime.utcnow(),
             created_by=None  # AI-created notes have no user
         )
@@ -493,7 +502,10 @@ def update_lead_fields(input: UpdateLeadFieldsInput) -> UpdateLeadFieldsOutput:
         updated_fields = []
         blocked_attempts = []
         
-        for field, value in input.patch.items():
+        # Convert Pydantic model to dict and filter None values
+        patch_dict = {k: v for k, v in input.patch.model_dump().items() if v is not None}
+        
+        for field, value in patch_dict.items():
             # Check if field is blocked
             if field in BLOCKED_FIELDS:
                 blocked_attempts.append(field)
@@ -581,8 +593,8 @@ def create_call_summary_note(
     lead_id: int, 
     content: str, 
     call_id: Optional[int] = None,
-    # 🔥 FIX: Changed from Dict[str, Any] to avoid additionalProperties schema error
-    structured_data: Optional[dict] = None
+    # 🔥 FIX: Use explicit StructuredNoteData model instead of bare dict to avoid additionalProperties schema error
+    structured_data: Optional[StructuredNoteData] = None
 ) -> CreateLeadNoteOutput:
     """
     Convenience function to create a call summary note.
