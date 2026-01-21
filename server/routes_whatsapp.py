@@ -804,13 +804,10 @@ def baileys_webhook():
         from server.services.business_resolver import resolve_business_with_fallback
         business_id, status = resolve_business_with_fallback('whatsapp', tenant_id)
         
-        logger.info(f"🏢 BUSINESS RESOLUTION: tenant_id={tenant_id} → business_id={business_id} (status={status})", flush=True)
-        
-        # 🔥 Get business name for clear logging
+        # Get business name for clear logging (only on error)
         from server.models_sql import Business
         business = Business.query.filter_by(id=business_id).first() if business_id else None
         business_name = business.name if business else "UNKNOWN"
-        logger.info(f"🏢 BUSINESS: {business_name} (ID={business_id})", flush=True)
         
         if status == 'found':
             log.info(f"[WA-INCOMING] Resolved biz={business_id} from tenant={tenant_id}")
@@ -980,13 +977,13 @@ def baileys_webhook():
                     if time_diff < timedelta(seconds=30):
                         # Check if message content is similar (our response echoing)
                         if recent_outbound.body and message_text in recent_outbound.body:
-                            logger.info(f"🚫 LOOP PREVENTED: Ignoring echo of our own message to {from_number_e164}", flush=True)
+                            logger.info(f"🚫 LOOP PREVENTED: Ignoring echo of our own message to {from_number_e164}")
                             log.warning(f"🚫 Ignoring bot echo: {message_text[:50]}...")
                             continue
                         # Also skip if message looks like AI response (Hebrew AI phrases)
                         ai_markers = ['אני כאן', 'כדי לעזור', 'תיאום פגישות', 'אשמח לעזור', 'שלום', 'ברוכים הבאים']
                         if any(marker in message_text for marker in ai_markers) and len(message_text) > 50:
-                            logger.info(f"🚫 LOOP PREVENTED: Ignoring AI-like message: {message_text[:50]}...", flush=True)
+                            logger.info(f"🚫 LOOP PREVENTED: Ignoring AI-like message: {message_text[:50]}...")
                             log.warning(f"🚫 Skipping AI-like message (possible echo)")
                             continue
                 
@@ -1199,21 +1196,17 @@ def baileys_webhook():
                         customer_phone=from_number_e164,
                         customer_name=customer.name if customer else None
                     )
-                    logger.debug(f"🔍 DEBUG: ai_response type={type(ai_response)}, value={str(ai_response)[:100]}...", flush=True)
                     
-                    # ✅ FIX: Handle dict response (text + actions) vs plain string
+                    # Handle dict response (text + actions) vs plain string
                     if isinstance(ai_response, dict):
                         response_text = ai_response.get('text', '')
                         actions = ai_response.get('actions', [])
-                        logger.info(f"🎯 Agent returned {len(actions)} actions with response", flush=True)
                     else:
                         response_text = str(ai_response)
-                        logger.info(f"🎯 Agent returned string response", flush=True)
                     
                     ai_duration = time.time() - ai_start
-                    logger.info(f"✅ Agent response ({ai_duration:.2f}s): {str(response_text)[:50]}...", flush=True)
                 except Exception as e:
-                    logger.error(f"⚠️ Agent failed, trying regular AI response: {e}", flush=True)
+                    logger.error(f"⚠️ Agent failed, trying regular AI response: {e}")
                     import traceback
                     traceback.print_exc()
                     
@@ -1230,9 +1223,8 @@ def baileys_webhook():
                             },
                             channel='whatsapp'
                         )
-                        logger.info(f"✅ Fallback AI response: {str(response_text)[:50]}...", flush=True)
                     except Exception as e2:
-                        logger.error(f"⚠️ Regular AI also failed: {e2}", flush=True)
+                        logger.error(f"⚠️ Regular AI also failed: {e2}")
                         # ✅ Last resort - use business whatsapp_greeting or greeting_message
                         try:
                             from server.models_sql import Business

@@ -9432,11 +9432,11 @@ class MediaStreamHandler:
                         elif hasattr(self.ws, 'read'):
                             raw = self.ws.read()
                         else:
-                            logger.warning(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
+                            logger.warning(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}")
                             raise Exception(f"No compatible receive method found for {type(self.ws)}")
                         
                     if raw is None or raw == '':
-                        logger.info("📞 WebSocket connection closed normally", flush=True)
+                        logger.info("📞 WebSocket connection closed normally")
                         break
                     
                     # 🔥 BUILD 331: Check limit flag after receiving - exit if limit exceeded
@@ -9452,14 +9452,14 @@ class MediaStreamHandler:
                     et = evt.get("event")
                     
                 except json.JSONDecodeError as e:
-                    logger.error(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}", flush=True)
+                    logger.error(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}")
                     continue
                 except Exception as e:
                     # 🔥 BUILD 331: Check limit flag on exception - exit if limit exceeded
                     if self._limit_exceeded:
                         logger.error(f"🛑 [BUILD 331] LIMIT_EXCEEDED during exception - exiting main loop")
                         break
-                    logger.error(f"⚠️ WebSocket receive error: {e}", flush=True)
+                    logger.error(f"⚠️ WebSocket receive error: {e}")
                     import traceback
                     traceback.print_exc()
                     # Try to continue, might be temporary - don't crash the connection
@@ -11190,7 +11190,7 @@ class MediaStreamHandler:
                 # Throttled logging - max once per 2 seconds
                 now = time.monotonic()
                 if now - self._last_overflow_log > 2.0:
-                    logger.warning("⚠️ tx_q full (drop oldest)", flush=True)
+                    logger.warning("⚠️ tx_q full (drop oldest)")
                     self._last_overflow_log = now
     
     def _finalize_speaking(self):
@@ -11404,7 +11404,7 @@ class MediaStreamHandler:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self.exec, self._hebrew_stt, audio_data)
         except Exception as e:
-            logger.error(f"❌ [STT_FALLBACK_ASYNC] Failed: {e}", flush=True)
+            logger.error(f"❌ [STT_FALLBACK_ASYNC] Failed: {e}")
             return ""
     
     def _stt_fallback_nonblocking(self, audio_data: bytes) -> None:
@@ -11425,7 +11425,7 @@ class MediaStreamHandler:
             try:
                 text = f.result()
             except Exception as e:
-                logger.error(f"❌ [STT_FALLBACK_NB] Failed: {e}", flush=True)
+                logger.error(f"❌ [STT_FALLBACK_NB] Failed: {e}")
                 text = ""
             
             # If there's a loop and events queue, use it
@@ -11436,7 +11436,7 @@ class MediaStreamHandler:
                 )
             else:
                 # Fallback: direct callback (sync mode)
-                logger.info(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
+                logger.info(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}")
         
         fut.add_done_callback(_on_done)
 
@@ -15997,7 +15997,7 @@ class MediaStreamHandler:
                         # ✅ LOG DATABASE CONNECTION (per הנחיות)
                         db_url = os.getenv('DATABASE_URL', 'NOT_SET')
                         db_driver = db_url.split(':')[0] if db_url else 'none'
-                        logger.info(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 'N/A')}, SID={self.call_sid}", flush=True)
+                        logger.info(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 'N/A')}, SID={self.call_sid}")
                         
                         # בדוק אם כבר קיים
                         existing = CallLog.query.filter_by(call_sid=self.call_sid).first()
