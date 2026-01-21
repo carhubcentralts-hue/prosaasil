@@ -243,9 +243,10 @@ class AttachmentService:
         """
         return self.storage.delete(storage_key)
     
-    def generate_signed_url(self, attachment_id: int, storage_key: str, ttl_minutes: int = 60) -> str:
+    def generate_signed_url(self, attachment_id: int, storage_key: str, ttl_minutes: int = 60, 
+                           mime_type: str = None, filename: str = None) -> str:
         """
-        Generate signed URL with TTL
+        Generate signed URL with TTL and optional response headers
         
         Uses storage provider's signed URL generation (presigned for R2, internal token for local)
         
@@ -253,11 +254,31 @@ class AttachmentService:
             attachment_id: Attachment ID (for local storage URL generation)
             storage_key: Storage key
             ttl_minutes: Time-to-live in minutes (default: 60)
+            mime_type: Optional MIME type to force in Content-Type header
+            filename: Optional filename to use in Content-Disposition header
             
         Returns:
             Signed URL
         """
         ttl_seconds = ttl_minutes * 60
+        
+        # For R2 storage, pass response headers to ensure proper Content-Type
+        if hasattr(self.storage, 'generate_signed_url'):
+            # Build optional parameters
+            kwargs = {'ttl_seconds': ttl_seconds}
+            
+            # Add Content-Type if provided (ensures PDF is served as application/pdf)
+            if mime_type:
+                kwargs['content_type'] = mime_type
+                
+            # Add Content-Disposition if filename provided (inline for PDFs to allow iframe viewing)
+            if filename:
+                # Use 'inline' for PDFs to allow browser viewing, otherwise 'attachment'
+                disposition = 'inline' if mime_type and 'pdf' in mime_type.lower() else 'attachment'
+                kwargs['content_disposition'] = f'{disposition}; filename="{filename}"'
+            
+            return self.storage.generate_signed_url(storage_key, **kwargs)
+        
         return self.storage.generate_signed_url(storage_key, ttl_seconds)
     
     def open_file(self, storage_key: str, filename: str = None, mime_type: str = None) -> Tuple[str, str, bytes]:

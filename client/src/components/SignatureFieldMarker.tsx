@@ -42,6 +42,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<string | null>(null); // 'tl', 'tr', 'bl', 'br'
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   
   const canvasRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -51,15 +52,94 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     loadSignatureFields();
   }, [contractId]);
 
-  // Note: PDF page count is loaded from file metadata
-  // Backend can add a business endpoint for PDF info if needed, but for now
-  // we'll default to showing 1 page and allow navigation
+  // Load PDF properly as blob and create ObjectURL
   useEffect(() => {
-    // Set a default that works for most cases
-    // User can still navigate pages manually
-    setTotalPages(10); // Default to 10 pages, will show navigation
-    setLoading(false);
-  }, []);
+    if (!pdfUrl) {
+      setLoading(false);
+      return;
+    }
+
+    const loadPdf = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        console.log('[PDF_LOAD] Fetching PDF metadata from:', pdfUrl);
+        
+        // Step 1: Fetch the download endpoint to get the signed URL
+        const downloadResponse = await fetch(pdfUrl, {
+          credentials: 'include',
+        });
+        
+        if (!downloadResponse.ok) {
+          throw new Error(`Failed to fetch download URL: ${downloadResponse.status}`);
+        }
+        
+        const downloadData = await downloadResponse.json();
+        const signedUrl = downloadData.url;
+        
+        if (!signedUrl) {
+          throw new Error('No signed URL returned from download endpoint');
+        }
+        
+        console.log('[PDF_LOAD] Got signed URL, fetching PDF blob...');
+        
+        // Step 2: Fetch the actual PDF as a blob
+        const pdfResponse = await fetch(signedUrl, {
+          credentials: 'include',
+        });
+        
+        if (!pdfResponse.ok) {
+          throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
+        }
+        
+        const contentType = pdfResponse.headers.get('content-type');
+        console.log('[PDF_LOAD] PDF Content-Type:', contentType);
+        
+        const blob = await pdfResponse.blob();
+        
+        // Validate it's actually a PDF
+        if (!blob.type.includes('pdf') && !contentType?.includes('pdf')) {
+          console.error('[PDF_LOAD] Not a PDF! Blob type:', blob.type, 'Content-Type:', contentType);
+          throw new Error(`Expected PDF but got ${blob.type || contentType || 'unknown type'}`);
+        }
+        
+        console.log('[PDF_LOAD] PDF blob loaded, size:', blob.size);
+        
+        // Step 3: Create ObjectURL from blob
+        const objectUrl = URL.createObjectURL(blob);
+        setPdfObjectUrl(objectUrl);
+        
+        // Default to 10 pages - user can navigate
+        setTotalPages(10);
+        
+        console.log('[PDF_LOAD] PDF loaded successfully');
+      } catch (err) {
+        console.error('[PDF_LOAD] Error loading PDF:', err);
+        setError(err instanceof Error ? err.message : 'שגיאה בטעינת PDF');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadPdf();
+    
+    // Cleanup: revoke ObjectURL when component unmounts
+    return () => {
+      if (pdfObjectUrl) {
+        console.log('[PDF_LOAD] Revoking ObjectURL');
+        URL.revokeObjectURL(pdfObjectUrl);
+      }
+    };
+  }, [pdfUrl]); // Only run when pdfUrl changes
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pdfObjectUrl) {
+        URL.revokeObjectURL(pdfObjectUrl);
+      }
+    };
+  }, [pdfObjectUrl]);
 
   const loadSignatureFields = async () => {
     try {
@@ -232,84 +312,100 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
 
             {/* PDF with Overlay */}
             <div className="flex-1 relative border-2 border-gray-300 rounded-lg bg-white overflow-hidden">
-              <iframe
-                ref={iframeRef}
-                src={`${pdfUrl}#page=${currentPage}&view=FitH`}
-                className="absolute inset-0 w-full h-full"
-                title="PDF Preview"
-              />
+              {loading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                    <p className="text-gray-600">טוען PDF...</p>
+                  </div>
+                </div>
+              ) : pdfObjectUrl ? (
+                <iframe
+                  ref={iframeRef}
+                  key={`${pdfObjectUrl}-${currentPage}`}
+                  src={`${pdfObjectUrl}#page=${currentPage}&view=FitH`}
+                  className="absolute inset-0 w-full h-full"
+                  title="PDF Preview"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                  <p className="text-red-600">לא ניתן לטעון PDF</p>
+                </div>
+              )}
               
-              {/* Canvas Overlay for Drawing */}
-              <div
-                ref={canvasRef}
-                className="absolute inset-0 cursor-crosshair"
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-              >
-                {/* Render existing fields on current page */}
-                {getCurrentPageFields().map(field => (
-                  <div
-                    key={field.id}
-                    className={`absolute border-2 ${
-                      selectedFieldId === field.id
-                        ? 'border-blue-500 bg-blue-100'
-                        : 'border-green-500 bg-green-100'
-                    } bg-opacity-30 transition-all`}
-                    style={{
-                      left: `${field.x * 100}%`,
-                      top: `${field.y * 100}%`,
-                      width: `${field.w * 100}%`,
-                      height: `${field.h * 100}%`,
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedFieldId(field.id);
-                    }}
-                  >
-                    {/* Field Label */}
-                    <div className="absolute -top-6 right-0 bg-green-600 text-white text-xs px-2 py-1 rounded">
-                      חתימה {fields.indexOf(field) + 1}
-                    </div>
-                    
-                    {/* Delete Button */}
-                    <button
+              {/* Canvas Overlay for Drawing - only show when PDF is loaded */}
+              {pdfObjectUrl && !loading && (
+                <div
+                  ref={canvasRef}
+                  className="absolute inset-0 cursor-crosshair"
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                >
+                  {/* Render existing fields on current page */}
+                  {getCurrentPageFields().map(field => (
+                    <div
+                      key={field.id}
+                      className={`absolute border-2 ${
+                        selectedFieldId === field.id
+                          ? 'border-blue-500 bg-blue-100'
+                          : 'border-green-500 bg-green-100'
+                      } bg-opacity-30 transition-all`}
+                      style={{
+                        left: `${field.x * 100}%`,
+                        top: `${field.y * 100}%`,
+                        width: `${field.w * 100}%`,
+                        height: `${field.h * 100}%`,
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        deleteField(field.id);
+                        setSelectedFieldId(field.id);
                       }}
-                      className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                      title="מחק שדה"
                     >
-                      <X className="w-3 h-3" />
-                    </button>
+                      {/* Field Label */}
+                      <div className="absolute -top-6 right-0 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                        חתימה {fields.indexOf(field) + 1}
+                      </div>
+                      
+                      {/* Delete Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteField(field.id);
+                        }}
+                        className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                        title="מחק שדה"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
 
-                    {/* Resize Handles */}
-                    {selectedFieldId === field.id && (
-                      <>
-                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nw-resize" />
-                        <div className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ne-resize" />
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-sw-resize" />
-                        <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-se-resize" />
-                      </>
-                    )}
-                  </div>
-                ))}
+                      {/* Resize Handles */}
+                      {selectedFieldId === field.id && (
+                        <>
+                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nw-resize" />
+                          <div className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ne-resize" />
+                          <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-sw-resize" />
+                          <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-se-resize" />
+                        </>
+                      )}
+                    </div>
+                  ))}
 
-                {/* Current drawing rectangle */}
-                {isDrawing && currentRect && (
-                  <div
-                    className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-20"
-                    style={{
-                      left: `${Math.min(currentRect.startX, currentRect.endX) * 100}%`,
-                      top: `${Math.min(currentRect.startY, currentRect.endY) * 100}%`,
-                      width: `${Math.abs(currentRect.endX - currentRect.startX) * 100}%`,
-                      height: `${Math.abs(currentRect.endY - currentRect.startY) * 100}%`,
-                    }}
-                  />
-                )}
-              </div>
+                  {/* Current drawing rectangle */}
+                  {isDrawing && currentRect && (
+                    <div
+                      className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-20"
+                      style={{
+                        left: `${Math.min(currentRect.startX, currentRect.endX) * 100}%`,
+                        top: `${Math.min(currentRect.startY, currentRect.endY) * 100}%`,
+                        width: `${Math.abs(currentRect.endX - currentRect.startX) * 100}%`,
+                        height: `${Math.abs(currentRect.endY - currentRect.startY) * 100}%`,
+                      }}
+                    />
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Instructions */}
