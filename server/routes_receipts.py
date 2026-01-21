@@ -1834,8 +1834,8 @@ def get_queue_diagnostics():
             }
             diagnostics["workers"].append(worker_info)
         
-        # Check specific queues
-        for queue_name in ['high', 'default', 'low']:
+        # Check specific queues (including receipts queues)
+        for queue_name in ['high', 'default', 'low', 'receipts', 'receipts_sync']:
             queue = Queue(queue_name, connection=redis_conn)
             diagnostics["queues"][queue_name] = {
                 "length": len(queue),
@@ -1845,8 +1845,13 @@ def get_queue_diagnostics():
         
         # Critical check: Does 'default' queue have a worker?
         default_has_worker = diagnostics["queues"]["default"]["has_worker_listening"]
+        receipts_has_worker = diagnostics["queues"]["receipts"]["has_worker_listening"]
+        receipts_sync_has_worker = diagnostics["queues"]["receipts_sync"]["has_worker_listening"]
+        
         diagnostics["critical_checks"] = {
             "default_queue_has_worker": default_has_worker,
+            "receipts_queue_has_worker": receipts_has_worker,
+            "receipts_sync_queue_has_worker": receipts_sync_has_worker,
             "status": "OK" if default_has_worker else "ERROR: No worker listening to 'default' queue!"
         }
         
