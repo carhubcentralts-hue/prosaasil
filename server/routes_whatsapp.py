@@ -999,23 +999,67 @@ def baileys_webhook():
                 action = "created" if was_created else "updated"
                 log.info(f"✅ {action} customer/lead for {phone_or_id}")
                 
-                # ✅ Check if message already exists (prevent duplicates from webhook retries)
-                # 🔥 BUILD 180: Check both 'in' and 'inbound' for backwards compatibility
-                existing_msg = WhatsAppMessage.query.filter(
-                    WhatsAppMessage.business_id == business_id,
-                    WhatsAppMessage.to_number == from_number_e164,
-                    WhatsAppMessage.body == message_text,
-                    WhatsAppMessage.direction.in_(['in', 'inbound'])
-                ).order_by(WhatsAppMessage.created_at.desc()).first()
+                # Extract message_id from Baileys message structure
+                # This is critical for deduplication (same message_id = same message)
+                baileys_message_id = msg.get('key', {}).get('id', '')
+                jid = msg.get('key', {}).get('remoteJid', '')
+                timestamp_ms = msg.get('messageTimestamp', 0)
                 
-                # Skip if same message was received in last 10 seconds (webhook retry)
-                if existing_msg:
-                    from datetime import datetime, timedelta
-                    if (datetime.utcnow() - existing_msg.created_at) < timedelta(seconds=10):
-                        log.warning(f"⚠️ Duplicate message detected, skipping: {message_text[:50]}...")
+                # ✅ Check if message already exists (prevent duplicates from webhook retries)
+                # 🔥 ENHANCED: Triple-check deduplication with message_id + jid + timestamp
+                # This prevents:
+                # 1. Webhook retries (same message_id)
+                # 2. Multiple delivery attempts (same jid + timestamp)
+                # 3. Content duplication (same body + phone within 10s)
+                existing_msg = None
+                
+                # First check: message_id (most reliable)
+                if baileys_message_id:
+                    existing_msg = WhatsAppMessage.query.filter(
+                        WhatsAppMessage.business_id == business_id,
+                        WhatsAppMessage.provider_message_id == baileys_message_id
+                    ).first()
+                    
+                    if existing_msg:
+                        log.info(f"⚠️ Duplicate by message_id: {baileys_message_id}")
                         continue
                 
-                # Save incoming message to DB
+                # Second check: jid + timestamp (for messages without message_id)
+                if not existing_msg and jid and timestamp_ms:
+                    # Allow 1-second tolerance for timestamp matching
+                    from datetime import datetime, timedelta
+                    timestamp_dt = datetime.utcfromtimestamp(timestamp_ms)
+                    time_tolerance = timedelta(seconds=1)
+                    
+                    existing_msg = WhatsAppMessage.query.filter(
+                        WhatsAppMessage.business_id == business_id,
+                        WhatsAppMessage.to_number == from_number_e164,
+                        WhatsAppMessage.created_at >= timestamp_dt - time_tolerance,
+                        WhatsAppMessage.created_at <= timestamp_dt + time_tolerance,
+                        WhatsAppMessage.direction.in_(['in', 'inbound'])
+                    ).first()
+                    
+                    if existing_msg:
+                        log.info(f"⚠️ Duplicate by jid+timestamp: {jid} @ {timestamp_ms}")
+                        continue
+                
+                # Third check: body content + phone within 10 seconds (fallback)
+                if not existing_msg:
+                    existing_msg = WhatsAppMessage.query.filter(
+                        WhatsAppMessage.business_id == business_id,
+                        WhatsAppMessage.to_number == from_number_e164,
+                        WhatsAppMessage.body == message_text,
+                        WhatsAppMessage.direction.in_(['in', 'inbound'])
+                    ).order_by(WhatsAppMessage.created_at.desc()).first()
+                    
+                    # Skip if same message was received in last 10 seconds (webhook retry)
+                    if existing_msg:
+                        from datetime import datetime, timedelta
+                        if (datetime.utcnow() - existing_msg.created_at) < timedelta(seconds=10):
+                            log.warning(f"⚠️ Duplicate by content within 10s: {message_text[:50]}...")
+                            continue
+                
+                # Save incoming message to DB with message_id for deduplication
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
                 wa_msg.to_number = from_number_e164  # E.164 format for database consistency
@@ -1024,6 +1068,7 @@ def baileys_webhook():
                 wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
+                wa_msg.provider_message_id = baileys_message_id if baileys_message_id else None
                 db.session.add(wa_msg)
                 db.session.commit()
                 
