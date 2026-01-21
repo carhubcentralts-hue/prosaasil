@@ -91,12 +91,19 @@ def main():
     logger.info(f"Redis URL: {masked_redis_url}")
     logger.info(f"Service Role: {os.getenv('SERVICE_ROLE', 'worker')}")
     logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
+    logger.info(f"Worker PID: {os.getpid()}")
     logger.info("=" * 60)
     
     # Test Redis connection
     try:
         redis_conn.ping()
         logger.info("✓ Redis connection successful")
+        
+        # Check queue stats
+        for queue_name in ['high', 'default', 'low']:
+            queue = Queue(queue_name, connection=redis_conn)
+            count = len(queue)
+            logger.info(f"  → Queue '{queue_name}': {count} job(s) pending")
     except Exception as e:
         logger.error(f"✗ Redis connection failed: {e}")
         logger.error(f"Check that Redis is running and REDIS_URL is correct: {masked_redis_url}")
@@ -117,7 +124,10 @@ def main():
         )
         
         logger.info(f"✓ Worker created: {worker.name}")
-        logger.info("Listening on queues: high, default, low")
+        logger.info("Listening on queues: high, default, low (in priority order)")
+        logger.info("-" * 60)
+        logger.info("Worker is now ready to process jobs...")
+        logger.info("Waiting for jobs to be enqueued...")
         logger.info("-" * 60)
         
         # Start worker
