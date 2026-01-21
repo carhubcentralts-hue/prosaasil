@@ -1362,9 +1362,36 @@ def get_sync_status():
     
     Query params:
     - run_id: Specific sync run ID (optional, defaults to most recent)
+    - job_id: RQ job ID (optional, for checking job status in queue)
     """
     business_id = get_current_business_id()
     from server.models_sql import ReceiptSyncRun
+    
+    # Check if job_id is provided (for RQ job status)
+    job_id = request.args.get('job_id', type=str)
+    if job_id and RQ_AVAILABLE and redis_conn:
+        try:
+            from rq.job import Job
+            job = Job.fetch(job_id, connection=redis_conn)
+            
+            # Return RQ job status
+            return jsonify({
+                "success": True,
+                "job_id": job.id,
+                "status": job.get_status(),  # queued, started, finished, failed
+                "result": job.result if job.is_finished else None,
+                "exc_info": job.exc_info if job.is_failed else None,
+                "meta": job.meta,
+                "enqueued_at": job.enqueued_at.isoformat() if job.enqueued_at else None,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "ended_at": job.ended_at.isoformat() if job.ended_at else None,
+            }), 200
+        except Exception as e:
+            logger.error(f"Failed to fetch RQ job {job_id}: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"Job not found or error fetching job status: {str(e)}"
+            }), 404
     
     # Get sync run
     run_id = request.args.get('run_id', type=int)
