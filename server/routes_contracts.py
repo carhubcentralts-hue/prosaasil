@@ -22,7 +22,7 @@ Endpoints:
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, Response
 from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
 from server.auth_api import require_api_auth
@@ -39,6 +39,10 @@ import secrets
 logger = logging.getLogger(__name__)
 
 contracts_bp = Blueprint("contracts", __name__, url_prefix="/api/contracts")
+
+# Constants
+CONTRACT_FILE_PURPOSE_ORIGINAL = 'original'
+CONTRACT_FILE_PURPOSE_SIGNED = 'signed'
 
 def create_attachment_from_file(
     file: FileStorage,
@@ -816,6 +820,98 @@ def download_contract_file(contract_id, file_id):
     except Exception as e:
         logger.error(f"[CONTRACTS_DOWNLOAD] Error: {e}", exc_info=True)
         return jsonify({'error': 'Failed to generate download URL'}), 500
+
+
+@contracts_bp.route('/<int:contract_id>/pdf', methods=['GET'])
+@require_api_auth
+@require_page_access('contracts')
+def stream_contract_pdf(contract_id):
+    """
+    Stream PDF for contract - for iframe/PDF.js viewers
+    
+    This endpoint streams the PDF directly to the browser with proper headers
+    for inline display. It requires authentication and enforces tenant isolation.
+    
+    Returns:
+        PDF file stream with application/pdf mime type and inline disposition
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Verify contract exists and belongs to business
+        contract = Contract.query.filter_by(
+            id=contract_id,
+            business_id=business_id
+        ).first()
+        
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        # Get the first PDF file (original purpose)
+        contract_file = ContractFile.query.filter_by(
+            contract_id=contract_id,
+            business_id=business_id,
+            purpose=CONTRACT_FILE_PURPOSE_ORIGINAL
+        ).filter(ContractFile.deleted_at.is_(None)).first()
+        
+        if not contract_file:
+            return jsonify({'error': 'No PDF file found for this contract'}), 404
+        
+        # Get attachment
+        attachment = Attachment.query.filter_by(
+            id=contract_file.attachment_id,
+            business_id=business_id
+        ).first()
+        
+        if not attachment:
+            return jsonify({'error': 'Attachment not found'}), 404
+        
+        # Verify it's a PDF
+        if attachment.mime_type != 'application/pdf':
+            return jsonify({'error': 'File is not a PDF'}), 400
+        
+        # Get file bytes from storage
+        attachment_service = get_attachment_service()
+        filename, mime_type, file_bytes = attachment_service.open_file(
+            attachment.storage_path,
+            filename=attachment.filename_original,
+            mime_type=attachment.mime_type
+        )
+        
+        # Log event
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='file_viewed',
+            metadata={
+                'file_id': contract_file.id,
+                'filename': filename
+            },
+            user_id=user_id
+        )
+        
+        # Return PDF stream with proper headers for inline viewing
+        return Response(
+            io.BytesIO(file_bytes),
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': 'inline; filename="contract.pdf"',
+                'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                'X-Content-Type-Options': 'nosniff',
+                'Content-Length': str(len(file_bytes))
+            }
+        )
+        
+    except FileNotFoundError as e:
+        logger.error(f"[CONTRACTS_PDF_STREAM] File not found: {e}")
+        return jsonify({'error': 'PDF file not found in storage'}), 404
+    except Exception as e:
+        logger.error(f"[CONTRACTS_PDF_STREAM] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to stream PDF'}), 500
 
 
 @contracts_bp.route('/<int:contract_id>/events', methods=['GET'])

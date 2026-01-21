@@ -753,7 +753,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
         <SignatureFieldMarker
           pdfUrl={
             contract.files[0].mime_type === 'application/pdf'
-              ? `/api/contracts/${contractId}/files/${contract.files[0].id}/download`
+              ? `/api/contracts/${contractId}/pdf`
               : ''
           }
           contractId={contractId}
