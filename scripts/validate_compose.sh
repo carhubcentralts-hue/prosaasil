@@ -122,11 +122,23 @@ if [ "$SKIP_NGINX_BUILD" = false ]; then
         
         # Verify config files were generated
         echo "Verifying nginx config files..."
-        CONFIG_FILES=$(docker run --rm prosaasil-nginx-test ls /etc/nginx/conf.d/ 2>/dev/null | wc -l)
-        if [ "$CONFIG_FILES" -ge 2 ]; then
-            echo -e "${GREEN}✅ nginx config files generated (found $CONFIG_FILES files)${NC}"
+        if docker run --rm prosaasil-nginx-test test -f /etc/nginx/conf.d/prosaas.conf && \
+           docker run --rm prosaasil-nginx-test test -f /etc/nginx/conf.d/00-health.conf; then
+            echo -e "${GREEN}✅ Required nginx config files exist${NC}"
         else
-            echo -e "${RED}❌ nginx config files not found${NC}"
+            echo -e "${RED}❌ Required nginx config files missing${NC}"
+            docker run --rm prosaasil-nginx-test ls -la /etc/nginx/conf.d/
+            exit 1
+        fi
+        
+        # CRITICAL: Verify substitution worked (not empty upstreams)
+        echo "Verifying variable substitution..."
+        if docker run --rm prosaasil-nginx-test grep -q "proxy_pass http://" /etc/nginx/conf.d/prosaas.conf && \
+           ! docker run --rm prosaasil-nginx-test grep -q "proxy_pass http://:;" /etc/nginx/conf.d/prosaas.conf; then
+            echo -e "${GREEN}✅ Variable substitution successful${NC}"
+        else
+            echo -e "${RED}❌ Variable substitution FAILED - empty upstreams detected${NC}"
+            docker run --rm prosaasil-nginx-test grep "proxy_pass" /etc/nginx/conf.d/prosaas.conf
             exit 1
         fi
         
