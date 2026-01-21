@@ -121,8 +121,9 @@ PDF_RECEIPT_INDICATORS = [
 ]
 
 # Minimum confidence to save as receipt (lowered to catch more receipts)
-MIN_CONFIDENCE = 20  # Lower threshold to catch more potential receipts
-REVIEW_THRESHOLD = 60  # Below this goes to pending_review
+MIN_CONFIDENCE = 10  # Very low threshold - prefer false positives over false negatives
+REVIEW_THRESHOLD = 40  # Below this goes to pending_review (lowered to catch more)
+ATTACHMENT_CONFIDENCE_BOOST = 5  # Extra points to ensure attachments pass threshold
 
 # Error message truncation (to fit in DB error_message column)
 ERROR_MESSAGE_MAX_LENGTH = 450  # Leave room for message_id prefix
@@ -364,6 +365,12 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     """
     Check if an email is likely to contain a receipt
     
+    IMPROVED DETECTION LOGIC:
+    - Lower thresholds to catch more receipts
+    - Analyze full email content, not just subject
+    - Give high weight to attachments
+    - Look for amounts in snippet
+    
     Args:
         message: Gmail message object
         
@@ -425,11 +432,12 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
         confidence += 40  # Strong indicator
         metadata['matched_keywords'] = matched_keywords
     
-    # PDF attachment is a strong indicator
+    # CRITICAL FIX: Give high weight to attachments (PDFs and images)
+    # Many receipts come as images or PDFs without keywords in subject
     if has_pdf:
-        confidence += 40  # Increased from 30 - PDFs are strong receipt indicators
+        confidence += 50  # INCREASED - PDFs are very strong receipt indicators
     elif has_image:
-        confidence += 20  # Increased from 10 - images can be receipt photos
+        confidence += 35  # INCREASED - images can be receipt photos
     
     # Check sender domain
     if from_domain in KNOWN_RECEIPT_DOMAINS:
@@ -439,17 +447,28 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     snippet = message.get('snippet', '').lower()
     metadata['snippet'] = snippet
     
-    # Check snippet for receipt indicators
-    snippet_indicators = ['total', 'amount', 'סכום', 'סה"כ', 'payment', 'תשלום', '₪', '$', 'paid', 'שולם']
-    for indicator in snippet_indicators:
+    # IMPROVED: Check snippet for receipt indicators (amounts, payment terms)
+    snippet_indicators = [
+        ('total', 10), ('amount', 10), ('סכום', 10), ('סה"כ', 10),
+        ('payment', 8), ('תשלום', 8), ('paid', 8), ('שולם', 8),
+        ('₪', 12), ('$', 12), ('€', 12),  # Currency symbols are strong indicators
+        ('invoice', 15), ('חשבונית', 15), ('receipt', 15), ('קבלה', 15),
+        ('order', 8), ('הזמנה', 8), ('purchase', 8), ('רכישה', 8)
+    ]
+    for indicator, points in snippet_indicators:
         if indicator in snippet:
-            confidence += 5
-            break
+            confidence += points
+            break  # Only count first match to avoid double-counting
     
-    # Even with low confidence, if we have keywords or attachment, it's worth reviewing
-    # The worst case is user marks it as "not a receipt"
-    if confidence < MIN_CONFIDENCE and (matched_keywords or has_pdf or has_image):
-        # Give minimum confidence if we have indicators
+    # CRITICAL FIX: If we have ANY attachment, give benefit of doubt
+    # Worst case: user marks it as "not a receipt" later
+    if has_pdf or has_image:
+        # Ensure minimum confidence for emails with attachments
+        if confidence < MIN_CONFIDENCE:
+            confidence = MIN_CONFIDENCE + ATTACHMENT_CONFIDENCE_BOOST  # Give small boost above threshold
+    
+    # Also give benefit of doubt if we have keywords
+    if matched_keywords and confidence < MIN_CONFIDENCE:
         confidence = MIN_CONFIDENCE
     
     # Must have at least SOME indicator to be considered a receipt
@@ -1084,6 +1103,8 @@ def process_single_receipt_message(
             sync_run.candidate_receipts = result['candidate_receipts']
     
     if not is_receipt:
+        # Log why it was skipped for debugging
+        logger.info(f"⏭️ SKIP: confidence={confidence}, subject={metadata.get('subject', 'N/A')[:50]}, has_attachment={metadata.get('has_attachment', False)}")
         result['skipped'] += 1
         return None
     
@@ -1230,9 +1251,11 @@ def process_single_receipt_message(
         except Exception as e:
             logger.warning(f"⚠️ HTML preview fallback failed: {e}")
     
-    # Don't skip receipts with attachments even if confidence is low
-    # Only skip if no attachment AND low confidence
-    if not attachment_processed and confidence < MIN_CONFIDENCE:
+    # CRITICAL FIX: Don't skip receipts just because they lack attachments
+    # If confidence check passed in check_is_receipt_email(), trust it
+    # Only skip if BOTH no attachment AND no HTML content (empty email)
+    if not attachment_processed and not email_html_snippet:
+        logger.info(f"⚠️ Skipping email with no attachment and no HTML content")
         result['skipped'] += 1
         return None
     
@@ -1455,16 +1478,24 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             end_dt_inclusive = end_dt + timedelta(days=1)
             query_parts.append(f'before:{end_dt_inclusive.strftime("%Y/%m/%d")}')
             
-            # Add keyword filters
+            # Add broad keyword filters to reduce noise but not miss receipts
+            # Include common receipt keywords in subject OR body
             keyword_filter = ' OR '.join([
-                f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill']
+                f'subject:"{kw}"' for kw in ['קבלה', 'חשבונית', 'invoice', 'receipt', 'payment', 'bill', 'order']
             ] + [
-                f'"{kw}"' for kw in ['קבלת תשלום', 'חשבונית מס', 'tax invoice']
+                f'"{kw}"' for kw in ['קבלת תשלום', 'חשבונית מס', 'tax invoice', 'סה"כ', 'total', 'amount', 'סכום']
             ])
             
-            query = f"{' '.join(query_parts)} ({keyword_filter})"
+            # CRITICAL FIX: Make keyword filter optional to catch ALL potential receipts
+            # Filter by attachment presence instead of strict keywords
+            attachment_filter = 'has:attachment'
+            
+            # Combine: (date range) AND (keywords OR attachments)
+            # This catches receipts without exact keywords but with attachments
+            query = f"{' '.join(query_parts)} ({keyword_filter} OR {attachment_filter})"
             logger.info(f"📧 Gmail query built: {query}")
             logger.info(f"📧 This will fetch emails from {start_dt.strftime('%Y/%m/%d')} up to AND INCLUDING {end_dt.strftime('%Y/%m/%d')}")
+            logger.info(f"📧 Query includes keyword filter OR attachments to maximize receipt detection")
             
             # Use simple pagination (not monthly chunks) for custom date range
             attachment_service = get_attachment_service()
