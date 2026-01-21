@@ -50,7 +50,7 @@ server {
 
     # API endpoints - proxy to ${API_UPSTREAM} (REST only, no WebSocket)
     location /api/ {
-        proxy_pass http://${API_UPSTREAM}:${API_PORT}/api/;
+        proxy_pass http://${API_UPSTREAM}/api/;
         
         # HTTP/1.1 required for keepalive and streaming
         proxy_http_version 1.1;
@@ -80,7 +80,7 @@ server {
 
     # WebSocket endpoints - proxy to ${CALLS_UPSTREAM} (optimized for WS)
     location /ws/ {
-        proxy_pass http://${CALLS_UPSTREAM}:${CALLS_PORT};
+        proxy_pass http://${CALLS_UPSTREAM};
         
         # WebSocket support
         proxy_http_version 1.1;
@@ -105,9 +105,9 @@ server {
         proxy_buffering off;
     }
 
-    # Webhook endpoints - proxy to ${API_UPSTREAM} (Twilio call webhooks)
+    # Webhook endpoints - proxy to ${CALLS_UPSTREAM} (Twilio call webhooks)
     location /webhook {
-        proxy_pass http://${API_UPSTREAM}:${API_PORT};
+        proxy_pass http://${CALLS_UPSTREAM};
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
