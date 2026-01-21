@@ -91,6 +91,13 @@ services:
     # Override to become prosaas-api
     profiles:
       - disabled  # Disabled in production - use prosaas-api instead
+
+  # ===========================================
+  # Worker Service - Override to become prosaas-worker
+  # ===========================================
+  worker:
+    profiles:
+      - disabled  # Disabled in production - use prosaas-worker instead
   
   prosaas-api:
     container_name: prosaas-api
