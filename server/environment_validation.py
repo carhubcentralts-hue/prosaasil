@@ -28,6 +28,14 @@ CRITICAL_COLUMNS = {
     'business': [
         'voice_id',  # Required for per-business voice selection in Realtime API
     ],
+    'receipt_sync_runs': [
+        'from_date',  # Required for Gmail sync date range
+        'to_date',  # Required for Gmail sync date range
+        'months_back',  # Required for Gmail sync backfill
+        'run_to_completion',  # Required for Gmail sync run mode
+        'max_seconds_per_run',  # Required for Gmail sync time limits
+        'skipped_count',  # Required for Gmail sync progress tracking
+    ],
 }
 
 def validate_production_environment() -> Dict[str, Any]:
