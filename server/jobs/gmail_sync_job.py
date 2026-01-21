@@ -73,7 +73,16 @@ def sync_gmail_receipts_job(
         }
     
     try:
-        logger.info(f"🔔 JOB START: Gmail sync for business_id={business_id}, mode={mode}")
+        # Enhanced logging with all parameters for debugging
+        logger.info("=" * 60)
+        logger.info(f"🔔 JOB START: Gmail receipts sync")
+        logger.info(f"  → business_id: {business_id}")
+        logger.info(f"  → mode: {mode}")
+        logger.info(f"  → from_date: {from_date}")
+        logger.info(f"  → to_date: {to_date}")
+        logger.info(f"  → max_messages: {max_messages}")
+        logger.info(f"  → months_back: {months_back}")
+        logger.info("=" * 60)
         
         # Create sync run record
         sync_run = ReceiptSyncRun(
@@ -85,6 +94,9 @@ def sync_gmail_receipts_job(
         )
         db.session.add(sync_run)
         db.session.commit()
+        
+        run_id = sync_run.id
+        logger.info(f"✓ Created sync run record: run_id={run_id}")
         
         # Heartbeat updater function
         last_heartbeat = time.time()
@@ -135,11 +147,16 @@ def sync_gmail_receipts_job(
         sync_run.errors_count = result.get('errors_count', 0)
         db.session.commit()
         
-        logger.info(
-            f"🔔 JOB COMPLETE: Gmail sync for business_id={business_id}, "
-            f"scanned={result.get('messages_scanned', 0)}, "
-            f"saved={result.get('saved_receipts', 0)}"
-        )
+        duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
+        logger.info("=" * 60)
+        logger.info(f"🔔 JOB DONE: Gmail sync completed")
+        logger.info(f"  → business_id: {business_id}")
+        logger.info(f"  → run_id: {run_id}")
+        logger.info(f"  → duration: {duration:.1f}s")
+        logger.info(f"  → messages_scanned: {result.get('messages_scanned', 0)}")
+        logger.info(f"  → saved_receipts: {result.get('saved_receipts', 0)}")
+        logger.info(f"  → errors_count: {result.get('errors_count', 0)}")
+        logger.info("=" * 60)
         
         return {
             "success": True,
@@ -149,7 +166,13 @@ def sync_gmail_receipts_job(
         }
         
     except Exception as e:
-        logger.error(f"🔔 JOB FAILED: Gmail sync for business_id={business_id}: {e}", exc_info=True)
+        logger.error("=" * 60)
+        logger.error(f"🔔 JOB FAIL: Gmail sync failed")
+        logger.error(f"  → business_id: {business_id}")
+        logger.error(f"  → run_id: {run_id if 'run_id' in locals() else 'N/A'}")
+        logger.error(f"  → error: {str(e)[:200]}")
+        logger.error("=" * 60)
+        logger.error(f"Stack trace:", exc_info=True)
         
         # Update sync run status
         try:
@@ -157,8 +180,9 @@ def sync_gmail_receipts_job(
             sync_run.error_message = str(e)[:500]
             sync_run.finished_at = datetime.now(timezone.utc)
             db.session.commit()
+            logger.info(f"✓ Updated sync run status to 'failed'")
         except Exception as update_error:
-            logger.error(f"Failed to update sync run status: {update_error}")
+            logger.error(f"✗ Failed to update sync run status: {update_error}")
         
         raise
     
