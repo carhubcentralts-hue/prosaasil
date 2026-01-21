@@ -33,6 +33,7 @@ COPY docker/nginx/templates /templates
 
 # Create conf.d at BUILD TIME
 RUN mkdir -p /etc/nginx/conf.d && \
+    cp /templates/00-health.conf.template /etc/nginx/conf.d/00-health.conf && \
     if [ "$USE_SSL" = "true" ]; then \
       envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' < /templates/prosaas-ssl.conf.template > /etc/nginx/conf.d/prosaas.conf ; \
     else \
