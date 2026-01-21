@@ -173,15 +173,9 @@ def create_app():
     # Database configuration with SSL fix
     # 🔥 CRITICAL FIX: Use unified DATABASE_URL validation
     # This prevents confusing DNS errors from invalid database URLs
-    try:
-        from server.database_validation import validate_database_url
-        validate_database_url()
-        DATABASE_URL = os.getenv('DATABASE_URL', '')
-    except SystemExit:
-        # validate_database_url already logged the error
-        raise RuntimeError("DATABASE_URL validation failed - check logs above")
-    except Exception as e:
-        raise RuntimeError(f"❌ CRITICAL: Failed to validate DATABASE_URL: {e}")
+    from server.database_validation import validate_database_url
+    validate_database_url()
+    DATABASE_URL = os.getenv('DATABASE_URL', '')
     
     # Enterprise Security Configuration
     app.config.update({

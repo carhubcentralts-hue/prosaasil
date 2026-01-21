@@ -56,17 +56,20 @@ def validate_database_url():
         logger.error("=" * 80)
         sys.exit(1)
     
-    # Check 3: Basic format validation
-    if not ('://' in DATABASE_URL and '@' in DATABASE_URL):
-        logger.error("=" * 80)
-        logger.error("❌ FATAL: DATABASE_URL has invalid format!")
-        logger.error("=" * 80)
-        logger.error(f"Current value: {DATABASE_URL[:50]}...")
-        logger.error("")
-        logger.error("Expected format:")
-        logger.error("  postgresql://user:password@host:port/database")
-        logger.error("=" * 80)
-        sys.exit(1)
+    # Check 3: PostgreSQL format validation
+    # Only validate format for PostgreSQL URLs (production requirement)
+    if not DATABASE_URL.startswith('sqlite'):
+        # PostgreSQL URLs should have format: postgresql://user:pass@host:port/db
+        if not ('://' in DATABASE_URL and '@' in DATABASE_URL):
+            logger.error("=" * 80)
+            logger.error("❌ FATAL: DATABASE_URL has invalid PostgreSQL format!")
+            logger.error("=" * 80)
+            logger.error(f"Current value: {DATABASE_URL[:50]}...")
+            logger.error("")
+            logger.error("Expected format:")
+            logger.error("  postgresql://user:password@host:port/database")
+            logger.error("=" * 80)
+            sys.exit(1)
     
     # Normalize postgres:// to postgresql://
     if DATABASE_URL.startswith('postgres://'):

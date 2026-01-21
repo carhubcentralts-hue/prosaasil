@@ -79,12 +79,14 @@ def test_migration_89():
                 
                 # Check specific defaults
                 if column_name == 'run_to_completion':
-                    if default and 'false' in default.lower():
+                    # PostgreSQL may return various formats: 'false', 'FALSE', 'f', etc.
+                    if default and ('false' in str(default).lower() or default == 'false'):
                         print(f"     ✅ DEFAULT FALSE is set correctly")
                     else:
                         print(f"     ⚠️  WARNING: Expected DEFAULT FALSE, got: {default}")
                 
                 if column_name == 'skipped_count':
+                    # Check if default contains numeric 0
                     if default and '0' in str(default):
                         print(f"     ✅ DEFAULT 0 is set correctly")
                     else:
