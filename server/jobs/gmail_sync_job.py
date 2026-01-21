@@ -68,8 +68,9 @@ def sync_gmail_receipts_job(
         current_job = get_current_job()
         if current_job:
             job_id = current_job.id
-    except Exception:
-        pass  # Not in RQ context or RQ not available
+    except (ImportError, RuntimeError):
+        # Not in RQ context or RQ not available
+        pass
     
     lock_key = f"receipt_sync_lock:{business_id}"
     run_id = None  # Initialize to avoid reference errors in exception handler

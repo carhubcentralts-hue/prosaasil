@@ -1098,7 +1098,7 @@ def sync_receipts():
             # Enqueue job to Redis queue for worker processing
             from server.jobs.gmail_sync_job import sync_gmail_receipts_job
             
-            logger.info(f"🔔 ENQUEUEING JOB: Importing sync_gmail_receipts_job and preparing to enqueue...")
+            logger.info(f"🔔 ENQUEUEING JOB: Preparing to enqueue sync job to 'default' queue...")
             
             job = receipts_queue.enqueue(
                 sync_gmail_receipts_job,

@@ -120,7 +120,7 @@ def main():
             from server.jobs.gmail_sync_job import sync_gmail_receipts_job
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError) as e:
             logger.error(f"✗ Failed to import job functions: {e}", exc_info=True)
             logger.error("Worker cannot process jobs without job functions!")
             sys.exit(1)
