@@ -693,6 +693,8 @@ export function ReceiptsPage() {
   
   // Handle sync
   const handleSync = useCallback(async () => {
+    console.log('🔔 Sync button clicked with dates:', { syncFromDate, syncToDate });
+    
     if (syncInProgress) {
       alert('סנכרון כבר רץ ברקע. אנא המתן לסיום.');
       return;
@@ -1132,10 +1134,7 @@ export function ReceiptsPage() {
               {/* Sync button with selected dates */}
               <div className="mt-4 pt-3 border-t border-blue-200">
                 <button
-                  onClick={() => {
-                    console.log('🔔 Sync button clicked with dates:', { syncFromDate, syncToDate });
-                    handleSync();
-                  }}
+                  onClick={handleSync}
                   disabled={syncing || syncInProgress}
                   className="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium text-sm"
                 >
