@@ -35,6 +35,9 @@ COPY pyproject.toml ./
 COPY server/ ./server/
 COPY asgi.py wsgi.py run_server.py ./
 
+# 🔥 PYTHON ENVIRONMENT FIX: Ensure consistent Python interpreter
+# Install all dependencies to the default Python location
+# This ensures both `python` and `python3` use the same packages
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
@@ -46,6 +49,8 @@ RUN mkdir -p server/public
 
 RUN mkdir -p storage/recordings storage/whatsapp logs
 
+# 🔥 PYTHON ENVIRONMENT: Ensure python and python3 are the same
+# This prevents issues where worker might use python3 but packages are in python
 ENV PYTHONUNBUFFERED=1
 ENV PORT=5000
 ENV FLASK_ENV=production

@@ -18,6 +18,7 @@ import sys
 import time
 import logging
 import signal
+import traceback
 from datetime import datetime, timezone
 
 # Setup logging
@@ -27,6 +28,21 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+def log_fatal_error(stage, error):
+    """Log a fatal error with full context and exit"""
+    logger.error("=" * 80)
+    logger.error(f"❌ WORKER BOOTSTRAP FAILED AT: {stage}")
+    logger.error("=" * 80)
+    logger.error(f"Python executable: {sys.executable}")
+    logger.error(f"Python version: {sys.version.split()[0]}")
+    logger.error(f"Error type: {type(error).__name__}")
+    logger.error(f"Error message: {error}")
+    logger.error("-" * 80)
+    logger.error("Full traceback:")
+    logger.error(traceback.format_exc())
+    logger.error("=" * 80)
+    sys.exit(1)
 
 # Check required environment variables
 REDIS_URL = os.getenv('REDIS_URL')
@@ -47,6 +63,10 @@ if '@' in REDIS_URL:
 
 logger.info(f"REDIS_URL: {masked_redis_url}")
 
+# 🔥 PYTHON DIAGNOSTICS: Log Python interpreter info for debugging
+logger.info(f"Python executable: {sys.executable}")
+logger.info(f"Python version: {sys.version.split()[0]}")
+
 # Get queues to listen to from environment (default: high,default,low)
 RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low')
 LISTEN_QUEUES = [q.strip() for q in RQ_QUEUES.split(',') if q.strip()]
@@ -54,24 +74,37 @@ logger.info(f"RQ_QUEUES configuration: {RQ_QUEUES}")
 logger.info(f"Will listen to queues: {LISTEN_QUEUES}")
 
 # Initialize Flask app context (needed for DB access)
-from server.app_factory import create_app
-app = create_app()
+try:
+    from server.app_factory import create_app
+    app = create_app()
+    logger.info("✓ Flask app initialized")
+except Exception as e:
+    log_fatal_error("Flask app initialization", e)
 
 # Import Redis and job processing modules
 try:
     import redis
     from rq import Worker, Queue, Connection
     from rq.job import Job
-except ImportError:
-    logger.error("rq package not installed. Install with: pip install rq")
-    sys.exit(1)
+    logger.info("✓ Redis and RQ modules imported successfully")
+except Exception as e:
+    log_fatal_error("Importing redis/rq modules", e)
 
 # Connect to Redis
-redis_conn = redis.from_url(REDIS_URL)
+try:
+    redis_conn = redis.from_url(REDIS_URL)
+    redis_conn.ping()  # Test connection immediately
+    logger.info("✓ Redis connection established")
+except Exception as e:
+    log_fatal_error("Connecting to Redis", e)
 
 # Define queues dynamically based on RQ_QUEUES environment variable
 # Create Queue objects for each configured queue
-QUEUES = [Queue(q, connection=redis_conn) for q in LISTEN_QUEUES]
+try:
+    QUEUES = [Queue(q, connection=redis_conn) for q in LISTEN_QUEUES]
+    logger.info(f"✓ Created {len(QUEUES)} queue(s): {LISTEN_QUEUES}")
+except Exception as e:
+    log_fatal_error("Creating RQ queues", e)
 
 # Graceful shutdown handler
 shutdown_requested = False
@@ -135,22 +168,22 @@ def main():
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
         except (ImportError, ModuleNotFoundError) as e:
-            logger.error(f"✗ Failed to import job functions: {e}", exc_info=True)
-            logger.error("Worker cannot process jobs without job functions!")
-            sys.exit(1)
+            log_fatal_error("Importing job functions", e)
         
         # Create worker
-        worker = Worker(
-            QUEUES,
-            connection=redis_conn,
-            name=f'prosaas-worker-{os.getpid()}',
-            # Don't fork - run jobs in main process for simplicity
-            # This is fine for our use case (Gmail sync, Playwright, etc.)
-            disable_default_exception_handler=False,
-        )
-        
-        logger.info(f"✓ Worker created: {worker.name}")
-        logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
+        try:
+            worker = Worker(
+                QUEUES,
+                connection=redis_conn,
+                name=f'prosaas-worker-{os.getpid()}',
+                # Don't fork - run jobs in main process for simplicity
+                # This is fine for our use case (Gmail sync, Playwright, etc.)
+                disable_default_exception_handler=False,
+            )
+            logger.info(f"✓ Worker created: {worker.name}")
+            logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
+        except Exception as e:
+            log_fatal_error("Creating RQ Worker instance", e)
         logger.info("-" * 60)
         logger.info("🚀 Worker is now READY and LISTENING for jobs...")
         logger.info(f"📩 Waiting for jobs to be enqueued to {LISTEN_QUEUES} queues...")
@@ -167,10 +200,12 @@ def main():
         except KeyboardInterrupt:
             logger.info("Worker interrupted by user")
         except Exception as e:
-            logger.error(f"Worker error: {e}", exc_info=True)
-            raise
+            log_fatal_error("Worker runtime execution", e)
         finally:
             logger.info("Worker shutting down")
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:
+        log_fatal_error("Worker main() execution", e)
