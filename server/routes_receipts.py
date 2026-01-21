@@ -1388,6 +1388,96 @@ def get_sync_status():
     })
 
 
+@receipts_bp.route('/sync/latest', methods=['GET'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def get_latest_sync():
+    """
+    Get the latest sync run status for the current business.
+    This endpoint provides a simple way to check if a sync is running
+    and get its progress without needing to know the run_id.
+    
+    Returns:
+    - status: current/completed/failed/none
+    - last_run: details of the most recent sync run (if any)
+    - error_message: error details if the last run failed
+    - last_heartbeat_at: when the job was last active
+    - job_id: RQ job ID if available from recent queued job
+    """
+    business_id = get_current_business_id()
+    from server.models_sql import ReceiptSyncRun
+    
+    # Get most recent sync run
+    latest_run = ReceiptSyncRun.query.filter_by(
+        business_id=business_id
+    ).order_by(ReceiptSyncRun.started_at.desc()).first()
+    
+    if not latest_run:
+        return jsonify({
+            "success": True,
+            "status": "none",
+            "message": "No sync runs found for this business"
+        })
+    
+    # Calculate time since last activity
+    now = datetime.now(timezone.utc)
+    last_activity = latest_run.last_heartbeat_at or latest_run.updated_at or latest_run.started_at
+    
+    # Ensure timezone-aware
+    if last_activity.tzinfo is None:
+        last_activity = last_activity.replace(tzinfo=timezone.utc)
+    
+    seconds_since_activity = int((now - last_activity).total_seconds())
+    minutes_since_start = None
+    if latest_run.started_at:
+        started_at = latest_run.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        minutes_since_start = int((now - started_at).total_seconds() / 60)
+    
+    # Calculate progress percentage
+    progress_pct = 0
+    if latest_run.status == 'completed':
+        progress_pct = 100
+    elif latest_run.status == 'failed':
+        progress_pct = 0
+    elif latest_run.messages_scanned > 0:
+        # Show progress based on messages scanned
+        progress_pct = min(PROGRESS_MAX_PERCENTAGE, int((latest_run.messages_scanned / PROGRESS_MESSAGES_PER_10_PERCENT) * 10))
+    
+    # Determine overall status
+    overall_status = latest_run.status
+    if latest_run.status == 'running':
+        # Check if stale (no heartbeat for 3+ minutes)
+        if seconds_since_activity > 180:
+            overall_status = 'stale'
+    
+    return jsonify({
+        "success": True,
+        "status": overall_status,
+        "last_run": {
+            "id": latest_run.id,
+            "mode": latest_run.mode,
+            "status": latest_run.status,
+            "started_at": latest_run.started_at.isoformat(),
+            "finished_at": latest_run.finished_at.isoformat() if latest_run.finished_at else None,
+            "last_heartbeat_at": latest_run.last_heartbeat_at.isoformat() if latest_run.last_heartbeat_at else None,
+            "seconds_since_activity": seconds_since_activity,
+            "minutes_since_start": minutes_since_start,
+            "progress_percentage": progress_pct,
+            "counters": {
+                "pages_scanned": latest_run.pages_scanned,
+                "messages_scanned": latest_run.messages_scanned,
+                "candidate_receipts": latest_run.candidate_receipts,
+                "saved_receipts": latest_run.saved_receipts,
+                "preview_generated_count": latest_run.preview_generated_count,
+                "errors_count": latest_run.errors_count
+            },
+            "error_message": latest_run.error_message if latest_run.status == 'failed' else None
+        }
+    })
+
+
 @receipts_bp.route('/sync/<int:run_id>/cancel', methods=['POST'])
 @require_api_auth()
 @require_page_access('gmail_receipts')
