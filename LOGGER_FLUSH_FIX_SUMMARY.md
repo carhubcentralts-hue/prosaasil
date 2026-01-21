@@ -54,11 +54,19 @@ Only critical logs (warnings and errors) remain. Info logs removed from most pla
 
 ### 3. בדיקת CI למניעה / CI Check for Prevention
 
-נוסף סקריפט בדיקה: `scripts/check_logger_flush.sh`
-Added check script: `scripts/check_logger_flush.sh`
+נוסף סקריפט בדיקה משופר: `scripts/check_logger_flush.sh`
+Added improved check script: `scripts/check_logger_flush.sh`
 
 הסקריפט מוודא שלא יוסיפו שוב `flush=True` או `file=` ל-logger.
 The script ensures that `flush=True` or `file=` won't be added to logger again.
+
+**תכונות הסקריפט / Script Features:**
+- ✅ חיפוש ספציפי למתודות logger (debug/info/warning/error/critical)
+- ✅ Specific search for logger methods (debug/info/warning/error/critical)
+- ✅ טיפול חזק בשגיאות עם `set -euo pipefail`
+- ✅ Robust error handling with `set -euo pipefail`
+- ✅ מונע false positives
+- ✅ Prevents false positives
 
 להרצה:
 To run:

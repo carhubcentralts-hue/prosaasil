@@ -7,10 +7,11 @@ set -euo pipefail
 echo "🔍 Checking for invalid logger parameters..."
 
 # Search for logger.* with flush=True in Python files
-FOUND_FLUSH=$(grep -rn "logger\." . --include="*.py" | grep "flush=True" || true)
+# Using more specific pattern to avoid false positives
+FOUND_FLUSH=$(grep -rn 'logger\.\(debug\|info\|warning\|error\|critical\).*flush=True' . --include="*.py" || true)
 
 # Search for logger.* with file= in Python files  
-FOUND_FILE=$(grep -rn "logger\." . --include="*.py" | grep "file=" || true)
+FOUND_FILE=$(grep -rn 'logger\.\(debug\|info\|warning\|error\|critical\).*file=' . --include="*.py" || true)
 
 ERRORS=0
 
