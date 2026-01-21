@@ -3,179 +3,117 @@
 Test ENABLE_SCHEDULERS Flag
 
 Validates that schedulers respect the ENABLE_SCHEDULERS environment variable.
+
+NOTE: This test should be run in separate Python processes for proper isolation.
+Run each test individually:
+  ENABLE_SCHEDULERS=false python test_enable_schedulers.py disabled
+  ENABLE_SCHEDULERS=true python test_enable_schedulers.py enabled
+  python test_enable_schedulers.py default
 """
 import os
 import sys
 import time
 import threading
 
-def test_schedulers_disabled():
-    """Test that schedulers don't start when ENABLE_SCHEDULERS=false"""
-    print("=" * 80)
-    print("Test 1: ENABLE_SCHEDULERS=false (schedulers should NOT start)")
-    print("=" * 80)
-    
-    # Set environment
-    os.environ['FLASK_ENV'] = 'test'
-    os.environ['DATABASE_URL'] = 'sqlite:///test.db'
-    os.environ['ENABLE_SCHEDULERS'] = 'false'
-    os.environ['SERVICE_ROLE'] = 'api'
-    
-    # Import after setting environment
-    from server.app_factory import create_app
-    
-    app = create_app()
-    
-    # Wait a bit for any threads to start
-    time.sleep(2)
-    
-    # Check active threads
+def check_scheduler_threads():
+    """Check which scheduler threads are running"""
     threads = threading.enumerate()
     thread_names = [t.name for t in threads]
     
-    print(f"\nActive threads: {len(threads)}")
-    for name in thread_names:
-        print(f"  - {name}")
-    
-    # Check if scheduler threads exist
+    # Scheduler threads we're looking for
     scheduler_threads = [
         'RecordingCleanup',
         'RecordingWorker',
         'ReminderScheduler'
     ]
     
-    found_schedulers = [t for t in scheduler_threads if t in thread_names]
-    
-    if found_schedulers:
-        print(f"\n❌ FAIL: Found scheduler threads when ENABLE_SCHEDULERS=false:")
-        for name in found_schedulers:
-            print(f"  - {name}")
-        return False
-    else:
-        print(f"\n✅ PASS: No scheduler threads found (as expected)")
-        return True
+    found = [t for t in scheduler_threads if t in thread_names]
+    return thread_names, found
 
-def test_schedulers_enabled():
-    """Test that schedulers start when ENABLE_SCHEDULERS=true"""
-    print("\n" + "=" * 80)
-    print("Test 2: ENABLE_SCHEDULERS=true (schedulers SHOULD start)")
+def test_schedulers_by_env():
+    """Test schedulers based on current environment"""
+    enable_flag = os.getenv('ENABLE_SCHEDULERS', 'not_set')
+    service_role = os.getenv('SERVICE_ROLE', 'unknown')
+    
     print("=" * 80)
+    print(f"Testing ENABLE_SCHEDULERS Flag")
+    print("=" * 80)
+    print(f"ENABLE_SCHEDULERS: {enable_flag}")
+    print(f"SERVICE_ROLE: {service_role}")
+    print()
     
-    # Set environment
+    # Set test database
+    os.environ['DATABASE_URL'] = os.getenv('DATABASE_URL', 'sqlite:///test.db')
     os.environ['FLASK_ENV'] = 'test'
-    os.environ['DATABASE_URL'] = 'sqlite:///test.db'
-    os.environ['ENABLE_SCHEDULERS'] = 'true'
-    os.environ['SERVICE_ROLE'] = 'worker'
     
-    # Need to reimport with new environment
-    import importlib
-    import server.app_factory
-    importlib.reload(server.app_factory)
-    
+    # Import after environment is set
     from server.app_factory import create_app
     
+    print("Creating Flask app...")
     app = create_app()
     
-    # Wait a bit for threads to start
-    time.sleep(2)
+    # Wait for threads to start
+    print("Waiting for background threads to initialize...")
+    time.sleep(3)
     
-    # Check active threads
-    threads = threading.enumerate()
-    thread_names = [t.name for t in threads]
+    # Check threads
+    thread_names, found_schedulers = check_scheduler_threads()
     
-    print(f"\nActive threads: {len(threads)}")
+    print(f"\nActive threads: {len(thread_names)}")
     for name in thread_names:
-        print(f"  - {name}")
+        marker = "🟢" if name in ['RecordingCleanup', 'RecordingWorker', 'ReminderScheduler'] else "  "
+        print(f"  {marker} {name}")
     
-    # Check if scheduler threads exist
-    expected_schedulers = [
-        'RecordingCleanup',
-        'RecordingWorker'
-    ]
-    
-    found_schedulers = [t for t in expected_schedulers if t in thread_names]
-    
-    print(f"\nFound {len(found_schedulers)} scheduler threads:")
+    print(f"\nScheduler threads found: {len(found_schedulers)}")
     for name in found_schedulers:
         print(f"  ✅ {name}")
     
-    if len(found_schedulers) > 0:
-        print(f"\n✅ PASS: Scheduler threads started (as expected)")
-        return True
-    else:
-        print(f"\n⚠️  WARNING: No scheduler threads found")
-        print(f"   This may be expected if dependencies are missing in test environment")
-        return True  # Don't fail, just warn
-
-def test_default_behavior():
-    """Test that default (no ENABLE_SCHEDULERS) disables schedulers"""
+    # Determine expected behavior
+    should_have_schedulers = enable_flag.lower() == 'true'
+    
     print("\n" + "=" * 80)
-    print("Test 3: No ENABLE_SCHEDULERS (default: disabled)")
-    print("=" * 80)
     
-    # Clear environment
-    if 'ENABLE_SCHEDULERS' in os.environ:
-        del os.environ['ENABLE_SCHEDULERS']
-    
-    os.environ['SERVICE_ROLE'] = 'api'
-    
-    # Need to reimport
-    import importlib
-    import server.app_factory
-    importlib.reload(server.app_factory)
-    
-    from server.app_factory import create_app
-    
-    app = create_app()
-    
-    # Wait a bit
-    time.sleep(2)
-    
-    # Check threads
-    threads = threading.enumerate()
-    thread_names = [t.name for t in threads]
-    
-    scheduler_threads = [
-        'RecordingCleanup',
-        'RecordingWorker',
-        'ReminderScheduler'
-    ]
-    
-    found_schedulers = [t for t in scheduler_threads if t in thread_names]
-    
-    if found_schedulers:
-        print(f"\n❌ FAIL: Found scheduler threads when ENABLE_SCHEDULERS not set:")
-        for name in found_schedulers:
-            print(f"  - {name}")
-        return False
+    if should_have_schedulers:
+        if found_schedulers:
+            print(f"✅ PASS: Schedulers running as expected (ENABLE_SCHEDULERS=true)")
+            return True
+        else:
+            print(f"⚠️  WARNING: No schedulers found but ENABLE_SCHEDULERS=true")
+            print(f"   This may be expected if dependencies are missing in test environment")
+            return True
     else:
-        print(f"\n✅ PASS: No scheduler threads found (default behavior correct)")
-        return True
+        if found_schedulers:
+            print(f"❌ FAIL: Schedulers running when ENABLE_SCHEDULERS={enable_flag}")
+            print(f"   Found: {', '.join(found_schedulers)}")
+            return False
+        else:
+            print(f"✅ PASS: No schedulers running (ENABLE_SCHEDULERS={enable_flag})")
+            return True
 
 if __name__ == "__main__":
-    print("Testing ENABLE_SCHEDULERS Functionality")
-    print("=" * 80)
-    print()
+    test_mode = sys.argv[1] if len(sys.argv) > 1 else 'check'
+    
+    if test_mode == 'disabled':
+        os.environ['ENABLE_SCHEDULERS'] = 'false'
+        os.environ['SERVICE_ROLE'] = 'api'
+    elif test_mode == 'enabled':
+        os.environ['ENABLE_SCHEDULERS'] = 'true'
+        os.environ['SERVICE_ROLE'] = 'worker'
+    elif test_mode == 'default':
+        if 'ENABLE_SCHEDULERS' in os.environ:
+            del os.environ['ENABLE_SCHEDULERS']
+        os.environ['SERVICE_ROLE'] = 'api'
+    elif test_mode != 'check':
+        print("Usage:")
+        print("  python test_enable_schedulers.py disabled  # Test with ENABLE_SCHEDULERS=false")
+        print("  python test_enable_schedulers.py enabled   # Test with ENABLE_SCHEDULERS=true")
+        print("  python test_enable_schedulers.py default   # Test without ENABLE_SCHEDULERS set")
+        print("  python test_enable_schedulers.py check     # Check current environment")
+        sys.exit(1)
     
     try:
-        test1 = test_schedulers_disabled()
-        test2 = test_schedulers_enabled()
-        test3 = test_default_behavior()
-        
-        print("\n" + "=" * 80)
-        print("Test Results:")
-        print("=" * 80)
-        print(f"  Test 1 (disabled): {'✅ PASS' if test1 else '❌ FAIL'}")
-        print(f"  Test 2 (enabled):  {'✅ PASS' if test2 else '❌ FAIL'}")
-        print(f"  Test 3 (default):  {'✅ PASS' if test3 else '❌ FAIL'}")
-        
-        if test1 and test3:
-            print("\n✅ ALL TESTS PASSED")
-            sys.exit(0)
-        else:
-            print("\n❌ SOME TESTS FAILED")
-            sys.exit(1)
-    
+        success = test_schedulers_by_env()
+        sys.exit(0 if success else 1)
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback

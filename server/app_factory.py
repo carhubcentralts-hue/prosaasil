@@ -171,24 +171,17 @@ def create_app():
     }
     
     # Database configuration with SSL fix
-    DATABASE_URL = os.getenv('DATABASE_URL', '')
-    
-    # 🔥 CRITICAL FIX: Fail fast if DATABASE_URL is not set
+    # 🔥 CRITICAL FIX: Use unified DATABASE_URL validation
     # This prevents confusing DNS errors from invalid database URLs
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "❌ CRITICAL: DATABASE_URL environment variable is not set!\n"
-            "   Set DATABASE_URL in your .env file or environment.\n"
-            "   Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
-        )
-    
-    # ✅ PRODUCTION SAFETY CHECK - No SQLite in production!
-    IS_PRODUCTION = os.getenv('REPLIT_DEPLOYMENT') == '1' or os.getenv('RAILWAY_ENVIRONMENT') == 'production'
-    if IS_PRODUCTION and DATABASE_URL.startswith('sqlite'):
-        raise RuntimeError("❌ FATAL: SQLite is not allowed in production! Set DATABASE_URL secret.")
-    
-    if DATABASE_URL.startswith('postgres://'):
-        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    try:
+        from server.database_validation import validate_database_url
+        validate_database_url()
+        DATABASE_URL = os.getenv('DATABASE_URL', '')
+    except SystemExit:
+        # validate_database_url already logged the error
+        raise RuntimeError("DATABASE_URL validation failed - check logs above")
+    except Exception as e:
+        raise RuntimeError(f"❌ CRITICAL: Failed to validate DATABASE_URL: {e}")
     
     # Enterprise Security Configuration
     app.config.update({

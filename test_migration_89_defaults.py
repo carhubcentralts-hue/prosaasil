@@ -3,13 +3,26 @@
 Test Migration 89 - Receipt Sync Run-to-Completion Fields
 
 Validates that Migration 89 correctly adds all required columns with proper defaults.
+This test is designed for PostgreSQL databases only.
 """
 import os
 import sys
 
 # Set test environment
 os.environ['FLASK_ENV'] = 'test'
-os.environ['DATABASE_URL'] = os.getenv('DATABASE_URL', 'sqlite:///test.db')
+
+# Check if we have a PostgreSQL database URL
+DATABASE_URL = os.getenv('DATABASE_URL', '')
+if not DATABASE_URL or 'postgresql' not in DATABASE_URL:
+    print("=" * 80)
+    print("⚠️  SKIPPING TEST: PostgreSQL database required")
+    print("=" * 80)
+    print("This test validates PostgreSQL-specific migration columns and defaults.")
+    print("Set DATABASE_URL to a PostgreSQL database to run this test.")
+    print("\nExample:")
+    print("  export DATABASE_URL=postgresql://user:pass@localhost:5432/dbname")
+    print("  python test_migration_89_defaults.py")
+    sys.exit(0)
 
 from server.app_factory import create_app
 from server.db import db

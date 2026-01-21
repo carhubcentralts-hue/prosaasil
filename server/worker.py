@@ -45,29 +45,18 @@ def log_fatal_error(stage, error):
     sys.exit(1)
 
 # Check required environment variables
-DATABASE_URL = os.getenv('DATABASE_URL')
-if not DATABASE_URL:
+# 🔥 CRITICAL: Validate DATABASE_URL using unified validator
+try:
+    from server.database_validation import validate_database_url
+    validate_database_url()
+except SystemExit:
+    # validate_database_url already logged the error
+    raise
+except Exception as e:
     logger.error("=" * 80)
-    logger.error("❌ CRITICAL: DATABASE_URL environment variable is not set!")
-    logger.error("=" * 80)
-    logger.error("Worker requires DATABASE_URL to access the database.")
-    logger.error("Set DATABASE_URL in your .env file or environment.")
-    logger.error("Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname")
+    logger.error(f"❌ CRITICAL: Failed to validate DATABASE_URL: {e}")
     logger.error("=" * 80)
     sys.exit(1)
-
-# Mask password in DATABASE_URL for logging
-masked_db_url = DATABASE_URL
-if '@' in DATABASE_URL and '://' in DATABASE_URL:
-    # Format: postgresql://user:password@host:port/db -> postgresql://user:***@host:port/db
-    parts = DATABASE_URL.split('://', 1)
-    if len(parts) == 2 and '@' in parts[1]:
-        auth_and_host = parts[1].split('@', 1)
-        if ':' in auth_and_host[0]:
-            user = auth_and_host[0].split(':', 1)[0]
-            masked_db_url = f"{parts[0]}://{user}:***@{auth_and_host[1]}"
-
-logger.info(f"DATABASE_URL: {masked_db_url}")
 
 REDIS_URL = os.getenv('REDIS_URL')
 if not REDIS_URL:
