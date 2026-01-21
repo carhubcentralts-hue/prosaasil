@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 contracts_bp = Blueprint("contracts", __name__, url_prefix="/api/contracts")
 
+# Constants
+CONTRACT_FILE_PURPOSE_ORIGINAL = 'original'
+CONTRACT_FILE_PURPOSE_SIGNED = 'signed'
+
 def create_attachment_from_file(
     file: FileStorage,
     business_id: int,
@@ -851,7 +855,7 @@ def stream_contract_pdf(contract_id):
         contract_file = ContractFile.query.filter_by(
             contract_id=contract_id,
             business_id=business_id,
-            purpose='original'
+            purpose=CONTRACT_FILE_PURPOSE_ORIGINAL
         ).filter(ContractFile.deleted_at.is_(None)).first()
         
         if not contract_file:

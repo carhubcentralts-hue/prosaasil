@@ -14,6 +14,8 @@ export interface SignatureField {
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
+const DEFAULT_TOTAL_PAGES = 10; // Default page count for navigation (user can navigate beyond this)
+const PDF_MIN_HEIGHT_VH = '70vh'; // Minimum height for PDF viewer on mobile
 
 interface SignatureFieldMarkerProps {
   pdfUrl: string;
@@ -65,8 +67,8 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     console.log('[PDF_LOAD] Using streaming endpoint:', pdfUrl);
     setPdfObjectUrl(pdfUrl);
     
-    // Default to 10 pages - user can navigate
-    setTotalPages(10);
+    // Default page count for navigation
+    setTotalPages(DEFAULT_TOTAL_PAGES);
     setLoading(false);
     
     // No cleanup needed - we're using a direct endpoint URL
@@ -258,7 +260,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
                   className="absolute inset-0 w-full h-full"
                   title="PDF Preview"
                   sandbox="allow-same-origin allow-scripts allow-downloads"
-                  style={{ border: 'none', minHeight: '70vh' }}
+                  style={{ border: 'none', minHeight: PDF_MIN_HEIGHT_VH }}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
