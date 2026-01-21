@@ -415,10 +415,21 @@ def start_reminder_scheduler(app):
     # Verify app config matches environment
     app_db_url = app.config.get('SQLALCHEMY_DATABASE_URI', '')
     if app_db_url != database_url:
+        # Mask credentials for logging
+        try:
+            from urllib.parse import urlparse
+            env_parsed = urlparse(database_url)
+            app_parsed = urlparse(app_db_url)
+            env_safe = f"{env_parsed.scheme}://{env_parsed.hostname}:{env_parsed.port}/{env_parsed.path.lstrip('/')}" if env_parsed.hostname else database_url[:20]
+            app_safe = f"{app_parsed.scheme}://{app_parsed.hostname}:{app_parsed.port}/{app_parsed.path.lstrip('/')}" if app_parsed.hostname else app_db_url[:20]
+        except Exception:
+            env_safe = "***"
+            app_safe = "***"
+        
         log.warning(
             f"[REMINDER_SCHEDULER] DATABASE_URL mismatch detected:\n"
-            f"  Environment: {database_url[:50]}...\n"
-            f"  App config:  {app_db_url[:50]}...\n"
+            f"  Environment: {env_safe}\n"
+            f"  App config:  {app_safe}\n"
             f"  Using app config (may need restart if environment changed)"
         )
     
