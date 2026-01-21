@@ -144,6 +144,11 @@ services:
   # Calls Service (WebSocket + Twilio streaming only)
   # Handles: /ws/twilio-media, Twilio webhooks for calls
   # Optimized for: High concurrency, low latency, backpressure
+  # 
+  # ⚠️ CRITICAL: SINGLE WORKER ONLY
+  # State (stream_registry, call sessions) is IN-MEMORY
+  # Multi-worker would cause lost call context and crashes
+  # See: STATE_MANAGEMENT_CONSTRAINTS.md
   # ===========================================
   prosaas-calls:
     container_name: prosaas-calls
@@ -172,8 +177,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
-    # Use Uvicorn with single worker initially (multi-worker causes state issues)
-    # State (call registry, sessions) is in Redis, not in-memory
+    # ⚠️ CRITICAL: --workers MUST be 1 (not 4!)
+    # Reason: stream_registry is in-memory, not Redis
+    # Multi-worker = lost call state = crashes
+    # To scale: Refactor stream_registry to Redis first
     command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30"]
     expose:
       - "5050"
