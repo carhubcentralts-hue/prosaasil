@@ -15,11 +15,24 @@ echo ""
 
 # Check 1: RQ Package
 echo "=== Check 1: RQ Package in Worker Container ==="
-echo "Running: ./scripts/dcprod.sh exec worker python -c \"import rq; print('✅ rq ok')\""
-if ./scripts/dcprod.sh exec worker python -c "import rq; print('✅ rq ok')" 2>&1; then
-    echo "✅ PASS: rq package is installed"
+echo "Checking Python interpreter and rq package installation..."
+
+# Check with 'python' command
+echo ""
+echo "→ Testing 'python' command:"
+if ./scripts/dcprod.sh exec worker sh -c 'which python && python -c "import sys; import rq; print(\"✅ rq ok\"); print(\"Python:\", sys.executable); print(\"rq location:\", rq.__file__)"' 2>&1; then
+    echo "✅ PASS: rq package is installed with 'python'"
 else
-    echo "❌ FAIL: rq package is NOT installed"
+    echo "❌ FAIL: rq package is NOT installed or 'python' command not found"
+    echo "   Trying 'python3' command..."
+fi
+
+echo ""
+echo "→ Testing 'python3' command:"
+if ./scripts/dcprod.sh exec worker sh -c 'which python3 && python3 -c "import sys; import rq; print(\"✅ rq ok\"); print(\"Python:\", sys.executable); print(\"rq location:\", rq.__file__)"' 2>&1; then
+    echo "✅ PASS: rq package is installed with 'python3'"
+else
+    echo "❌ FAIL: rq package is NOT installed with 'python3'"
     echo "   Fix: ./scripts/dcprod.sh build --no-cache worker"
     exit 1
 fi

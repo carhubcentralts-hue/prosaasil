@@ -47,6 +47,10 @@ if '@' in REDIS_URL:
 
 logger.info(f"REDIS_URL: {masked_redis_url}")
 
+# 🔥 PYTHON DIAGNOSTICS: Log Python interpreter info for debugging
+logger.info(f"Python executable: {sys.executable}")
+logger.info(f"Python version: {sys.version.split()[0]}")
+
 # Get queues to listen to from environment (default: high,default,low)
 RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low')
 LISTEN_QUEUES = [q.strip() for q in RQ_QUEUES.split(',') if q.strip()]
@@ -62,8 +66,14 @@ try:
     import redis
     from rq import Worker, Queue, Connection
     from rq.job import Job
-except ImportError:
-    logger.error("rq package not installed. Install with: pip install rq")
+except ImportError as e:
+    logger.error(f"❌ [WORKER] Failed to import rq package")
+    logger.error(f"   Python executable: {sys.executable}")
+    logger.error(f"   Python version: {sys.version}")
+    logger.error(f"   Import error: {e}")
+    logger.error(f"   This usually means:")
+    logger.error(f"     1. Different Python interpreter than where packages are installed")
+    logger.error(f"     2. rq package not installed (run: pip install rq)")
     sys.exit(1)
 
 # Connect to Redis
