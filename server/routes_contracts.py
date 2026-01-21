@@ -895,11 +895,13 @@ def stream_contract_pdf(contract_id):
         )
         
         # Return PDF stream with proper headers for inline viewing
+        # Including Accept-Ranges for browser PDF viewers to work properly
         return Response(
             io.BytesIO(file_bytes),
             mimetype='application/pdf',
             headers={
                 'Content-Disposition': 'inline; filename="contract.pdf"',
+                'Accept-Ranges': 'bytes',
                 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
                 'X-Content-Type-Options': 'nosniff',
                 'Content-Length': str(len(file_bytes))
