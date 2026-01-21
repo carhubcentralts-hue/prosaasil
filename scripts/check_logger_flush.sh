@@ -1,10 +1,13 @@
 #!/bin/bash
 # Check for logger.* calls with flush=True or file= parameters
 # These parameters are not supported by Python's logging module
+# 
+# NOTE: This script only checks logger.* calls (not print statements)
+# print() with flush=True is valid and will not be flagged
 
 set -euo pipefail
 
-echo "🔍 Checking for invalid logger parameters..."
+echo "🔍 Checking for invalid logger parameters (logger.* calls only)..."
 
 # Search for logger.* with flush=True in Python files
 # Using more specific pattern to avoid false positives

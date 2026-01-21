@@ -20,10 +20,13 @@ This caused agents to fail creation and show "0 agents ready".
 
 ## ✅ הפתרון / Solution
 
-### 1. הסרת flush=True מכל הקריאות / Removed flush=True from all calls
+### 1. הסרת flush=True מכל קריאות logger / Removed flush=True from all logger calls
 
-תוקנו **33 מקומות** בקבצים הבאים:
-Fixed **33 instances** in the following files:
+תוקנו **33 קריאות logger** (לא print!) בקבצים הבאים:
+Fixed **33 logger calls** (not print statements!) in the following files:
+
+**חשוב:** הסרנו flush=True רק מ-logger.* calls. קריאות print/print עם flush=True נשארות ותקינות!
+**Important:** We removed flush=True only from logger.* calls. print/print statements with flush=True remain and are valid!
 
 - `server/agent_tools/agent_factory.py` - 9 תיקונים
 - `server/media_ws_ai.py` - 9 תיקונים
@@ -57,8 +60,16 @@ Only critical logs (warnings and errors) remain. Info logs removed from most pla
 נוסף סקריפט בדיקה משופר: `scripts/check_logger_flush.sh`
 Added improved check script: `scripts/check_logger_flush.sh`
 
-הסקריפט מוודא שלא יוסיפו שוב `flush=True` או `file=` ל-logger.
-The script ensures that `flush=True` or `file=` won't be added to logger again.
+**מה הסקריפט בודק / What the script checks:**
+הסקריפט בודק רק קריאות **logger.*** (debug/info/warning/error/critical)
+The script only checks **logger.*** calls (debug/info/warning/error/critical)
+
+**הסקריפט לא בודק / The script does NOT check:**
+- קריאות print() עם flush=True - אלה תקינות! ✅
+- print() calls with flush=True - these are valid! ✅
+
+הסקריפט מוודא שלא יוסיפו שוב `flush=True` או `file=` ל-**logger** בלבד.
+The script ensures that `flush=True` or `file=` won't be added to **logger** again.
 
 **תכונות הסקריפט / Script Features:**
 - ✅ חיפוש ספציפי למתודות logger (debug/info/warning/error/critical)
@@ -94,11 +105,11 @@ After the fix:
 
 ## 🚫 מה לא לעשות / What NOT to do
 
-**לעולם אל תוסיף:**
-**Never add:**
+**לעולם אל תוסיף ל-logger:**
+**Never add to logger:**
 
 ```python
-# ❌ לא נכון / WRONG
+# ❌ לא נכון / WRONG - logger לא תומך ב-flush!
 logger.info("message", flush=True)
 logger.error("error", file=sys.stderr)
 
@@ -107,8 +118,17 @@ logger.info("message")
 logger.error("error")
 ```
 
-אם באמת צריך flush מיידי, השתמש ב-print:
-If you really need immediate flush, use print:
+**אבל print עם flush זה תקין:**
+**But print with flush is valid:**
+
+```python
+# ✅ תקין / VALID - print תומך ב-flush!
+print("urgent message", file=sys.stderr, flush=True)
+_orig_print("message", flush=True)
+```
+
+אם באמת צריך flush מיידי, השתמש ב-print, לא ב-logger:
+If you really need immediate flush, use print, not logger:
 
 ```python
 import sys
