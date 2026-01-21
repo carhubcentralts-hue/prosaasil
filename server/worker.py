@@ -45,6 +45,19 @@ def log_fatal_error(stage, error):
     sys.exit(1)
 
 # Check required environment variables
+# 🔥 CRITICAL: Validate DATABASE_URL using unified validator
+try:
+    from server.database_validation import validate_database_url
+    validate_database_url()
+except SystemExit:
+    # validate_database_url already logged the error
+    raise
+except Exception as e:
+    logger.error("=" * 80)
+    logger.error(f"❌ CRITICAL: Failed to validate DATABASE_URL: {e}")
+    logger.error("=" * 80)
+    sys.exit(1)
+
 REDIS_URL = os.getenv('REDIS_URL')
 if not REDIS_URL:
     logger.error("❌ REDIS_URL environment variable not set")

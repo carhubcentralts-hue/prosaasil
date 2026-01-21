@@ -62,6 +62,43 @@ validate_no_backend() {
     esac
 }
 
+# 🔥 CRITICAL: After 'up' command, ensure backend is NOT running
+# This prevents accidental backend deployment in production
+check_backend_not_running() {
+    if [ "$1" = "up" ]; then
+        echo "⏳ Waiting for services to initialize..."
+        sleep 5
+        
+        # 🔥 PRECISE CHECK: Use --services --filter status=running with exact word match
+        backend_running=$(docker compose --env-file .env \
+          -f docker-compose.yml \
+          -f docker-compose.prod.yml \
+          ps --services --filter "status=running" 2>/dev/null | grep -w "^backend$" | wc -l)
+        
+        if [ "$backend_running" -gt 0 ]; then
+            echo ""
+            echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+            echo "║                     ❌ DEPLOYMENT FAILED - BACKEND RUNNING ❌                ║"
+            echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "ERROR: 'backend' service is running in production!"
+            echo "Production architecture uses:"
+            echo "  ✅ prosaas-api (HTTP API endpoints)"
+            echo "  ✅ prosaas-calls (WebSocket + Twilio streaming)"
+            echo "  ❌ backend (LEGACY - should NOT run)"
+            echo ""
+            echo "To fix:"
+            echo "  1. Stop all services: ./scripts/dcprod.sh down"
+            echo "  2. Ensure backend is under 'legacy' profile in docker-compose.prod.yml"
+            echo "  3. Restart: ./scripts/dcprod.sh up -d"
+            echo ""
+            exit 1
+        fi
+        
+        echo "✅ Backend service check passed (not running)"
+    fi
+}
+
 # Run docker compose with both configuration files
 docker compose --env-file .env \
   -f docker-compose.yml \
@@ -70,3 +107,6 @@ docker compose --env-file .env \
 
 # Validate no backend service after certain commands
 validate_no_backend "$1"
+
+# 🔥 CRITICAL: Hard-check backend is not running after 'up'
+check_backend_not_running "$1"

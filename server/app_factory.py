@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 _app_singleton = None
 _app_lock = __import__('threading').RLock()  # RLock allows reentrant acquisition (prevents deadlock)
 
+# 🔥 CRITICAL: Global migrations completion event
+# Used by health check to ensure migrations complete before returning 200 OK
+_migrations_complete = threading.Event()
+
 def get_process_app():
     """
     🔥 CRITICAL FIX: Get the Flask app without creating a new one
@@ -171,24 +175,11 @@ def create_app():
     }
     
     # Database configuration with SSL fix
-    DATABASE_URL = os.getenv('DATABASE_URL', '')
-    
-    # 🔥 CRITICAL FIX: Fail fast if DATABASE_URL is not set
+    # 🔥 CRITICAL FIX: Use unified DATABASE_URL validation
     # This prevents confusing DNS errors from invalid database URLs
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "❌ CRITICAL: DATABASE_URL environment variable is not set!\n"
-            "   Set DATABASE_URL in your .env file or environment.\n"
-            "   Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
-        )
-    
-    # ✅ PRODUCTION SAFETY CHECK - No SQLite in production!
-    IS_PRODUCTION = os.getenv('REPLIT_DEPLOYMENT') == '1' or os.getenv('RAILWAY_ENVIRONMENT') == 'production'
-    if IS_PRODUCTION and DATABASE_URL.startswith('sqlite'):
-        raise RuntimeError("❌ FATAL: SQLite is not allowed in production! Set DATABASE_URL secret.")
-    
-    if DATABASE_URL.startswith('postgres://'):
-        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    from server.database_validation import validate_database_url
+    validate_database_url()
+    DATABASE_URL = os.getenv('DATABASE_URL', '')
     
     # Enterprise Security Configuration
     app.config.update({
@@ -922,10 +913,6 @@ def create_app():
     else:
         logger.info("ℹ️  Development mode - R2 validation skipped (local storage allowed)")
     
-    # 🔥 CRITICAL FIX: Global flag to ensure migrations complete before warmup
-    # Prevents "InFailedSqlTransaction" errors when warmup queries fail
-    _migrations_complete = threading.Event()
-    
     # ⚡ DEPLOYMENT FIX: Run heavy initialization in background
     # This prevents deployment timeout while still ensuring DB is ready
     # SKIP if in migration mode to prevent hanging
@@ -951,6 +938,8 @@ def create_app():
                         
                         # 🔥 CRITICAL FIX: Signal that migrations are complete
                         # This prevents warmup from running before migrations finish
+                        # Uses global _migrations_complete event (module-level)
+                        global _migrations_complete
                         _migrations_complete.set()
                         logger.info("🔒 Migrations complete - warmup can now proceed")
                         
@@ -1113,6 +1102,9 @@ def create_app():
                 # due to missing columns (e.g., business.company_id)
                 import time
                 
+                # Use global _migrations_complete event
+                global _migrations_complete
+                
                 # Wait up to 60 seconds for migrations to complete
                 logger.info("🔥 Warmup waiting for migrations to complete...")
                 migrations_ready = _migrations_complete.wait(timeout=60.0)
@@ -1137,56 +1129,77 @@ def create_app():
         except Exception:
             pass
         
+        # ====================================================================
+        # Background Schedulers and Workers
+        # ====================================================================
+        # 🔥 CRITICAL: Only run schedulers in worker service to prevent duplicates
+        # Use ENABLE_SCHEDULERS=true env var to enable (default: disabled in api/calls)
+        # Worker service should set ENABLE_SCHEDULERS=true
+        ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'false').lower() == 'true'
+        SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'unknown')
+        
+        if ENABLE_SCHEDULERS:
+            logger.info(f"✅ [BACKGROUND] Schedulers ENABLED for service: {SERVICE_ROLE}")
+        else:
+            logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
+            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true")
+        
         # Automatic recording cleanup scheduler (7-day retention)
-        try:
-            from server.tasks_recording import auto_cleanup_old_recordings
-            import time as scheduler_time
-            
-            def recording_cleanup_scheduler():
-                """Background scheduler - runs cleanup daily"""
-                scheduler_time.sleep(300)  # Wait 5 minutes after startup
-                while True:
-                    try:
-                        with app.app_context():
-                            auto_cleanup_old_recordings()
-                    except Exception:
-                        pass
-                    scheduler_time.sleep(21600)  # Run every 6 hours
-            
-            cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
-            cleanup_thread.start()
-        except Exception:
-            pass
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.tasks_recording import auto_cleanup_old_recordings
+                import time as scheduler_time
+                
+                def recording_cleanup_scheduler():
+                    """Background scheduler - runs cleanup daily"""
+                    scheduler_time.sleep(300)  # Wait 5 minutes after startup
+                    while True:
+                        try:
+                            with app.app_context():
+                                auto_cleanup_old_recordings()
+                        except Exception:
+                            pass
+                        scheduler_time.sleep(21600)  # Run every 6 hours
+                
+                cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
+                cleanup_thread.start()
+                logger.info("✅ [BACKGROUND] Recording cleanup scheduler started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start cleanup scheduler: {e}")
         
         # WhatsApp session processor (15-min auto-summary)
-        try:
-            from server.services.whatsapp_session_service import start_session_processor
-            start_session_processor()
-        except Exception:
-            pass
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.services.whatsapp_session_service import start_session_processor
+                start_session_processor()
+                logger.info("✅ [BACKGROUND] WhatsApp session processor started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start WhatsApp session processor: {e}")
         
         # Recording transcription worker (offline STT + lead extraction)
-        try:
-            from server.tasks_recording import start_recording_worker
-            
-            recording_thread = threading.Thread(
-                target=start_recording_worker,
-                args=(app,),
-                daemon=True,
-                name="RecordingWorker"
-            )
-            recording_thread.start()
-            logger.info("✅ [BACKGROUND] Recording worker started")
-        except Exception as e:
-            logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.tasks_recording import start_recording_worker
+                
+                recording_thread = threading.Thread(
+                    target=start_recording_worker,
+                    args=(app,),
+                    daemon=True,
+                    name="RecordingWorker"
+                )
+                recording_thread.start()
+                logger.info("✅ [BACKGROUND] Recording worker started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
         
         # 🔔 Reminder notification scheduler (sends push 30min and 15min before due time)
-        try:
-            from server.services.notifications.reminder_scheduler import start_reminder_scheduler
-            start_reminder_scheduler(app)
-            logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
-        except Exception as e:
-            logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.services.notifications.reminder_scheduler import start_reminder_scheduler
+                start_reminder_scheduler(app)
+                logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
     
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton
