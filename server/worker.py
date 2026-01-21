@@ -168,8 +168,6 @@ def main():
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
         except (ImportError, ModuleNotFoundError) as e:
-            logger.exception(f"✗ Failed to import job functions")
-            logger.error("Worker cannot process jobs without job functions!")
             log_fatal_error("Importing job functions", e)
         
         # Create worker
@@ -202,7 +200,6 @@ def main():
         except KeyboardInterrupt:
             logger.info("Worker interrupted by user")
         except Exception as e:
-            logger.exception(f"Worker runtime error")
             log_fatal_error("Worker runtime execution", e)
         finally:
             logger.info("Worker shutting down")
