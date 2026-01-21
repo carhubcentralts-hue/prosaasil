@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { 
   Receipt, 
   RefreshCw, 
@@ -19,7 +20,9 @@ import {
   ChevronUp,
   Calendar,
   DollarSign,
-  Building2
+  Building2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
@@ -27,6 +30,283 @@ import axios from 'axios';
 // Constants
 const SYNC_POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
 const SYNC_MAX_POLL_DURATION_MS = 10 * 60 * 1000; // Stop polling after 10 minutes
+const FILTER_DEBOUNCE_MS = 300; // Debounce filter changes
+
+// =============================================
+// Mobile Date Picker Modal Component
+// Uses Portal for proper layering and scroll handling on iOS
+// =============================================
+interface MobileDatePickerModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  fromDate: string;
+  toDate: string;
+  onFromDateChange: (date: string) => void;
+  onToDateChange: (date: string) => void;
+  onApply: () => void;
+  onClear: () => void;
+}
+
+const MobileDatePickerModal: React.FC<MobileDatePickerModalProps> = ({
+  isOpen,
+  onClose,
+  fromDate,
+  toDate,
+  onFromDateChange,
+  onToDateChange,
+  onApply,
+  onClear
+}) => {
+  const scrollYRef = useRef<number>(0);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  
+  // Lock body scroll on iOS when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      // Save current scroll position
+      scrollYRef.current = window.scrollY;
+      
+      // Lock body scroll with iOS-compatible method
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollYRef.current}px`;
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+    } else {
+      // Restore scroll position
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      window.scrollTo(0, scrollYRef.current);
+    }
+    
+    return () => {
+      // Cleanup on unmount
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+  
+  // Hebrew month names
+  const hebrewMonths = [
+    'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+    'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
+  ];
+  
+  // Generate month options for the last 24 months
+  const getMonthOptions = () => {
+    const options: { value: string; label: string; fromDate: string; toDate: string }[] = [];
+    const now = new Date();
+    
+    for (let i = 0; i < 24; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      
+      // Calculate start of month
+      const startOfMonth = new Date(year, month, 1);
+      // Calculate end of month
+      const endOfMonth = new Date(year, month + 1, 0);
+      
+      options.push({
+        value: `${year}-${String(month + 1).padStart(2, '0')}`,
+        label: `${hebrewMonths[month]} ${year}`,
+        fromDate: startOfMonth.toISOString().split('T')[0],
+        toDate: endOfMonth.toISOString().split('T')[0]
+      });
+    }
+    
+    return options;
+  };
+  
+  const monthOptions = getMonthOptions();
+  
+  const handleMonthSelect = (monthValue: string) => {
+    const option = monthOptions.find(m => m.value === monthValue);
+    if (option) {
+      setSelectedMonth(monthValue);
+      onFromDateChange(option.fromDate);
+      onToDateChange(option.toDate);
+    }
+  };
+  
+  const handleQuickSelect = (days: number) => {
+    const now = new Date();
+    const past = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    onFromDateChange(past.toISOString().split('T')[0]);
+    onToDateChange(now.toISOString().split('T')[0]);
+    setSelectedMonth('');
+  };
+  
+  if (!isOpen) return null;
+  
+  // Render using Portal for proper z-index handling
+  return ReactDOM.createPortal(
+    <div 
+      className="fixed inset-0 z-[9999] flex items-end justify-center"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      
+      {/* Modal Content - Bottom Sheet Style */}
+      <div 
+        ref={modalRef}
+        className="relative bg-white rounded-t-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl"
+        style={{
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Handle bar for mobile */}
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+        
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">סינון לפי תאריך</h2>
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        {/* Scrollable content */}
+        <div 
+          className="overflow-y-auto px-4 py-4 space-y-6"
+          style={{
+            maxHeight: 'calc(80vh - 140px)',
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          {/* Quick select buttons */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">בחירה מהירה</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleQuickSelect(7)}
+                className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors min-h-[44px]"
+              >
+                שבוע אחרון
+              </button>
+              <button
+                onClick={() => handleQuickSelect(30)}
+                className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors min-h-[44px]"
+              >
+                חודש אחרון
+              </button>
+              <button
+                onClick={() => handleQuickSelect(90)}
+                className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors min-h-[44px]"
+              >
+                3 חודשים
+              </button>
+              <button
+                onClick={() => handleQuickSelect(365)}
+                className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors min-h-[44px]"
+              >
+                שנה אחרונה
+              </button>
+            </div>
+          </div>
+          
+          {/* Month selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">בחירת חודש</label>
+            <select
+              value={selectedMonth}
+              onChange={(e) => handleMonthSelect(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base min-h-[44px]"
+            >
+              <option value="">בחר חודש...</option>
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Custom date range */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">או בחר טווח תאריכים</label>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">מתאריך</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    onFromDateChange(e.target.value);
+                    setSelectedMonth('');
+                  }}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base min-h-[44px]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">עד תאריך</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    onToDateChange(e.target.value);
+                    setSelectedMonth('');
+                  }}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base min-h-[44px]"
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* Selected range display */}
+          {(fromDate || toDate) && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <strong>טווח נבחר:</strong>{' '}
+                {fromDate ? new Date(fromDate).toLocaleDateString('he') : 'התחלה'} - {toDate ? new Date(toDate).toLocaleDateString('he') : 'סיום'}
+              </p>
+            </div>
+          )}
+        </div>
+        
+        {/* Footer buttons - fixed at bottom */}
+        <div className="border-t border-gray-200 px-4 py-4 bg-white flex gap-3">
+          <button
+            onClick={() => {
+              onClear();
+              setSelectedMonth('');
+            }}
+            className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
+          >
+            נקה
+          </button>
+          <button
+            onClick={() => {
+              onApply();
+              onClose();
+            }}
+            className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors min-h-[44px]"
+          >
+            החל סינון
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 // Receipt interface
 interface ReceiptItem {
@@ -518,6 +798,9 @@ export function ReceiptsPage() {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   
+  // Mobile date picker modal state
+  const [showMobileDatePicker, setShowMobileDatePicker] = useState(false);
+  
   // Sync date range (separate from filter date range)
   const [syncFromDate, setSyncFromDate] = useState<string>('');
   const [syncToDate, setSyncToDate] = useState<string>('');
@@ -535,6 +818,12 @@ export function ReceiptsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   
+  // AbortController for canceling pending fetch requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Debounce timer ref
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   // Fetch Gmail status
   const fetchGmailStatus = useCallback(async () => {
     try {
@@ -545,8 +834,8 @@ export function ReceiptsPage() {
     }
   }, []);
   
-  // Fetch receipts
-  const fetchReceipts = useCallback(async () => {
+  // Fetch receipts with AbortController support
+  const fetchReceipts = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
       const params: Record<string, string | number> = {
@@ -556,20 +845,69 @@ export function ReceiptsPage() {
       
       if (statusFilter) params.status = statusFilter;
       if (searchQuery) params.vendor = searchQuery;
-      if (fromDate) params.from_date = fromDate;
-      if (toDate) params.to_date = toDate;
       
-      const res = await axios.get('/api/receipts', { params });
+      // Ensure dates are sent in proper ISO format (YYYY-MM-DD)
+      if (fromDate) {
+        // Ensure from_date is at start of day
+        params.from_date = fromDate;
+        console.log('[ReceiptsPage] Filtering from_date:', fromDate);
+      }
+      if (toDate) {
+        // Ensure to_date is at end of day
+        params.to_date = toDate;
+        console.log('[ReceiptsPage] Filtering to_date:', toDate);
+      }
       
+      console.log('[ReceiptsPage] Fetching receipts with params:', params);
+      
+      const res = await axios.get('/api/receipts', { params, signal });
+      
+      // Replace list entirely (not append) to avoid duplicates
       setReceipts(res.data.items || []);
       setTotalPages(res.data.total_pages || 1);
       setError(null);
+      
+      console.log('[ReceiptsPage] Received', res.data.items?.length || 0, 'receipts, total:', res.data.total);
     } catch (err: unknown) {
+      // Ignore abort errors
+      if (axios.isCancel(err)) {
+        console.log('[ReceiptsPage] Request was cancelled');
+        return;
+      }
       const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to load receipts';
       setError(errorMsg);
     } finally {
       setLoading(false);
     }
+  }, [page, statusFilter, searchQuery, fromDate, toDate]);
+  
+  // Debounced fetch effect - cancels previous request and debounces
+  useEffect(() => {
+    // Cancel any pending debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new AbortController
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    
+    // Debounce the fetch
+    debounceTimerRef.current = setTimeout(() => {
+      fetchReceipts(controller.signal);
+    }, FILTER_DEBOUNCE_MS);
+    
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      controller.abort();
+    };
   }, [page, statusFilter, searchQuery, fromDate, toDate]);
   
   // Fetch stats
@@ -581,6 +919,12 @@ export function ReceiptsPage() {
       console.error('Failed to fetch stats:', err);
     }
   }, []);
+  
+  // Initial fetch (without dependencies on filters since we handle that in the effect above)
+  const doInitialFetch = useCallback(async () => {
+    await fetchGmailStatus();
+    await fetchStats();
+  }, [fetchGmailStatus, fetchStats]);
   
   // Poll sync status for background sync
   const pollSyncStatus = useCallback(async () => {
@@ -596,22 +940,20 @@ export function ReceiptsPage() {
         // Stop polling if sync is done
         if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
           setSyncInProgress(false);
-          // Reload receipts
-          await fetchReceipts();
+          // Reload receipts - trigger via state change which will be caught by the debounced effect
+          setPage(p => p); // This triggers a re-fetch via the effect
           await fetchStats();
         }
       }
     } catch (error) {
       console.error('Failed to fetch sync status:', error);
     }
-  }, [user?.token, fetchReceipts, fetchStats]);
+  }, [user?.token, fetchStats]);
   
-  // Initial load
+  // Initial load - only load status and stats, receipts are handled by debounced effect
   useEffect(() => {
-    fetchGmailStatus();
-    fetchReceipts();
-    fetchStats();
-  }, [fetchGmailStatus, fetchReceipts, fetchStats]);
+    doInitialFetch();
+  }, [doInitialFetch]);
   
   // Poll sync progress while sync is running
   useEffect(() => {
@@ -632,8 +974,8 @@ export function ReceiptsPage() {
             setSyncing(false);
             setSyncProgress(null);
             
-            // Refresh data
-            await fetchReceipts();
+            // Refresh data - trigger via state change
+            setPage(p => p); // This triggers a re-fetch via the effect
             await fetchStats();
             await fetchGmailStatus();
             
@@ -661,7 +1003,7 @@ export function ReceiptsPage() {
     pollProgress(); // Initial poll
     
     return () => clearInterval(interval);
-  }, [activeSyncRunId, syncing, fetchReceipts, fetchStats, fetchGmailStatus]);
+  }, [activeSyncRunId, syncing, fetchStats, fetchGmailStatus]);
   
   // Handle Gmail connect
   const handleConnect = async () => {
@@ -1297,7 +1639,42 @@ export function ReceiptsPage() {
             {/* Date filters */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">סינון לפי תאריך</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              
+              {/* Mobile: Button to open date picker modal */}
+              <div className="md:hidden mb-3">
+                <button
+                  onClick={() => setShowMobileDatePicker(true)}
+                  className={`w-full flex items-center justify-between px-4 py-3 border rounded-lg transition-colors min-h-[44px] ${
+                    fromDate || toDate 
+                      ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="flex items-center">
+                    <Calendar className="w-4 h-4 ml-2" />
+                    {fromDate || toDate ? (
+                      <span>
+                        {fromDate ? new Date(fromDate).toLocaleDateString('he') : 'התחלה'} - {toDate ? new Date(toDate).toLocaleDateString('he') : 'סיום'}
+                      </span>
+                    ) : (
+                      'בחר טווח תאריכים'
+                    )}
+                  </span>
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                {(fromDate || toDate) && (
+                  <button
+                    onClick={() => { setFromDate(''); setToDate(''); setPage(1); }}
+                    className="mt-2 text-sm text-blue-600 hover:text-blue-700 flex items-center"
+                  >
+                    <X className="w-3 h-3 ml-1" />
+                    נקה תאריכים
+                  </button>
+                )}
+              </div>
+              
+              {/* Desktop: Inline date inputs */}
+              <div className="hidden md:grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">מתאריך</label>
                   <input
@@ -1320,7 +1697,7 @@ export function ReceiptsPage() {
               {(fromDate || toDate) && (
                 <button
                   onClick={() => { setFromDate(''); setToDate(''); setPage(1); }}
-                  className="mt-2 text-sm text-blue-600 hover:text-blue-700 flex items-center"
+                  className="mt-2 text-sm text-blue-600 hover:text-blue-700 hidden md:flex items-center"
                 >
                   <X className="w-3 h-3 ml-1" />
                   נקה תאריכים
@@ -1534,6 +1911,25 @@ export function ReceiptsPage() {
       
       {/* Sync Progress Display */}
       <SyncProgressDisplay />
+      
+      {/* Mobile Date Picker Modal */}
+      <MobileDatePickerModal
+        isOpen={showMobileDatePicker}
+        onClose={() => setShowMobileDatePicker(false)}
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        onApply={() => {
+          setPage(1);
+          // The debounced effect will handle the fetch
+        }}
+        onClear={() => {
+          setFromDate('');
+          setToDate('');
+          setPage(1);
+        }}
+      />
     </div>
   );
 }

@@ -408,8 +408,8 @@ def list_receipts():
     Query params:
     - status: Filter by status (pending_review|approved|rejected|not_receipt)
     - vendor: Search vendor name
-    - from_date: Filter by received_at >= date
-    - to_date: Filter by received_at <= date
+    - from_date: Filter by received_at >= date (ISO format: YYYY-MM-DD)
+    - to_date: Filter by received_at <= date (ISO format: YYYY-MM-DD, inclusive end of day)
     - min_amount: Minimum amount
     - max_amount: Maximum amount
     - page: Page number (1-indexed)
@@ -419,11 +419,17 @@ def list_receipts():
     """
     business_id = get_current_business_id()
     
-    # Build query
+    # Log filter parameters (without sensitive data)
+    from_date_param = request.args.get('from_date')
+    to_date_param = request.args.get('to_date')
+    status_param = request.args.get('status')
+    logger.info(f"[list_receipts] Filtering - business_id={business_id}, from_date={from_date_param}, to_date={to_date_param}, status={status_param}")
+    
+    # Build query with distinct to prevent duplicates
     query = Receipt.query.filter_by(
         business_id=business_id,
         is_deleted=False
-    )
+    ).distinct(Receipt.id)
     
     # Apply filters
     status = request.args.get('status')
@@ -434,21 +440,38 @@ def list_receipts():
     if vendor:
         query = query.filter(Receipt.vendor_name.ilike(f'%{vendor}%'))
     
+    # Date filtering with proper parsing
     from_date = request.args.get('from_date')
     if from_date:
         try:
-            from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+            # Handle both plain date (YYYY-MM-DD) and ISO datetime formats
+            if 'T' in from_date:
+                from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+            else:
+                # Plain date - set to start of day (00:00:00) in UTC
+                from_dt = datetime.strptime(from_date, '%Y-%m-%d').replace(
+                    hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc
+                )
             query = query.filter(Receipt.received_at >= from_dt)
-        except ValueError:
-            pass
+            logger.info(f"[list_receipts] Applied from_date filter: {from_dt.isoformat()}")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"[list_receipts] Invalid from_date format: {from_date}, error: {e}")
     
     to_date = request.args.get('to_date')
     if to_date:
         try:
-            to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+            # Handle both plain date (YYYY-MM-DD) and ISO datetime formats
+            if 'T' in to_date:
+                to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+            else:
+                # Plain date - set to end of day (23:59:59.999999) in UTC for inclusive range
+                to_dt = datetime.strptime(to_date, '%Y-%m-%d').replace(
+                    hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc
+                )
             query = query.filter(Receipt.received_at <= to_dt)
-        except ValueError:
-            pass
+            logger.info(f"[list_receipts] Applied to_date filter: {to_dt.isoformat()}")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"[list_receipts] Invalid to_date format: {to_date}, error: {e}")
     
     min_amount = request.args.get('min_amount', type=float)
     if min_amount is not None:
@@ -458,7 +481,7 @@ def list_receipts():
     if max_amount is not None:
         query = query.filter(Receipt.amount <= max_amount)
     
-    # Sorting
+    # Sorting - use stable ordering with id as tiebreaker to prevent pagination issues
     sort_field = request.args.get('sort', 'received_at')
     sort_order = request.args.get('order', 'desc')
     
@@ -471,10 +494,11 @@ def list_receipts():
     }.get(sort_field, Receipt.received_at)
     
     # Note: nullslast/nullsfirst are PostgreSQL-specific but this codebase requires PostgreSQL
+    # Add id as secondary sort for stable pagination
     if sort_order == 'asc':
-        query = query.order_by(sort_column.asc().nullslast())
+        query = query.order_by(sort_column.asc().nullslast(), Receipt.id.asc())
     else:
-        query = query.order_by(sort_column.desc().nullsfirst())
+        query = query.order_by(sort_column.desc().nullsfirst(), Receipt.id.desc())
     
     # Pagination
     page = request.args.get('page', 1, type=int)
@@ -482,6 +506,8 @@ def list_receipts():
     
     total = query.count()
     receipts = query.offset((page - 1) * per_page).limit(per_page).all()
+    
+    logger.info(f"[list_receipts] Query returned {len(receipts)} receipts, total={total}")
     
     # Build response
     items = []
