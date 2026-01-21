@@ -3,22 +3,28 @@
 # ===========================================
 # Dedicated reverse proxy container that handles all
 # external traffic routing to internal services
+# Supports environment variable substitution for upstream names
 # ===========================================
 
 FROM nginx:alpine
 
-# Install curl for healthcheck
-RUN apk add --no-cache curl
+# Install curl for healthcheck and envsubst for config templating
+RUN apk add --no-cache curl gettext
 
 # Remove default nginx configuration to prevent conflicts
 RUN rm -f /etc/nginx/conf.d/default.conf
 
 # Copy custom nginx configuration
 COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY docker/nginx/conf.d/ /etc/nginx/conf.d/
+# Copy template configs (will be processed by entrypoint)
+COPY docker/nginx/conf.d/ /etc/nginx/templates/
 
 # Create directory for SSL certificates (optional, for future use)
 RUN mkdir -p /etc/nginx/certs
+
+# Copy custom entrypoint that processes templates
+COPY docker/nginx/docker-entrypoint.sh /docker-entrypoint.d/40-envsubst-on-templates.sh
+RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
 
 # Expose HTTP and HTTPS ports
 EXPOSE 80 443

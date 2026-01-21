@@ -995,11 +995,18 @@ def sync_receipts():
             # Not just any worker, but one that will actually process our jobs
             if not _has_worker_for_queue(redis_conn, queue_name="default"):
                 logger.error("✗ No RQ workers listening to 'default' queue - jobs will remain QUEUED")
+                # Log technical details for debugging
+                logger.error(f"[RQ_DIAG] Redis URL: {masked_url}")
+                logger.error(f"[RQ_DIAG] Queue checked: default")
+                
                 return jsonify({
                     "success": False,
-                    "error": "Worker not running - receipts sync cannot start (jobs will stay queued).",
-                    "action": "Deploy prosaas-worker service in production that listens to 'default' queue.",
-                    "technical_details": "No active RQ workers found listening to 'default' queue"
+                    "error": "Receipt sync worker is not online. Please try again later.",
+                    "technical_details": {
+                        "redis_url": masked_url,
+                        "queue": "default",
+                        "message": "No active RQ workers found listening to 'default' queue"
+                    }
                 }), 503
             
             logger.info(f"✓ Active RQ workers listening to 'default' queue detected")
