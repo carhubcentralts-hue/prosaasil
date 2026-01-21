@@ -87,6 +87,15 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
     expose:
       - "5000"
     volumes:
@@ -152,6 +161,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       RQ_QUEUES: high,default,low
       SERVICE_ROLE: worker
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
     command: ["python", "-m", "server.worker"]
     # Note: depends_on backend removed - will be added by dev profile or prod override
     depends_on:

@@ -105,9 +105,14 @@ def create_minimal_app():
             'pool_recycle': 300,
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
-                'connect_timeout': 30,
+                'connect_timeout': 5,  # 🔥 DNS FIX: Shorter timeout for faster failover
                 'application_name': 'AgentLocator-Migrations',
-                'options': '-c statement_timeout=30000'
+                'options': '-c statement_timeout=30000',
+                # 🔥 DNS FIX: TCP keepalive to detect dead connections
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5
             }
         }
     })
@@ -189,10 +194,15 @@ def create_app():
             # Fix for Eventlet + SQLAlchemy lock issue
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
-                'connect_timeout': 30,
+                'connect_timeout': 5,  # 🔥 DNS FIX: Shorter timeout for faster failover
                 'application_name': 'AgentLocator-71',
                 # ✅ DB RESILIENCE: Add statement timeout to prevent hanging queries
-                'options': '-c statement_timeout=30000'  # 30 seconds max per statement
+                'options': '-c statement_timeout=30000',  # 30 seconds max per statement
+                # 🔥 DNS FIX: TCP keepalive to detect dead connections
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5
             }
         },
         # Session configuration

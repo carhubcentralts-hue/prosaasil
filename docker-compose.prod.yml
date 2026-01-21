@@ -112,6 +112,15 @@ services:
       RUN_MIGRATIONS_ON_START: 0
       PRODUCTION: ${PRODUCTION:-1}
       RQ_QUEUES: high,default,low
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
     # Add production service dependencies
     depends_on:
       redis:
@@ -153,6 +162,15 @@ services:
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: api
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
     expose:
       - "5000"
     depends_on:
@@ -212,6 +230,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
     # ⚠️ CRITICAL: --workers MUST be 1 (not 4!)
     # Reason: stream_registry is in-memory, not Redis
     # Multi-worker = lost call state = crashes
