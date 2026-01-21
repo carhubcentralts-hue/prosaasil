@@ -30,14 +30,16 @@ echo "📋 Checking for legacy service names in nginx configs..."
 
 LEGACY_SERVICES=(
     "prosaas-api"
+    "prosaas-calls"
 )
 
 for service in "${LEGACY_SERVICES[@]}"; do
-    if grep -r "$service" "$REPO_ROOT/docker/nginx/" 2>/dev/null | grep -v "^\s*#" | grep -q "$service"; then
+    # Use proper regex for comments and better grep pattern
+    if grep -r "$service" "$REPO_ROOT/docker/nginx/" 2>/dev/null | grep -v '^[[:space:]]*#' | grep -q "$service"; then
         echo -e "${RED}❌ ERROR: Found reference to legacy service '$service' in nginx configs${NC}"
         echo "   This service does not exist in docker-compose.yml (non-prod)"
         echo "   References found:"
-        grep -rn "$service" "$REPO_ROOT/docker/nginx/" 2>/dev/null | grep -v "^\s*#" | grep "$service" | sed 's/^/   /'
+        grep -rn "$service" "$REPO_ROOT/docker/nginx/" 2>/dev/null | grep -v '^[[:space:]]*#' | grep "$service" | sed 's/^/   /'
         ISSUES_FOUND=1
     else
         echo -e "${GREEN}✅ No references to legacy service '$service'${NC}"
