@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 _app_singleton = None
 _app_lock = __import__('threading').RLock()  # RLock allows reentrant acquisition (prevents deadlock)
 
+# 🔥 CRITICAL: Global migrations completion event
+# Used by health check to ensure migrations complete before returning 200 OK
+_migrations_complete = threading.Event()
+
 def get_process_app():
     """
     🔥 CRITICAL FIX: Get the Flask app without creating a new one
@@ -909,10 +913,6 @@ def create_app():
     else:
         logger.info("ℹ️  Development mode - R2 validation skipped (local storage allowed)")
     
-    # 🔥 CRITICAL FIX: Global flag to ensure migrations complete before warmup
-    # Prevents "InFailedSqlTransaction" errors when warmup queries fail
-    _migrations_complete = threading.Event()
-    
     # ⚡ DEPLOYMENT FIX: Run heavy initialization in background
     # This prevents deployment timeout while still ensuring DB is ready
     # SKIP if in migration mode to prevent hanging
@@ -938,6 +938,8 @@ def create_app():
                         
                         # 🔥 CRITICAL FIX: Signal that migrations are complete
                         # This prevents warmup from running before migrations finish
+                        # Uses global _migrations_complete event (module-level)
+                        global _migrations_complete
                         _migrations_complete.set()
                         logger.info("🔒 Migrations complete - warmup can now proceed")
                         
@@ -1099,6 +1101,9 @@ def create_app():
                 # This prevents "InFailedSqlTransaction" errors when warmup queries fail
                 # due to missing columns (e.g., business.company_id)
                 import time
+                
+                # Use global _migrations_complete event
+                global _migrations_complete
                 
                 # Wait up to 60 seconds for migrations to complete
                 logger.info("🔥 Warmup waiting for migrations to complete...")

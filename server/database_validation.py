@@ -1,8 +1,11 @@
 """
 Unified Database URL Validation
 
-Used by all services (api, worker, calls) to validate DATABASE_URL on startup.
+Used by services that require database access (api, worker) to validate DATABASE_URL on startup.
 This prevents DNS errors and ensures fail-fast behavior.
+
+Services that don't need DB (e.g., calls-only if configured) can skip this check
+by setting REQUIRE_DATABASE=false.
 
 Usage:
     from server.database_validation import validate_database_url
@@ -18,13 +21,22 @@ def validate_database_url():
     """
     Validate DATABASE_URL environment variable.
     
+    Can be skipped by setting REQUIRE_DATABASE=false (for services that don't need DB).
+    
     Performs the following checks:
     1. DATABASE_URL is set and not empty
     2. DATABASE_URL is not using SQLite in production
-    3. DATABASE_URL has valid format
+    3. DATABASE_URL has valid PostgreSQL format
     
     Exits with error code 1 if validation fails.
     """
+    # Check if this service requires database
+    require_database = os.getenv('REQUIRE_DATABASE', 'true').lower() == 'true'
+    
+    if not require_database:
+        logger.info("ℹ️  DATABASE_URL validation skipped (REQUIRE_DATABASE=false)")
+        return True
+    
     DATABASE_URL = os.getenv('DATABASE_URL', '')
     IS_PRODUCTION = os.getenv('PRODUCTION', '0') == '1' or os.getenv('FLASK_ENV') == 'production'
     

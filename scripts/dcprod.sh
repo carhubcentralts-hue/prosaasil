@@ -69,11 +69,11 @@ check_backend_not_running() {
         echo "⏳ Waiting for services to initialize..."
         sleep 5
         
-        # Check if backend container exists
+        # 🔥 PRECISE CHECK: Use --services --filter status=running with exact word match
         backend_running=$(docker compose --env-file .env \
           -f docker-compose.yml \
           -f docker-compose.prod.yml \
-          ps --services --filter "status=running" 2>/dev/null | grep -c "^backend$" || true)
+          ps --services --filter "status=running" 2>/dev/null | grep -w "^backend$" | wc -l)
         
         if [ "$backend_running" -gt 0 ]; then
             echo ""

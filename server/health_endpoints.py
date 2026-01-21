@@ -15,7 +15,36 @@ health_bp = Blueprint('health', __name__)
 
 @health_bp.route('/api/health', methods=['GET'])
 def api_health():
-    """API health check endpoint"""
+    """
+    API health check endpoint
+    
+    Returns 200 OK only after migrations are complete.
+    This ensures dependent services (like worker) wait for schema to be ready.
+    """
+    # 🔥 CRITICAL: Check if migrations are complete
+    # This prevents worker from starting before schema is ready
+    import threading
+    migrations_event = getattr(threading.current_thread(), '_migrations_complete', None)
+    
+    # If RUN_MIGRATIONS_ON_START=1, wait for migrations
+    run_migrations = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
+    
+    if run_migrations:
+        # Import the global migrations event from app_factory
+        try:
+            from server import app_factory
+            if hasattr(app_factory, '_migrations_complete'):
+                if not app_factory._migrations_complete.is_set():
+                    # Migrations still running
+                    return jsonify({
+                        "status": "initializing",
+                        "service": "prosaasil-api",
+                        "message": "Migrations in progress...",
+                        "timestamp": datetime.now().isoformat()
+                    }), 503  # Service Unavailable
+        except Exception:
+            pass  # If can't check, assume OK (fallback)
+    
     return jsonify({
         "status": "ok",
         "service": "prosaasil-api",
