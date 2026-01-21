@@ -39,18 +39,18 @@ echo ""
 
 # Step 2: Validate worker is defined in prod compose
 echo "Step 2: Validating worker service definition..."
-if ! grep -q "prosaas-worker:" docker-compose.prod.yml; then
-    echo -e "${RED}✗ ERROR: prosaas-worker service not found in docker-compose.prod.yml${NC}"
-    echo "   Worker must be defined in production compose file"
+if ! grep -q "worker:" docker-compose.prod.yml && ! grep -q "worker:" docker-compose.yml; then
+    echo -e "${RED}✗ ERROR: worker service not found in compose files${NC}"
+    echo "   Worker must be defined in compose files"
     exit 1
 fi
 
-echo -e "${GREEN}✓ prosaas-worker service found in docker-compose.prod.yml${NC}"
+echo -e "${GREEN}✓ worker service found in compose files${NC}"
 
 # Check if worker is under profiles (would prevent it from starting)
-if grep -A 20 "prosaas-worker:" docker-compose.prod.yml | grep -q "profiles:"; then
-    echo -e "${YELLOW}⚠  WARNING: prosaas-worker has 'profiles:' - may not start automatically${NC}"
-    echo "   Remove profiles from prosaas-worker in docker-compose.prod.yml"
+if grep -A 20 "worker:" docker-compose.prod.yml | grep -q "profiles:"; then
+    echo -e "${YELLOW}⚠  WARNING: worker has 'profiles:' - may not start automatically${NC}"
+    echo "   Remove profiles from worker in docker-compose files"
 fi
 echo ""
 
@@ -74,18 +74,24 @@ echo ""
 
 # Step 5: Validate worker is running
 echo "Step 5: Validating worker service..."
-WORKER_STATUS=$(docker compose ps prosaas-worker --format json 2>/dev/null | grep -o '"State":"[^"]*"' | cut -d'"' -f4 || echo "not_found")
+# Try service name first
+WORKER_STATUS=$(docker compose ps worker --format json 2>/dev/null | grep -o '"State":"[^"]*"' | cut -d'"' -f4 || echo "not_found")
 
-if [ "$WORKER_STATUS" != "running" ]; then
-    echo -e "${RED}✗ CRITICAL: prosaas-worker service is not running!${NC}"
+# Fallback to container name if service name doesn't work
+if [ "$WORKER_STATUS" = "not_found" ]; then
+    WORKER_STATUS=$(docker ps --filter name=prosaas-worker --format "{{.State}}" 2>/dev/null || echo "not_found")
+fi
+
+if [ "$WORKER_STATUS" != "running" ] && [ "$WORKER_STATUS" != "Up" ]; then
+    echo -e "${RED}✗ CRITICAL: worker service is not running!${NC}"
     echo "   Status: $WORKER_STATUS"
     echo ""
     echo "Checking worker logs for errors..."
-    docker compose logs --tail=50 prosaas-worker
+    docker compose logs --tail=50 worker 2>/dev/null || docker logs --tail=50 prosaas-worker 2>/dev/null
     exit 1
 fi
 
-echo -e "${GREEN}✓ prosaas-worker service is running${NC}"
+echo -e "${GREEN}✓ worker service is running${NC}"
 echo ""
 
 # Step 6: Validate worker health
@@ -115,18 +121,18 @@ echo ""
 echo "Step 7: Checking worker logs..."
 echo "Looking for 'WORKER_START' message..."
 
-if docker compose logs prosaas-worker | grep -q "WORKER_START"; then
+if docker compose logs worker 2>/dev/null | grep -q "WORKER_START" || docker logs prosaas-worker 2>/dev/null | grep -q "WORKER_START"; then
     echo -e "${GREEN}✓ Worker started successfully (WORKER_START found in logs)${NC}"
 else
     echo -e "${YELLOW}⚠  WARNING: WORKER_START not found in logs${NC}"
     echo "   Recent logs:"
-    docker compose logs --tail=20 prosaas-worker
+    docker compose logs --tail=20 worker 2>/dev/null || docker logs --tail=20 prosaas-worker 2>/dev/null
 fi
 echo ""
 
 # Step 8: Validate Redis connection
 echo "Step 8: Validating Redis connectivity..."
-if docker compose exec -T prosaas-worker python -c "import redis; redis.from_url('redis://redis:6379/0').ping(); print('OK')" 2>/dev/null | grep -q "OK"; then
+if docker compose exec -T worker python -c "import redis; redis.from_url('redis://redis:6379/0').ping(); print('OK')" 2>/dev/null | grep -q "OK"; then
     echo -e "${GREEN}✓ Worker can connect to Redis${NC}"
 else
     echo -e "${RED}✗ ERROR: Worker cannot connect to Redis${NC}"
@@ -136,7 +142,7 @@ echo ""
 
 # Step 9: Validate worker is listening to 'default' queue
 echo "Step 9: Validating worker queue configuration..."
-QUEUE_CHECK=$(docker compose exec -T prosaas-worker python -c "
+QUEUE_CHECK=$(docker compose exec -T worker python -c "
 from rq import Worker
 import redis
 conn = redis.from_url('redis://redis:6379/0')
@@ -155,7 +161,7 @@ else
     echo "   Jobs enqueued to 'default' will remain QUEUED forever"
     echo ""
     echo "   Checking which queues workers are listening to..."
-    docker compose exec -T prosaas-worker python -c "
+    docker compose exec -T worker python -c "
 from rq import Worker
 import redis
 conn = redis.from_url('redis://redis:6379/0')
@@ -188,7 +194,7 @@ echo "Service Status:"
 docker compose ps
 echo ""
 echo "Worker Logs (last 10 lines):"
-docker compose logs --tail=10 prosaas-worker
+docker compose logs --tail=10 worker 2>/dev/null || docker logs --tail=10 prosaas-worker 2>/dev/null
 echo ""
 echo "=============================================================================="
 echo -e "${GREEN}✅ SUCCESS: Production deployment complete with worker validated${NC}"
@@ -196,9 +202,13 @@ echo "==========================================================================
 echo ""
 echo "Next steps:"
 echo "  1. Test sync endpoint: POST /api/receipts/sync"
-echo "  2. Monitor worker logs: docker compose logs -f prosaas-worker"
+echo "  2. Monitor worker logs: docker compose logs -f worker"
 echo "  3. Check diagnostics: GET /api/receipts/queue/diagnostics"
 echo ""
 echo "To monitor worker:"
-echo "  docker compose logs -f prosaas-worker | grep '🔔'"
+echo "  docker compose logs -f worker | grep '🔔'"
+echo "  OR: docker logs -f prosaas-worker | grep '🔔'"
+echo ""
+echo "To check Redis worker registry:"
+echo "  docker exec prosaas-redis redis-cli SMEMBERS rq:workers"
 echo ""
