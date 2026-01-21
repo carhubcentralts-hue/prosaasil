@@ -105,9 +105,9 @@ server {
         proxy_buffering off;
     }
 
-    # Webhook endpoints - proxy to ${API_UPSTREAM} (Twilio call webhooks)
+    # Webhook endpoints - proxy to ${CALLS_UPSTREAM} (Twilio call webhooks)
     location /webhook {
-        proxy_pass http://${API_UPSTREAM};
+        proxy_pass http://${CALLS_UPSTREAM};
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
