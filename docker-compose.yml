@@ -144,6 +144,7 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
+      RQ_QUEUES: high,default,low
       SERVICE_ROLE: worker
     command: ["python", "-m", "server.worker"]
     depends_on:

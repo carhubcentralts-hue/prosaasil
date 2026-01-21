@@ -93,11 +93,24 @@ services:
       - disabled  # Disabled in production - use prosaas-api instead
 
   # ===========================================
-  # Worker Service - Override to become prosaas-worker
+  # Worker Service - Production Resource Overrides
+  # Worker is defined in base docker-compose.yml
+  # This only overrides resource limits for production
   # ===========================================
   worker:
-    profiles:
-      - disabled  # Disabled in production - use prosaas-worker instead
+    environment:
+      FLASK_ENV: production
+      RUN_MIGRATIONS_ON_START: 0
+      PRODUCTION: ${PRODUCTION:-1}
+      RQ_QUEUES: high,default,low
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
   
   prosaas-api:
     container_name: prosaas-api
@@ -210,61 +223,6 @@ services:
         reservations:
           cpus: '1'
           memory: 1G
-    networks:
-      - prosaas-network
-
-  # ===========================================
-  # Worker Service (Heavy background tasks)
-  # Handles: Gmail receipts sync, Playwright, PDF thumbnails, OCR
-  # Uses: Redis queue (RQ/Celery-style)
-  # ===========================================
-  prosaas-worker:
-    container_name: prosaas-worker
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      FLASK_ENV: production
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      RUN_MIGRATIONS_ON_START: 0
-      PRODUCTION: ${PRODUCTION:-1}
-      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
-      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
-      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
-      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
-      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
-      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
-      R2_ENDPOINT: ${R2_ENDPOINT}
-      REDIS_URL: redis://redis:6379/0
-      SERVICE_ROLE: worker
-    command: ["python", "-m", "server.worker"]
-    depends_on:
-      redis:
-        condition: service_healthy
-      prosaas-api:
-        condition: service_healthy
-    healthcheck:
-      # Simple healthcheck: Only verify Redis connection and worker process is alive
-      # Do NOT check Worker.all() here - that can cause unhealthy loops at startup
-      # Queue-specific checks are done in API fail-fast and diagnostics endpoint
-      test: ["CMD-SHELL", "python -c \"import redis; redis.from_url('redis://redis:6379/0').ping(); print('OK')\""]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
     networks:
       - prosaas-network
 

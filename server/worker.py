@@ -47,6 +47,12 @@ if '@' in REDIS_URL:
 
 logger.info(f"REDIS_URL: {masked_redis_url}")
 
+# Get queues to listen to from environment (default: high,default,low)
+RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low')
+LISTEN_QUEUES = [q.strip() for q in RQ_QUEUES.split(',') if q.strip()]
+logger.info(f"RQ_QUEUES configuration: {RQ_QUEUES}")
+logger.info(f"Will listen to queues: {LISTEN_QUEUES}")
+
 # Initialize Flask app context (needed for DB access)
 from server.app_factory import create_app
 app = create_app()
@@ -63,10 +69,9 @@ except ImportError:
 # Connect to Redis
 redis_conn = redis.from_url(REDIS_URL)
 
-# Define queues by priority
-QUEUE_HIGH = Queue('high', connection=redis_conn)
-QUEUE_DEFAULT = Queue('default', connection=redis_conn)
-QUEUE_LOW = Queue('low', connection=redis_conn)
+# Define queues dynamically based on RQ_QUEUES environment variable
+# Create Queue objects for each configured queue
+QUEUES = [Queue(q, connection=redis_conn) for q in LISTEN_QUEUES]
 
 # Graceful shutdown handler
 shutdown_requested = False
@@ -89,7 +94,7 @@ def main():
     logger.info(f"Service Role: {os.getenv('SERVICE_ROLE', 'worker')}")
     logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
     logger.info(f"Worker PID: {os.getpid()}")
-    logger.info(f"Listening to queues: ['high', 'default', 'low'] (priority order)")
+    logger.info(f"Listening to queues: {LISTEN_QUEUES} (priority order)")
     logger.info(f"Queue system: RQ (Redis Queue)")
     logger.info("=" * 60)
     
@@ -108,13 +113,13 @@ def main():
             logger.info(f"📍 REDIS SIGNATURE (WORKER): {masked_redis_url}")
         
         # Check queue stats
-        for queue_name in ['high', 'default', 'low']:
-            queue = Queue(queue_name, connection=redis_conn)
+        for queue in QUEUES:
             count = len(queue)
-            logger.info(f"  → Queue '{queue_name}': {count} job(s) pending")
+            logger.info(f"  → Queue '{queue.name}': {count} job(s) pending")
         
         # Log which queues this worker will listen to (CRITICAL for debugging)
-        logger.info(f"📍 WORKER QUEUES: This worker will listen to: ['high', 'default', 'low']")
+        logger.info(f"📍 WORKER QUEUES: This worker will listen to: {LISTEN_QUEUES}")
+        logger.info(f"📍 CRITICAL: Worker WILL process jobs from 'default' queue: {'default' in LISTEN_QUEUES}")
     except Exception as e:
         logger.error(f"✗ Redis connection failed: {e}")
         logger.error(f"Check that Redis is running and REDIS_URL is correct: {masked_redis_url}")
@@ -136,7 +141,7 @@ def main():
         
         # Create worker
         worker = Worker(
-            [QUEUE_HIGH, QUEUE_DEFAULT, QUEUE_LOW],
+            QUEUES,
             connection=redis_conn,
             name=f'prosaas-worker-{os.getpid()}',
             # Don't fork - run jobs in main process for simplicity
@@ -148,7 +153,7 @@ def main():
         logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
         logger.info("-" * 60)
         logger.info("🚀 Worker is now READY and LISTENING for jobs...")
-        logger.info("📩 Waiting for jobs to be enqueued to 'high', 'default', or 'low' queues...")
+        logger.info(f"📩 Waiting for jobs to be enqueued to {LISTEN_QUEUES} queues...")
         logger.info("-" * 60)
         
         # Start worker
