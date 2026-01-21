@@ -1,4 +1,79 @@
-# Receipt Sync Fix - Implementation Summary
+# Receipt Sync Fix - Implementation Summary (PRODUCTION READY)
+
+## 🎯 5 Critical Fixes Applied
+
+### ✅ 1. Migration 86 - Fully Idempotent
+```sql
+ALTER TABLE receipt_sync_runs ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP NULL;
+CREATE INDEX IF NOT EXISTS idx_receipt_sync_runs_heartbeat ...
+CREATE INDEX IF NOT EXISTS idx_receipt_sync_runs_business_status ...
+```
+- **Safe to run multiple times**
+- **Initializes heartbeat for existing running syncs**
+- **Fallback to updated_at → started_at**
+
+### ✅ 2. Dual Stale Detection (No More Stuck Forever)
+```python
+# TWO conditions (OR logic):
+1. No heartbeat for 180 seconds
+2. Running for more than 30 minutes total
+
+# Example failure messages:
+"Stale run auto-failed: no heartbeat for 185s (threshold: 180s)"
+"Stale run auto-failed: running for 35 minutes (max: 30 min)"
+"Stale run auto-failed: no heartbeat for 200s (threshold: 180s) AND running for 32 minutes (max: 30 min)"
+```
+- **Prevents heartbeat "looks fresh" but actually stuck scenarios**
+- **Auto-fails after 30 minutes even if heartbeat updates**
+
+### ✅ 3. Complete 409 Response (UI Can Show Progress)
+```json
+{
+  "success": false,
+  "error": "Sync already in progress",
+  "sync_run_id": 123,
+  "status": "running",
+  "mode": "full_backfill",
+  "started_at": "2026-01-21T09:30:00Z",
+  "last_heartbeat_at": "2026-01-21T09:45:30Z",
+  "seconds_since_heartbeat": 15,
+  "minutes_since_start": 15,
+  "progress": {
+    "messages_scanned": 1250,
+    "saved_receipts": 45,
+    "pages_scanned": 13,
+    "errors_count": 2,
+    "progress_percentage": 35
+  }
+}
+```
+- **UI can display progress bar**
+- **UI stops retrying (no spam)**
+- **Shows mode, dates, timing**
+
+### ✅ 4. Date Parameter Debug Logging
+```python
+logger.info("🔔 SYNC PARAMS DEBUG:")
+logger.info(f"  → request.args (query params): {dict(request.args)}")
+logger.info(f"  → request.json (body): {data}")
+logger.info(f"🔔 SYNC PARSED PARAMS: mode={mode}, from_date={from_date}, to_date={to_date}")
+```
+- **Identifies if frontend sends in args vs body**
+- **Shows exactly what backend receives**
+- **Helps debug "None" date issues**
+
+### ✅ 5. Status Endpoint Verified
+```
+GET /api/receipts/sync/status
+GET /api/receipts/sync/status?run_id=123
+```
+Already exists and includes:
+- `last_heartbeat_at`
+- `seconds_since_heartbeat`
+- Full progress metrics
+- Mode, started_at, finished_at
+
+---
 
 ## Files Changed
 

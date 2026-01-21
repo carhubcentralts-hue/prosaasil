@@ -3817,7 +3817,7 @@ def apply_migrations():
                     checkpoint("  → Adding last_heartbeat_at to receipt_sync_runs...")
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN last_heartbeat_at TIMESTAMP NULL
+                        ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP NULL
                     """))
                     
                     # Create partial index for efficient stale run detection
@@ -3825,7 +3825,7 @@ def apply_migrations():
                     if not check_index_exists('idx_receipt_sync_runs_heartbeat'):
                         checkpoint("  → Creating partial index on last_heartbeat_at for running syncs...")
                         db.session.execute(text("""
-                            CREATE INDEX idx_receipt_sync_runs_heartbeat 
+                            CREATE INDEX IF NOT EXISTS idx_receipt_sync_runs_heartbeat 
                             ON receipt_sync_runs (last_heartbeat_at) 
                             WHERE status = 'running'
                         """))
@@ -3849,7 +3849,7 @@ def apply_migrations():
                 if not check_index_exists('idx_receipt_sync_runs_business_status'):
                     checkpoint("  → Creating composite index on (business_id, status)...")
                     db.session.execute(text("""
-                        CREATE INDEX idx_receipt_sync_runs_business_status 
+                        CREATE INDEX IF NOT EXISTS idx_receipt_sync_runs_business_status 
                         ON receipt_sync_runs (business_id, status)
                     """))
                     fields_added.append('business_status_index')

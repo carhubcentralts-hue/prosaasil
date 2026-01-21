@@ -890,6 +890,11 @@ def sync_receipts():
     except Exception:
         data = {}
     
+    # DEBUG: Log where date parameters are coming from (query params vs body)
+    logger.info(f"🔔 SYNC PARAMS DEBUG:")
+    logger.info(f"  → request.args (query params): {dict(request.args)}")
+    logger.info(f"  → request.json (body): {data}")
+    
     logger.info(f"🔔 SYNC PARAMS: {data}")
     
     mode = data.get('mode', 'incremental')
@@ -897,6 +902,11 @@ def sync_receipts():
     from_date = data.get('from_date', None)  # NEW: Support custom date range
     to_date = data.get('to_date', None)      # NEW: Support custom date range
     months_back = data.get('months_back', 36)  # NEW: Support configurable backfill depth
+    
+    logger.info(
+        f"🔔 SYNC PARSED PARAMS: mode={mode}, from_date={from_date}, "
+        f"to_date={to_date}, max_messages={max_messages}, months_back={months_back}"
+    )
     
     if mode not in ['full_backfill', 'incremental', 'full']:  # Support legacy 'full' mode
         return jsonify({
@@ -938,28 +948,47 @@ def sync_receipts():
         ).first()
         
         if existing_run:
-            # Check if run is stale (no heartbeat for 180 seconds)
-            STALE_RUN_THRESHOLD_SECONDS = 180
+            # Check if run is stale using TWO conditions:
+            # 1. No heartbeat for STALE_RUN_THRESHOLD_SECONDS (180s)
+            # 2. Running for more than MAX_RUN_DURATION_MINUTES (30 min) regardless of heartbeat
+            STALE_RUN_THRESHOLD_SECONDS = 180  # 3 minutes without heartbeat
+            MAX_RUN_DURATION_MINUTES = 30       # 30 minutes total runtime
             now = datetime.now(timezone.utc)
             
-            # If last_heartbeat_at is None, use started_at (for backward compatibility)
-            last_activity = existing_run.last_heartbeat_at or existing_run.started_at
+            # If last_heartbeat_at is None, use updated_at, fallback to started_at (for backward compatibility)
+            last_activity = existing_run.last_heartbeat_at or existing_run.updated_at or existing_run.started_at
             
             # Convert to timezone-aware if needed
             if last_activity.tzinfo is None:
                 last_activity = last_activity.replace(tzinfo=timezone.utc)
             
-            seconds_since_activity = (now - last_activity).total_seconds()
+            started_at = existing_run.started_at
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
             
-            if seconds_since_activity > STALE_RUN_THRESHOLD_SECONDS:
+            seconds_since_activity = (now - last_activity).total_seconds()
+            minutes_since_start = (now - started_at).total_seconds() / 60
+            
+            is_heartbeat_stale = seconds_since_activity > STALE_RUN_THRESHOLD_SECONDS
+            is_runtime_exceeded = minutes_since_start > MAX_RUN_DURATION_MINUTES
+            
+            if is_heartbeat_stale or is_runtime_exceeded:
                 # Stale run detected - auto-fail it
+                reason = []
+                if is_heartbeat_stale:
+                    reason.append(f"no heartbeat for {int(seconds_since_activity)}s (threshold: {STALE_RUN_THRESHOLD_SECONDS}s)")
+                if is_runtime_exceeded:
+                    reason.append(f"running for {int(minutes_since_start)} minutes (max: {MAX_RUN_DURATION_MINUTES} min)")
+                
+                reason_str = " AND ".join(reason)
+                
                 logger.warning(
                     f"🔔 STALE RUN DETECTED: run_id={existing_run.id}, "
-                    f"last_activity={seconds_since_activity:.0f}s ago, threshold={STALE_RUN_THRESHOLD_SECONDS}s"
+                    f"reason: {reason_str}"
                 )
                 
                 existing_run.status = 'failed'
-                existing_run.error_message = f"Stale run auto-failed: no heartbeat for {int(seconds_since_activity)}s (threshold: {STALE_RUN_THRESHOLD_SECONDS}s)"
+                existing_run.error_message = f"Stale run auto-failed: {reason_str}"
                 existing_run.finished_at = now
                 existing_run.updated_at = now
                 db.session.commit()
@@ -967,10 +996,11 @@ def sync_receipts():
                 logger.info(f"🔔 STALE RUN AUTO-FAILED: run_id={existing_run.id}, allowing new sync")
                 # Continue to start new sync below
             else:
-                # Run is active - return 409 with progress info
+                # Run is active - return 409 with FULL progress info
                 logger.info(
                     f"🔔 SYNC ALREADY RUNNING: run_id={existing_run.id}, "
-                    f"last_activity={seconds_since_activity:.0f}s ago"
+                    f"last_activity={seconds_since_activity:.0f}s ago, "
+                    f"runtime={minutes_since_start:.1f} minutes"
                 )
                 
                 # Calculate progress for UI
@@ -979,19 +1009,23 @@ def sync_receipts():
                     # Rough estimate based on saved receipts vs scanned messages
                     progress_pct = min(95, int((existing_run.saved_receipts / max(1, existing_run.messages_scanned)) * 100))
                 
+                # Return COMPLETE info so UI doesn't retry
                 return jsonify({
                     "success": False,
                     "error": "Sync already in progress",
                     "sync_run_id": existing_run.id,
                     "status": "running",
+                    "mode": existing_run.mode,
+                    "started_at": started_at.isoformat(),
+                    "last_heartbeat_at": last_activity.isoformat(),
+                    "seconds_since_heartbeat": int(seconds_since_activity),
+                    "minutes_since_start": int(minutes_since_start),
                     "progress": {
                         "messages_scanned": existing_run.messages_scanned,
                         "saved_receipts": existing_run.saved_receipts,
                         "pages_scanned": existing_run.pages_scanned,
                         "errors_count": existing_run.errors_count,
-                        "progress_percentage": progress_pct,
-                        "last_heartbeat_at": last_activity.isoformat(),
-                        "seconds_since_heartbeat": int(seconds_since_activity)
+                        "progress_percentage": progress_pct
                     }
                 }), 409  # Conflict
         
