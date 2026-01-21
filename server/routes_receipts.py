@@ -1078,6 +1078,19 @@ def sync_receipts():
                     }
                 }), 409  # Conflict
         
+        # Additional safety: Check Redis lock as well
+        # This prevents race conditions where multiple requests hit the API at the same time
+        if RQ_AVAILABLE and redis_conn:
+            lock_key = f"receipt_sync_lock:{business_id}"
+            existing_lock = redis_conn.get(lock_key)
+            if existing_lock:
+                logger.warning(f"🔔 SYNC BLOCKED BY REDIS LOCK: lock exists for business_id={business_id}")
+                return jsonify({
+                    "success": False,
+                    "error": "Sync already in progress (Redis lock exists)",
+                    "status": "locked"
+                }), 409
+        
         logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
         
         # Use Redis Queue if available, otherwise fall back to threading
