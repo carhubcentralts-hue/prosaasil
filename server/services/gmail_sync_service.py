@@ -1567,8 +1567,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     
                     # CHECK 1: Max messages limit
                     if result['messages_scanned'] >= MAX_MESSAGES_PER_RUN:
-                        logger.info(f"⏸️ Reached MAX_MESSAGES_PER_RUN ({MAX_MESSAGES_PER_RUN}), stopping for resume")
-                        sync_run.status = 'partial'
+                        logger.info(f"⏸️ Reached MAX_MESSAGES_PER_RUN ({MAX_MESSAGES_PER_RUN}), pausing for resume")
+                        sync_run.status = 'paused'
                         sync_run.last_page_token = page_token
                         sync_run.updated_at = datetime.now(timezone.utc)
                         db.session.commit()
@@ -1795,8 +1795,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         
                         # CHECK 1: Max messages limit
                         if result['messages_scanned'] >= MAX_MESSAGES_PER_RUN:
-                            logger.info(f"⏸️ Reached MAX_MESSAGES_PER_RUN ({MAX_MESSAGES_PER_RUN}), stopping for resume")
-                            sync_run.status = 'partial'
+                            logger.info(f"⏸️ Reached MAX_MESSAGES_PER_RUN ({MAX_MESSAGES_PER_RUN}), pausing for resume")
+                            sync_run.status = 'paused'
                             sync_run.last_page_token = page_token
                             sync_run.current_month = month_label
                             sync_run.updated_at = datetime.now(timezone.utc)
@@ -2114,7 +2114,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         
         # Mark sync run as completed (even if there were errors)
         # The UI will check errors_count to determine if there were issues
-        if sync_run.status != 'partial' and sync_run.status != 'cancelled':
+        if sync_run.status not in ('paused', 'cancelled'):
             sync_run.status = 'completed'
         sync_run.finished_at = datetime.now(timezone.utc)
         sync_run.pages_scanned = result['pages_scanned']
@@ -2390,7 +2390,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         
         # Mark sync run as completed (even if there were errors)
         # The UI will check errors_count to determine if there were issues
-        if sync_run.status != 'partial' and sync_run.status != 'cancelled':
+        if sync_run.status not in ('paused', 'cancelled'):
             sync_run.status = 'completed'
         sync_run.finished_at = datetime.now(timezone.utc)
         db.session.commit()
