@@ -1096,7 +1096,17 @@ export function ReceiptsPage() {
 
     } catch (error: any) {
       console.error('Sync error:', error);
-      setSyncError(error.response?.data?.error || 'שגיאה בסנכרון');
+      
+      // Check if this is a worker availability error (503 Service Unavailable)
+      if (error.response?.status === 503) {
+        const workerError = error.response?.data?.error || 'No workers available';
+        const workerUnavailableMsg = '⚠️ המערכת כרגע ללא Worker פעיל - הסנכרון לא יכול להתחיל. אנא פנה לתמיכה הטכנית.';
+        setSyncError(workerUnavailableMsg);
+        setError(workerUnavailableMsg);
+        console.error('Worker availability error:', workerError);
+      } else {
+        setSyncError(error.response?.data?.error || 'שגיאה בסנכרון');
+      }
       setSyncInProgress(false);
     } finally {
       setSyncing(false);
