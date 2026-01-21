@@ -30,8 +30,8 @@ def checkpoint(message):
     """Log checkpoint that always prints to stderr"""
     msg = f"🔧 MIGRATION CHECKPOINT: {message}"
     log.info(msg)
-    logger.info(msg, file=sys.stderr, flush=True)
-    sys.stderr.flush()
+    # Print to stderr directly instead of using logger with file argument
+    print(msg, file=sys.stderr, flush=True)
 
 def check_column_exists(table_name, column_name):
     """Check if column exists in table using independent connection"""
