@@ -61,29 +61,48 @@ def sync_gmail_receipts_job(
     from server.models_sql import db, ReceiptSyncRun
     from server.services.gmail_sync_service import sync_gmail_receipts
     
+    # Get job_id from RQ context if available
+    job_id = None
+    try:
+        from rq import get_current_job
+        current_job = get_current_job()
+        if current_job:
+            job_id = current_job.id
+    except Exception:
+        pass  # Not in RQ context or RQ not available
+    
     lock_key = f"receipt_sync_lock:{business_id}"
     run_id = None  # Initialize to avoid reference errors in exception handler
     
-    # Try to acquire lock
-    lock_acquired = redis_conn.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
+    # IMPORTANT: Lock should already exist from API endpoint
+    # But we check anyway in case of direct job submission
+    lock_value = redis_conn.get(lock_key)
     
-    if not lock_acquired:
-        logger.warning(f"Could not acquire lock for business {business_id} - sync already running")
-        return {
-            "success": False,
-            "error": "Sync already in progress for this business"
-        }
+    if not lock_value:
+        # Lock doesn't exist - this shouldn't happen if API endpoint is used correctly
+        logger.warning(f"🔔 JOB WARNING: Lock doesn't exist for business {business_id}, creating one")
+        lock_acquired = redis_conn.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
+        if not lock_acquired:
+            logger.error(f"🔔 JOB BLOCKED: Could not acquire lock for business {business_id}")
+            return {
+                "success": False,
+                "error": "Sync already in progress for this business"
+            }
+    else:
+        logger.info(f"🔔 JOB INFO: Lock exists for business {business_id}, proceeding with sync")
     
     try:
         # Enhanced logging with all parameters for debugging
         logger.info("=" * 60)
-        logger.info(f"🔔 JOB START: Gmail receipts sync")
+        logger.info(f"🔔 JOB_START: Gmail receipts sync")
+        logger.info(f"  → job_id: {job_id or 'N/A'}")
         logger.info(f"  → business_id: {business_id}")
         logger.info(f"  → mode: {mode}")
         logger.info(f"  → from_date: {from_date}")
         logger.info(f"  → to_date: {to_date}")
         logger.info(f"  → max_messages: {max_messages}")
         logger.info(f"  → months_back: {months_back}")
+        logger.info(f"  → lock_key: {lock_key}")
         logger.info("=" * 60)
         
         # Create sync run record

@@ -86,12 +86,13 @@ signal.signal(signal.SIGINT, handle_shutdown)
 def main():
     """Main worker loop"""
     logger.info("=" * 60)
-    logger.info("ProSaaS Background Worker Starting")
+    logger.info("🔔 WORKER_START: ProSaaS Background Worker")
     logger.info("=" * 60)
     logger.info(f"Redis URL: {masked_redis_url}")
     logger.info(f"Service Role: {os.getenv('SERVICE_ROLE', 'worker')}")
     logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
     logger.info(f"Worker PID: {os.getpid()}")
+    logger.info(f"Listening to queues: ['high', 'default', 'low'] (priority order)")
     logger.info("=" * 60)
     
     # Test Redis connection
