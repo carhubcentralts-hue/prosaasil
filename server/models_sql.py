@@ -1655,9 +1655,14 @@ class ReceiptSyncRun(db.Model):
     
     # Sync configuration
     mode = db.Column(db.String(20), nullable=False, default='incremental')  # full|incremental
+    from_date = db.Column(db.Date, nullable=True)  # Start date for date range syncs
+    to_date = db.Column(db.Date, nullable=True)  # End date for date range syncs
+    months_back = db.Column(db.Integer, nullable=True)  # Months to go back for backfill
+    run_to_completion = db.Column(db.Boolean, default=False)  # If True, ignore time limits
+    max_seconds_per_run = db.Column(db.Integer, nullable=True)  # Per-run time limit
     
     # Progress tracking
-    status = db.Column(db.String(20), nullable=False, default='running')  # running|completed|failed|cancelled
+    status = db.Column(db.String(20), nullable=False, default='running')  # running|paused|completed|failed|cancelled
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     finished_at = db.Column(db.DateTime, nullable=True)
     cancelled_at = db.Column(db.DateTime, nullable=True)  # When cancellation was requested
@@ -1668,6 +1673,7 @@ class ReceiptSyncRun(db.Model):
     messages_scanned = db.Column(db.Integer, default=0)
     candidate_receipts = db.Column(db.Integer, default=0)
     saved_receipts = db.Column(db.Integer, default=0)
+    skipped_count = db.Column(db.Integer, default=0)  # Messages skipped (already processed)
     preview_generated_count = db.Column(db.Integer, default=0)
     errors_count = db.Column(db.Integer, default=0)
     
@@ -1690,6 +1696,6 @@ class ReceiptSyncRun(db.Model):
     __table_args__ = (
         db.Index('idx_receipt_sync_runs_business', 'business_id', 'started_at'),
         db.Index('idx_receipt_sync_runs_status', 'status', 'started_at'),
-                db.CheckConstraint("mode IN ('full', 'full_backfill', 'incremental')", name='chk_receipt_sync_mode'),
-        db.CheckConstraint("status IN ('running', 'completed', 'failed', 'cancelled')", name='chk_receipt_sync_status'),
+        db.CheckConstraint("mode IN ('full', 'full_backfill', 'incremental')", name='chk_receipt_sync_mode'),
+        db.CheckConstraint("status IN ('running', 'paused', 'completed', 'failed', 'cancelled')", name='chk_receipt_sync_status'),
     )

@@ -103,6 +103,10 @@ def sync_gmail_receipts_job(
         logger.info(f"  → max_messages: {max_messages}")
         logger.info(f"  → months_back: {months_back}")
         logger.info(f"  → lock_key: {lock_key}")
+        
+        # Check RUN_TO_COMPLETION mode
+        from server.services.gmail_sync_service import RUN_TO_COMPLETION
+        logger.info(f"  → RUN_TO_COMPLETION: {RUN_TO_COMPLETION}")
         logger.info("=" * 60)
         
         # Create sync run record

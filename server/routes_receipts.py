@@ -1562,8 +1562,21 @@ def get_sync_status():
                 "messages_scanned": sync_run.messages_scanned,
                 "candidate_receipts": sync_run.candidate_receipts,
                 "saved_receipts": sync_run.saved_receipts,
+                "skipped_count": sync_run.skipped_count,
                 "preview_generated_count": sync_run.preview_generated_count,
                 "errors_count": sync_run.errors_count
+            },
+            "config": {
+                "from_date": sync_run.from_date.isoformat() if sync_run.from_date else None,
+                "to_date": sync_run.to_date.isoformat() if sync_run.to_date else None,
+                "months_back": sync_run.months_back,
+                "run_to_completion": sync_run.run_to_completion,
+                "max_seconds_per_run": sync_run.max_seconds_per_run
+            },
+            "checkpoint": {
+                "has_next": bool(sync_run.last_page_token),
+                "last_page_token": sync_run.last_page_token,
+                "current_month": sync_run.current_month
             },
             "error_message": sync_run.error_message if sync_run.status == 'failed' else None
         }

@@ -45,9 +45,12 @@ ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', os.getenv('FERNET_KEY', ''))
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
 
-# Batch limits to prevent crashes on large syncs
+# Run-to-completion mode: If True, ignore time limits and run until done
+RUN_TO_COMPLETION = os.getenv('RUN_TO_COMPLETION', 'false').lower() in ('true', '1', 'yes')
+
+# Batch limits to prevent crashes on large syncs (only used when RUN_TO_COMPLETION=False)
 MAX_MESSAGES_PER_RUN = 500  # Process max 500 messages per run
-MAX_SECONDS_PER_RUN = 120   # Max 2 minutes per run
+MAX_SECONDS_PER_RUN = int(os.getenv('MAX_SECONDS_PER_RUN', '120'))  # Default 2 minutes per run
 
 # Semaphore to limit concurrent Playwright instances
 playwright_semaphore = threading.Semaphore(2)  # Max 2 concurrent browsers
@@ -1410,18 +1413,32 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
     # Log what we received from the API
     logger.info(f"🔍 RUN_START: Gmail sync requested - business_id={business_id}, mode={mode}, from_date={from_date}, to_date={to_date}, months_back={months_back}")
     
-    # Create sync run record with initial heartbeat
+    # Determine if we should run to completion
+    run_to_completion = RUN_TO_COMPLETION  # Global env var
+    max_seconds = MAX_SECONDS_PER_RUN if not run_to_completion else None
+    
+    # Parse dates if provided
+    from_date_obj = datetime.strptime(from_date, '%Y-%m-%d').date() if from_date else None
+    to_date_obj = datetime.strptime(to_date, '%Y-%m-%d').date() if to_date else None
+    
+    # Create sync run record with initial heartbeat and full context
     now_utc = datetime.now(timezone.utc)
     sync_run = ReceiptSyncRun(
         business_id=business_id,
         mode=mode,
+        from_date=from_date_obj,
+        to_date=to_date_obj,
+        months_back=months_back,
+        run_to_completion=run_to_completion,
+        max_seconds_per_run=max_seconds,
         status='running',
         last_heartbeat_at=now_utc  # Initialize heartbeat
     )
     db.session.add(sync_run)
     db.session.commit()
     
-    logger.info(f"🔍 RUN_START: run_id={sync_run.id}, started_at={now_utc.isoformat()}")
+    logger.info(f"🔍 RUN_START: run_id={sync_run.id}, started_at={now_utc.isoformat()}, run_to_completion={run_to_completion}, max_seconds={max_seconds}")
+
     
     result = {
         'sync_run_id': sync_run.id,
@@ -1558,16 +1575,18 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         page_token = None
                         break
                     
-                    # CHECK 2: Max time limit
-                    elapsed_seconds = time.time() - start_time
-                    if elapsed_seconds >= MAX_SECONDS_PER_RUN:
-                        logger.info(f"⏸️ Reached MAX_SECONDS_PER_RUN ({MAX_SECONDS_PER_RUN}s), stopping for resume")
-                        sync_run.status = 'partial'
-                        sync_run.last_page_token = page_token
-                        sync_run.updated_at = datetime.now(timezone.utc)
-                        db.session.commit()
-                        page_token = None
-                        break
+                    # CHECK 2: Max time limit (skip if run_to_completion mode)
+                    if not run_to_completion:
+                        elapsed_seconds = time.time() - start_time
+                        if elapsed_seconds >= MAX_SECONDS_PER_RUN:
+                            logger.info(f"⏸️ Reached MAX_SECONDS_PER_RUN ({MAX_SECONDS_PER_RUN}s), pausing for auto-resume")
+                            logger.info(f"   Progress: {result['messages_scanned']} messages, {result['saved_receipts']} receipts")
+                            sync_run.status = 'paused'
+                            sync_run.last_page_token = page_token
+                            sync_run.updated_at = datetime.now(timezone.utc)
+                            db.session.commit()
+                            page_token = None
+                            break
                     
                     if max_messages and result['messages_scanned'] >= max_messages:
                         logger.info(f"Reached max_messages limit ({max_messages})")
@@ -1785,17 +1804,19 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             page_token = None
                             break
                         
-                        # CHECK 2: Max time limit
-                        elapsed_seconds = time.time() - start_time
-                        if elapsed_seconds >= MAX_SECONDS_PER_RUN:
-                            logger.info(f"⏸️ Reached MAX_SECONDS_PER_RUN ({MAX_SECONDS_PER_RUN}s), stopping for resume")
-                            sync_run.status = 'partial'
-                            sync_run.last_page_token = page_token
-                            sync_run.current_month = month_label
-                            sync_run.updated_at = datetime.now(timezone.utc)
-                            db.session.commit()
-                            page_token = None
-                            break
+                        # CHECK 2: Max time limit (skip if run_to_completion mode)
+                        if not run_to_completion:
+                            elapsed_seconds = time.time() - start_time
+                            if elapsed_seconds >= MAX_SECONDS_PER_RUN:
+                                logger.info(f"⏸️ Reached MAX_SECONDS_PER_RUN ({MAX_SECONDS_PER_RUN}s), pausing for auto-resume")
+                                logger.info(f"   Progress: {result['messages_scanned']} messages, {result['saved_receipts']} receipts")
+                                sync_run.status = 'paused'
+                                sync_run.last_page_token = page_token
+                                sync_run.current_month = month_label
+                                sync_run.updated_at = datetime.now(timezone.utc)
+                                db.session.commit()
+                                page_token = None
+                                break
                         
                         # Check max_messages limit
                         if max_messages and result['messages_scanned'] >= max_messages:
@@ -1821,6 +1842,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         
                         if existing:
                             result['skipped'] += 1
+                            sync_run.skipped_count = result['skipped']
                             continue
                         
                         try:
