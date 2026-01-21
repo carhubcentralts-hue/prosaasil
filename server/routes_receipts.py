@@ -1031,12 +1031,15 @@ def sync_receipts():
         
         logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
         
+        # Capture app object before starting thread (current_app proxy only works in request context)
+        from flask import current_app
+        app = current_app._get_current_object()
+        
         # Start background thread (non-daemon to prevent data loss on server restart)
         def run_sync_in_background():
             from server.db import db
             # Need app context for background thread
-            from flask import current_app
-            with current_app.app_context():
+            with app.app_context():
                 try:
                     logger.info(f"🔔 BACKGROUND SYNC STARTED: business_id={business_id}")
                     sync_gmail_receipts(
