@@ -9287,8 +9287,9 @@ class MediaStreamHandler:
                         _orig_print(f"   ✅ WebSocket closed", flush=True)
             except Exception as e:
                 error_msg = str(e).lower()
-                # 🔥 FIX: These are expected conditions when client already disconnected - log as DEBUG only
-                if 'websocket.close' in error_msg or 'asgi' in error_msg or 'already' in error_msg or 'closed' in error_msg:
+                # 🔥 FIX: Expected conditions when client disconnects - log as DEBUG only
+                # Be specific: check for exact ASGI message patterns, not just "closed"
+                if 'websocket.close' in error_msg or 'asgi message' in error_msg or 'already closed' in error_msg:
                     logger.debug(f"   [DEBUG] WebSocket already closed: {e}")
                 else:
                     _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)

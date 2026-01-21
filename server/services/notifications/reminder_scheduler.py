@@ -26,6 +26,28 @@ _scheduler_running = False
 _scheduler_thread: Optional[threading.Thread] = None
 
 
+def _log_error_with_rate_limit(error_type: str, message: str, rate_limit: int = 5) -> None:
+    """
+    Log an error message with rate limiting to prevent log spam.
+    
+    Args:
+        error_type: Type of error (used as counter key)
+        message: Error message to log
+        rate_limit: Log only every N occurrences
+    """
+    counter_attr = f'_error_count_{error_type}'
+    
+    if not hasattr(_log_error_with_rate_limit, counter_attr):
+        setattr(_log_error_with_rate_limit, counter_attr, 0)
+    
+    count = getattr(_log_error_with_rate_limit, counter_attr) + 1
+    setattr(_log_error_with_rate_limit, counter_attr, count)
+    
+    # Log only every N failures to prevent spam
+    if count % rate_limit == 1:
+        log.warning(f"[REMINDER_SCHEDULER] {message} (count={count})")
+
+
 def _is_dns_error(exc: Exception) -> bool:
     """
     Check if an exception is caused by DNS resolution failure.
@@ -246,15 +268,8 @@ def check_and_send_reminder_notifications(app):
                     log.debug(f"[REMINDER_SCHEDULER] DB DNS error (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
-            # Last attempt failed or non-DNS error
-            # Only log once per multiple failures - use ERROR counter to avoid spam
-            if not hasattr(check_and_send_reminder_notifications, '_error_count'):
-                check_and_send_reminder_notifications._error_count = 0
-            check_and_send_reminder_notifications._error_count += 1
-            
-            # Log full error only every 5 failures
-            if check_and_send_reminder_notifications._error_count % 5 == 1:
-                log.warning(f"[REMINDER_SCHEDULER] DB unavailable (count={check_and_send_reminder_notifications._error_count}): {str(e)[:100]}")
+            # Last attempt failed or non-DNS error - use rate-limited logging
+            _log_error_with_rate_limit('operational', f"DB unavailable: {str(e)[:100]}")
             return
             
         except socket.gaierror as e:
@@ -268,27 +283,15 @@ def check_and_send_reminder_notifications(app):
                     log.debug(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
-            # Last attempt failed - log once with counter
-            if not hasattr(check_and_send_reminder_notifications, '_dns_error_count'):
-                check_and_send_reminder_notifications._dns_error_count = 0
-            check_and_send_reminder_notifications._dns_error_count += 1
-            
-            # Log full error only every 5 failures
-            if check_and_send_reminder_notifications._dns_error_count % 5 == 1:
-                log.warning(f"[REMINDER_SCHEDULER] DNS failure after retries (count={check_and_send_reminder_notifications._dns_error_count}): {str(e)[:100]}")
+            # Last attempt failed - use rate-limited logging
+            _log_error_with_rate_limit('dns', f"DNS failure after retries: {str(e)[:100]}")
             return
             
         except Exception as e:
             # Unexpected error - check if it's DNS-related before logging full traceback
             if _is_dns_error(e):
-                # DNS-related - use same counter logic as above
-                if not hasattr(check_and_send_reminder_notifications, '_generic_dns_error_count'):
-                    check_and_send_reminder_notifications._generic_dns_error_count = 0
-                check_and_send_reminder_notifications._generic_dns_error_count += 1
-                
-                # Log only every 5 failures
-                if check_and_send_reminder_notifications._generic_dns_error_count % 5 == 1:
-                    log.warning(f"[REMINDER_SCHEDULER] DB connection issue (count={check_and_send_reminder_notifications._generic_dns_error_count}): {str(e)[:100]}")
+                # DNS-related - use rate-limited logging
+                _log_error_with_rate_limit('generic_dns', f"DB connection issue: {str(e)[:100]}")
             else:
                 # Truly unexpected error - log with full traceback (but only in DEBUG mode)
                 if log.isEnabledFor(logging.DEBUG):
