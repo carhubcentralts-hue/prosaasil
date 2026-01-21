@@ -16,6 +16,9 @@ import uuid
 from werkzeug.utils import secure_filename
 
 # Timezone handling - prefer zoneinfo (Python 3.9+), fallback to pytz
+
+logger = logging.getLogger(__name__)
+
 try:
     from zoneinfo import ZoneInfo
     ZONEINFO_AVAILABLE = True
@@ -1305,11 +1308,11 @@ def get_notifications():
         user_id = user.get('id') if user else None
         is_system_admin = user.get('role') == 'system_admin' if user else False
         
-        print(f"🔔 /api/notifications - tenant_id={tenant_id}, user_id={user_id}, is_system_admin={is_system_admin}")
+        logger.info(f"🔔 /api/notifications - tenant_id={tenant_id}, user_id={user_id}, is_system_admin={is_system_admin}")
         
         # If no tenant and NOT system_admin, return empty
         if not tenant_id and not is_system_admin:
-            print(f"⚠️ Non-admin user with no tenant - returning empty notifications")
+            logger.warning(f"⚠️ Non-admin user with no tenant - returning empty notifications")
             return jsonify({
                 "notifications": [],
                 "overdue": [],
@@ -1319,7 +1322,7 @@ def get_notifications():
         
         # system_admin with no tenant sees ALL reminders across all businesses
         if is_system_admin and not tenant_id:
-            print(f"✅ system_admin viewing ALL notifications (no tenant filter)")
+            logger.info(f"✅ system_admin viewing ALL notifications (no tenant filter)")
             # Continue without tenant filter
         
         from datetime import timedelta
@@ -1371,12 +1374,12 @@ def get_notifications():
         
         reminders = query.all()
         
-        print(f"🔔 Found {len(reminders)} reminders for user {user_id}")
+        logger.info(f"🔔 Found {len(reminders)} reminders for user {user_id}")
     
     except Exception as e:
         import traceback
-        print(f"❌ ERROR in /api/notifications: {e}")
-        print(f"❌ STACKTRACE:\n{traceback.format_exc()}")
+        logger.error(f"❌ ERROR in /api/notifications: {e}")
+        logger.error(f"❌ STACKTRACE:\n{traceback.format_exc()}")
         return jsonify({"error": f"Internal error: {str(e)}"}), 500
     
     notifications = []

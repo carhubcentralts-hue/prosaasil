@@ -6,6 +6,10 @@ Verifies all required blueprints are registered in app_factory.py
 
 import re
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Define required endpoints based on the problem statement
 REQUIRED_ENDPOINTS = {
@@ -49,42 +53,42 @@ def main():
     project_root = Path(__file__).parent.parent.parent
     app_factory_path = project_root / 'server' / 'app_factory.py'
     
-    print("=" * 60)
-    print("Blueprint Registration Verification")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Blueprint Registration Verification")
+    logger.info("=" * 60)
     
     # Get registered blueprints
     registered = extract_registered_blueprints(app_factory_path)
     imported = extract_blueprint_imports(app_factory_path)
     
-    print(f"\n✓ Found {len(registered)} registered blueprints:")
+    logger.info(f"\n✓ Found {len(registered)} registered blueprints:")
     for bp in sorted(registered):
-        print(f"  - {bp}")
+        logger.info(f"  - {bp}")
     
-    print(f"\n✓ Found {len(imported)} imported blueprints:")
+    logger.info(f"\n✓ Found {len(imported)} imported blueprints:")
     for bp in sorted(set(imported)):
-        print(f"  - {bp}")
+        logger.info(f"  - {bp}")
     
     # Check for required blueprints
-    print("\n" + "=" * 60)
-    print("Required Endpoints Check")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("Required Endpoints Check")
+    logger.info("=" * 60)
     
     missing_blueprints = []
     for endpoint, required_bp in REQUIRED_ENDPOINTS.items():
         if required_bp in registered:
-            print(f"✓ {endpoint:<35} -> {required_bp}")
+            logger.info(f"✓ {endpoint:<35} -> {required_bp}")
         else:
-            print(f"✗ {endpoint:<35} -> {required_bp} (NOT REGISTERED)")
+            logger.info(f"✗ {endpoint:<35} -> {required_bp} (NOT REGISTERED)")
             missing_blueprints.append(required_bp)
     
-    print("\n" + "=" * 60)
+    logger.info("\n" + "=" * 60)
     if missing_blueprints:
-        print(f"❌ MISSING BLUEPRINTS: {set(missing_blueprints)}")
-        print("These blueprints need to be registered in app_factory.py")
+        logger.error(f"❌ MISSING BLUEPRINTS: {set(missing_blueprints)}")
+        logger.info("These blueprints need to be registered in app_factory.py")
         return 1
     else:
-        print("✅ ALL REQUIRED BLUEPRINTS ARE REGISTERED")
+        logger.info("✅ ALL REQUIRED BLUEPRINTS ARE REGISTERED")
         return 0
 
 if __name__ == '__main__':

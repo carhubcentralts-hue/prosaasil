@@ -10,6 +10,10 @@ from typing import Dict, List, Optional
 import requests
 import os
 import pytz
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # 🔥 Israel timezone for converting naive datetimes
 tz = pytz.timezone("Asia/Jerusalem")
@@ -247,7 +251,7 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error creating WhatsApp appointment: {e}")
+        logger.error(f"❌ Error creating WhatsApp appointment: {e}")
         return {
             'success': False,
             'error': str(e),
@@ -261,7 +265,7 @@ def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, b
     """
     # ✅ BUILD 155 SECURITY: Require explicit business_id
     if not business_id:
-        print("❌ send_appointment_confirmation: business_id is required")
+        logger.error("❌ send_appointment_confirmation: business_id is required")
         return {'success': False, 'error': 'MISSING_BUSINESS_ID'}
     
     try:
@@ -279,7 +283,7 @@ def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, b
                     display_phone = '0' + display_phone[4:]
                 contact_phone_line = f"\n📞 ליצירת קשר: {display_phone}"
         except Exception as e:
-            print(f"⚠️ Could not get business phone: {e}")
+            logger.warning(f"⚠️ Could not get business phone: {e}")
         
         # הודעת אישור
         confirmation_message = f"""
@@ -304,7 +308,7 @@ def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, b
             return {'success': False, 'error': 'שגיאה בשליחת אישור'}
             
     except Exception as e:
-        print(f"❌ Error sending WhatsApp confirmation: {e}")
+        logger.error(f"❌ Error sending WhatsApp confirmation: {e}")
         return {'success': False, 'error': str(e)}
 
 def send_appointment_reminder(appointment_id: int) -> Dict:
@@ -360,7 +364,7 @@ def send_appointment_reminder(appointment_id: int) -> Dict:
             return {'success': False, 'error': 'שגיאה בשליחת תזכורת'}
             
     except Exception as e:
-        print(f"❌ Error sending appointment reminder: {e}")
+        logger.error(f"❌ Error sending appointment reminder: {e}")
         return {'success': False, 'error': str(e)}
 
 def process_incoming_whatsapp_message(phone_number: str, message_text: str, message_id: Optional[int] = None, business_id: Optional[int] = None) -> Dict:
@@ -381,7 +385,7 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
         
         # 🔥 HARDENING: Require explicit business_id - no fallback to 1!
         if not business_id:
-            print(f"❌ [WA-APPT-ERROR] process_incoming_whatsapp_message: business_id required but not provided")
+            logger.error(f"❌ [WA-APPT-ERROR] process_incoming_whatsapp_message: business_id required but not provided")
             return {'processed': False, 'error': 'business_id required for multi-tenant isolation'}
         
         # 🔥 BUILD 200: אם יש בקשה לפגישה אבל לא מספיק מידע - GENERIC message
@@ -423,7 +427,7 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
         return result
         
     except Exception as e:
-        print(f"❌ Error processing WhatsApp message: {e}")
+        logger.error(f"❌ Error processing WhatsApp message: {e}")
         return {'processed': False, 'error': str(e)}
 
 def get_upcoming_appointments_for_reminders() -> List[Dict]:
@@ -458,5 +462,5 @@ def get_upcoming_appointments_for_reminders() -> List[Dict]:
         return reminders_needed
         
     except Exception as e:
-        print(f"❌ Error getting appointments for reminders: {e}")
+        logger.error(f"❌ Error getting appointments for reminders: {e}")
         return []

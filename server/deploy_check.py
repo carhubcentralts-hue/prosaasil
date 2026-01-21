@@ -7,6 +7,10 @@ import os
 import sys
 import time
 from urllib.parse import urljoin
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def check_endpoint(base_url, path, method="GET", data=None, expected_status=200):
     """Check single endpoint"""
@@ -38,18 +42,18 @@ def run_deploy_checks(base_url="http://localhost:5000"):
     """Run all deployment checks"""
     checks = []
     
-    print("🚀 Running Production Deployment Checks...")
-    print(f"   Base URL: {base_url}")
-    print("=" * 60)
+    logger.info("🚀 Running Production Deployment Checks...")
+    logger.info(f"   Base URL: {base_url}")
+    logger.info("=" * 60)
     
     # 1. Health endpoints
     result = check_endpoint(base_url, "/healthz")
     checks.append(("healthz", result))
-    print(f"{'✅' if result['success'] else '❌'} healthz: {result['status']}")
+    logger.error(f"{'✅' if result['success'] else '❌'} healthz: {result['status']}")
     
     result = check_endpoint(base_url, "/readyz")
     checks.append(("readyz", result))
-    print(f"{'✅' if result['success'] else '❌'} readyz: {result['status']}")
+    logger.error(f"{'✅' if result['success'] else '❌'} readyz: {result['status']}")
     
     # 2. TwiML Stream
     twiml_data = {
@@ -61,18 +65,18 @@ def run_deploy_checks(base_url="http://localhost:5000"):
     content = result.get('content', '')
     stream_ok = result['success'] and ('<Stream' in content and '<Connect' in content)
     checks.append(("stream_twiml", {"success": stream_ok}))
-    print(f"{'✅' if stream_ok else '❌'} stream->action TwiML")
+    logger.error(f"{'✅' if stream_ok else '❌'} stream->action TwiML")
     if not stream_ok and result['success']:
-        print(f"   Debug: TwiML content: {content[:100]}...")
+        logger.debug(f"   Debug: TwiML content: {content[:100]}...")
     
     # 3. Stream fallback
     result = check_endpoint(base_url, "/webhook/stream_ended", "POST", twiml_data)
     content = result.get('content', '')
     fallback_ok = result['success'] and '<Record' in content and 'handle_recording' in content
     checks.append(("fallback_record", {"success": fallback_ok}))
-    print(f"{'✅' if fallback_ok else '❌'} fallback record TwiML")
+    logger.error(f"{'✅' if fallback_ok else '❌'} fallback record TwiML")
     if not fallback_ok and result['success']:
-        print(f"   Debug: TwiML content: {content[:100]}...")
+        logger.debug(f"   Debug: TwiML content: {content[:100]}...")
     
     # 4. Recording handler
     recording_data = {
@@ -81,7 +85,7 @@ def run_deploy_checks(base_url="http://localhost:5000"):
     }
     result = check_endpoint(base_url, "/webhook/handle_recording", "POST", recording_data, 204)
     checks.append(("whisper_pipeline", result))
-    print(f"{'✅' if result['success'] else '❌'} whisper pipeline: {result['status']}")
+    logger.error(f"{'✅' if result['success'] else '❌'} whisper pipeline: {result['status']}")
     
     # 5. Payment flags
     payment_data = {
@@ -93,7 +97,7 @@ def run_deploy_checks(base_url="http://localhost:5000"):
     result = check_endpoint(base_url, "/api/crm/payments/create", "POST", payment_data, 200)
     payments_ok = result['success'] or result['status'] in [403, 501]  # Expected for disabled payments
     checks.append(("payments_flags", {"success": payments_ok}))
-    print(f"{'✅' if payments_ok else '❌'} payments flags (PayPal): {result['status']}")
+    logger.error(f"{'✅' if payments_ok else '❌'} payments flags (PayPal): {result['status']}")
     
     # 6. Legacy imports check
     legacy_imports = False
@@ -107,7 +111,7 @@ def run_deploy_checks(base_url="http://localhost:5000"):
                     content = f.read()
                     if "from legacy." in content or "import legacy." in content:
                         legacy_imports = True
-                        print(f"   Found legacy import in: {py_file}")
+                        logger.info(f"   Found legacy import in: {py_file}")
                         break
             except:
                 continue
@@ -115,7 +119,7 @@ def run_deploy_checks(base_url="http://localhost:5000"):
         legacy_imports = False  # No legacy imports found
         
     checks.append(("no_legacy_imports", {"success": not legacy_imports}))
-    print(f"{'✅' if not legacy_imports else '❌'} no-legacy-imports")
+    logger.error(f"{'✅' if not legacy_imports else '❌'} no-legacy-imports")
     
     # 7. Database migrations - Check if migration file exists
     migrations_ok = False
@@ -124,26 +128,26 @@ def run_deploy_checks(base_url="http://localhost:5000"):
         if os.path.exists("server/db_migrate.py"):
             migrations_ok = True
         else:
-            print("   Migration file not found")
+            logger.info("   Migration file not found")
     except Exception as e:
-        print(f"   Migration check failed: {e}")
+        logger.error(f"   Migration check failed: {e}")
         migrations_ok = False
         
     checks.append(("db_migrations", {"success": migrations_ok}))
-    print(f"{'✅' if migrations_ok else '❌'} database migrations")
+    logger.error(f"{'✅' if migrations_ok else '❌'} database migrations")
     
     # Summary
-    print("=" * 60)
+    logger.info("=" * 60)
     passed = sum(1 for _, result in checks if result.get("success", False))
     total = len(checks)
     
     if passed == total:
-        print(f"🎉 ALL CHECKS PASSED ({passed}/{total})")
-        print("✅ READY FOR PRODUCTION DEPLOYMENT")
+        logger.info(f"🎉 ALL CHECKS PASSED ({passed}/{total})")
+        logger.info("✅ READY FOR PRODUCTION DEPLOYMENT")
         return True
     else:
-        print(f"❌ {total - passed} CHECKS FAILED ({passed}/{total})")
-        print("🛑 NOT READY FOR PRODUCTION")
+        logger.error(f"❌ {total - passed} CHECKS FAILED ({passed}/{total})")
+        logger.info("🛑 NOT READY FOR PRODUCTION")
         return False
 
 if __name__ == "__main__":

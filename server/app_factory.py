@@ -1157,17 +1157,17 @@ def create_app():
                 name="RecordingWorker"
             )
             recording_thread.start()
-            print("✅ [BACKGROUND] Recording worker started")
+            logger.info("✅ [BACKGROUND] Recording worker started")
         except Exception as e:
-            print(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
+            logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
         
         # 🔔 Reminder notification scheduler (sends push 30min and 15min before due time)
         try:
             from server.services.notifications.reminder_scheduler import start_reminder_scheduler
             start_reminder_scheduler(app)
-            print("✅ [BACKGROUND] Reminder notification scheduler started")
+            logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
         except Exception as e:
-            print(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
+            logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
     
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton

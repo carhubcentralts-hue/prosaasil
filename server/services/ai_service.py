@@ -163,13 +163,13 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
     # If booking verb + (time/day OR availability) → it's a booking request!
     if re.search(booking_verbs, text_lower):
         if re.search(time_day_terms, text_lower) or re.search(availability_terms, text_lower):
-            print(f"🎯 BOOKING_PRE_CHECK: Detected booking verb + time/availability")
+            logger.info(f"🎯 BOOKING_PRE_CHECK: Detected booking verb + time/availability")
             return "book"
     
     # 🔥 CHECK INFO (after booking pre-check!)
     for pattern in info_patterns:
         if re.search(pattern, text_lower):
-            print(f"🎯 INTENT_MATCH: pattern='{pattern}' matched in '{text_lower[:50]}'")
+            logger.info(f"🎯 INTENT_MATCH: pattern='{pattern}' matched in '{text_lower[:50]}'")
             return "info"
     
     # Only check book patterns AFTER info has been ruled out
@@ -811,14 +811,14 @@ class AIService:
             reply = response.choices[0].message.content.strip()
             
             elapsed = (time.time() - start) * 1000
-            print(f"⚡ FAQ response generated in {elapsed:.0f}ms")
+            logger.info(f"⚡ FAQ response generated in {elapsed:.0f}ms")
             logger.info(f"⚡ FAQ fast-path total time: {elapsed:.0f}ms")
             
             return reply
             
         except Exception as e:
             elapsed = (time.time() - start) * 1000
-            print(f"❌ FAQ response generation failed after {elapsed:.0f}ms: {e}")
+            logger.error(f"❌ FAQ response generation failed after {elapsed:.0f}ms: {e}")
             logger.error(f"FAQ response generation failed: {e}")
             return None
     
@@ -856,7 +856,7 @@ class AIService:
                 return None
             
             latency = (time.time() - start) * 1000
-            print(f"⚡ FAST_PATH_LATENCY: {latency:.0f}ms (intent={intent})")
+            logger.info(f"⚡ FAST_PATH_LATENCY: {latency:.0f}ms (intent={intent})")
             logger.info(f"⚡ Fast path response: {latency:.0f}ms")
             
             return response
@@ -925,16 +925,16 @@ class AIService:
             for topic, pattern in topic_keywords.items():
                 if re.search(pattern, question_lower) and topic in sections:
                     matched_sections.append(sections[topic])
-                    print(f"✅ FAQ_MATCH: topic='{topic}' matched in question")
+                    logger.info(f"✅ FAQ_MATCH: topic='{topic}' matched in question")
             
             # If no topic match, return general description if it exists
             if not matched_sections and 'description' in sections:
                 matched_sections.append(sections['description'])
-                print(f"ℹ️ FAQ_FALLBACK: Using general description (no topic match)")
+                logger.info(f"ℹ️ FAQ_FALLBACK: Using general description (no topic match)")
             
             # If still no match, return None → Agent fallback
             if not matched_sections:
-                print(f"⚠️ FAQ_NO_MATCH: No relevant section found, routing to Agent")
+                logger.warning(f"⚠️ FAQ_NO_MATCH: No relevant section found, routing to Agent")
                 return None
             
             # Combine matched sections (max 500 chars)
@@ -942,7 +942,7 @@ class AIService:
             if len(result) > 500:
                 result = result[:500] + "..."
             
-            print(f"✅ FAQ_EXTRACTED: {len(matched_sections)} section(s), {len(result)} chars")
+            logger.info(f"✅ FAQ_EXTRACTED: {len(matched_sections)} section(s), {len(result)} chars")
             return result
                 
         except Exception as e:
@@ -967,26 +967,26 @@ class AIService:
         
         try:
             # 🔥 CRITICAL FIX: Extract ONLY relevant facts based on question!
-            print(f"\n📚 FAQ: Extracting facts from prompt ({len(system_prompt)} chars)")
+            logger.info(f"\n📚 FAQ: Extracting facts from prompt ({len(system_prompt)} chars)")
             extract_start = time.time()
             faq_facts = self._extract_faq_facts(question, system_prompt) if system_prompt else None
             
             # If no relevant facts found, return None → Agent fallback
             if faq_facts is None:
-                print(f"⚠️ FAQ: No relevant facts found, routing to Agent")
+                logger.warning(f"⚠️ FAQ: No relevant facts found, routing to Agent")
                 return None
             
             extract_time = (time.time() - extract_start) * 1000
-            print(f"⏱️  FAQ: Fact extraction took {extract_time:.0f}ms")
-            print(f"📊 FAQ: Extracted {len(faq_facts)} chars of facts")
-            print(f"📝 FAQ: Facts preview: {faq_facts[:200]}...")
+            logger.info(f"⏱️  FAQ: Fact extraction took {extract_time:.0f}ms")
+            logger.info(f"📊 FAQ: Extracted {len(faq_facts)} chars of facts")
+            logger.info(f"📝 FAQ: Facts preview: {faq_facts[:200]}...")
             
             # 🔥 CRITICAL FIX: ULTRA-MINIMAL prompt - just answer the question!
             faq_system = f"""השב בקצרה (2 משפטים)."""
             
             # 🔥 FIX: First attempt with full token budget
             try:
-                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=4.0s)")
+                logger.info(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=4.0s)")
                 llm_start = time.time()
                 
                 response = self.client.chat.completions.create(
@@ -1001,7 +1001,7 @@ class AIService:
                 )
                 
                 llm_time = (time.time() - llm_start) * 1000
-                print(f"⏱️  FAQ: OpenAI call took {llm_time:.0f}ms")
+                logger.info(f"⏱️  FAQ: OpenAI call took {llm_time:.0f}ms")
                 
                 # 🔥 FIX: Safely handle None content
                 answer = response.choices[0].message.content
@@ -1022,14 +1022,14 @@ class AIService:
                 # Validate answer is not generic/empty/guard-rail
                 if answer and len(answer) > 10 and "אשמח לעזור" not in answer and not is_guard_rail:
                     total_time = (time.time() - faq_start) * 1000
-                    print(f"✅ FAQ SUCCESS! Total time: {total_time:.0f}ms")
-                    print(f"📝 FAQ Answer: {answer[:100]}...")
+                    logger.info(f"✅ FAQ SUCCESS! Total time: {total_time:.0f}ms")
+                    logger.info(f"📝 FAQ Answer: {answer[:100]}...")
                     logger.info(f"✅ FAQ success: {answer[:50]}...")
                     return answer
                 else:
-                    print(f"⚠️  FAQ: Generic/guard-rail answer detected!")
-                    print(f"   Answer: {answer}")
-                    print(f"   is_guard_rail={is_guard_rail}")
+                    logger.warning(f"⚠️  FAQ: Generic/guard-rail answer detected!")
+                    logger.info(f"   Answer: {answer}")
+                    logger.info(f"   is_guard_rail={is_guard_rail}")
                     logger.warning(f"FAQ gave generic/guard-rail answer: {answer}")
                     raise ValueError("Generic/guard-rail answer - retry needed")
                     
@@ -1071,8 +1071,8 @@ class AIService:
             
         except Exception as e:
             total_time = (time.time() - faq_start) * 1000
-            print(f"❌ FAQ FAILED! Total time: {total_time:.0f}ms")
-            print(f"   Error: {type(e).__name__}: {str(e)[:200]}")
+            logger.error(f"❌ FAQ FAILED! Total time: {total_time:.0f}ms")
+            logger.error(f"   Error: {type(e).__name__}: {str(e)[:200]}")
             logger.error(f"❌ FAQ LLM failed after retry: {e}")
             import traceback
             traceback.print_exc()
@@ -1128,7 +1128,7 @@ class AIService:
         # Check if business has FAQ enabled before routing
         
         intent = route_intent_hebrew(message)
-        print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
+        logger.info(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
         logger.info(f"🎯 Intent detected: {intent}")
         
         # ⚡ FAQ Fast-Path - Database-backed FAQ matching with embeddings
@@ -1143,9 +1143,9 @@ class AIService:
                 faq_match = faq_cache.find_best_match(business_id, message)
                 
                 if faq_match:
-                    print(f"🎯 FAQ MATCH FOUND (calls): score={faq_match['score']:.3f}")
-                    print(f"   Question: {faq_match['question']}")
-                    print(f"   Answer: {faq_match['answer'][:100]}...")
+                    logger.info(f"🎯 FAQ MATCH FOUND (calls): score={faq_match['score']:.3f}")
+                    logger.info(f"   Question: {faq_match['question']}")
+                    logger.info(f"   Answer: {faq_match['answer'][:100]}...")
                     logger.info(f"🎯 FAQ fast-path activated: score={faq_match['score']:.3f}")
                     
                     faq_response = self._generate_faq_response(
@@ -1156,18 +1156,18 @@ class AIService:
                     )
                     
                     if faq_response:
-                        print(f"✅ FAQ fast-path response generated (calls)")
+                        logger.info(f"✅ FAQ fast-path response generated (calls)")
                         return faq_response
                     else:
-                        print("⚠️ FAQ response generation failed, falling back to AgentKit")
+                        logger.error("⚠️ FAQ response generation failed, falling back to AgentKit")
                 else:
-                    print(f"❌ No FAQ match found for: '{message[:50]}...'")
+                    logger.error(f"❌ No FAQ match found for: '{message[:50]}...'")
             except Exception as e:
-                print(f"⚠️ FAQ fast-path error: {e}, falling back to AgentKit")
+                logger.error(f"⚠️ FAQ fast-path error: {e}, falling back to AgentKit")
                 logger.warning(f"FAQ fast-path error: {e}")
         elif intent == "info" and channel == "whatsapp":
             # WhatsApp always uses AgentKit (no FAQ fast-path)
-            print(f"📱 WhatsApp message - skipping FAQ, using AgentKit")
+            logger.info(f"📱 WhatsApp message - skipping FAQ, using AgentKit")
             logger.info(f"📱 WhatsApp 'info' intent - routing to AgentKit (no FAQ)")
         
         # ⚡ Capture start time BEFORE try block for error logging
@@ -1177,7 +1177,7 @@ class AIService:
             # 🔥 FIX: Modules now imported at top of file - no re-import needed!
             if not AGENT_MODULES_LOADED:
                 # Double-check - agents not available
-                print("⚠️ AGENTS_ENABLED=False in module - using regular response")
+                logger.warning("⚠️ AGENTS_ENABLED=False in module - using regular response")
                 logger.warning("⚠️ AGENTS_ENABLED=False in module - using regular response")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
@@ -1190,7 +1190,7 @@ class AIService:
             prompt_data = self.get_business_prompt(business_id, channel)
             custom_prompt = prompt_data.get("system_prompt", "")  # Extract just the prompt text
             db_time = (time.time() - db_start) * 1000
-            print(f"⏱️ DB query time: {db_time:.0f}ms")
+            logger.info(f"⏱️ DB query time: {db_time:.0f}ms")
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
             # 🔥 FIX E: Lazy import get_or_create_agent to prevent schema errors
@@ -1211,23 +1211,23 @@ class AIService:
             
             if agent_create_time < 100:
                 # Cache HIT - agent was already warmed!
-                print(f"♻️  CACHE HIT: Agent already warmed! ({agent_create_time:.0f}ms)")
+                logger.info(f"♻️  CACHE HIT: Agent already warmed! ({agent_create_time:.0f}ms)")
                 logger.info(f"♻️  Agent CACHE HIT for {business_name} ({channel}): {agent_create_time:.0f}ms")
             elif agent_create_time < 2000:
                 # Cache MISS but creation was fast
-                print(f"🆕 NEW Agent created in {agent_create_time:.0f}ms (business={business_name}, channel={channel})")
+                logger.info(f"🆕 NEW Agent created in {agent_create_time:.0f}ms (business={business_name}, channel={channel})")
                 logger.info(f"🆕 Agent created: {agent_create_time:.0f}ms")
             else:
                 # SLOW creation - log warning!
-                print(f"⚠️  SLOW AGENT CREATION: {agent_create_time:.0f}ms (expected <2000ms)")
+                logger.warning(f"⚠️  SLOW AGENT CREATION: {agent_create_time:.0f}ms (expected <2000ms)")
                 logger.warning(f"⚠️  SLOW AGENT CREATION: {agent_create_time:.0f}ms for business={business_id}, channel={channel}")
             
             if not agent:
-                print("❌ Failed to create agent - falling back to regular response")
+                logger.error("❌ Failed to create agent - falling back to regular response")
                 logger.error("❌ Failed to create agent - falling back to regular response")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
-            print(f"✅ Agent created successfully: {agent.name}")
+            logger.info(f"✅ Agent created successfully: {agent.name}")
             logger.info(f"✅ Agent created successfully: {agent.name}")
             
             # Build enhanced context for agent
@@ -1244,12 +1244,12 @@ class AIService:
             # 🔥 CRITICAL: Store context in Flask g so tools can access it!
             from flask import g
             g.agent_context = agent_context
-            print(f"✅ Stored agent_context in Flask g: phone={customer_phone}, name={customer_name}")
+            logger.info(f"✅ Stored agent_context in Flask g: phone={customer_phone}, name={customer_name}")
             
             # Run agent using Runner (with proper async handling for eventlet threads)
-            print(f"🤖 Running agent for business {business_id}, channel={channel}")
-            print(f"   📝 User message: '{message[:100]}...'")
-            print(f"   📋 Context: business_id={business_id}, phone={customer_phone}, name={customer_name}")
+            logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
+            logger.info(f"   📝 User message: '{message[:100]}...'")
+            logger.info(f"   📋 Context: business_id={business_id}, phone={customer_phone}, name={customer_name}")
             logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
             logger.info(f"   📝 User message: '{message[:100]}...'")
             logger.info(f"   📋 Context: business_id={business_id}, phone={customer_phone}, name={customer_name}")
@@ -1269,7 +1269,7 @@ class AIService:
             conversation_messages = []
             if context and "previous_messages" in context:
                 prev_msgs = context["previous_messages"]
-                print(f"📚 Found {len(prev_msgs)} previous messages in context")
+                logger.info(f"📚 Found {len(prev_msgs)} previous messages in context")
                 
                 # 🔥 FIX: Keep last 12 messages (6 exchanges) to maintain better context
                 # This balances context retention with performance:
@@ -1278,7 +1278,7 @@ class AIService:
                 # - Still lightweight enough for <3s response time
                 if len(prev_msgs) > 12:
                     prev_msgs = prev_msgs[-12:]
-                    print(f"⚡ PERFORMANCE: Limited to last 12 messages (6 exchanges) for context retention")
+                    logger.info(f"⚡ PERFORMANCE: Limited to last 12 messages (6 exchanges) for context retention")
                     logger.info(f"⚡ Truncated history from {len(context['previous_messages'])} to 12 messages")
                 
                 # Convert to Agent SDK format
@@ -1298,7 +1298,7 @@ class AIService:
                         })
                 
                 history_time = (time.time() - history_start) * 1000
-                print(f"✅ Converted to {len(conversation_messages)} messages for Agent ({history_time:.0f}ms)")
+                logger.info(f"✅ Converted to {len(conversation_messages)} messages for Agent ({history_time:.0f}ms)")
                 
             # Add current message
             conversation_messages.append({
@@ -1313,7 +1313,7 @@ class AIService:
                 logger.error(f"❌ Failed to import Runner: {e}")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
-            print(f"🔄 Starting Runner.run() with {len(conversation_messages)-1} history messages...")
+            logger.info(f"🔄 Starting Runner.run() with {len(conversation_messages)-1} history messages...")
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
             # Use Runner.run() directly (it's a static method, not an instance!)
@@ -1331,13 +1331,13 @@ class AIService:
                     )
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
-                print(f"✅ Runner.run() completed in {duration_ms}ms")
+                logger.info(f"✅ Runner.run() completed in {duration_ms}ms")
                 logger.info(f"⏱️ PERFORMANCE: Runner.run() completed in {duration_ms}ms")
             except Exception as e:
                 # 🔥 BUILD 112: Handle MaxTurnsExceeded gracefully
                 from agents.exceptions import MaxTurnsExceeded
                 if isinstance(e, MaxTurnsExceeded):
-                    print(f"⚠️ MaxTurnsExceeded: Agent hit turn limit")
+                    logger.warning(f"⚠️ MaxTurnsExceeded: Agent hit turn limit")
                     logger.warning(f"MaxTurnsExceeded: {e}")
                     # 🔥 BUILD 118: Return structured response (consistent schema for analytics)
                     return {
@@ -1356,11 +1356,11 @@ class AIService:
             
             # 🔥 BUILD 118: Extract text AND preserve metadata for analytics
             reply_text = result.final_output_as(str)
-            print(f"📝 Agent final response: '{reply_text[:100] if reply_text else '(EMPTY!)'}...'")
+            logger.info(f"📝 Agent final response: '{reply_text[:100] if reply_text else '(EMPTY!)'}...'")
             
             # ✅ CRITICAL: Validate that agent returned a response!
             if not reply_text or not reply_text.strip():
-                print(f"❌ CRITICAL: Agent returned EMPTY response! Falling back...")
+                logger.error(f"❌ CRITICAL: Agent returned EMPTY response! Falling back...")
                 logger.error(f"❌ Agent returned empty response for message: {message[:100]}")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
@@ -1370,15 +1370,15 @@ class AIService:
                 if len(words) > 15:
                     original_len = len(words)
                     reply_text = " ".join(words[:15])
-                    print(f"✂️ TRUNCATED phone response: {original_len} → 15 words")
+                    logger.info(f"✂️ TRUNCATED phone response: {original_len} → 15 words")
                     logger.warning(f"✂️ Truncated phone response from {original_len} to 15 words to prevent queue overflow")
             
             # DEBUG: Check result structure
-            print(f"🔍 Result type: {type(result).__name__}")
-            print(f"🔍 Has new_items: {hasattr(result, 'new_items')}")
+            logger.info(f"🔍 Result type: {type(result).__name__}")
+            logger.info(f"🔍 Has new_items: {hasattr(result, 'new_items')}")
             if hasattr(result, 'new_items'):
-                print(f"🔍 new_items value: {result.new_items}")
-                print(f"🔍 new_items length: {len(result.new_items) if result.new_items else 0}")
+                logger.info(f"🔍 new_items value: {result.new_items}")
+                logger.info(f"🔍 new_items length: {len(result.new_items) if result.new_items else 0}")
             
             # ✅ RESTORED: Tool call extraction for AgentKit (non-realtime flows)
             # IMPORTANT: This code runs ONLY for AgentKit / non-realtime flows (WhatsApp, backend tasks)
@@ -1390,27 +1390,27 @@ class AIService:
             forced_user_message: Optional[str] = None
             
             if hasattr(result, 'new_items') and result.new_items:
-                print(f"📊 Agent returned {len(result.new_items)} items")
+                logger.info(f"📊 Agent returned {len(result.new_items)} items")
                 logger.info(f"📊 [AGENTKIT] Agent returned {len(result.new_items)} items")
                 # Filter for ToolCallItem types and extract tool names
                 for idx, item in enumerate(result.new_items):
                     item_type = type(item).__name__
-                    print(f"   - Item #{idx}: {item_type}")
+                    logger.info(f"   - Item #{idx}: {item_type}")
                     logger.info(f"   - Item type: {item_type}")
                     
                     if item_type == 'ToolCallItem':
                         tool_count += 1
                         
                         # 🔍 DEBUG: Print ALL attributes to find tool name
-                        print(f"  🔍 DEBUG ToolCallItem #{tool_count}:")
+                        logger.debug(f"  🔍 DEBUG ToolCallItem #{tool_count}:")
                         all_attrs = [a for a in dir(item) if not a.startswith('_')]
-                        print(f"     All attributes: {all_attrs}")
+                        logger.info(f"     All attributes: {all_attrs}")
                         
                         # Try to access common attributes
                         for attr in ['name', 'tool_name', 'tool_call', 'function', 'tool']:
                             if hasattr(item, attr):
                                 val = getattr(item, attr)
-                                print(f"     {attr} = {val}")
+                                logger.info(f"     {attr} = {val}")
                         
                         # Try multiple ways to get tool name
                         tool_name = getattr(item, 'name', None)
@@ -1430,7 +1430,7 @@ class AIService:
                         if not tool_name:
                             tool_name = 'unknown'
                         
-                        print(f"  🔧 Tool call #{tool_count}: {tool_name}")
+                        logger.info(f"  🔧 Tool call #{tool_count}: {tool_name}")
                         logger.info(f"  ✅ [AGENTKIT] Tool call #{tool_count}: {tool_name}")
                         tool_calls_data.append({
                             "tool": tool_name,
@@ -1441,7 +1441,7 @@ class AIService:
                     elif item_type == 'ToolCallOutputItem':
                         # Extract tool output/result
                         output = getattr(item, 'output', None)
-                        print(f"  📤 Tool output: {str(output)[:200] if output else 'None'}...")
+                        logger.info(f"  📤 Tool output: {str(output)[:200] if output else 'None'}...")
                         if output:
                             logger.info(f"     [AGENTKIT] Tool returned: {str(output)[:100]}")
                             
@@ -1451,7 +1451,7 @@ class AIService:
                                 appt_id = output.get('appointment_id')
                                 if appt_id and (output.get('ok') is True or output.get('success') is True):
                                     booking_successful = True
-                                    print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={appt_id}")
+                                    logger.info(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={appt_id}")
                                     # Store appointment details for WhatsApp validation
                                     if not hasattr(result, 'appointment_details'):
                                         result.appointment_details = output
@@ -1460,13 +1460,13 @@ class AIService:
                                     forced_user_message = str(output.get("user_message"))
                 
                 if tool_count > 0:
-                    print(f"✅ [AGENTKIT] Agent executed {tool_count} tool actions")
+                    logger.info(f"✅ [AGENTKIT] Agent executed {tool_count} tool actions")
                     logger.info(f"✅ [AGENTKIT] Agent executed {tool_count} tool actions")
                 else:
-                    print(f"⚠️ [AGENTKIT] Agent DID NOT call any tools! (message: '{message[:50]}...')")
+                    logger.warning(f"⚠️ [AGENTKIT] Agent DID NOT call any tools! (message: '{message[:50]}...')")
                     logger.warning(f"⚠️ [AGENTKIT] Agent DID NOT call any tools! (message: '{message[:50]}...')")
             else:
-                print(f"⚠️ [AGENTKIT] Result has NO new_items or new_items is empty!")
+                logger.warning(f"⚠️ [AGENTKIT] Result has NO new_items or new_items is empty!")
             
             # ✅ RESTORED: Tool validation for AgentKit (non-realtime flows)
             # If agent claims action without executing tool, BLOCK response
@@ -1496,7 +1496,7 @@ class AIService:
                     if type(item).__name__ == 'ToolCallOutputItem':
                         output = getattr(item, 'output', None)
                         if isinstance(output, dict) and 'appointment_id' in output:
-                            print(f"  🔥 FALLBACK: Detected calendar_create_appointment from output structure (has 'appointment_id' key)")
+                            logger.info(f"  🔥 FALLBACK: Detected calendar_create_appointment from output structure (has 'appointment_id' key)")
                             booking_tool_called = True
                             break
             
@@ -1518,7 +1518,7 @@ class AIService:
                     if type(item).__name__ == 'ToolCallOutputItem':
                         output = getattr(item, 'output', None)
                         if isinstance(output, dict) and 'slots' in output:
-                            print(f"  🔥 FALLBACK: Detected calendar_find_slots from output structure (has 'slots' key)")
+                            logger.info(f"  🔥 FALLBACK: Detected calendar_find_slots from output structure (has 'slots' key)")
                             check_availability_called = True
                             break
             
@@ -1531,12 +1531,12 @@ class AIService:
             # ✅ RESTORED: Hallucination detection for AgentKit (non-realtime flows)
             # 🔥 WORKAROUND: Also check if we detected a successful booking in the output
             # (in case tool name extraction failed but booking actually succeeded)
-            print(f"  🔍 [AGENTKIT] VALIDATION CHECK:")
-            print(f"     claimed_action={claimed_action}")
-            print(f"     claimed_availability={claimed_availability}")
-            print(f"     booking_tool_called={booking_tool_called}")
-            print(f"     check_availability_called={check_availability_called}")
-            print(f"     booking_successful={booking_successful}")
+            logger.info(f"  🔍 [AGENTKIT] VALIDATION CHECK:")
+            logger.info(f"     claimed_action={claimed_action}")
+            logger.info(f"     claimed_availability={claimed_availability}")
+            logger.info(f"     booking_tool_called={booking_tool_called}")
+            logger.info(f"     check_availability_called={check_availability_called}")
+            logger.info(f"     booking_successful={booking_successful}")
             
             # 🔥 BUILD 110: HARD BLOCK - Agent CANNOT claim success without tool execution!
             # Regex patterns for detecting false claims
@@ -1553,46 +1553,46 @@ class AIService:
             claims_booking = bool(booking_claims.search(reply_text))
             claims_whatsapp = bool(whatsapp_claims.search(reply_text))
             
-            print(f"🔍 [AGENTKIT] HARD VALIDATION:")
-            print(f"   claims_booking={claims_booking}, booking_tool_called={booking_tool_called}")
-            print(f"   claims_whatsapp={claims_whatsapp}")
+            logger.info(f"🔍 [AGENTKIT] HARD VALIDATION:")
+            logger.info(f"   claims_booking={claims_booking}, booking_tool_called={booking_tool_called}")
+            logger.info(f"   claims_whatsapp={claims_whatsapp}")
             
             # 🚨 BLOCK 1: Hallucinated booking - STRICT ENFORCEMENT
             if claims_booking and not booking_tool_called and not booking_successful:
-                print(f"🚨 [AGENTKIT] HARD BLOCKED BOOKING LIE!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO calendar_create_appointment was called!")
+                logger.info(f"🚨 [AGENTKIT] HARD BLOCKED BOOKING LIE!")
+                logger.info(f"   Agent claimed: '{reply_text[:80]}...'")
+                logger.info(f"   But NO calendar_create_appointment was called!")
                 logger.error(f"🚨 [AGENTKIT] HARD BLOCK: Blocked booking lie without tool call")
                 
                 # 🔥 OVERRIDE: Agent cannot claim booking without tool!
                 reply_text = "מה השעה המועדפת שלך? אבדוק זמינות ואקבע."
-                print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
+                logger.info(f"   ✅ HARD OVERRIDE: '{reply_text}'")
             
             # 🚨 BLOCK 2: Hallucinated WhatsApp send
             elif claims_whatsapp and not whatsapp_sent and channel == "calls":
-                print(f"🚨 [AGENTKIT] HARD BLOCKED WHATSAPP LIE!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO whatsapp_send was called!")
+                logger.info(f"🚨 [AGENTKIT] HARD BLOCKED WHATSAPP LIE!")
+                logger.info(f"   Agent claimed: '{reply_text[:80]}...'")
+                logger.info(f"   But NO whatsapp_send was called!")
                 logger.error(f"🚨 [AGENTKIT] HARD BLOCK: Blocked WhatsApp send lie without tool call")
                 
                 # 🔥 OVERRIDE: Be HONEST - did NOT send WhatsApp!
                 reply_text = "מעולה! הפרטים נרשמו. ניצור קשר בהמשך עם פרטי הפגישה."
-                print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
+                logger.info(f"   ✅ HARD OVERRIDE: '{reply_text}'")
             
             # 🚨 BLOCK 3: Hallucinated availability
             elif claimed_availability and not check_availability_called:
-                print(f"🚨 [AGENTKIT] BLOCKED HALLUCINATED AVAILABILITY!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO calendar_find_slots was called!")
+                logger.info(f"🚨 [AGENTKIT] BLOCKED HALLUCINATED AVAILABILITY!")
+                logger.info(f"   Agent claimed: '{reply_text[:80]}...'")
+                logger.info(f"   But NO calendar_find_slots was called!")
                 logger.error(f"🚨 [AGENTKIT] Blocked hallucinated availability: agent claimed busy/free without checking")
                 
                 # Override response with corrective message
                 reply_text = "באיזה יום ושעה נוח לך?"
-                print(f"   ✅ Replaced with: '{reply_text}'")
+                logger.info(f"   ✅ Replaced with: '{reply_text}'")
             
             # ⚠️  LOG: Missing WhatsApp confirmation (not blocking)
             elif booking_successful and channel == "calls" and not whatsapp_sent:
-                print(f"⚠️  [AGENTKIT] INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
+                logger.warning(f"⚠️  [AGENTKIT] INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
                 logger.info(f"⚠️  [AGENTKIT] Booking successful without WhatsApp confirmation")
                 # Don't block - just log (WhatsApp is nice-to-have, not critical)
 
@@ -1671,7 +1671,7 @@ class AIService:
                         safe_dict = make_json_safe(raw_dict)
                         serialized.append(safe_dict)
                     except Exception as e:
-                        print(f"⚠️ Failed to serialize item {type(item).__name__}: {e}")
+                        logger.error(f"⚠️ Failed to serialize item {type(item).__name__}: {e}")
                         serialized.append({"type": type(item).__name__, "error": str(e)})
                 return serialized
             
@@ -1687,8 +1687,8 @@ class AIService:
                 "actions": serialize_run_items(result.new_items) if hasattr(result, 'new_items') else [],
                 "booking_successful": booking_successful
             }
-            print(f"✅ Returning structured response: {len(reply_text)} chars text, {len(response_payload['actions'])} serialized actions", flush=True)
-            print(f"🔙 About to return from generate_response_with_agent()", flush=True)
+            logger.info(f"✅ Returning structured response: {len(reply_text)} chars text, {len(response_payload['actions'])} serialized actions", flush=True)
+            logger.info(f"🔙 About to return from generate_response_with_agent()", flush=True)
             return response_payload
             
         except Exception as e:

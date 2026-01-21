@@ -101,7 +101,7 @@ def _process_whatsapp_with_cleanup(tenant_id: str, messages: list):
 def _process_whatsapp_fast(tenant_id: str, messages: list):
     """⚡ FAST background processor - typing first, then response"""
     process_start = time.time()
-    print(f"🚀 [WA_START] Processing {len(messages)} WhatsApp messages for tenant={tenant_id}")
+    logger.info(f"🚀 [WA_START] Processing {len(messages)} WhatsApp messages for tenant={tenant_id}")
     logger.info(f"🚀 [WA_START] Processing {len(messages)} messages")
     
     try:
@@ -163,7 +163,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         from server.routes_whatsapp import is_ai_active_for_conversation
                         if not is_ai_active_for_conversation(business_id, phone_number):
                             logger.info(f"🔕 AI is INACTIVE for conversation with {phone_number} - skipping AI response")
-                            print(f"🔕 AI is INACTIVE for {phone_number} - customer service handling manually")
+                            logger.info(f"🔕 AI is INACTIVE for {phone_number} - customer service handling manually")
                             
                             # Still save the incoming message but don't generate AI response
                             incoming_msg = WhatsAppMessage()
@@ -209,7 +209,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         
                         # ⚡ STEP 4: Agent SDK response with FULL automation (appointments, leads, WhatsApp)
                         ai_start = time.time()
-                        print(f"🤖 [WA_AI_START] Calling generate_response_with_agent for business={business_id}")
+                        logger.info(f"🤖 [WA_AI_START] Calling generate_response_with_agent for business={business_id}")
                         logger.info(f"🤖 [WA_AI_START] Calling AgentKit for business={business_id}, message='{message_text[:50]}...'")
                         
                         ai_service = get_ai_service()
@@ -234,14 +234,14 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             
                             # 🔥 CRITICAL CHECK: Verify response is not None/empty
                             if not ai_response:
-                                print(f"⚠️ [WA_AI_EMPTY] Agent returned empty response!")
+                                logger.warning(f"⚠️ [WA_AI_EMPTY] Agent returned empty response!")
                                 ai_response = "סליחה, לא הבנתי. אפשר לנסח מחדש?"
                             
-                            print(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s: '{ai_response[:100]}...'")
+                            logger.info(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s: '{ai_response[:100]}...'")
                             logger.info(f"⏱️ AI Agent response took: {ai_time:.2f}s")
                         except Exception as ai_error:
                             ai_time = time.time() - ai_start
-                            print(f"❌ [WA_AI_ERROR] Agent failed after {ai_time:.2f}s: {ai_error}")
+                            logger.error(f"❌ [WA_AI_ERROR] Agent failed after {ai_time:.2f}s: {ai_error}")
                             logger.error(f"❌ Agent error after {ai_time:.2f}s: {ai_error}")
                             import traceback
                             traceback.print_exc()
@@ -249,14 +249,14 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
                         
                         # ⚡ STEP 5: Send response
-                        print(f"📤 [WA_SEND_START] About to send response to {jid[:20]}... (len={len(ai_response)})")
+                        logger.info(f"📤 [WA_SEND_START] About to send response to {jid[:20]}... (len={len(ai_response)})")
                         send_start = time.time()
                         
                         try:
                             send_result = wa_service.send_message(jid, ai_response)
-                            print(f"✅ [WA_SEND_OK] Sent successfully: {send_result}")
+                            logger.info(f"✅ [WA_SEND_OK] Sent successfully: {send_result}")
                         except Exception as send_error:
-                            print(f"❌ [WA_SEND_ERROR] Failed to send: {send_error}")
+                            logger.error(f"❌ [WA_SEND_ERROR] Failed to send: {send_error}")
                             logger.error(f"❌ WhatsApp send failed: {send_error}")
                             import traceback
                             traceback.print_exc()

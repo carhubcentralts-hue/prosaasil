@@ -4,6 +4,10 @@ Session management and role decorators
 """
 from flask import session, request, redirect, url_for, g, current_app
 from functools import wraps
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def load_current_user():
     """Load current user from session before each request"""
@@ -13,12 +17,12 @@ def load_current_user():
     
     # Debug logging
     if request.path.startswith('/app/'):
-        print(f"🔍 AUTH CHECK for {request.path}:")
-        print(f"   Session keys: {list(session.keys())}")
-        print(f"   g.user: {g.user}")
-        print(f"   al_user in session: {'al_user' in session}")
+        logger.info(f"🔍 AUTH CHECK for {request.path}:")
+        logger.info(f"   Session keys: {list(session.keys())}")
+        logger.info(f"   g.user: {g.user}")
+        logger.info(f"   al_user in session: {'al_user' in session}")
         if 'al_user' in session:
-            print(f"   al_user value: {session['al_user']}")
+            logger.info(f"   al_user value: {session['al_user']}")
     
     return g.user
 

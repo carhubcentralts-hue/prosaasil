@@ -6,6 +6,10 @@ This script is IDEMPOTENT - safe to run multiple times
 import os
 import sys
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -28,14 +32,14 @@ def seed_system_admin():
     
     if admin:
         # Update existing admin to ensure correct settings
-        print(f"✅ Found existing system_admin: {admin_email}")
+        logger.info(f"✅ Found existing system_admin: {admin_email}")
         admin.business_id = None  # Ensure global
         admin.role = 'system_admin'
         admin.is_active = True
-        print(f"   Updated to: business_id=NULL, role=system_admin")
+        logger.info(f"   Updated to: business_id=NULL, role=system_admin")
     else:
         # Create new system admin
-        print(f"🆕 Creating system_admin: {admin_email}")
+        logger.info(f"🆕 Creating system_admin: {admin_email}")
         admin = User(
             email=admin_email,
             password_hash=generate_password_hash(admin_password, method='scrypt'),
@@ -48,11 +52,11 @@ def seed_system_admin():
     
     try:
         db.session.commit()
-        print(f"✅ System admin ready: {admin_email} (business_id=NULL)")
+        logger.info(f"✅ System admin ready: {admin_email} (business_id=NULL)")
         return admin
     except IntegrityError as e:
         db.session.rollback()
-        print(f"❌ Error creating system admin: {e}")
+        logger.error(f"❌ Error creating system admin: {e}")
         return None
 
 def seed_demo_business():
@@ -65,10 +69,10 @@ def seed_demo_business():
     business = Business.query.filter_by(name=business_name).first()
     
     if business:
-        print(f"✅ Found existing business: {business_name} (id={business.id})")
+        logger.info(f"✅ Found existing business: {business_name} (id={business.id})")
         return business
     else:
-        print(f"🆕 Creating demo business: {business_name}")
+        logger.info(f"🆕 Creating demo business: {business_name}")
         business = Business(
             name=business_name,
             business_type='נדלן ותיווך',
@@ -78,18 +82,18 @@ def seed_demo_business():
         
         try:
             db.session.commit()
-            print(f"✅ Demo business created: {business_name} (id={business.id})")
+            logger.info(f"✅ Demo business created: {business_name} (id={business.id})")
             return business
         except IntegrityError as e:
             db.session.rollback()
-            print(f"❌ Error creating business: {e}")
+            logger.error(f"❌ Error creating business: {e}")
             return None
 
 def main():
     """Main seed function"""
-    print("=" * 50)
-    print("🌱 Starting Database Seed...")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("🌱 Starting Database Seed...")
+    logger.info("=" * 50)
     
     # Import app factory to get db context
     from server.app_factory import create_app
@@ -103,13 +107,13 @@ def main():
         # Seed demo business
         business = seed_demo_business()
         
-        print("=" * 50)
+        logger.info("=" * 50)
         if admin:
-            print("✅ Seed completed successfully!")
-            print(f"   System Admin: {admin.email} (business_id={admin.business_id})")
+            logger.info("✅ Seed completed successfully!")
+            logger.info(f"   System Admin: {admin.email} (business_id={admin.business_id})")
         else:
-            print("⚠️  Seed completed with warnings")
-        print("=" * 50)
+            logger.warning("⚠️  Seed completed with warnings")
+        logger.info("=" * 50)
 
 if __name__ == "__main__":
     main()

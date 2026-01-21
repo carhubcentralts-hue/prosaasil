@@ -7,6 +7,9 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 # Cost classification thresholds
@@ -96,7 +99,7 @@ def log_cost_warning(call_sid: str, issue: str, details: str) -> None:
     These logs should be monitored for billing optimization.
     """
     log.warning(f"[COST_WARNING] call_sid={call_sid} issue={issue} details={details}")
-    print(f"💰 [COST_WARNING] {call_sid}: {issue} - {details}")
+    logger.warning(f"💰 [COST_WARNING] {call_sid}: {issue} - {details}")
 
 
 def get_high_cost_calls_summary(business_id: Optional[int] = None, days: int = 7) -> Dict[str, Any]:

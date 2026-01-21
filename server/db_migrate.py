@@ -14,6 +14,9 @@ import logging
 import sys
 
 # Configure logging with explicit format
+
+logger = logging.getLogger(__name__)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -27,7 +30,7 @@ def checkpoint(message):
     """Log checkpoint that always prints to stderr"""
     msg = f"🔧 MIGRATION CHECKPOINT: {message}"
     log.info(msg)
-    print(msg, file=sys.stderr, flush=True)
+    logger.info(msg, file=sys.stderr, flush=True)
     sys.stderr.flush()
 
 def check_column_exists(table_name, column_name):

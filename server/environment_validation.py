@@ -235,7 +235,7 @@ This will cause PostgreSQL errors throughout the system, affecting:
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
         logger.critical(error_msg)
-        print(error_msg, file=sys.stderr)
+        logger.error(error_msg, file=sys.stderr)
         sys.exit(1)
     
     logger.info("✅ Database schema validation passed - all critical columns exist")
@@ -248,7 +248,7 @@ if __name__ == "__main__":
     log_environment_status()
     
     if validation["production_ready"]:
-        print("✅ Environment is production ready!")
+        logger.info("✅ Environment is production ready!")
     else:
-        print("❌ Environment needs configuration before production deployment")
-        print(f"Missing: {validation['missing']}")
+        logger.error("❌ Environment needs configuration before production deployment")
+        logger.info(f"Missing: {validation['missing']}")

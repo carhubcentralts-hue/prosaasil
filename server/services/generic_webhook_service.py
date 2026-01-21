@@ -98,44 +98,44 @@ def send_generic_webhook(
                 generic_url = settings.generic_webhook_url
                 
                 # 🔥 CRITICAL LOGGING: Show what URLs we found
-                print(f"🔍 [WEBHOOK] Checking outbound webhook URLs for business {business_id}:")
-                print(f"   - outbound_webhook_url: {outbound_url[:50] + '...' if outbound_url else 'NOT SET'}")
-                print(f"   - generic_webhook_url: {generic_url[:50] + '...' if generic_url else 'NOT SET'}")
+                logger.info(f"🔍 [WEBHOOK] Checking outbound webhook URLs for business {business_id}:")
+                logger.info(f"   - outbound_webhook_url: {outbound_url[:50] + '...' if outbound_url else 'NOT SET'}")
+                logger.info(f"   - generic_webhook_url: {generic_url[:50] + '...' if generic_url else 'NOT SET'}")
                 
                 webhook_url = outbound_url or generic_url
                 if not webhook_url:
                     logger.warning(f"[WEBHOOK] No outbound/generic webhook URL configured for business {business_id} - skipping webhook send (direction={direction}, event={event_type})")
-                    print(f"❌ [WEBHOOK] No outbound/generic webhook URL configured for business {business_id}")
+                    logger.error(f"❌ [WEBHOOK] No outbound/generic webhook URL configured for business {business_id}")
                     return False
                 
                 if outbound_url:
                     logger.info(f"[WEBHOOK] Using outbound_webhook_url for business {business_id}: {webhook_url[:50]}...")
-                    print(f"✅ [WEBHOOK] Using outbound_webhook_url: {webhook_url}")
+                    logger.info(f"✅ [WEBHOOK] Using outbound_webhook_url: {webhook_url}")
                 else:
                     logger.info(f"[WEBHOOK] Using generic_webhook_url (fallback) for business {business_id}: {webhook_url[:50]}...")
-                    print(f"✅ [WEBHOOK] Using generic_webhook_url (fallback) for outbound: {webhook_url}")
+                    logger.info(f"✅ [WEBHOOK] Using generic_webhook_url (fallback) for outbound: {webhook_url}")
             elif direction == "inbound":
                 # Inbound calls: Use inbound_webhook_url, fallback to generic
                 inbound_url = getattr(settings, 'inbound_webhook_url', None)
                 generic_url = settings.generic_webhook_url
                 
                 # 🔥 CRITICAL LOGGING: Show what URLs we found
-                print(f"🔍 [WEBHOOK] Checking inbound webhook URLs for business {business_id}:")
-                print(f"   - inbound_webhook_url: {inbound_url[:50] + '...' if inbound_url else 'NOT SET'}")
-                print(f"   - generic_webhook_url: {generic_url[:50] + '...' if generic_url else 'NOT SET'}")
+                logger.info(f"🔍 [WEBHOOK] Checking inbound webhook URLs for business {business_id}:")
+                logger.info(f"   - inbound_webhook_url: {inbound_url[:50] + '...' if inbound_url else 'NOT SET'}")
+                logger.info(f"   - generic_webhook_url: {generic_url[:50] + '...' if generic_url else 'NOT SET'}")
                 
                 webhook_url = inbound_url or generic_url
                 if not webhook_url:
                     logger.warning(f"[WEBHOOK] No inbound/generic webhook URL configured for business {business_id} (direction={direction}, event={event_type})")
-                    print(f"❌ [WEBHOOK] No inbound/generic webhook URL configured for business {business_id}")
+                    logger.error(f"❌ [WEBHOOK] No inbound/generic webhook URL configured for business {business_id}")
                     return False
                 
                 if inbound_url:
                     logger.info(f"[WEBHOOK] Using inbound_webhook_url for business {business_id}: {webhook_url[:50]}...")
-                    print(f"✅ [WEBHOOK] Using inbound_webhook_url: {webhook_url}")
+                    logger.info(f"✅ [WEBHOOK] Using inbound_webhook_url: {webhook_url}")
                 else:
                     logger.info(f"[WEBHOOK] Using generic_webhook_url (fallback) for business {business_id}: {webhook_url[:50]}...")
-                    print(f"✅ [WEBHOOK] Using generic_webhook_url (fallback): {webhook_url}")
+                    logger.info(f"✅ [WEBHOOK] Using generic_webhook_url (fallback): {webhook_url}")
             else:
                 # Non-call events or unspecified: Use generic webhook
                 if not settings.generic_webhook_url:
@@ -155,7 +155,7 @@ def send_generic_webhook(
             if url_key not in _warned_invalid_urls:
                 _warned_invalid_urls.add(url_key)
                 logger.warning(f"[WEBHOOK] Invalid webhook URL for business {business_id} (type={webhook_type}): {webhook_url} - URL must start with http:// or https://")
-                print(f"❌ [WEBHOOK] Invalid URL (must start with http:// or https://): {webhook_url}")
+                logger.error(f"❌ [WEBHOOK] Invalid URL (must start with http:// or https://): {webhook_url}")
             return False
         
         payload = {
@@ -191,7 +191,7 @@ def send_generic_webhook(
                     # Inner loop: Follow redirects without consuming retry attempts
                     while True:
                         logger.info(f"[WEBHOOK] Sending {event_type} to webhook (attempt {attempt + 1}/{MAX_RETRIES}, redirect {redirect_count}/{MAX_REDIRECTS})")
-                        print(f"📤 [WEBHOOK] Sending {event_type} to {current_url[:60]}... (attempt {attempt + 1}/{MAX_RETRIES})")
+                        logger.info(f"📤 [WEBHOOK] Sending {event_type} to {current_url[:60]}... (attempt {attempt + 1}/{MAX_RETRIES})")
                         
                         # Disable auto-redirects to handle them manually (preserve POST on redirect)
                         response = requests.post(
@@ -208,12 +208,12 @@ def send_generic_webhook(
                             if redirect_url:
                                 redirect_count += 1
                                 logger.warning(f"[WEBHOOK] Received redirect ({response.status_code}) to: {redirect_url}")
-                                print(f"⚠️ [WEBHOOK] Redirect #{redirect_count}: {response.status_code} -> {redirect_url}")
+                                logger.warning(f"⚠️ [WEBHOOK] Redirect #{redirect_count}: {response.status_code} -> {redirect_url}")
                                 
                                 # 🔥 IMPORTANT: Log recommendation to update URL
                                 if redirect_count == 1:
                                     logger.warning(f"[WEBHOOK] ⚠️ RECOMMENDATION: Update webhook URL in settings to avoid redirects: {redirect_url}")
-                                    print(f"💡 [WEBHOOK] TIP: Update your webhook URL to {redirect_url} to avoid redirects and potential 405 errors")
+                                    logger.error(f"💡 [WEBHOOK] TIP: Update your webhook URL to {redirect_url} to avoid redirects and potential 405 errors")
                                 
                                 # Check if we've exceeded max redirects (after incrementing)
                                 # Note: This enforces exactly MAX_REDIRECTS (5) redirect follows
@@ -227,7 +227,7 @@ def send_generic_webhook(
                                 # Result: Exactly 5 redirects followed (requests 2-6), 6 total requests
                                 if redirect_count > MAX_REDIRECTS:
                                     logger.error(f"[WEBHOOK] Too many redirects ({redirect_count}), aborting")
-                                    print(f"❌ [WEBHOOK] Too many redirects, giving up")
+                                    logger.error(f"❌ [WEBHOOK] Too many redirects, giving up")
                                     break  # Exit redirect loop, will retry from outer loop
                                 
                                 current_url = redirect_url
@@ -239,12 +239,12 @@ def send_generic_webhook(
                         # Success - exit both loops
                         if response.status_code >= 200 and response.status_code < 300:
                             logger.info(f"[WEBHOOK] Successfully sent {event_type} (status: {response.status_code})")
-                            print(f"✅ [WEBHOOK] Successfully sent {event_type} to webhook (status: {response.status_code})")
+                            logger.info(f"✅ [WEBHOOK] Successfully sent {event_type} to webhook (status: {response.status_code})")
                             return True
                         else:
                             # Non-redirect error - log and break to retry
                             logger.warning(f"[WEBHOOK] Webhook returned error status {response.status_code}, response: {response.text[:200]}")
-                            print(f"⚠️ [WEBHOOK] Webhook returned error status {response.status_code}")
+                            logger.error(f"⚠️ [WEBHOOK] Webhook returned error status {response.status_code}")
                             break  # Exit redirect loop, will retry from outer loop
                         
                 except requests.exceptions.Timeout:
@@ -259,17 +259,17 @@ def send_generic_webhook(
                     time.sleep(delay)
             
             logger.error(f"[WEBHOOK] Failed to send {event_type} after {MAX_RETRIES} attempts")
-            print(f"❌ [WEBHOOK] Failed to send {event_type} after {MAX_RETRIES} attempts")
+            logger.error(f"❌ [WEBHOOK] Failed to send {event_type} after {MAX_RETRIES} attempts")
             return False
         
         thread = threading.Thread(target=send_with_retry, daemon=True)
         thread.start()
         
-        print(f"✅ [WEBHOOK] Webhook queued for sending in background thread")
+        logger.info(f"✅ [WEBHOOK] Webhook queued for sending in background thread")
         return True
         
     except Exception as e:
-        print(f"[WEBHOOK] ❌ Error sending webhook: {e}")
+        logger.error(f"[WEBHOOK] ❌ Error sending webhook: {e}")
         import traceback
         traceback.print_exc()
         return False

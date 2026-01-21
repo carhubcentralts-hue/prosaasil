@@ -3,6 +3,10 @@ Ultra-fast μ-law to PCM conversion using lookup table
 O(1) conversion per byte - critical for low latency
 """
 import array
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Pre-computed μ-law to 16-bit PCM lookup table
 # This eliminates slow audioop.ulaw2lin() calls
@@ -74,7 +78,7 @@ if __name__ == "__main__":
         result_audioop = audioop.ulaw2lin(test_data, 2)
     audioop_time = (time.perf_counter() - start) / 100
     
-    print(f"✅ Fast lookup: {fast_time*1000:.3f}ms per 1s audio")
-    print(f"❌ audioop.ulaw2lin: {audioop_time*1000:.3f}ms per 1s audio")
-    print(f"🚀 Speedup: {audioop_time/fast_time:.1f}x faster")
-    print(f"📊 Results match: {result_fast == result_audioop}")
+    logger.info(f"✅ Fast lookup: {fast_time*1000:.3f}ms per 1s audio")
+    logger.error(f"❌ audioop.ulaw2lin: {audioop_time*1000:.3f}ms per 1s audio")
+    logger.info(f"🚀 Speedup: {audioop_time/fast_time:.1f}x faster")
+    logger.info(f"📊 Results match: {result_fast == result_audioop}")

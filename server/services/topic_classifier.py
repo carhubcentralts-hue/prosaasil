@@ -23,6 +23,10 @@ import json
 from typing import Dict, List, Optional, Tuple
 from openai import OpenAI
 from server.models_sql import BusinessTopic, BusinessAISettings, db
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Configuration
 TOPIC_CACHE_TTL_SECONDS = int(os.getenv("TOPIC_CACHE_TTL_SEC", "1800"))  # 30 minutes default
@@ -109,7 +113,7 @@ class TopicClassifier:
         )
         embeddings = np.array([item.embedding for item in response.data])
         elapsed = (time.time() - start) * 1000
-        print(f"🔢 Generated {len(texts)} topic embeddings in {elapsed:.0f}ms")
+        logger.info(f"🔢 Generated {len(texts)} topic embeddings in {elapsed:.0f}ms")
         return embeddings
     
     def _extract_keywords(self, text: str) -> set:
@@ -135,7 +139,7 @@ class TopicClassifier:
             # Check exact name match (normalized)
             topic_name_normalized = _normalize_text_for_matching(topic['name'])
             if topic_name_normalized and topic_name_normalized in text_normalized:
-                print(f"🎯 KEYWORD MATCH (name): '{topic['name']}' found in text")
+                logger.info(f"🎯 KEYWORD MATCH (name): '{topic['name']}' found in text")
                 return {
                     "topic_id": topic['id'],
                     "topic_name": topic['name'],
@@ -158,7 +162,7 @@ class TopicClassifier:
                     if synonym_normalized and synonym_normalized in text_normalized:
                         # Get original synonym for logging (safe access with fallback)
                         original_synonym = synonyms_original[i] if i < len(synonyms_original) else synonym_normalized
-                        print(f"🎯 SYNONYM MATCH: '{original_synonym}' (normalized: '{synonym_normalized}') → topic: {topic['name']}")
+                        logger.info(f"🎯 SYNONYM MATCH: '{original_synonym}' (normalized: '{synonym_normalized}') → topic: {topic['name']}")
                         return {
                             "topic_id": topic['id'],
                             "topic_name": topic['name'],
@@ -182,7 +186,7 @@ class TopicClassifier:
             if len(matching_keywords) >= 2 and len(topic_keywords) > 0:
                 match_ratio = len(matching_keywords) / len(topic_keywords)
                 if match_ratio >= 0.5:  # At least 50% of topic keywords must appear
-                    print(f"🎯 MULTI-KEYWORD MATCH: {matching_keywords} (topic: {topic['name']}, ratio: {match_ratio:.2f})")
+                    logger.info(f"🎯 MULTI-KEYWORD MATCH: {matching_keywords} (topic: {topic['name']}, ratio: {match_ratio:.2f})")
                     return {
                         "topic_id": topic['id'],
                         "topic_name": topic['name'],
@@ -203,7 +207,7 @@ class TopicClassifier:
         ai_settings = BusinessAISettings.query.filter_by(business_id=business_id).first()
         
         if not ai_settings or not ai_settings.embedding_enabled:
-            print(f"📭 Topic classification disabled for business {business_id}")
+            logger.info(f"📭 Topic classification disabled for business {business_id}")
             return [], np.array([]), ai_settings
         
         # Load active topics
@@ -213,7 +217,7 @@ class TopicClassifier:
         ).all()
         
         if not topics:
-            print(f"📭 No topics found for business {business_id}")
+            logger.info(f"📭 No topics found for business {business_id}")
             return [], np.array([]), ai_settings
         
         topic_data = []
@@ -236,7 +240,7 @@ class TopicClassifier:
                         needs_update.append(topic.id)
                         existing_embedding = None
                 except (json.JSONDecodeError, TypeError) as e:
-                    print(f"⚠️ Failed to parse embedding for topic {topic.id}: {e}")
+                    logger.error(f"⚠️ Failed to parse embedding for topic {topic.id}: {e}")
                     needs_update.append(topic.id)
             else:
                 needs_update.append(topic.id)
@@ -252,7 +256,7 @@ class TopicClassifier:
         
         # If some embeddings are missing, generate for ALL topics (more efficient)
         if needs_update or len(embeddings_list) != len(topic_data):
-            print(f"💾 Generating embeddings for {len(topic_data)} topics...")
+            logger.info(f"💾 Generating embeddings for {len(topic_data)} topics...")
             texts_to_embed = []
             for topic in topic_data:
                 # Combine name with synonyms for richer embedding
@@ -271,10 +275,10 @@ class TopicClassifier:
                         db_topic.embedding = embeddings[i].tolist()  # Store as JSONB array
                 
                 db.session.commit()
-                print(f"✅ Saved {len(topic_data)} embeddings for business {business_id}")
+                logger.info(f"✅ Saved {len(topic_data)} embeddings for business {business_id}")
         else:
             embeddings = np.array(embeddings_list)
-            print(f"✅ Loaded {len(topic_data)} topics with cached embeddings for business {business_id}")
+            logger.info(f"✅ Loaded {len(topic_data)} topics with cached embeddings for business {business_id}")
         
         return topic_data, embeddings, ai_settings
     
@@ -284,13 +288,13 @@ class TopicClassifier:
             entry = self._cache.get(business_id)
             
             if entry and not entry.is_expired():
-                print(f"♻️  TOPIC CACHE HIT for business {business_id}")
+                logger.info(f"♻️  TOPIC CACHE HIT for business {business_id}")
                 return entry
             
             if entry:
-                print(f"⏰ Topic cache EXPIRED for business {business_id}, reloading...")
+                logger.info(f"⏰ Topic cache EXPIRED for business {business_id}, reloading...")
             else:
-                print(f"🆕 Topic cache MISS for business {business_id}, loading...")
+                logger.info(f"🆕 Topic cache MISS for business {business_id}, loading...")
         
         topics, embeddings, ai_settings = self._load_business_topics(business_id)
         
@@ -309,9 +313,9 @@ class TopicClassifier:
         with self._cache_lock:
             if business_id in self._cache:
                 del self._cache[business_id]
-                print(f"🗑️  Topic cache INVALIDATED for business {business_id}")
+                logger.info(f"🗑️  Topic cache INVALIDATED for business {business_id}")
             else:
-                print(f"ℹ️  No topic cache to invalidate for business {business_id}")
+                logger.info(f"ℹ️  No topic cache to invalidate for business {business_id}")
     
     def classify_text(self, business_id: int, text: str) -> Optional[Dict]:
         """
@@ -331,7 +335,7 @@ class TopicClassifier:
         
         if not text or not text.strip():
             log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | Empty text - skipping")
-            print(f"⚠️ Empty text provided for classification")
+            logger.warning(f"⚠️ Empty text provided for classification")
             return None
         
         start = time.time()
@@ -339,14 +343,14 @@ class TopicClassifier:
         entry = self.get_or_build_topics_index(business_id)
         if not entry or len(entry.topics) == 0:
             log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | No topics available")
-            print(f"⚠️ No topics available for business {business_id}")
+            logger.warning(f"⚠️ No topics available for business {business_id}")
             return None
         
         # Get AI settings for threshold
         ai_settings = BusinessAISettings.query.filter_by(business_id=business_id).first()
         if not ai_settings:
             log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | No AI settings found")
-            print(f"⚠️ No AI settings found for business {business_id}")
+            logger.warning(f"⚠️ No AI settings found for business {business_id}")
             return None
         
         threshold = ai_settings.embedding_threshold
@@ -360,19 +364,19 @@ class TopicClassifier:
         if keyword_result:
             elapsed = (time.time() - start) * 1000
             log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | ✅ LAYER 1 SUCCESS | method={keyword_result['method']} | topic='{keyword_result['topic_name']}' | score={keyword_result['score']:.3f} | elapsed={elapsed:.0f}ms")
-            print(f"✅ LAYER 1 (keyword) matched in {elapsed:.0f}ms")
+            logger.info(f"✅ LAYER 1 (keyword) matched in {elapsed:.0f}ms")
             return keyword_result
         
         # LAYER 2: No keyword match - use embeddings (SEMANTIC MATCHING)
         log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | LAYER 1 no match, trying LAYER 2 (embeddings)...")
-        print(f"📭 No keyword match, trying embeddings (Layer 2)...")
+        logger.info(f"📭 No keyword match, trying embeddings (Layer 2)...")
         
         # Generate embedding for input text
         query_embedding = self._generate_embeddings([text])
         
         if query_embedding.size == 0:
             log.error(f"[TOPIC_CLASSIFY] business_id={business_id} | Failed to generate query embedding")
-            print("⚠️ Failed to generate query embedding")
+            logger.error("⚠️ Failed to generate query embedding")
             return None
         
         # Calculate cosine similarity
@@ -399,12 +403,12 @@ class TopicClassifier:
         top_matches_str = " | ".join([f"{m['topic_name']}={m['score']:.3f}" for m in top_matches])
         log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | LAYER 2 computed | top_matches=[{top_matches_str}] | elapsed={elapsed:.0f}ms")
         
-        print(f"🔍 Topic classification took {elapsed:.0f}ms (Layer 2 - embeddings)")
-        print(f"   Best match: score={best_score:.3f}, topic='{best_match['topic_name']}'")
+        logger.info(f"🔍 Topic classification took {elapsed:.0f}ms (Layer 2 - embeddings)")
+        logger.info(f"   Best match: score={best_score:.3f}, topic='{best_match['topic_name']}'")
         
         if best_score < threshold:
             log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | ❌ BELOW THRESHOLD | best_score={best_score:.3f} < threshold={threshold} | No topic assigned")
-            print(f"❌ Best score {best_score:.3f} below threshold {threshold}")
+            logger.error(f"❌ Best score {best_score:.3f} below threshold {threshold}")
             return None
         
         log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | ✅ LAYER 2 SUCCESS | method=embedding | topic='{best_match['topic_name']}' | score={best_score:.3f} | elapsed={elapsed:.0f}ms")
@@ -424,7 +428,7 @@ class TopicClassifier:
         Returns:
             Dict with {success, topics_updated, message}
         """
-        print(f"🔨 Rebuilding embeddings for business {business_id}...")
+        logger.info(f"🔨 Rebuilding embeddings for business {business_id}...")
         
         try:
             # Invalidate cache first
@@ -453,7 +457,7 @@ class TopicClassifier:
             }
         
         except Exception as e:
-            print(f"❌ Error rebuilding embeddings: {e}")
+            logger.error(f"❌ Error rebuilding embeddings: {e}")
             import traceback
             traceback.print_exc()
             return {

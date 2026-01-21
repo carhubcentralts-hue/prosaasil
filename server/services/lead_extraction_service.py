@@ -92,20 +92,20 @@ def canonicalize_service(service_category: Optional[str], business_id: Optional[
     for raw_service, canonical_service in SERVICE_CANONICALIZATION_MAP.items():
         if normalized_input == raw_service.lower():
             logger.info(f"[SERVICE_CANON] raw='{service_category}' -> canon='{canonical_service}' (exact match)")
-            print(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (exact match)")
+            logger.info(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (exact match)")
             return canonical_service
     
     # Check if input contains any of the raw service patterns
     for raw_service, canonical_service in SERVICE_CANONICALIZATION_MAP.items():
         if raw_service.lower() in normalized_input:
             logger.info(f"[SERVICE_CANON] raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
-            print(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
+            logger.info(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
             return canonical_service
     
     # No mapping found - return original value
     # This allows new service types to be stored as-is until explicitly mapped
     logger.info(f"[SERVICE_CANON] raw='{service_category}' -> no mapping found, keeping original")
-    print(f"[SERVICE_CANON] ℹ️ raw='{service_category}' -> no mapping, keeping original")
+    logger.info(f"[SERVICE_CANON] ℹ️ raw='{service_category}' -> no mapping, keeping original")
     return service_category
 
 def extract_city_and_service_from_summary(summary_text: str) -> dict:
@@ -433,7 +433,7 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         file_size = os.path.getsize(audio_file_path)
         logger.info(f"[OFFLINE_STT] Starting transcription for call {call_sid}")
         logger.info(f"[OFFLINE_STT] File: {audio_file_path}, size: {file_size} bytes")
-        print(f"[OFFLINE_STT] 🎧 Using GPT-4o transcribe for {call_sid}, size={file_size} bytes")
+        logger.info(f"[OFFLINE_STT] 🎧 Using GPT-4o transcribe for {call_sid}, size={file_size} bytes")
         
         # Convert audio to optimal format for transcription
         # WAV 16kHz mono PCM is the best format for STT quality
@@ -482,18 +482,18 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 if result.returncode == 0:
                     converted_size = os.path.getsize(converted_file)
                     logger.info(f"[OFFLINE_STT] ✅ Audio converted: {file_size} → {converted_size} bytes (WAV 16kHz mono)")
-                    print(f"[OFFLINE_STT] ✅ Audio converted to optimal format (WAV 16kHz mono)")
+                    logger.info(f"[OFFLINE_STT] ✅ Audio converted to optimal format (WAV 16kHz mono)")
                     file_to_transcribe = converted_file
                 else:
                     logger.warning(f"[OFFLINE_STT] Audio conversion failed: {result.stderr}")
-                    print(f"⚠️ [OFFLINE_STT] Audio conversion failed, using original file")
+                    logger.error(f"⚠️ [OFFLINE_STT] Audio conversion failed, using original file")
                     # Clean up failed conversion file
                     if os.path.exists(converted_file):
                         os.unlink(converted_file)
                     converted_file = None
         except Exception as conv_error:
             logger.warning(f"[OFFLINE_STT] Audio conversion error: {conv_error}")
-            print(f"⚠️ [OFFLINE_STT] Audio conversion error, using original file: {conv_error}")
+            logger.error(f"⚠️ [OFFLINE_STT] Audio conversion error, using original file: {conv_error}")
             if converted_file and os.path.exists(converted_file):
                 try:
                     os.unlink(converted_file)
@@ -516,7 +516,7 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         for model, model_desc in models_to_try:
             try:
                 logger.info(f"[OFFLINE_STT] Trying model: {model}")
-                print(f"[OFFLINE_STT] Attempting transcription with {model_desc}")
+                logger.info(f"[OFFLINE_STT] Attempting transcription with {model_desc}")
                 
                 # 🔥 CLEAN & SIMPLE: Natural Hebrew prompt without hardcoded vocabulary
                 # Let Whisper transcribe accurately without biasing toward specific terms
@@ -589,8 +589,8 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 
                 # Success with this model!
                 logger.info(f"[OFFLINE_STT] ✅ Success with {model}: {len(transcript_text)} chars")
-                print(f"[OFFLINE_STT] ✅ Transcript obtained with {model} ({len(transcript_text)} chars) for {call_sid}")
-                print(f"[OFFLINE_STT] Preview: {transcript_text[:120]!r}")
+                logger.info(f"[OFFLINE_STT] ✅ Transcript obtained with {model} ({len(transcript_text)} chars) for {call_sid}")
+                logger.info(f"[OFFLINE_STT] Preview: {transcript_text[:120]!r}")
                 break
                 
             except Exception as model_error:
@@ -600,18 +600,18 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 # Check if model not found - try fallback
                 if "model" in error_msg and ("not found" in error_msg or "does not exist" in error_msg):
                     logger.warning(f"[OFFLINE_STT] Model {model} not available, trying fallback...")
-                    print(f"⚠️ [OFFLINE_STT] {model} not available, trying fallback...")
+                    logger.warning(f"⚠️ [OFFLINE_STT] {model} not available, trying fallback...")
                     continue
                 else:
                     # Other error - log but try fallback anyway
                     logger.warning(f"[OFFLINE_STT] Error with {model}: {model_error}")
-                    print(f"⚠️ [OFFLINE_STT] Error with {model}, trying fallback...")
+                    logger.error(f"⚠️ [OFFLINE_STT] Error with {model}, trying fallback...")
                     continue
         
         # Check if we got a valid transcript
         if not transcript_text or len(transcript_text) < 10:
             logger.warning(f"[OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
-            print(f"⚠️ [OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
+            logger.warning(f"⚠️ [OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
             # Clean up converted file if exists
             if converted_file and os.path.exists(converted_file):
                 try:
@@ -635,7 +635,7 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         
     except Exception as e:
         logger.error(f"[OFFLINE_STT] Transcription failed for call {call_sid}: {type(e).__name__}: {str(e)[:200]}")
-        print(f"❌ [OFFLINE_STT] Transcription failed for {call_sid}: {e}")
+        logger.error(f"❌ [OFFLINE_STT] Transcription failed for {call_sid}: {e}")
         import traceback
         traceback.print_exc()
         # Clean up converted file if exists (converted_file initialized at function start)

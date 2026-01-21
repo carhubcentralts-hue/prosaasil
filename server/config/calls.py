@@ -5,6 +5,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🎯 MASTER AUDIO CONFIG - Single source of truth for all audio filtering
 # ═══════════════════════════════════════════════════════════════════════════════
+import logging
+
+logger = logging.getLogger(__name__)
+
 AUDIO_CONFIG = {
     "simple_mode": True,           # SIMPLE, ROBUST telephony mode - trust OpenAI VAD
     "audio_guard_enabled": False,  # DISABLED: No aggressive RMS/ZCR filtering
@@ -86,20 +90,20 @@ try:
     SERVER_VAD_THRESHOLD = float(_vad_threshold_str)
     # Validate bounds: 0.0 to 1.0
     if not 0.0 <= SERVER_VAD_THRESHOLD <= 1.0:
-        print(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.90")
+        logger.warning(f"⚠️ WARNING: SERVER_VAD_THRESHOLD={SERVER_VAD_THRESHOLD} out of bounds [0.0, 1.0], using default 0.90")
         SERVER_VAD_THRESHOLD = 0.90
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.90")
+    logger.warning(f"⚠️ WARNING: Invalid SERVER_VAD_THRESHOLD='{_vad_threshold_str}', using default 0.90")
     SERVER_VAD_THRESHOLD = 0.90
 
 try:
     SERVER_VAD_SILENCE_MS = int(_vad_silence_str)
     # Validate positive integer
     if SERVER_VAD_SILENCE_MS <= 0:
-        print(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 700")
+        logger.warning(f"⚠️ WARNING: SERVER_VAD_SILENCE_MS={SERVER_VAD_SILENCE_MS} must be positive, using default 700")
         SERVER_VAD_SILENCE_MS = 700
 except ValueError:
-    print(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 700")
+    logger.warning(f"⚠️ WARNING: Invalid SERVER_VAD_SILENCE_MS='{_vad_silence_str}', using default 700")
     SERVER_VAD_SILENCE_MS = 700
 
 # 🔥 TRANSCRIPTION IMPROVEMENT: Increased from 500ms to 600ms (+100ms per הנחיה)

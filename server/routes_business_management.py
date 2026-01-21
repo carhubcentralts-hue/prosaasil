@@ -1025,8 +1025,8 @@ def update_current_business_settings():
         error_trace = traceback.format_exc()
         logger.error(f"Error updating business settings: {e}")
         logger.error(f"Traceback: {error_trace}")
-        print(f"❌ Settings save error: {e}")
-        print(f"❌ Traceback: {error_trace}")
+        logger.error(f"❌ Settings save error: {e}")
+        logger.error(f"❌ Traceback: {error_trace}")
         db.session.rollback()
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 

@@ -8,6 +8,10 @@ import hashlib
 from datetime import datetime, timedelta
 from flask import session, request, g, jsonify
 from functools import wraps
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AuditLogger:
     """Professional audit logging system"""
@@ -53,10 +57,10 @@ class AuditLogger:
             with open(log_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(audit_entry, ensure_ascii=False) + '\n')
                 
-            print(f"📋 AUDIT: {action_type} {resource} by {user.get('email', 'unknown')}")
+            logger.info(f"📋 AUDIT: {action_type} {resource} by {user.get('email', 'unknown')}")
             
         except Exception as e:
-            print(f"❌ Audit logging error: {e}")
+            logger.error(f"❌ Audit logging error: {e}")
 
 def audit_action(action_type, resource):
     """Decorator for audit logging"""

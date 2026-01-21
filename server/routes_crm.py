@@ -83,7 +83,7 @@ def create_invoice_simple(amount_agorot: int) -> str:
         return inv_no
         
     except Exception as e:
-        print(f"Invoice generation error: {e}")
+        logger.error(f"Invoice generation error: {e}")
         return f"INV-ERROR-{int(time.time())}"
 
 def get_business_id():
@@ -602,7 +602,7 @@ def get_payments():
         } for p in payments])
         
     except Exception as e:
-        print(f"Error in get_payments: {str(e)}")
+        logger.error(f"Error in get_payments: {str(e)}")
         return jsonify({"error": f"Failed to fetch payments: {str(e)}"}), 500
 
 @crm_bp.get("/api/crm/contracts") 
@@ -640,7 +640,7 @@ def get_contracts():
         } for c, deal, customer in contracts])
         
     except Exception as e:
-        print(f"Error in get_contracts: {str(e)}")
+        logger.error(f"Error in get_contracts: {str(e)}")
         return jsonify({"error": f"Failed to fetch contracts: {str(e)}"}), 500
 
 @crm_bp.post("/api/crm/contracts")
@@ -765,7 +765,7 @@ def payments_create():
         }), 200
         
     except Exception as e:
-        print(f"Payment creation failed: {e}")
+        logger.error(f"Payment creation failed: {e}")
         return jsonify({"error": "Payment creation failed"}), 500
 
 def create_paypal_payment(gateway, amount, currency, payment_id):
@@ -804,7 +804,7 @@ def create_paypal_payment(gateway, amount, currency, payment_id):
         }
         
     except Exception as e:
-        print(f"PayPal payment creation failed: {e}")
+        logger.error(f"PayPal payment creation failed: {e}")
         raise
 
 def create_tranzila_payment(gateway, amount, currency, payment_id):
@@ -828,7 +828,7 @@ def create_tranzila_payment(gateway, amount, currency, payment_id):
         }
         
     except Exception as e:
-        print(f"Tranzila payment creation failed: {e}")
+        logger.error(f"Tranzila payment creation failed: {e}")
         raise
 
 @crm_bp.get("/api/crm/payments/paypal/return/success")
@@ -865,7 +865,7 @@ def get_invoice(invoice_number):
         
         return send_file(inv.pdf_path, as_attachment=True)
     except Exception as e:
-        print(f"Invoice download failed: {e}")
+        logger.error(f"Invoice download failed: {e}")
         return jsonify({"error": "Invoice download failed"}), 500
 
 @crm_bp.post("/api/crm/contracts/sign")
@@ -921,7 +921,7 @@ def contract_sign():
         
         return jsonify({"ok": True, "pdf": str(pdf_path)}), 201
     except Exception as e:
-        print(f"Contract signing failed: {e}")
+        logger.error(f"Contract signing failed: {e}")
         return jsonify({"error": "Contract signing failed"}), 500
 
 @crm_bp.get("/api/crm/deals")
@@ -941,7 +941,7 @@ def list_deals():
             "created_at": d.created_at.isoformat() if d.created_at else None
         } for d in deals])
     except Exception as e:
-        print(f"Deals list failed: {e}")
+        logger.error(f"Deals list failed: {e}")
         return jsonify({"error": "Failed to fetch deals"}), 500
 
 @crm_bp.post("/api/crm/deals")
@@ -982,7 +982,7 @@ def create_deal():
         }), 201
         
     except Exception as e:
-        print(f"Deal creation failed: {e}")
+        logger.error(f"Deal creation failed: {e}")
         return jsonify({"error": "Deal creation failed"}), 500
 
 # === SEARCH API ===
@@ -1092,7 +1092,7 @@ def global_search():
         return jsonify({"success": True, "query": query, "results": results})
         
     except Exception as e:
-        print(f"Search failed: {e}")
+        logger.error(f"Search failed: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Search failed"}), 500
@@ -1162,7 +1162,7 @@ def get_crm_tasks():
         return jsonify({"success": True, "tasks": result})
         
     except Exception as e:
-        print(f"Get CRM tasks failed: {e}")
+        logger.error(f"Get CRM tasks failed: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Failed to get tasks"}), 500
@@ -1215,7 +1215,7 @@ def create_crm_task():
         
     except Exception as e:
         db.session.rollback()
-        print(f"Create CRM task failed: {e}")
+        logger.error(f"Create CRM task failed: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Failed to create task"}), 500
@@ -1277,7 +1277,7 @@ def update_crm_task(task_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Update CRM task failed: {e}")
+        logger.error(f"Update CRM task failed: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Failed to update task"}), 500
@@ -1302,5 +1302,5 @@ def delete_crm_task(task_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Delete CRM task failed: {e}")
+        logger.error(f"Delete CRM task failed: {e}")
         return jsonify({"error": "Failed to delete task"}), 500

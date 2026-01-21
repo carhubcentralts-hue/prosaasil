@@ -5,6 +5,10 @@ This script runs as part of deployment to create owner users for existing busine
 """
 import sys
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from server.app_factory import create_app
@@ -20,10 +24,10 @@ def migrate_users_to_owners():
     
     SECURITY: Never auto-create placeholder users with static passwords
     """
-    print("🔄 Starting User-to-Owner migration...")
+    logger.info("🔄 Starting User-to-Owner migration...")
     
     businesses = Business.query.all()
-    print(f"📊 Found {len(businesses)} businesses")
+    logger.info(f"📊 Found {len(businesses)} businesses")
     
     businesses_without_owner = []
     
@@ -32,7 +36,7 @@ def migrate_users_to_owners():
         existing_owner = User.query.filter_by(business_id=biz.id, role="owner").first()
         
         if existing_owner:
-            print(f"✅ Business '{biz.name}' (ID={biz.id}) already has owner: {existing_owner.email}")
+            logger.info(f"✅ Business '{biz.name}' (ID={biz.id}) already has owner: {existing_owner.email}")
             continue
         
         # Check if business has any users
@@ -41,25 +45,25 @@ def migrate_users_to_owners():
         if existing_users:
             # Promote first user to owner
             first_user = existing_users[0]
-            print(f"📝 Promoting user '{first_user.email}' to owner for business '{biz.name}' (ID={biz.id})")
+            logger.info(f"📝 Promoting user '{first_user.email}' to owner for business '{biz.name}' (ID={biz.id})")
             first_user.role = "owner"
             db.session.commit()
-            print(f"✅ User promoted to owner")
+            logger.info(f"✅ User promoted to owner")
         else:
             # ❌ SECURITY: NO auto-creation of placeholder users
-            print(f"⚠️  Business '{biz.name}' (ID={biz.id}) has NO users")
-            print(f"   → Admin must create owner via UI: /app/admin/businesses")
+            logger.warning(f"⚠️  Business '{biz.name}' (ID={biz.id}) has NO users")
+            logger.info(f"   → Admin must create owner via UI: /app/admin/businesses")
             businesses_without_owner.append(biz)
     
-    print("\n✅ User-to-Owner migration completed!")
+    logger.info("\n✅ User-to-Owner migration completed!")
     
     if businesses_without_owner:
-        print(f"\n⚠️  {len(businesses_without_owner)} businesses need manual owner creation:")
+        logger.warning(f"\n⚠️  {len(businesses_without_owner)} businesses need manual owner creation:")
         for biz in businesses_without_owner:
-            print(f"   - {biz.name} (ID={biz.id})")
-        print("\n   → Login as system_admin and use BusinessUsersModal to create owners")
+            logger.info(f"   - {biz.name} (ID={biz.id})")
+        logger.info("\n   → Login as system_admin and use BusinessUsersModal to create owners")
     else:
-        print("\n✅ All businesses have owners!")
+        logger.info("\n✅ All businesses have owners!")
 
 if __name__ == "__main__":
     app = create_app()
@@ -67,7 +71,7 @@ if __name__ == "__main__":
         try:
             migrate_users_to_owners()
         except Exception as e:
-            print(f"❌ Migration failed: {e}")
+            logger.error(f"❌ Migration failed: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)

@@ -9,6 +9,9 @@ import logging
 import threading
 from functools import wraps
 
+
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger("lazy_services")
 
 # 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
@@ -91,34 +94,34 @@ def warmup_services_async():
     def _warmup():
         import time  # Import at start of function
         time.sleep(0.5)  # ⚡ Minimal delay - just let Flask finish binding
-        print("🔥🔥🔥 WARMUP STARTING - Preloading services...")
+        logger.info("🔥🔥🔥 WARMUP STARTING - Preloading services...")
         log.info("🔥 Starting service warmup...")
         
         # Check if agent warmup is disabled
         disable_agent_warmup = os.getenv('DISABLE_AGENT_WARMUP', '0') in ('1', 'true', 'True')
         
         # Warmup OpenAI
-        print("  🔥 Warming OpenAI client...")
+        logger.info("  🔥 Warming OpenAI client...")
         client = get_openai_client()
         if client:
-            print("    ✅ OpenAI client ready")
+            logger.info("    ✅ OpenAI client ready")
             log.info("WARMUP_OPENAI_OK")
         else:
-            print("    ❌ OpenAI client failed")
+            logger.error("    ❌ OpenAI client failed")
             log.warning("WARMUP_OPENAI_ERR")
         
         # 🚫 SKIP Google TTS warmup (DISABLED)
-        print("  🚫 Google TTS warmup SKIPPED (DISABLE_GOOGLE=true)")
+        logger.info("  🚫 Google TTS warmup SKIPPED (DISABLE_GOOGLE=true)")
         log.info("WARMUP_TTS_SKIPPED")
         
         # 🚫 SKIP Google STT warmup (DISABLED)
-        print("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
+        logger.info("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
         log.info("WARMUP_STT_SKIPPED")
         
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
         # Can be disabled with DISABLE_AGENT_WARMUP=1 if schema issues occur
         if disable_agent_warmup:
-            print("  🚫 Agent warmup SKIPPED (DISABLE_AGENT_WARMUP=1)")
+            logger.info("  🚫 Agent warmup SKIPPED (DISABLE_AGENT_WARMUP=1)")
             log.info("WARMUP_AGENT_SKIPPED: disabled by environment variable")
         else:
             try:
@@ -136,16 +139,16 @@ def warmup_services_async():
                     except SQLAlchemyError as db_error:
                         # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
                         db.session.rollback()
-                        print(f"    ❌ Database query failed during warmup: {db_error}")
+                        logger.error(f"    ❌ Database query failed during warmup: {db_error}")
                         log.error(f"WARMUP_DB_ERR: {db_error}")
                         businesses = []
                     
                     if not businesses:
-                        print("    ⚠️ No active businesses to warm up")
+                        logger.warning("    ⚠️ No active businesses to warm up")
                         log.warning("WARMUP_AGENT_ERR: No active businesses found")
                     else:
                         log.info(f"🔥 WARMUP: Found {len(businesses)} active businesses to warm up")
-                        print(f"  🔥 Warming {len(businesses)} active businesses (Agent Cache)...")
+                        logger.info(f"  🔥 Warming {len(businesses)} active businesses (Agent Cache)...")
                         
                         total_start = time.time()
                         success_count = 0
@@ -185,7 +188,7 @@ def warmup_services_async():
                                     if agent:
                                         success_count += 1
                                         log.info(f"WARMUP_AGENT_OK: business={business_id} ({business_name}), channel={channel} ({warmup_time:.0f}ms)")
-                                        print(f"  ✅ {business_name} ({channel}): {warmup_time:.0f}ms")
+                                        logger.info(f"  ✅ {business_name} ({channel}): {warmup_time:.0f}ms")
                                     else:
                                         log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - agent is None")
                                 except Exception as e:
@@ -194,16 +197,16 @@ def warmup_services_async():
                                     traceback.print_exc()
                         
                         total_time = (time.time() - total_start) * 1000
-                        print(f"\n🔥🔥🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents ready in {total_time:.0f}ms")
-                        print(f"🚀 System preheated - First AI response will be FAST!\n")
+                        logger.info(f"\n🔥🔥🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents ready in {total_time:.0f}ms")
+                        logger.info(f"🚀 System preheated - First AI response will be FAST!\n")
                         log.info(f"🔥 WARMUP COMPLETE: {success_count} agents warmed in {total_time:.0f}ms")
             except Exception as e:
-                print(f"    ❌ Agent warmup failed: {e}")
+                logger.error(f"    ❌ Agent warmup failed: {e}")
                 log.warning(f"WARMUP_AGENT_FAILED: {e}")
                 import traceback
                 traceback.print_exc()
             
-        print("✅ Service warmup thread completed")
+        logger.info("✅ Service warmup thread completed")
         log.info("🔥 Service warmup completed")
     
     # Start warmup in background thread

@@ -26,6 +26,10 @@ Thresholds:
 
 from typing import Optional, List, Dict, NamedTuple
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 RAPIDFUZZ_AVAILABLE = False
 fuzz = None
@@ -35,7 +39,7 @@ try:
     fuzz = rapidfuzz_fuzz
     RAPIDFUZZ_AVAILABLE = True
 except ImportError:
-    print("⚠️ RapidFuzz not available - phonetic validation will use basic matching")
+    logger.warning("⚠️ RapidFuzz not available - phonetic validation will use basic matching")
 
 
 class PhoneticResult(NamedTuple):
@@ -368,7 +372,7 @@ def validate_hebrew_word(
                 # This is a big jump - likely STT hallucination
                 big_jump_detected = True
                 needs_confirmation = True
-                print(f"🚫 [BIG-JUMP] Blocked auto-accept: '{previous_value}' → '{best_match}' (distance={distance:.1f} > {big_jump_threshold})")
+                logger.info(f"🚫 [BIG-JUMP] Blocked auto-accept: '{previous_value}' → '{best_match}' (distance={distance:.1f} > {big_jump_threshold})")
     
     return PhoneticResult(
         raw_input=raw_text,
@@ -450,7 +454,7 @@ class ConsistencyFilter:
             old_city = self.locked_city
             self.locked_city = None
             self.city_attempts = []  # Reset attempts for fresh majority voting
-            print(f"🔓 [CONSISTENCY] City UNLOCKED from '{old_city}' (reason: {reason})")
+            logger.info(f"🔓 [CONSISTENCY] City UNLOCKED from '{old_city}' (reason: {reason})")
     
     def add_city_attempt(self, raw_city: str, force_check_correction: bool = False) -> Optional[str]:
         """
@@ -471,7 +475,7 @@ class ConsistencyFilter:
             is_different = self._is_different_from_locked(raw_city)
             
             if is_explicit and is_different:
-                print(f"🔄 [CONSISTENCY] User correction detected: '{raw_city}' differs from locked '{self.locked_city}'")
+                logger.info(f"🔄 [CONSISTENCY] User correction detected: '{raw_city}' differs from locked '{self.locked_city}'")
                 self.unlock_city(reason=f"user_said_{raw_city}")
                 # Continue to add as new attempt
             else:
@@ -491,7 +495,7 @@ class ConsistencyFilter:
                 matches = sum(1 for a in self.city_attempts if phonetic_similarity(a, attempt) >= 85)
                 if matches >= 2:
                     self.locked_city = attempt
-                    print(f"🔒 [CONSISTENCY] City locked to '{attempt}' (majority {matches}/{len(self.city_attempts)})")
+                    logger.info(f"🔒 [CONSISTENCY] City locked to '{attempt}' (majority {matches}/{len(self.city_attempts)})")
                     return self.locked_city
         
         return None
@@ -518,7 +522,7 @@ class ConsistencyFilter:
                 matches = sum(1 for a in self.name_attempts if phonetic_similarity(a, attempt) >= 85)
                 if matches >= 2:
                     self.locked_name = attempt
-                    print(f"🔒 [CONSISTENCY] Name locked to '{attempt}' (majority {matches}/{len(self.name_attempts)})")
+                    logger.info(f"🔒 [CONSISTENCY] Name locked to '{attempt}' (majority {matches}/{len(self.name_attempts)})")
                     return self.locked_name
         
         return None

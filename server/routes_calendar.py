@@ -14,6 +14,9 @@ from sqlalchemy import and_, or_, desc, asc
 import pytz
 import logging
 
+
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 # 🔥 Israel timezone for converting naive datetimes to timezone-aware
@@ -262,7 +265,7 @@ def get_appointments():
         })
         
     except Exception as e:
-        print(f"Error fetching appointments: {e}")
+        logger.error(f"Error fetching appointments: {e}")
         return jsonify({'error': 'שגיאה בטעינת הפגישות'}), 500
 
 @calendar_bp.route('/appointments', methods=['POST'])
@@ -497,7 +500,7 @@ def get_appointment(appointment_id):
         return jsonify({'appointment': appointment_data})
         
     except Exception as e:
-        print(f"Error fetching appointment {appointment_id}: {e}")
+        logger.error(f"Error fetching appointment {appointment_id}: {e}")
         return jsonify({'error': 'שגיאה בטעינת הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['PUT'])
@@ -603,7 +606,7 @@ def update_appointment(appointment_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating appointment {appointment_id}: {e}")
+        logger.error(f"Error updating appointment {appointment_id}: {e}")
         return jsonify({'error': 'שגיאה בעדכון הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['DELETE'])
@@ -646,7 +649,7 @@ def delete_appointment(appointment_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error deleting appointment {appointment_id}: {e}")
+        logger.error(f"Error deleting appointment {appointment_id}: {e}")
         return jsonify({'error': 'שגיאה במחיקת הפגישה'}), 500
 
 @calendar_bp.route('/stats', methods=['GET'])
@@ -703,5 +706,5 @@ def get_calendar_stats():
         return jsonify({'stats': stats})
         
     except Exception as e:
-        print(f"Error fetching calendar stats: {e}")
+        logger.error(f"Error fetching calendar stats: {e}")
         return jsonify({'error': 'שגיאה בטעינת סטטיסטיקות'}), 500

@@ -7,6 +7,9 @@ import queue
 import eventlet
 import sys
 
+
+logger = logging.getLogger(__name__)
+
 _log_q = queue.Queue(maxsize=10000)
 
 class QueueHandler(logging.Handler):
@@ -25,7 +28,7 @@ def _log_worker():
             msg = logging.Formatter(
                 "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
             ).format(rec)
-            print(msg, file=sys.stderr, flush=False)
+            logger.info(msg, file=sys.stderr, flush=False)
         except Exception:
             pass
         eventlet.sleep(0)  # Yield to other green threads

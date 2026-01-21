@@ -9,6 +9,10 @@ import uuid
 import os
 from datetime import datetime
 import base64
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Blueprint for receipts and contracts
 receipts_contracts_bp = Blueprint('receipts_contracts', __name__)
@@ -552,7 +556,7 @@ def view_invoice(invoice_id):
                         font_name = 'Hebrew'
                         break
         except Exception as e:
-            print(f"Font loading error: {e}")
+            logger.error(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
         # Function to draw RTL text (for Hebrew)
@@ -612,7 +616,7 @@ def view_invoice(invoice_id):
         )
         
     except Exception as e:
-        print(f"Error generating invoice PDF: {e}")
+        logger.error(f"Error generating invoice PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/invoice/<invoice_id>/download', methods=['GET'])
@@ -674,7 +678,7 @@ def download_invoice(invoice_id):
                         font_name = 'Hebrew'
                         break
         except Exception as e:
-            print(f"Font loading error: {e}")
+            logger.error(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
         # Function to draw RTL text (for Hebrew)
@@ -732,7 +736,7 @@ def download_invoice(invoice_id):
         )
         
     except Exception as e:
-        print(f"Error downloading invoice PDF: {e}")
+        logger.error(f"Error downloading invoice PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/contract/<contract_id>/view', methods=['GET'])
@@ -786,7 +790,7 @@ def view_contract(contract_id):
                         font_name = 'Hebrew'
                         break
         except Exception as e:
-            print(f"Font loading error: {e}")
+            logger.error(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
         # Function to draw RTL text (for Hebrew)
@@ -850,7 +854,7 @@ def view_contract(contract_id):
                 if contract.signed_name:
                     draw_rtl_text(p, 50, y_position, f"נחתם על ידי: {contract.signed_name}", font_name, 12)
             except Exception as sig_error:
-                print(f"Error adding signature to PDF: {sig_error}")
+                logger.error(f"Error adding signature to PDF: {sig_error}")
                 # Continue without signature if there's an error
         
         p.save()
@@ -867,7 +871,7 @@ def view_contract(contract_id):
         )
         
     except Exception as e:
-        print(f"Error generating contract PDF: {e}")
+        logger.error(f"Error generating contract PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/contract/<contract_id>/download', methods=['GET'])
@@ -921,7 +925,7 @@ def download_contract(contract_id):
                         font_name = 'Hebrew'
                         break
         except Exception as e:
-            print(f"Font loading error: {e}")
+            logger.error(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
         # Function to draw RTL text (for Hebrew)
@@ -985,7 +989,7 @@ def download_contract(contract_id):
                 if contract.signed_name:
                     draw_rtl_text(p, 50, y_position, f"נחתם על ידי: {contract.signed_name}", font_name, 12)
             except Exception as sig_error:
-                print(f"Error adding signature to PDF: {sig_error}")
+                logger.error(f"Error adding signature to PDF: {sig_error}")
                 # Continue without signature if there's an error
         
         p.save()
@@ -1002,5 +1006,5 @@ def download_contract(contract_id):
         )
         
     except Exception as e:
-        print(f"Error downloading contract PDF: {e}")
+        logger.error(f"Error downloading contract PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500

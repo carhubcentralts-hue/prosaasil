@@ -9,6 +9,10 @@ import re
 import time
 import pytz
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # 🔥 Israel timezone for converting naive datetimes
 tz = pytz.timezone("Asia/Jerusalem")
@@ -33,7 +37,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         # נסיון למצוא call_log קיים
         call_log = CallLog.query.filter_by(call_sid=call_sid).first()
         if not call_log:
-            print(f"⚠️ Call log not found for {call_sid} - creating appointment without call connection")
+            logger.warning(f"⚠️ Call log not found for {call_sid} - creating appointment without call connection")
         
         # איתור או יצירת לקוח
         customer = None
@@ -61,7 +65,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         business_id = call_log.business_id if call_log else None
         if not business_id:
             # ✅ BUILD 155 SECURITY: NO fallback - must have deterministic business_id
-            print(f"❌ Cannot resolve business_id for call {call_sid} - no fallback allowed (multi-tenant security)")
+            logger.error(f"❌ Cannot resolve business_id for call {call_sid} - no fallback allowed (multi-tenant security)")
             return {'success': False, 'reason': 'לא ניתן לזהות את העסק - נדרש business_id'}
         
         if phone_number:
@@ -117,9 +121,9 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         from server.services.time_parser import get_meeting_time_from_conversation
         
         # ✅ DEBUG: הדפס את השיחה שאנחנו מנתחים
-        print(f"🔍 AUTO_MEETING: Analyzing {len(conversation_history)} conversation turns for meeting time")
+        logger.info(f"🔍 AUTO_MEETING: Analyzing {len(conversation_history)} conversation turns for meeting time")
         for i, turn in enumerate(conversation_history[-3:]):  # 3 תורות אחרונים
-            print(f"  Turn {i}: user='{turn.get('user', '')[:50]}...', bot='{turn.get('bot', '')[:50]}...'")
+            logger.info(f"  Turn {i}: user='{turn.get('user', '')[:50]}...', bot='{turn.get('bot', '')[:50]}...'")
         
         # 🚨 CRITICAL: בדוק תחילה אם יש סירוב בתור האחרון!
         if conversation_history:
@@ -127,7 +131,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
             rejection_keywords = ['לא תודה', 'לא רוצה', 'לא מעוניין', 'ביי', 'להתראות', 'תודה לא']
             
             if any(keyword in last_user_msg for keyword in rejection_keywords):
-                print(f"🚫 AUTO_MEETING: User REJECTED in last turn - NOT creating appointment!")
+                logger.info(f"🚫 AUTO_MEETING: User REJECTED in last turn - NOT creating appointment!")
                 return {'success': False, 'reason': 'המשתמש סירב לקביעת פגישה'}
         
         # נסה לנתח זמן מהשיחה
@@ -136,7 +140,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         if parsed_time:
             # ✅ נמצא זמן מוסכם בשיחה!
             meeting_time, end_time = parsed_time
-            print(f"✅ AUTO_MEETING: Parsed meeting time from conversation: {meeting_time.strftime('%Y-%m-%d %H:%M')}")
+            logger.info(f"✅ AUTO_MEETING: Parsed meeting time from conversation: {meeting_time.strftime('%Y-%m-%d %H:%M')}")
         else:
             # ⚠️ Fallback: זמן default (אם לא נמצא זמן בשיחה)
             now = datetime.now()
@@ -156,7 +160,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 meeting_time = meeting_time.replace(hour=16)
             
             end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
-            print(f"⚠️ Using default meeting time: {meeting_time}")
+            logger.warning(f"⚠️ Using default meeting time: {meeting_time}")
         
         # 🔥 CRITICAL: Check for overlapping appointments before creating
         existing = Appointment.query.filter(
@@ -226,7 +230,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
             if transcription:
                 # 🔥 NEW: Save full transcript
                 appointment.call_transcript = transcription
-                print(f"✅ AUTO_MEETING: Call transcript saved ({len(transcription)} chars)")
+                logger.info(f"✅ AUTO_MEETING: Call transcript saved ({len(transcription)} chars)")
                 
                 # Get business info for context
                 business = Business.query.get(business_id)
@@ -245,15 +249,15 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 dynamic_summary_data = ci.generate_conversation_summary(transcription)
                 # Store as JSON string
                 appointment.dynamic_summary = json.dumps(dynamic_summary_data, ensure_ascii=False)
-                print(f"✅ AUTO_MEETING: Dynamic conversation summary generated")
+                logger.info(f"✅ AUTO_MEETING: Dynamic conversation summary generated")
                 
                 # Link to lead if exists (from call_log)
                 if call_log and call_log.lead_id:
                     appointment.lead_id = call_log.lead_id
-                    print(f"✅ AUTO_MEETING: Linked appointment to lead {call_log.lead_id}")
+                    logger.info(f"✅ AUTO_MEETING: Linked appointment to lead {call_log.lead_id}")
                 
         except Exception as e:
-            print(f"⚠️ AUTO_MEETING: Failed to generate call summary: {e}")
+            logger.error(f"⚠️ AUTO_MEETING: Failed to generate call summary: {e}")
             # Continue without summary - not critical
         
         db.session.add(appointment)
@@ -273,7 +277,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error creating auto appointment: {e}")
+        logger.error(f"❌ Error creating auto appointment: {e}")
         return {
             'success': False,
             'error': str(e),
@@ -299,7 +303,7 @@ def check_and_create_appointment(call_sid: str, lead_info: dict, conversation_hi
     if lead_info.get('meeting_ready', False) and lead_info.get('completed_count', 0) >= 3:
         result = create_auto_appointment_from_call(call_sid, lead_info, conversation_history, phone_number)
         if result['success']:
-            print(f"✅ Auto appointment created: {result['appointment_id']} for call {call_sid}")
+            logger.info(f"✅ Auto appointment created: {result['appointment_id']} for call {call_sid}")
         return result
     
     return {'success': False, 'reason': 'לא מספיק מידע לקביעת פגישה'}
