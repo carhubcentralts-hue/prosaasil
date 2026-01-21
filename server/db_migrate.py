@@ -3798,6 +3798,79 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ receipt_sync_runs table does not exist - skipping")
         
+        # Migration 86: Add heartbeat to receipt_sync_runs (Stale Run Detection)
+        # ============================================================================
+        # Purpose: Enable detection and auto-recovery from stuck/crashed sync jobs
+        # - Adds last_heartbeat_at column for monitoring long-running syncs
+        # - Indexed for efficient stale run queries (status='running')
+        # - Allows auto-failing syncs with no heartbeat for 180+ seconds
+        # This prevents "SYNC ALREADY RUNNING" deadlock when background job dies
+        checkpoint("Migration 86: Adding heartbeat to receipt_sync_runs (stale run detection)")
+        
+        if check_table_exists('receipt_sync_runs'):
+            from sqlalchemy import text
+            try:
+                fields_added = []
+                
+                # Add last_heartbeat_at column if missing
+                if not check_column_exists('receipt_sync_runs', 'last_heartbeat_at'):
+                    checkpoint("  → Adding last_heartbeat_at to receipt_sync_runs...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN last_heartbeat_at TIMESTAMP NULL
+                    """))
+                    
+                    # Create partial index for efficient stale run detection
+                    # Only index running syncs since we only check those for staleness
+                    if not check_index_exists('idx_receipt_sync_runs_heartbeat'):
+                        checkpoint("  → Creating partial index on last_heartbeat_at for running syncs...")
+                        db.session.execute(text("""
+                            CREATE INDEX idx_receipt_sync_runs_heartbeat 
+                            ON receipt_sync_runs (last_heartbeat_at) 
+                            WHERE status = 'running'
+                        """))
+                        checkpoint("  ✅ Partial index created for efficient stale detection")
+                    
+                    # Initialize heartbeat for existing running syncs to prevent false positives
+                    checkpoint("  → Initializing heartbeat for existing running syncs...")
+                    result = db.session.execute(text("""
+                        UPDATE receipt_sync_runs 
+                        SET last_heartbeat_at = COALESCE(updated_at, started_at)
+                        WHERE status = 'running' AND last_heartbeat_at IS NULL
+                    """))
+                    updated_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    if updated_count > 0:
+                        checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing running sync(s)")
+                    
+                    fields_added.append('last_heartbeat_at')
+                    checkpoint("  ✅ last_heartbeat_at added with partial index")
+                
+                # Also add business_id + status composite index if not exists (for stale detection query)
+                if not check_index_exists('idx_receipt_sync_runs_business_status'):
+                    checkpoint("  → Creating composite index on (business_id, status)...")
+                    db.session.execute(text("""
+                        CREATE INDEX idx_receipt_sync_runs_business_status 
+                        ON receipt_sync_runs (business_id, status)
+                    """))
+                    fields_added.append('business_status_index')
+                    checkpoint("  ✅ Composite index created for efficient sync run lookup")
+                
+                if fields_added:
+                    migrations_applied.append("add_receipt_sync_heartbeat")
+                    checkpoint(f"✅ Migration 86 complete: {', '.join(fields_added)} added")
+                    checkpoint("   🔒 Idempotent: Safe to run multiple times")
+                    checkpoint("   🎯 Purpose: Detects stale syncs (no heartbeat > 180s)")
+                    checkpoint("   🔧 Enables: Auto-recovery from crashed background jobs")
+                else:
+                    checkpoint("✅ Migration 86: Heartbeat already exists - skipping")
+                    
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 86 failed: {e}")
+                logger.error(f"Migration 86 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ receipt_sync_runs table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

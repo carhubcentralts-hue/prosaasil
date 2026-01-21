@@ -420,10 +420,21 @@ def list_receipts():
     business_id = get_current_business_id()
     
     # Log filter parameters (without sensitive data)
-    from_date_param = request.args.get('from_date')
-    to_date_param = request.args.get('to_date')
+    # Support both camelCase (fromDate/toDate) and snake_case (from_date/to_date)
+    from_date_param = request.args.get('from_date') or request.args.get('fromDate')
+    to_date_param = request.args.get('to_date') or request.args.get('toDate')
     status_param = request.args.get('status')
-    logger.info(f"[list_receipts] Filtering - business_id={business_id}, from_date={from_date_param}, to_date={to_date_param}, status={status_param}")
+    
+    logger.info(
+        f"[list_receipts] RAW PARAMS: business_id={business_id}, "
+        f"from_date={request.args.get('from_date')}, fromDate={request.args.get('fromDate')}, "
+        f"to_date={request.args.get('to_date')}, toDate={request.args.get('toDate')}, "
+        f"status={status_param}"
+    )
+    logger.info(
+        f"[list_receipts] PARSED: business_id={business_id}, "
+        f"from_date={from_date_param}, to_date={to_date_param}, status={status_param}"
+    )
     
     # Build base query
     query = Receipt.query.filter_by(
@@ -441,7 +452,8 @@ def list_receipts():
         query = query.filter(Receipt.vendor_name.ilike(f'%{vendor}%'))
     
     # Date filtering with proper parsing
-    from_date = request.args.get('from_date')
+    # Use the parsed parameters (supporting both camelCase and snake_case)
+    from_date = from_date_param
     if from_date:
         try:
             # Handle both plain date (YYYY-MM-DD) and ISO datetime formats
@@ -456,8 +468,12 @@ def list_receipts():
             logger.info(f"[list_receipts] Applied from_date filter: {from_dt.isoformat()}")
         except (ValueError, TypeError) as e:
             logger.warning(f"[list_receipts] Invalid from_date format: {from_date}, error: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"Invalid from_date format: '{from_date}'. Use YYYY-MM-DD format (e.g., 2023-01-01)"
+            }), 400
     
-    to_date = request.args.get('to_date')
+    to_date = to_date_param
     if to_date:
         try:
             # Handle both plain date (YYYY-MM-DD) and ISO datetime formats
@@ -472,6 +488,10 @@ def list_receipts():
             logger.info(f"[list_receipts] Applied to_date filter: {to_dt.isoformat()}")
         except (ValueError, TypeError) as e:
             logger.warning(f"[list_receipts] Invalid to_date format: {to_date}, error: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"Invalid to_date format: '{to_date}'. Use YYYY-MM-DD format (e.g., 2023-12-31)"
+            }), 400
     
     min_amount = request.args.get('min_amount', type=float)
     if min_amount is not None:
@@ -918,13 +938,62 @@ def sync_receipts():
         ).first()
         
         if existing_run:
-            logger.info(f"🔔 SYNC ALREADY RUNNING: run_id={existing_run.id}")
-            return jsonify({
-                "success": True,
-                "message": "Sync already in progress",
-                "sync_run_id": existing_run.id,
-                "status": "running"
-            }), 409  # Conflict
+            # Check if run is stale (no heartbeat for 180 seconds)
+            STALE_RUN_THRESHOLD_SECONDS = 180
+            now = datetime.now(timezone.utc)
+            
+            # If last_heartbeat_at is None, use started_at (for backward compatibility)
+            last_activity = existing_run.last_heartbeat_at or existing_run.started_at
+            
+            # Convert to timezone-aware if needed
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(tzinfo=timezone.utc)
+            
+            seconds_since_activity = (now - last_activity).total_seconds()
+            
+            if seconds_since_activity > STALE_RUN_THRESHOLD_SECONDS:
+                # Stale run detected - auto-fail it
+                logger.warning(
+                    f"🔔 STALE RUN DETECTED: run_id={existing_run.id}, "
+                    f"last_activity={seconds_since_activity:.0f}s ago, threshold={STALE_RUN_THRESHOLD_SECONDS}s"
+                )
+                
+                existing_run.status = 'failed'
+                existing_run.error_message = f"Stale run auto-failed: no heartbeat for {int(seconds_since_activity)}s (threshold: {STALE_RUN_THRESHOLD_SECONDS}s)"
+                existing_run.finished_at = now
+                existing_run.updated_at = now
+                db.session.commit()
+                
+                logger.info(f"🔔 STALE RUN AUTO-FAILED: run_id={existing_run.id}, allowing new sync")
+                # Continue to start new sync below
+            else:
+                # Run is active - return 409 with progress info
+                logger.info(
+                    f"🔔 SYNC ALREADY RUNNING: run_id={existing_run.id}, "
+                    f"last_activity={seconds_since_activity:.0f}s ago"
+                )
+                
+                # Calculate progress for UI
+                progress_pct = 0
+                if existing_run.messages_scanned > 0:
+                    # Rough estimate based on saved receipts vs scanned messages
+                    progress_pct = min(95, int((existing_run.saved_receipts / max(1, existing_run.messages_scanned)) * 100))
+                
+                return jsonify({
+                    "success": False,
+                    "error": "Sync already in progress",
+                    "sync_run_id": existing_run.id,
+                    "status": "running",
+                    "progress": {
+                        "messages_scanned": existing_run.messages_scanned,
+                        "saved_receipts": existing_run.saved_receipts,
+                        "pages_scanned": existing_run.pages_scanned,
+                        "errors_count": existing_run.errors_count,
+                        "progress_percentage": progress_pct,
+                        "last_heartbeat_at": last_activity.isoformat(),
+                        "seconds_since_heartbeat": int(seconds_since_activity)
+                    }
+                }), 409  # Conflict
         
         logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
         
@@ -947,6 +1016,24 @@ def sync_receipts():
                     logger.info(f"🔔 BACKGROUND SYNC COMPLETED: business_id={business_id}")
                 except Exception as e:
                     logger.error(f"🔔 BACKGROUND SYNC FAILED: {e}", exc_info=True)
+                    # Ensure sync run status is updated on failure
+                    try:
+                        # Re-query the sync run to avoid stale session issues
+                        from server.models_sql import ReceiptSyncRun
+                        failed_run = ReceiptSyncRun.query.filter_by(
+                            business_id=business_id,
+                            status='running'
+                        ).order_by(ReceiptSyncRun.started_at.desc()).first()
+                        
+                        if failed_run:
+                            failed_run.status = 'failed'
+                            failed_run.error_message = f"Background sync exception: {str(e)[:500]}"
+                            failed_run.finished_at = datetime.now(timezone.utc)
+                            failed_run.updated_at = datetime.now(timezone.utc)
+                            db.session.commit()
+                            logger.info(f"🔔 SYNC RUN MARKED AS FAILED: run_id={failed_run.id}")
+                    except Exception as update_error:
+                        logger.error(f"🔔 FAILED TO UPDATE SYNC STATUS: {update_error}")
 
         thread = threading.Thread(target=run_sync_in_background, daemon=False)
         thread.start()
@@ -1129,7 +1216,21 @@ def get_sync_status():
         progress_pct = 100
     elif sync_run.messages_scanned > 0:
         # Rough estimate based on saved receipts vs scanned messages
-        progress_pct = min(95, (sync_run.saved_receipts / max(1, sync_run.messages_scanned)) * 100)
+        progress_pct = min(95, int((sync_run.saved_receipts / max(1, sync_run.messages_scanned)) * 100))
+    
+    # Calculate time since last heartbeat (for monitoring stale runs)
+    seconds_since_heartbeat = None
+    last_activity = None
+    if sync_run.status == 'running':
+        now = datetime.now(timezone.utc)
+        # Use last_heartbeat_at if available, fallback to updated_at, then started_at
+        last_activity = sync_run.last_heartbeat_at or sync_run.updated_at or sync_run.started_at
+        
+        # Ensure timezone-aware
+        if last_activity.tzinfo is None:
+            last_activity = last_activity.replace(tzinfo=timezone.utc)
+        
+        seconds_since_heartbeat = int((now - last_activity).total_seconds())
     
     return jsonify({
         "success": True,
@@ -1139,6 +1240,8 @@ def get_sync_status():
             "status": sync_run.status,
             "started_at": sync_run.started_at.isoformat(),
             "finished_at": sync_run.finished_at.isoformat() if sync_run.finished_at else None,
+            "last_heartbeat_at": sync_run.last_heartbeat_at.isoformat() if sync_run.last_heartbeat_at else None,
+            "seconds_since_heartbeat": seconds_since_heartbeat,
             "duration_seconds": duration_seconds,
             "progress_percentage": progress_pct,
             "progress": {
