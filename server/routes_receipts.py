@@ -48,14 +48,14 @@ GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'https://prosaas.pro/api/
 # OAuth scopes - minimal required for reading emails and attachments
 GMAIL_SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/userinfo.email',
+]
 
 # Progress calculation constants
 PROGRESS_ESTIMATED_MESSAGES_PER_DAY = 2  # Estimate 2-3 messages per day for date range
 PROGRESS_MIN_ESTIMATED_TOTAL = 100  # Minimum estimate for progress calculation
 PROGRESS_MAX_PERCENTAGE = 95  # Cap at 95% until completed
 PROGRESS_MESSAGES_PER_10_PERCENT = 100  # 10% progress per 100 messages scanned
-    'https://www.googleapis.com/auth/userinfo.email',
-]
 
 # Encryption for refresh tokens
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', os.getenv('FERNET_KEY', ''))
