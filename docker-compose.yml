@@ -124,7 +124,7 @@ services:
   # Handles: Gmail receipts sync, Playwright, PDF thumbnails, OCR
   # Uses: Redis queue (RQ)
   # ===========================================
-  worker:
+  prosaas-worker:
     container_name: prosaas-worker
     build:
       context: .
@@ -152,6 +152,12 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis, os; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); r.ping(); print('OK')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - prosaas-network
 

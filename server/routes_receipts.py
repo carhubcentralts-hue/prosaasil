@@ -107,14 +107,22 @@ def _has_worker_for_queue(redis_connection, queue_name: str = "default") -> bool
         from rq import Worker
         workers = Worker.all(connection=redis_connection)
         
+        # CRITICAL: Log Redis URL and connection details for debugging
+        logger.info(f"[RQ_DIAG] Checking workers - redis_url={REDIS_URL}")
+        logger.info(f"[RQ_DIAG] Total workers found: {len(workers)}")
+        
         # Check if any worker is listening to the specified queue
         for worker in workers:
             # worker.queue_names() returns list of queue names this worker listens to
-            if queue_name in [q.name for q in worker.queues]:
-                logger.debug(f"✓ Found worker '{worker.name}' listening to queue '{queue_name}'")
+            worker_queues = [q.name for q in worker.queues]
+            logger.info(f"[RQ_DIAG] Worker '{worker.name}' listening to queues: {worker_queues}")
+            if queue_name in worker_queues:
+                logger.info(f"✓ Found worker '{worker.name}' listening to queue '{queue_name}'")
                 return True
         
         logger.warning(f"✗ No workers found listening to queue '{queue_name}' (found {len(workers)} total workers)")
+        if len(workers) > 0:
+            logger.warning(f"[RQ_DIAG] Available workers but none listening to '{queue_name}' - check RQ_QUEUES env var in worker")
         return False
         
     except ImportError as e:
@@ -1027,9 +1035,12 @@ def sync_receipts():
     to_date = data.get('to_date', None)      # NEW: Support custom date range
     months_back = data.get('months_back', 36)  # NEW: Support configurable backfill depth
     
+    # Determine effective months_back (disabled if custom dates are used)
+    months_back_effective = None if (from_date or to_date) else months_back
+    
     logger.info(
         f"🔔 SYNC PARSED PARAMS: mode={mode}, from_date={from_date}, "
-        f"to_date={to_date}, max_messages={max_messages}, months_back={months_back}"
+        f"to_date={to_date}, max_messages={max_messages}, months_back_effective={months_back_effective}"
     )
     
     if mode not in ['full_backfill', 'incremental', 'full']:  # Support legacy 'full' mode

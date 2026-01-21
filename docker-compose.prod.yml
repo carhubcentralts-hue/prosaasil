@@ -97,7 +97,7 @@ services:
   # Worker is defined in base docker-compose.yml
   # This only overrides resource limits for production
   # ===========================================
-  worker:
+  prosaas-worker:
     environment:
       FLASK_ENV: production
       RUN_MIGRATIONS_ON_START: 0
