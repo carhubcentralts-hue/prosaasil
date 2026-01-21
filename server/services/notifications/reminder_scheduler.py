@@ -41,6 +41,11 @@ def _is_dns_error(exc: Exception) -> bool:
     Returns:
         True if this is a DNS-related error
     """
+    # Check if this is a socket.gaierror directly
+    if isinstance(exc, socket.gaierror):
+        return True
+    
+    # Check error message for DNS-related strings
     msg = str(exc).lower()
     return ("could not translate host name" in msg or 
             "name or service not known" in msg or
@@ -238,8 +243,15 @@ def check_and_send_reminder_notifications(app):
             return
             
         except socket.gaierror as e:
-            # 🔥 DNS RESILIENCE: Explicit DNS error sometimes bubbles as gaierror
-            log.warning(f"[REMINDER_SCHEDULER] DNS failure. Skipping this cycle. err={e}")
+            # 🔥 DNS RESILIENCE: Explicit DNS error - use same retry logic
+            if attempt < 2:
+                # Exponential backoff: 0.5s, 1s
+                sleep_time = 0.5 * (2 ** attempt)
+                log.warning(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/3), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            # Last attempt failed
+            log.warning(f"[REMINDER_SCHEDULER] DNS failure after 3 attempts. Skipping this cycle. err={e}")
             return
             
         except Exception as e:
