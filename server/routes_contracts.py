@@ -1130,19 +1130,27 @@ def embed_signature_in_pdf(token):
     """
     PUBLIC endpoint - Embed signature(s) into PDF document (NO auth required)
     
-    This endpoint takes signature placements and embeds them into the original PDF,
-    returning a fully signed PDF document.
+    Supports two modes:
+    1. New mode (with pre-marked fields): Send single signature + signer name, 
+       signatures are automatically placed in all pre-marked areas
+    2. Legacy mode (manual placements): Send signature placements array
     
     Request body (JSON):
-        - file_id: ID of the original PDF file
-        - signatures: Array of signature placements
-            - page_number: 0-indexed page number
-            - x: X coordinate (from left, in PDF points)
-            - y: Y coordinate (from bottom, in PDF points)
-            - width: Signature width in PDF points
-            - height: Signature height in PDF points
-            - signature_data: Base64 encoded PNG signature image
-        - signer_name: Name of the signer
+        Mode 1 (with pre-marked fields):
+            - file_id: ID of the original PDF file
+            - signature_data: Base64 encoded PNG signature image (single signature)
+            - signer_name: Name of the signer
+        
+        Mode 2 (legacy - manual placements):
+            - file_id: ID of the original PDF file
+            - signatures: Array of signature placements
+                - page_number: 0-indexed page number
+                - x: X coordinate (from left, in PDF points)
+                - y: Y coordinate (from bottom, in PDF points)
+                - width: Signature width in PDF points
+                - height: Signature height in PDF points
+                - signature_data: Base64 encoded PNG signature image
+            - signer_name: Name of the signer
     
     Returns:
         - Signed PDF saved as attachment
@@ -1166,14 +1174,10 @@ def embed_signature_in_pdf(token):
             return jsonify({'error': 'Request body required'}), 400
         
         file_id = data.get('file_id')
-        signatures_data = data.get('signatures', [])
         signer_name = data.get('signer_name', contract.signer_name or 'Unknown')
         
         if not file_id:
             return jsonify({'error': 'file_id is required'}), 400
-        
-        if not signatures_data:
-            return jsonify({'error': 'At least one signature is required'}), 400
         
         # Get the original PDF file
         contract_file = ContractFile.query.filter_by(
@@ -1205,33 +1209,118 @@ def embed_signature_in_pdf(token):
             return jsonify({'error': 'Failed to load original document'}), 500
         
         # Import PDF signing service
-        from server.services.pdf_signing_service import SignaturePlacement, embed_signatures_in_pdf
+        from server.services.pdf_signing_service import SignaturePlacement, embed_signatures_in_pdf, get_pdf_info
         import base64
         
-        # Parse signature placements
+        # Determine which mode: pre-marked fields or manual placements
+        signatures_data = data.get('signatures', [])
+        signature_data_single = data.get('signature_data')
+        
         signature_placements = []
-        for sig_data in signatures_data:
+        
+        if signature_data_single and not signatures_data:
+            # NEW MODE: Single signature with pre-marked fields
+            logger.info(f"[CONTRACT_EMBED_SIGN] Using pre-marked signature fields mode")
+            
+            # Decode the single signature image
             try:
-                # Decode base64 signature image
-                sig_image_b64 = sig_data.get('signature_data', '')
+                sig_image_b64 = signature_data_single
                 if sig_image_b64.startswith('data:'):
                     sig_image_b64 = sig_image_b64.split(',')[1]
-                
                 sig_image_bytes = base64.b64decode(sig_image_b64)
+            except Exception as decode_err:
+                logger.error(f"[CONTRACT_EMBED_SIGN] Failed to decode signature: {decode_err}")
+                return jsonify({'error': 'Invalid signature image data'}), 400
+            
+            # Get pre-marked signature fields from database
+            from sqlalchemy import text
+            result = db.session.execute(text("""
+                SELECT page, x, y, w, h
+                FROM contract_signature_fields
+                WHERE contract_id = :contract_id
+                ORDER BY page, y, x
+            """), {"contract_id": contract_id})
+            
+            fields = []
+            for row in result:
+                fields.append({
+                    'page': row[0],
+                    'x': float(row[1]),
+                    'y': float(row[2]),
+                    'w': float(row[3]),
+                    'h': float(row[4])
+                })
+            
+            if not fields:
+                return jsonify({'error': 'No signature fields defined for this contract'}), 400
+            
+            # Get PDF info to convert relative coordinates to absolute
+            try:
+                pdf_info = get_pdf_info(pdf_data)
+                pages_info = pdf_info.get('pages', [])
+            except Exception as info_err:
+                logger.error(f"[CONTRACT_EMBED_SIGN] Failed to get PDF info: {info_err}")
+                return jsonify({'error': 'Failed to analyze PDF'}), 500
+            
+            # Create signature placements from fields
+            for field in fields:
+                page_num = field['page'] - 1  # Convert to 0-indexed
+                
+                if page_num < 0 or page_num >= len(pages_info):
+                    logger.warning(f"[CONTRACT_EMBED_SIGN] Field page {field['page']} out of range, skipping")
+                    continue
+                
+                page_info = pages_info[page_num]
+                page_width = page_info['width']
+                page_height = page_info['height']
+                
+                # Convert relative coordinates (0-1) to absolute (PDF points)
+                abs_x = field['x'] * page_width
+                abs_y = field['y'] * page_height
+                abs_w = field['w'] * page_width
+                abs_h = field['h'] * page_height
                 
                 placement = SignaturePlacement(
-                    page_number=int(sig_data.get('page_number', 0)),
-                    x=float(sig_data.get('x', 0)),
-                    y=float(sig_data.get('y', 0)),
-                    width=float(sig_data.get('width', 150)),
-                    height=float(sig_data.get('height', 50)),
+                    page_number=page_num,
+                    x=abs_x,
+                    y=abs_y,
+                    width=abs_w,
+                    height=abs_h,
                     signature_image=sig_image_bytes,
                     signer_name=signer_name
                 )
                 signature_placements.append(placement)
-            except Exception as parse_err:
-                logger.warning(f"[CONTRACT_EMBED_SIGN] Error parsing signature: {parse_err}")
-                continue
+            
+            logger.info(f"[CONTRACT_EMBED_SIGN] Created {len(signature_placements)} signature placements from pre-marked fields")
+            
+        elif signatures_data:
+            # LEGACY MODE: Manual signature placements
+            logger.info(f"[CONTRACT_EMBED_SIGN] Using legacy manual placements mode")
+            
+            for sig_data in signatures_data:
+                try:
+                    # Decode base64 signature image
+                    sig_image_b64 = sig_data.get('signature_data', '')
+                    if sig_image_b64.startswith('data:'):
+                        sig_image_b64 = sig_image_b64.split(',')[1]
+                    
+                    sig_image_bytes = base64.b64decode(sig_image_b64)
+                    
+                    placement = SignaturePlacement(
+                        page_number=int(sig_data.get('page_number', 0)),
+                        x=float(sig_data.get('x', 0)),
+                        y=float(sig_data.get('y', 0)),
+                        width=float(sig_data.get('width', 150)),
+                        height=float(sig_data.get('height', 50)),
+                        signature_image=sig_image_bytes,
+                        signer_name=signer_name
+                    )
+                    signature_placements.append(placement)
+                except Exception as parse_err:
+                    logger.warning(f"[CONTRACT_EMBED_SIGN] Error parsing signature: {parse_err}")
+                    continue
+        else:
+            return jsonify({'error': 'Either signature_data or signatures array is required'}), 400
         
         if not signature_placements:
             return jsonify({'error': 'No valid signatures provided'}), 400
@@ -1586,3 +1675,237 @@ def delete_contract(contract_id):
         logger.error(f"[CONTRACT_DELETE] Error: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'error': 'Failed to delete contract'}), 500
+
+
+# ============================================================================
+# PDF Signature Placement API
+# ============================================================================
+
+@contracts_bp.route('/<int:contract_id>/signature-fields', methods=['POST'])
+@require_api_auth
+@require_page_access('contracts')
+def save_signature_fields(contract_id):
+    """
+    Save signature field placements for a contract
+    
+    Request body (JSON):
+        - fields: Array of field objects with:
+            - page: Page number (1-based)
+            - x, y, w, h: Coordinates (0-1 range, relative)
+            - required: Boolean (optional, default True)
+    
+    Returns:
+        - List of created field IDs
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Verify contract exists and belongs to business
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        data = request.get_json()
+        if not data or 'fields' not in data:
+            return jsonify({'error': 'Missing fields array'}), 400
+        
+        fields = data['fields']
+        if not isinstance(fields, list):
+            return jsonify({'error': 'fields must be an array'}), 400
+        
+        # Validate field count
+        if len(fields) > 30:
+            return jsonify({'error': 'Maximum 30 signature fields allowed'}), 400
+        
+        if len(fields) == 0:
+            return jsonify({'error': 'At least one signature field required'}), 400
+        
+        # Validate each field
+        for i, field in enumerate(fields):
+            # Required fields
+            for key in ['page', 'x', 'y', 'w', 'h']:
+                if key not in field:
+                    return jsonify({'error': f'Field {i}: missing {key}'}), 400
+            
+            # Validate types and ranges
+            try:
+                page = int(field['page'])
+                if page < 1:
+                    return jsonify({'error': f'Field {i}: page must be >= 1'}), 400
+                
+                x = float(field['x'])
+                y = float(field['y'])
+                w = float(field['w'])
+                h = float(field['h'])
+                
+                if not (0 <= x <= 1 and 0 <= y <= 1):
+                    return jsonify({'error': f'Field {i}: x,y must be in range 0-1'}), 400
+                
+                if not (0 < w <= 1 and 0 < h <= 1):
+                    return jsonify({'error': f'Field {i}: w,h must be in range 0-1'}), 400
+                    
+            except (ValueError, TypeError):
+                return jsonify({'error': f'Field {i}: invalid numeric values'}), 400
+        
+        # Delete existing fields for this contract
+        from sqlalchemy import text
+        db.session.execute(
+            text("DELETE FROM contract_signature_fields WHERE contract_id = :contract_id"),
+            {"contract_id": contract_id}
+        )
+        
+        # Create new fields
+        field_ids = []
+        for field in fields:
+            required = field.get('required', True)
+            
+            db.session.execute(text("""
+                INSERT INTO contract_signature_fields 
+                (business_id, contract_id, page, x, y, w, h, required)
+                VALUES (:business_id, :contract_id, :page, :x, :y, :w, :h, :required)
+            """), {
+                'business_id': business_id,
+                'contract_id': contract_id,
+                'page': int(field['page']),
+                'x': float(field['x']),
+                'y': float(field['y']),
+                'w': float(field['w']),
+                'h': float(field['h']),
+                'required': required
+            })
+        
+        db.session.commit()
+        
+        # Log event
+        log_contract_event(
+            contract_id=contract_id,
+            business_id=business_id,
+            event_type='signature_fields_updated',
+            metadata={'field_count': len(fields)},
+            user_id=user_id
+        )
+        
+        logger.info(f"[SIGNATURE_FIELDS] Saved {len(fields)} fields for contract_id={contract_id}")
+        
+        return jsonify({
+            'message': 'Signature fields saved successfully',
+            'field_count': len(fields)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[SIGNATURE_FIELDS] Error: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to save signature fields'}), 500
+
+
+@contracts_bp.route('/<int:contract_id>/signature-fields', methods=['GET'])
+@require_api_auth
+@require_page_access('contracts')
+def get_signature_fields(contract_id):
+    """
+    Get signature field placements for a contract
+    
+    Returns:
+        - fields: Array of field objects
+    """
+    try:
+        business_id = get_current_business_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Verify contract exists and belongs to business
+        contract = Contract.query.filter_by(id=contract_id, business_id=business_id).first()
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        # Get fields
+        from sqlalchemy import text
+        result = db.session.execute(text("""
+            SELECT id, page, x, y, w, h, required, created_at
+            FROM contract_signature_fields
+            WHERE contract_id = :contract_id
+            ORDER BY page, y, x
+        """), {"contract_id": contract_id})
+        
+        fields = []
+        for row in result:
+            fields.append({
+                'id': row[0],
+                'page': row[1],
+                'x': float(row[2]),
+                'y': float(row[3]),
+                'w': float(row[4]),
+                'h': float(row[5]),
+                'required': row[6],
+                'created_at': row[7].isoformat() if row[7] else None
+            })
+        
+        return jsonify({
+            'fields': fields,
+            'field_count': len(fields)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[SIGNATURE_FIELDS] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get signature fields'}), 500
+
+
+# Public endpoint to get signature fields (for signing page)
+@contracts_bp.route('/sign/<token>/signature-fields', methods=['GET'])
+def get_signature_fields_public(token):
+    """
+    Get signature field placements using sign token (public endpoint)
+    
+    Returns:
+        - fields: Array of field objects
+    """
+    try:
+        # Validate token
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        sign_token = ContractSignToken.query.filter_by(token_hash=token_hash).first()
+        
+        if not sign_token:
+            return jsonify({'error': 'Invalid token'}), 404
+        
+        if sign_token.used_at:
+            return jsonify({'error': 'Token already used'}), 400
+        
+        if sign_token.expires_at < datetime.utcnow():
+            return jsonify({'error': 'Token expired'}), 400
+        
+        contract_id = sign_token.contract_id
+        
+        # Get fields
+        from sqlalchemy import text
+        result = db.session.execute(text("""
+            SELECT id, page, x, y, w, h, required
+            FROM contract_signature_fields
+            WHERE contract_id = :contract_id
+            ORDER BY page, y, x
+        """), {"contract_id": contract_id})
+        
+        fields = []
+        for row in result:
+            fields.append({
+                'id': row[0],
+                'page': row[1],
+                'x': float(row[2]),
+                'y': float(row[3]),
+                'w': float(row[4]),
+                'h': float(row[5]),
+                'required': row[6]
+            })
+        
+        return jsonify({
+            'fields': fields,
+            'field_count': len(fields)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[SIGNATURE_FIELDS_PUBLIC] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get signature fields'}), 500

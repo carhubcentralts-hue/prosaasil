@@ -3924,6 +3924,55 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ whatsapp_message table does not exist - skipping")
         
+        # Migration 88: Create contract_signature_fields table for PDF signature placement
+        # This allows businesses to mark signature areas on PDFs before sending for signature
+        if not check_table_exists('contract_signature_fields'):
+            checkpoint("🔧 Running Migration 88: Create contract_signature_fields table")
+            try:
+                from sqlalchemy import text
+                
+                db.session.execute(text("""
+                    CREATE TABLE contract_signature_fields (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        contract_id INTEGER NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
+                        page INTEGER NOT NULL,
+                        x REAL NOT NULL,
+                        y REAL NOT NULL,
+                        w REAL NOT NULL,
+                        h REAL NOT NULL,
+                        required BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT check_coordinates CHECK (
+                            x >= 0 AND x <= 1 AND 
+                            y >= 0 AND y <= 1 AND 
+                            w > 0 AND w <= 1 AND 
+                            h > 0 AND h <= 1
+                        ),
+                        CONSTRAINT check_page CHECK (page > 0)
+                    )
+                """))
+                
+                # Create indexes for faster queries
+                db.session.execute(text("""
+                    CREATE INDEX idx_contract_signature_fields_contract 
+                    ON contract_signature_fields(contract_id)
+                """))
+                
+                db.session.execute(text("""
+                    CREATE INDEX idx_contract_signature_fields_business 
+                    ON contract_signature_fields(business_id)
+                """))
+                
+                migrations_applied.append("create_contract_signature_fields_table")
+                checkpoint("✅ Migration 88: Created contract_signature_fields table with indexes")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 88 failed: {e}")
+                logger.error(f"Migration 88 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ contract_signature_fields table already exists - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
