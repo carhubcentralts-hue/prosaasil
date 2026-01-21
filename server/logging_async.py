@@ -29,7 +29,8 @@ def _log_worker():
                 "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
             ).format(rec)
             # Print to stderr directly instead of using logger with file argument
-            print(msg, file=sys.stderr, flush=False)
+            # Use flush=True to ensure immediate output for debugging production issues
+            print(msg, file=sys.stderr, flush=True)
         except Exception:
             pass
         eventlet.sleep(0)  # Yield to other green threads

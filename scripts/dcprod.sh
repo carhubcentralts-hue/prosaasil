@@ -21,10 +21,20 @@ set -euo pipefail
 # Navigate to repository root (one level up from scripts/)
 cd "$(dirname "$0")/.."
 
-# Verify .env file exists
+# Verify required files exist
 if [ ! -f .env ]; then
     echo "❌ ERROR: .env file not found in repository root"
     echo "Please create .env file before running deployment"
+    exit 1
+fi
+
+if [ ! -f docker-compose.yml ]; then
+    echo "❌ ERROR: docker-compose.yml not found in repository root"
+    exit 1
+fi
+
+if [ ! -f docker-compose.prod.yml ]; then
+    echo "❌ ERROR: docker-compose.prod.yml not found in repository root"
     exit 1
 fi
 
