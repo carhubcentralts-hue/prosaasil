@@ -48,6 +48,8 @@ export function EnhancedPDFViewer({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [iframeError, setIframeError] = useState(false);
 
   // Fullscreen handling
   useEffect(() => {
@@ -117,6 +119,25 @@ export function EnhancedPDFViewer({
       return `${baseUrl}&zoom=${zoom}`;
     }
   };
+
+  // Handle iframe load events
+  const handleIframeLoad = () => {
+    console.log('[PDF_VIEWER] PDF iframe loaded successfully');
+    setIframeLoaded(true);
+    setIframeError(false);
+  };
+
+  const handleIframeError = () => {
+    console.error('[PDF_VIEWER] PDF iframe failed to load');
+    setIframeError(true);
+    setIframeLoaded(false);
+  };
+
+  // Reset load state when URL changes
+  useEffect(() => {
+    setIframeLoaded(false);
+    setIframeError(false);
+  }, [pdfUrl, currentPage]);
 
   // Toolbar component
   const Toolbar = () => (
@@ -232,19 +253,49 @@ export function EnhancedPDFViewer({
           </div>
         </div>
       ) : pdfUrl ? (
-        <iframe
-          ref={iframeRef}
-          key={`${pdfUrl}-${currentPage}-${zoom}-${zoomMode}`}
-          src={getIframeSrc()}
-          className="absolute inset-0 w-full h-full"
-          title="PDF Preview"
-          sandbox="allow-same-origin allow-scripts allow-downloads"
-          style={{ 
-            border: 'none',
-            transform: zoomMode === 'custom' ? `scale(${zoom / 100})` : 'none',
-            transformOrigin: 'top center',
-          }}
-        />
+        <>
+          <iframe
+            ref={iframeRef}
+            key={`${pdfUrl}-${currentPage}-${zoom}-${zoomMode}`}
+            src={getIframeSrc()}
+            className="absolute inset-0 w-full h-full"
+            title="PDF Preview"
+            sandbox="allow-same-origin allow-scripts allow-downloads"
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
+            style={{ 
+              border: 'none',
+              transform: zoomMode === 'custom' ? `scale(${zoom / 100})` : 'none',
+              transformOrigin: 'top center',
+            }}
+          />
+          {/* Show loading overlay until iframe loads */}
+          {!iframeLoaded && !iframeError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none">
+              <div className="text-center">
+                <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mb-3"></div>
+                <p className="text-gray-600 text-sm font-medium">טוען תצוגת PDF...</p>
+              </div>
+            </div>
+          )}
+          {/* Show error if iframe fails */}
+          {iframeError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-95">
+              <div className="text-center max-w-md px-4">
+                <FileText className="w-12 h-12 text-orange-500 mx-auto mb-3" />
+                <p className="text-orange-600 text-base font-medium mb-2">הדפדפן לא הצליח לטעון את ה-PDF</p>
+                <p className="text-gray-600 text-sm mb-3">ייתכן שהדפדפן שלך לא תומך בתצוגת PDF מובנית</p>
+                <a 
+                  href={pdfUrl} 
+                  download 
+                  className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                >
+                  הורד PDF
+                </a>
+              </div>
+            </div>
+          )}
+        </>
       ) : null}
       
       {/* Overlay for custom elements (signature boxes, etc.) */}
