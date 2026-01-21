@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { FileText, Download, Upload, CheckCircle, XCircle, Eye, Edit3, X, Printer, Image, File, ChevronLeft, ChevronRight, Plus, Trash2, Move } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
+import { SimplifiedPDFSigning } from '../../components/SimplifiedPDFSigning';
 
 interface SigningContract {
   id: number;
@@ -1165,7 +1166,7 @@ export function PublicSigningPage() {
                   ← חזור לבחירת מסמך
                 </button>
               </div>
-              <PDFSigningView
+              <SimplifiedPDFSigning
                 file={selectedPdfFile}
                 token={token}
                 signerName={signerName || contract.signer_name || 'Unknown'}
@@ -1181,7 +1182,7 @@ export function PublicSigningPage() {
               {/* Files for signing */}
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">בחר מסמך לחתימה</h2>
-                <p className="text-sm text-gray-600 mb-4">לחץ על "חתום על מסמך" כדי להוסיף חתימות במקומות שתבחר</p>
+                <p className="text-sm text-gray-600 mb-4">החתימה שלך תתווסף אוטומטית לכל האזורים המסומנים במסמך</p>
                 
                 {contract.files.length === 0 ? (
                   <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg">אין מסמכים זמינים</div>
