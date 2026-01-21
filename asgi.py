@@ -3,6 +3,7 @@
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
 BUILD 85: Google STT Fix + Conversation Memory + Auto Leads
+BUILD 189: Fixed to use asyncio.Queue instead of sync Queue for proper async behavior
 """
 import os
 import sys
@@ -15,7 +16,6 @@ import asyncio
 import json
 import logging
 import threading
-from queue import Queue, Empty
 from asgiref.wsgi import WsgiToAsgi
 from starlette.applications import Starlette
 from starlette.routing import Mount, WebSocketRoute, Route
@@ -75,6 +75,9 @@ def _warmup_flask():
     Will not create multiple app instances
     """
     import time
+    import asyncio
+    # Note: This runs in a thread, so time.sleep is acceptable here
+    # Only async code should use await asyncio.sleep()
     time.sleep(0.5)
     try:
         _ = get_flask_app()
@@ -96,35 +99,69 @@ async def healthz_immediate(request: Request):
 class SyncWebSocketWrapper:
     """
     Makes async Starlette WebSocket work with sync MediaStreamHandler
-    Uses queues to bridge async/sync boundary
+    Uses asyncio queues to bridge async/sync boundary
+    
+    🔥 CRITICAL FIX: Uses asyncio.Queue (not queue.Queue) to prevent blocking event loop
     """
     def __init__(self):
-        self.recv_queue = Queue(maxsize=500)  # async → sync (max 500 frames ~10s of audio)
-        self.send_queue = Queue(maxsize=600)  # sync → async (max 600 frames ~12s buffer - handles AI latency)
+        # Use asyncio.Queue for proper async behavior
+        self.recv_queue = asyncio.Queue(maxsize=500)  # async → sync (max 500 frames ~10s of audio)
+        self.send_queue = asyncio.Queue(maxsize=600)  # sync → async (max 600 frames ~12s buffer - handles AI latency)
         self.running = True
+        self._loop = None
+        
+    def set_event_loop(self, loop):
+        """Set the event loop for this wrapper"""
+        self._loop = loop
         
     def receive(self):
-        """Sync receive - blocks until message available"""
+        """Sync receive - blocks until message available
+        This runs in a sync thread, so we use asyncio.run_coroutine_threadsafe
+        """
+        if not self._loop:
+            return None
+            
         try:
-            msg = self.recv_queue.get(timeout=120)
+            # Get from async queue in sync context
+            future = asyncio.run_coroutine_threadsafe(
+                asyncio.wait_for(self.recv_queue.get(), timeout=120),
+                self._loop
+            )
+            msg = future.result(timeout=120)
             if msg is None:
                 return None
             return msg
-        except Empty:
+        except (asyncio.TimeoutError, Exception):
             return None
     
     def send(self, data):
-        """Sync send - puts in queue for async sender with timeout"""
-        if self.running:
+        """Sync send - puts in queue for async sender
+        This runs in a sync thread, so we use asyncio.run_coroutine_threadsafe
+        """
+        if self.running and self._loop:
             try:
-                self.send_queue.put(data, timeout=2.0)
-            except:
-                pass  # Drop frame if queue is full
+                # Put to async queue in sync context with timeout
+                future = asyncio.run_coroutine_threadsafe(
+                    asyncio.wait_for(self.send_queue.put(data), timeout=2.0),
+                    self._loop
+                )
+                future.result(timeout=2.0)
+            except (asyncio.TimeoutError, Exception):
+                pass  # Drop frame if queue is full (backpressure)
+    
+    async def async_stop(self):
+        """Stop wrapper - async version"""
+        self.running = False
+        try:
+            await asyncio.wait_for(self.recv_queue.put(None), timeout=1.0)
+        except:
+            pass
     
     def stop(self):
-        """Stop wrapper"""
+        """Stop wrapper - sync version for thread"""
         self.running = False
-        self.recv_queue.put(None)  # Signal EOF
+        if self._loop:
+            asyncio.run_coroutine_threadsafe(self.async_stop(), self._loop)
 
 async def ws_twilio_media(websocket: WebSocket):
     """
@@ -179,10 +216,11 @@ async def ws_twilio_media(websocket: WebSocket):
     print("[REALTIME] WebSocket connected: /ws/twilio-media", flush=True)
     twilio_log.info("[REALTIME] WebSocket connected: /ws/twilio-media")
     
-    # Create sync wrapper
+    # Create sync wrapper with event loop
     print("[REALTIME] Creating SyncWebSocketWrapper...", flush=True)
     twilio_log.info("[REALTIME] Creating SyncWebSocketWrapper...")
     ws_wrapper = SyncWebSocketWrapper()
+    ws_wrapper.set_event_loop(asyncio.get_event_loop())
     handler_thread = None
     
     # 🔥 FIX: START event watchdog to close ghost sessions
@@ -221,7 +259,7 @@ async def ws_twilio_media(websocket: WebSocket):
                 pass
             return  # Exit handler - no point continuing without MediaStreamHandler
         
-        # Task 1: Receive from Starlette WS → put in queue for sync handler
+        # Task 1: Receive from Starlette WS → put in async queue for sync handler
         async def receive_loop():
             nonlocal ghost_session_timeout
             msg_count = 0
@@ -237,7 +275,14 @@ async def ws_twilio_media(websocket: WebSocket):
                             print("[WS] START EVENT RECEIVED!", flush=True)
                             twilio_log.info(f"[WS] START EVENT RECEIVED! Forwarding to handler")
                             start_event_received.set()  # Signal that START was received
-                        ws_wrapper.recv_queue.put(json.dumps(msg))
+                        # Put to async queue (non-blocking with timeout)
+                        try:
+                            await asyncio.wait_for(
+                                ws_wrapper.recv_queue.put(json.dumps(msg)),
+                                timeout=1.0
+                            )
+                        except asyncio.TimeoutError:
+                            twilio_log.warning(f"[WS] recv_queue full, dropping message")
                     except json.JSONDecodeError:
                         try:
                             _ = await websocket.receive_text()
@@ -249,9 +294,9 @@ async def ws_twilio_media(websocket: WebSocket):
                         break
             finally:
                 twilio_log.info(f"[WS] receive_loop ended after {msg_count} messages")
-                ws_wrapper.stop()
+                await ws_wrapper.async_stop()
         
-        # Task 2: Get from queue → send to Starlette WS
+        # Task 2: Get from async queue → send to Starlette WS
         async def send_loop():
             try:
                 print("[REALTIME] send_loop: STARTED", flush=True)
@@ -260,9 +305,12 @@ async def ws_twilio_media(websocket: WebSocket):
                 
                 while ws_wrapper.running and error_count < max_errors:
                     try:
-                        data = await asyncio.get_event_loop().run_in_executor(
-                            None, ws_wrapper.send_queue.get, True, 0.5
+                        # Get from async queue (non-blocking with timeout)
+                        data = await asyncio.wait_for(
+                            ws_wrapper.send_queue.get(),
+                            timeout=0.5
                         )
+                        
                         if data is None:
                             break
                         
@@ -278,7 +326,8 @@ async def ws_twilio_media(websocket: WebSocket):
                                 break
                             await asyncio.sleep(0.05)
                             
-                    except Empty:
+                    except asyncio.TimeoutError:
+                        # No data available, continue
                         await asyncio.sleep(0.01)
                     except Exception as e:
                         error_count += 1
@@ -289,7 +338,7 @@ async def ws_twilio_media(websocket: WebSocket):
             except Exception as fatal:
                 twilio_log.error(f"Fatal send_loop error: {fatal}")
             finally:
-                ws_wrapper.stop()
+                await ws_wrapper.async_stop()
         
         # Task 3: START event watchdog - closes ghost sessions after 3 seconds
         async def start_watchdog():

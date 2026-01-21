@@ -3871,6 +3871,59 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ receipt_sync_runs table does not exist - skipping")
         
+        # Migration 87: Add unique constraint on whatsapp_message.provider_message_id
+        # Prevents duplicate messages from webhook retries and race conditions
+        # CRITICAL: Unique constraint is per business_id to handle multi-tenant correctly
+        if check_table_exists('whatsapp_message'):
+            checkpoint("Migration 87: Adding unique constraint on whatsapp_message (business_id, provider_message_id)")
+            try:
+                # Check if index already exists
+                if not check_index_exists('idx_whatsapp_message_provider_id_unique'):
+                    checkpoint("  → Checking for duplicate provider_message_id values per business...")
+                    
+                    # First, remove any existing duplicates (keep oldest message per business)
+                    duplicates_query = text("""
+                        DELETE FROM whatsapp_message
+                        WHERE id NOT IN (
+                            SELECT MIN(id)
+                            FROM whatsapp_message
+                            WHERE provider_message_id IS NOT NULL
+                            GROUP BY business_id, provider_message_id
+                        )
+                        AND provider_message_id IS NOT NULL
+                    """)
+                    result = db.session.execute(duplicates_query)
+                    rows_deleted = result.rowcount
+                    
+                    if rows_deleted > 0:
+                        checkpoint(f"  → Removed {rows_deleted} duplicate messages (kept oldest per business)")
+                    else:
+                        checkpoint("  → No duplicate messages found")
+                    
+                    # Add unique constraint (partial index - only for non-NULL values)
+                    # CRITICAL: (business_id, provider_message_id) not just provider_message_id
+                    checkpoint("  → Creating unique index on (business_id, provider_message_id)...")
+                    db.session.execute(text("""
+                        CREATE UNIQUE INDEX idx_whatsapp_message_provider_id_unique
+                        ON whatsapp_message(business_id, provider_message_id)
+                        WHERE provider_message_id IS NOT NULL
+                    """))
+                    
+                    migrations_applied.append("migration_87_whatsapp_unique_constraint")
+                    checkpoint("✅ Migration 87 complete: unique constraint added")
+                    checkpoint("   🔒 Idempotent: Safe to run multiple times")
+                    checkpoint("   🎯 Purpose: Prevents duplicate WhatsApp messages PER BUSINESS")
+                    checkpoint("   🔧 Multi-tenant: (business_id, provider_message_id) prevents cross-tenant conflicts")
+                else:
+                    checkpoint("✅ Migration 87: Unique constraint already exists - skipping")
+                    
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 87 failed: {e}")
+                logger.error(f"Migration 87 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ whatsapp_message table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

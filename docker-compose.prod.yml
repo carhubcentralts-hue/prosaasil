@@ -1,13 +1,16 @@
 # ===========================================
-# ProSaaS - Production Overrides
+# ProSaaS - Production Overrides with Service Separation
 # ===========================================
 #
 # Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# This file contains production-specific settings:
+# This file implements production optimization:
+# - Service separation: API / Calls / Worker / WhatsApp
+# - Redis for queue management
+# - WebSocket optimization with proper upgrades
+# - Resource limits per service
 # - SSL/TLS configuration for Nginx reverse proxy
 # - External managed database (no local postgres)
-# - Resource limits
 #
 # SSL Setup:
 # 1. Obtain SSL certificates (from Cloudflare Origin Certificate)
@@ -22,12 +25,21 @@ version: '3.8'
 
 services:
   # ===========================================
-  # Nginx Reverse Proxy - Production SSL
+  # Nginx Reverse Proxy - Production SSL + WebSocket
   # ===========================================
   nginx:
     volumes:
       # Override with SSL configuration
       - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
+    depends_on:
+      prosaas-api:
+        condition: service_healthy
+      prosaas-calls:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      n8n:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost/health | grep -q OK"]
       interval: 10s
@@ -40,6 +52,29 @@ services:
           memory: 256M
 
   # ===========================================
+  # Redis - Queue Management for Background Jobs
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: prosaas-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - prosaas-network
+
+  # ===========================================
   # Disable local database in production
   # (Use managed DB like Railway, Supabase, Neon, etc.)
   # ===========================================
@@ -48,13 +83,52 @@ services:
       - local-db-only  # Won't start unless explicitly requested
 
   # ===========================================
-  # Backend - Production settings
+  # Backend API Service (REST only - CRM/UI endpoints)
+  # Handles: CRM, UI, admin, user management, projects, etc.
+  # Does NOT handle: WebSocket calls, heavy worker tasks
   # ===========================================
   backend:
+    # Override to become prosaas-api
+    profiles:
+      - disabled  # Disabled in production - use prosaas-api instead
+  
+  prosaas-api:
+    container_name: prosaas-api
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      # Override DATABASE_URL with managed DB
       DATABASE_URL: ${DATABASE_URL}
       FLASK_ENV: production
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      RUN_MIGRATIONS_ON_START: 1
+      PRODUCTION: ${PRODUCTION:-1}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: api
+    expose:
+      - "5000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     deploy:
       resources:
         limits:
@@ -63,11 +137,128 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    networks:
+      - prosaas-network
 
   # ===========================================
-  # Baileys - Production settings
+  # Calls Service (WebSocket + Twilio streaming only)
+  # Handles: /ws/twilio-media, Twilio webhooks for calls
+  # Optimized for: High concurrency, low latency, backpressure
+  # 
+  # ⚠️ CRITICAL: SINGLE WORKER ONLY
+  # State (stream_registry, call sessions) is IN-MEMORY
+  # Multi-worker would cause lost call context and crashes
+  # See: STATE_MANAGEMENT_CONSTRAINTS.md
+  # ===========================================
+  prosaas-calls:
+    container_name: prosaas-calls
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_ENV: production
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      RUN_MIGRATIONS_ON_START: 0
+      PRODUCTION: ${PRODUCTION:-1}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: calls
+      PORT: 5050
+    # ⚠️ CRITICAL: --workers MUST be 1 (not 4!)
+    # Reason: stream_registry is in-memory, not Redis
+    # Multi-worker = lost call state = crashes
+    # To scale: Refactor stream_registry to Redis first
+    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30"]
+    expose:
+      - "5050"
+    volumes:
+      - recordings_data:/app/server/recordings
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    networks:
+      - prosaas-network
+
+  # ===========================================
+  # Worker Service (Heavy background tasks)
+  # Handles: Gmail receipts sync, Playwright, PDF thumbnails, OCR
+  # Uses: Redis queue (RQ/Celery-style)
+  # ===========================================
+  prosaas-worker:
+    container_name: prosaas-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_ENV: production
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      RUN_MIGRATIONS_ON_START: 0
+      PRODUCTION: ${PRODUCTION:-1}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: worker
+    command: ["python", "-m", "server.worker"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      prosaas-api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - prosaas-network
+
+  # ===========================================
+  # Baileys WhatsApp Service - Production settings
   # ===========================================
   baileys:
+    depends_on:
+      prosaas-api:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -86,3 +277,18 @@ services:
         limits:
           cpus: '0.5'
           memory: 256M
+
+# ===========================================
+# Docker Networks (shared)
+# ===========================================
+networks:
+  prosaas-network:
+    driver: bridge
+
+# ===========================================
+# Volumes (shared)
+# ===========================================
+volumes:
+  recordings_data:
+  whatsapp_auth:
+  n8n_data:

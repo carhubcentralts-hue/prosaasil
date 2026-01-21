@@ -807,7 +807,7 @@ def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
         text = soup.get_text(separator=' ')
     except ImportError:
         # Fallback to regex if BeautifulSoup not available
-        import re
+        # Note: re is already imported at module level (line 28)
         # Best-effort regex to remove script/style tags with any whitespace in closing tag
         text = re.sub(r'<script[^>]*>.*?</script[^>]*>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'<style[^>]*>.*?</style[^>]*>', '', text, flags=re.DOTALL | re.IGNORECASE)
@@ -1006,7 +1006,7 @@ def extract_amount_merged(pdf_text: str, html_content: str, subject: str, metada
     
     # Last resort: try subject line
     if subject:
-        import re
+        # Note: re is already imported at module level (line 28)
         # Try to find amount in subject
         patterns = [
             r'\$\s*([\d,]+\.?\d*)',  # $100

@@ -9,7 +9,7 @@ Endpoints:
 
 - GET /api/receipts - List receipts with filtering
 - GET /api/receipts/:id - Get receipt details
-- POST /api/receipts/sync - Trigger manual sync
+- POST /api/receipts/sync - Trigger manual sync (returns 202, queues job)
 - PATCH /api/receipts/:id/mark - Mark receipt status
 - DELETE /api/receipts/:id - Soft delete receipt
 
@@ -25,7 +25,7 @@ from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun
 from server.db import db
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import os
 import json
@@ -34,6 +34,19 @@ import threading
 from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
+
+# Redis Queue integration
+try:
+    import redis
+    from rq import Queue
+    REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    redis_conn = redis.from_url(REDIS_URL)
+    receipts_queue = Queue('default', connection=redis_conn)
+    RQ_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"RQ not available: {e}. Falling back to threading.")
+    receipts_queue = None
+    RQ_AVAILABLE = False
 
 # Gmail OAuth Configuration
 # IMPORTANT: Set these environment variables in production:
@@ -1037,58 +1050,91 @@ def sync_receipts():
         
         logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
         
-        # Capture app object before starting thread (current_app proxy only works in request context)
-        app = current_app._get_current_object()
-        
-        # Start background thread (non-daemon to prevent data loss on server restart)
-        def run_sync_in_background():
-            from server.db import db
-            # Need app context for background thread
-            with app.app_context():
-                try:
-                    logger.info(f"🔔 BACKGROUND SYNC STARTED: business_id={business_id}")
-                    sync_gmail_receipts(
-                        business_id=business_id,
-                        mode=mode,
-                        max_messages=max_messages,
-                        from_date=from_date,
-                        to_date=to_date,
-                        months_back=months_back
-                    )
-                    logger.info(f"🔔 BACKGROUND SYNC COMPLETED: business_id={business_id}")
-                except Exception as e:
-                    logger.error(f"🔔 BACKGROUND SYNC FAILED: {e}", exc_info=True)
-                    # Ensure sync run status is updated on failure
+        # Use Redis Queue if available, otherwise fall back to threading
+        if RQ_AVAILABLE and receipts_queue:
+            # Enqueue job to Redis queue for worker processing
+            from server.jobs.gmail_sync_job import sync_gmail_receipts_job
+            
+            job = receipts_queue.enqueue(
+                sync_gmail_receipts_job,
+                business_id=business_id,
+                mode=mode,
+                max_messages=max_messages,
+                from_date=from_date,
+                to_date=to_date,
+                months_back=months_back,
+                job_timeout='1h',  # Max 1 hour for sync
+                result_ttl=3600,  # Keep result for 1 hour
+                failure_ttl=86400,  # Keep failure info for 24 hours
+            )
+            
+            logger.info(f"🔔 JOB ENQUEUED: job_id={job.id}, business_id={business_id}")
+            
+            # Return immediately with 202 Accepted
+            return jsonify({
+                "success": True,
+                "message": "Sync job queued for processing",
+                "job_id": job.id,
+                "status": "queued"
+            }), 202
+        else:
+            # Fallback to threading (for development or if RQ not available)
+            logger.warning("RQ not available, using threading fallback")
+            
+            # Capture app object before starting thread (current_app proxy only works in request context)
+            app = current_app._get_current_object()
+            
+            # Start background thread (non-daemon to prevent data loss on server restart)
+            def run_sync_in_background():
+                from server.db import db
+                # Need app context for background thread
+                with app.app_context():
                     try:
-                        # Re-query the sync run to avoid stale session issues
-                        from server.models_sql import ReceiptSyncRun
-                        failed_run = ReceiptSyncRun.query.filter_by(
+                        logger.info(f"🔔 BACKGROUND SYNC STARTED: business_id={business_id}")
+                        # Note: heartbeat_callback not supported in threading fallback
+                        # Only used in RQ worker mode
+                        sync_gmail_receipts(
                             business_id=business_id,
-                            status='running'
-                        ).order_by(ReceiptSyncRun.started_at.desc()).first()
-                        
-                        if failed_run:
-                            failed_run.status = 'failed'
-                            failed_run.error_message = f"Background sync exception: {str(e)[:500]}"
-                            failed_run.finished_at = datetime.now(timezone.utc)
-                            failed_run.updated_at = datetime.now(timezone.utc)
-                            db.session.commit()
-                            logger.info(f"🔔 SYNC RUN MARKED AS FAILED: run_id={failed_run.id}")
-                    except Exception as update_error:
-                        logger.error(f"🔔 FAILED TO UPDATE SYNC STATUS: {update_error}")
+                            mode=mode,
+                            max_messages=max_messages,
+                            from_date=from_date,
+                            to_date=to_date,
+                            months_back=months_back
+                        )
+                        logger.info(f"🔔 BACKGROUND SYNC COMPLETED: business_id={business_id}")
+                    except Exception as e:
+                        logger.error(f"🔔 BACKGROUND SYNC FAILED: {e}", exc_info=True)
+                        # Ensure sync run status is updated on failure
+                        try:
+                            # Re-query the sync run to avoid stale session issues
+                            from server.models_sql import ReceiptSyncRun
+                            failed_run = ReceiptSyncRun.query.filter_by(
+                                business_id=business_id,
+                                status='running'
+                            ).order_by(ReceiptSyncRun.started_at.desc()).first()
+                            
+                            if failed_run:
+                                failed_run.status = 'failed'
+                                failed_run.error_message = f"Background sync exception: {str(e)[:500]}"
+                                failed_run.finished_at = datetime.now(timezone.utc)
+                                failed_run.updated_at = datetime.now(timezone.utc)
+                                db.session.commit()
+                                logger.info(f"🔔 SYNC RUN MARKED AS FAILED: run_id={failed_run.id}")
+                        except Exception as update_error:
+                            logger.error(f"🔔 FAILED TO UPDATE SYNC STATUS: {update_error}")
 
-        thread = threading.Thread(target=run_sync_in_background, daemon=False)
-        thread.start()
-        
-        logger.info(f"🔔 SYNC THREAD STARTED: business_id={business_id}")
-        
-        # Return immediately with 202 Accepted
-        return jsonify({
-            "success": True,
-            "message": "Sync started in background",
-            "sync_run_id": None,  # Will be created by sync function
-            "status": "starting"
-        }), 202
+            thread = threading.Thread(target=run_sync_in_background, daemon=False)
+            thread.start()
+            
+            logger.info(f"🔔 SYNC THREAD STARTED: business_id={business_id}")
+            
+            # Return immediately with 202 Accepted
+            return jsonify({
+                "success": True,
+                "message": "Sync started in background",
+                "sync_run_id": None,  # Will be created by sync function
+                "status": "starting"
+            }), 202
         
     except ImportError:
         logger.warning("Gmail sync service not yet implemented")
