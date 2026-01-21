@@ -1,30 +1,74 @@
 # ===========================================
-# ProSaaS - Nginx Reverse Proxy
+# ProSaaS - Nginx Reverse Proxy (BUILD-TIME TEMPLATING)
 # ===========================================
 # Dedicated reverse proxy container that handles all
 # external traffic routing to internal services
-# Supports environment variable substitution for upstream names
+# Supports environment variable substitution at BUILD time
 # ===========================================
 
-FROM nginx:alpine
+FROM nginx:1.25-alpine
 
-# Install curl for healthcheck and envsubst for config templating
-RUN apk add --no-cache curl gettext
+# Install gettext for envsubst - CRITICAL for template processing
+# Try to install, but don't fail if repos are unreachable (envsubst may already exist)
+RUN apk add --no-cache gettext || \
+    (echo "⚠️  gettext install failed, verifying envsubst exists..." && \
+     which envsubst && echo "✅ envsubst found, continuing...")
 
 # Remove default nginx configuration to prevent conflicts
 RUN rm -f /etc/nginx/conf.d/default.conf
 
-# Copy custom nginx configuration
+# Copy custom nginx base configuration
 COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
-# Copy template configs (will be processed by entrypoint)
-COPY docker/nginx/conf.d/ /etc/nginx/templates/
+
+# Copy template configs to temporary location
+COPY docker/nginx/templates/ /templates/
+
+# Create final config directory
+RUN mkdir -p /etc/nginx/conf.d
+
+# Define build arguments with default values for DEV
+ARG API_UPSTREAM=backend
+ARG API_PORT=5000
+ARG CALLS_UPSTREAM=backend
+ARG CALLS_PORT=5000
+ARG FRONTEND_UPSTREAM=frontend
+ARG USE_SSL=false
+
+# Process templates at BUILD TIME using envsubst
+# Note: We need to set as ENV temporarily for envsubst to work
+ENV API_UPSTREAM=${API_UPSTREAM} \
+    API_PORT=${API_PORT} \
+    CALLS_UPSTREAM=${CALLS_UPSTREAM} \
+    CALLS_PORT=${CALLS_PORT} \
+    FRONTEND_UPSTREAM=${FRONTEND_UPSTREAM} \
+    USE_SSL=${USE_SSL}
+
+# Generate the appropriate config based on USE_SSL flag
+RUN if [ "$USE_SSL" = "true" ]; then \
+        envsubst '${API_UPSTREAM} ${API_PORT} ${CALLS_UPSTREAM} ${CALLS_PORT} ${FRONTEND_UPSTREAM}' < /templates/prosaas-ssl.conf.template > /etc/nginx/conf.d/prosaas.conf; \
+    else \
+        envsubst '${API_UPSTREAM} ${API_PORT} ${CALLS_UPSTREAM} ${CALLS_PORT} ${FRONTEND_UPSTREAM}' < /templates/prosaas.conf.template > /etc/nginx/conf.d/prosaas.conf; \
+    fi && \
+    envsubst '${API_UPSTREAM} ${API_PORT} ${CALLS_UPSTREAM} ${CALLS_PORT} ${FRONTEND_UPSTREAM}' < /templates/00-health.conf.template > /etc/nginx/conf.d/00-health.conf
+
+# Note: Only one config (prosaas.conf) is generated based on USE_SSL flag
+
+# Clean up templates
+RUN rm -rf /templates
+
+# CRITICAL SANITY CHECK: Verify substitution worked correctly
+# This ensures variables were replaced and not left empty
+RUN echo "=== Verifying nginx config generation ===" && \
+    grep -q "proxy_pass http://" /etc/nginx/conf.d/prosaas.conf && \
+    ! grep -q "proxy_pass http://:;" /etc/nginx/conf.d/prosaas.conf && \
+    echo "✅ Config substitution successful" || \
+    (echo "❌ Config substitution FAILED - variables not replaced" && exit 1)
+
+# Unset ENV vars (not needed at runtime, but not critical)
+ENV API_UPSTREAM= API_PORT= CALLS_UPSTREAM= CALLS_PORT= FRONTEND_UPSTREAM= USE_SSL=
 
 # Create directory for SSL certificates (optional, for future use)
-RUN mkdir -p /etc/nginx/certs
-
-# Copy custom entrypoint that processes templates
-COPY docker/nginx/docker-entrypoint.sh /docker-entrypoint.d/40-envsubst-on-templates.sh
-RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
+RUN mkdir -p /etc/nginx/certs /etc/nginx/ssl
 
 # Expose HTTP and HTTPS ports
 EXPOSE 80 443

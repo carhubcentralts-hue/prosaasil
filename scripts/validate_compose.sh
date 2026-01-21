@@ -112,16 +112,45 @@ fi
 # Optional: Validate nginx config generation with envsubst
 if [ "$SKIP_NGINX_BUILD" = false ]; then
     echo ""
-    echo "📝 Validating nginx config with envsubst (optional)..."
+    echo "🧪 Testing nginx image build and config validation..."
     echo -e "${BLUE}Note: Use --skip-nginx-build to skip this step${NC}"
     
-    # Check if nginx templates directory exists
-    if [ ! -d "docker/nginx/conf.d" ]; then
-        echo -e "${YELLOW}⚠️  Nginx templates directory not found, skipping nginx validation${NC}"
+    # Build nginx image for testing
+    echo "Building nginx test image..."
+    if docker build -q -t prosaasil-nginx-test -f Dockerfile.nginx . >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Nginx image built successfully${NC}"
+        
+        # Verify config files were generated
+        echo "Verifying nginx config files..."
+        if docker run --rm prosaasil-nginx-test test -f /etc/nginx/conf.d/prosaas.conf && \
+           docker run --rm prosaasil-nginx-test test -f /etc/nginx/conf.d/00-health.conf; then
+            echo -e "${GREEN}✅ Required nginx config files exist${NC}"
+        else
+            echo -e "${RED}❌ Required nginx config files missing${NC}"
+            docker run --rm prosaasil-nginx-test ls -la /etc/nginx/conf.d/
+            exit 1
+        fi
+        
+        # CRITICAL: Verify substitution worked (not empty upstreams)
+        echo "Verifying variable substitution..."
+        if docker run --rm prosaasil-nginx-test grep -q "proxy_pass http://" /etc/nginx/conf.d/prosaas.conf && \
+           ! docker run --rm prosaasil-nginx-test grep -q "proxy_pass http://:;" /etc/nginx/conf.d/prosaas.conf; then
+            echo -e "${GREEN}✅ Variable substitution successful${NC}"
+        else
+            echo -e "${RED}❌ Variable substitution FAILED - empty upstreams detected${NC}"
+            docker run --rm prosaasil-nginx-test grep "proxy_pass" /etc/nginx/conf.d/prosaas.conf
+            exit 1
+        fi
+        
+        # Note: We can't test nginx -t here because DNS resolution requires Docker networking
+        echo -e "${BLUE}ℹ️  Note: Full nginx validation (including DNS) happens at container runtime${NC}"
+        
+        # Clean up test image
+        docker rmi -f prosaasil-nginx-test >/dev/null 2>&1 || true
     else
-        echo -e "${GREEN}✅ Nginx templates directory exists${NC}"
-        echo -e "${BLUE}ℹ️  For full nginx validation, run: docker build -f Dockerfile.nginx -t prosaas-nginx-test .${NC}"
-        echo -e "${BLUE}   Then test with: docker run --rm -e API_UPSTREAM=prosaas-api prosaas-nginx-test nginx -t${NC}"
+        echo -e "${RED}❌ Nginx image build failed${NC}"
+        docker build -t prosaasil-nginx-test -f Dockerfile.nginx . 2>&1 | tail -20
+        exit 1
     fi
 fi
 
