@@ -50,7 +50,14 @@ RUN_TO_COMPLETION = os.getenv('RUN_TO_COMPLETION', 'false').lower() in ('true', 
 
 # Batch limits to prevent crashes on large syncs (only used when RUN_TO_COMPLETION=False)
 MAX_MESSAGES_PER_RUN = 500  # Process max 500 messages per run
-MAX_SECONDS_PER_RUN = int(os.getenv('MAX_SECONDS_PER_RUN', '120'))  # Default 2 minutes per run
+try:
+    MAX_SECONDS_PER_RUN = int(os.getenv('MAX_SECONDS_PER_RUN', '120'))
+    if MAX_SECONDS_PER_RUN < 10:
+        logger.warning(f"MAX_SECONDS_PER_RUN ({MAX_SECONDS_PER_RUN}) too low, using 10")
+        MAX_SECONDS_PER_RUN = 10
+except (ValueError, TypeError):
+    logger.warning(f"Invalid MAX_SECONDS_PER_RUN value, using default 120")
+    MAX_SECONDS_PER_RUN = 120  # Default 2 minutes per run
 
 # Semaphore to limit concurrent Playwright instances
 playwright_semaphore = threading.Semaphore(2)  # Max 2 concurrent browsers
@@ -1889,9 +1896,11 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     # Sleep between pages to avoid rate limits
                     time.sleep(0.2)  # 200ms between pages
                     
-                    # Update checkpoint
+                    # Update checkpoint including final skipped_count
                     sync_run.last_page_token = page_token
+                    sync_run.current_month = month_label  # Add this
                     sync_run.updated_at = datetime.now(timezone.utc)
+                    sync_run.skipped_count = result['skipped']  # Ensure final count is saved
                     db.session.commit()
                 
                 # Month complete - commit all changes for this month

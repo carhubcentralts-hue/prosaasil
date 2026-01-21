@@ -16,7 +16,7 @@ ALTER TABLE receipt_sync_runs ADD COLUMN to_date DATE;
 ALTER TABLE receipt_sync_runs ADD COLUMN months_back INTEGER;
 
 -- שדות למצב ריצה
-ALTER TABLE receipt_sync_runs ADD COLUMN run_to_completion BOOLEAN DEFAULT FALSE;
+ALTER TABLE receipt_sync_runs ADD COLUMN run_to_completion BOOLEAN;  -- nullable
 ALTER TABLE receipt_sync_runs ADD COLUMN max_seconds_per_run INTEGER;
 ALTER TABLE receipt_sync_runs ADD COLUMN skipped_count INTEGER DEFAULT 0;
 
