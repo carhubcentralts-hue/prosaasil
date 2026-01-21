@@ -111,7 +111,7 @@ services:
       FLASK_ENV: production
       RUN_MIGRATIONS_ON_START: 0
       PRODUCTION: ${PRODUCTION:-1}
-      RQ_QUEUES: high,default,low
+      RQ_QUEUES: high,default,low,receipts,receipts_sync
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
