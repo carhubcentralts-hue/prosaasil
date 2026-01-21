@@ -12,11 +12,10 @@ services:
       dockerfile: Dockerfile.nginx
       args:
         # Build-time arguments for template substitution
-        API_UPSTREAM: backend
-        API_PORT: "5000"
-        CALLS_UPSTREAM: backend
-        CALLS_PORT: "5000"
+        API_UPSTREAM: backend:5000
+        CALLS_UPSTREAM: backend:5000
         FRONTEND_UPSTREAM: frontend
+        USE_SSL: "false"
     restart: unless-stopped
     ports:
       - "80:80"
@@ -24,7 +23,6 @@ services:
     volumes:
       # Only mount SSL certificates (read-only)
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
-    # Note: depends_on backend removed - will be added by dev profile or prod override
     depends_on:
       frontend:
         condition: service_healthy
