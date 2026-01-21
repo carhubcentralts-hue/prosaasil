@@ -60,9 +60,6 @@ except ImportError:
     logger.error("rq package not installed. Install with: pip install rq")
     sys.exit(1)
 
-# Import job handlers
-from server.jobs.gmail_sync_job import sync_gmail_receipts_job
-
 # Connect to Redis
 redis_conn = redis.from_url(REDIS_URL)
 
@@ -86,12 +83,14 @@ signal.signal(signal.SIGINT, handle_shutdown)
 def main():
     """Main worker loop"""
     logger.info("=" * 60)
-    logger.info("ProSaaS Background Worker Starting")
+    logger.info("🔔 WORKER_START: ProSaaS Background Worker")
     logger.info("=" * 60)
     logger.info(f"Redis URL: {masked_redis_url}")
     logger.info(f"Service Role: {os.getenv('SERVICE_ROLE', 'worker')}")
     logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
     logger.info(f"Worker PID: {os.getpid()}")
+    logger.info(f"Listening to queues: ['high', 'default', 'low'] (priority order)")
+    logger.info(f"Queue system: RQ (Redis Queue)")
     logger.info("=" * 60)
     
     # Test Redis connection
@@ -113,6 +112,16 @@ def main():
     with app.app_context():
         logger.info("✓ Flask app context initialized")
         
+        # Test that we can import job functions
+        try:
+            from server.jobs.gmail_sync_job import sync_gmail_receipts_job
+            logger.info("✓ Job functions imported successfully")
+            logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
+        except (ImportError, ModuleNotFoundError) as e:
+            logger.error(f"✗ Failed to import job functions: {e}", exc_info=True)
+            logger.error("Worker cannot process jobs without job functions!")
+            sys.exit(1)
+        
         # Create worker
         worker = Worker(
             [QUEUE_HIGH, QUEUE_DEFAULT, QUEUE_LOW],
@@ -124,10 +133,10 @@ def main():
         )
         
         logger.info(f"✓ Worker created: {worker.name}")
-        logger.info("Listening on queues: high, default, low (in priority order)")
+        logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
         logger.info("-" * 60)
-        logger.info("Worker is now ready to process jobs...")
-        logger.info("Waiting for jobs to be enqueued...")
+        logger.info("🚀 Worker is now READY and LISTENING for jobs...")
+        logger.info("📩 Waiting for jobs to be enqueued to 'high', 'default', or 'low' queues...")
         logger.info("-" * 60)
         
         # Start worker

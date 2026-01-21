@@ -15,6 +15,16 @@ import redis
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+# Try to import RQ for job context (optional - only when running in worker)
+try:
+    from rq import get_current_job
+    RQ_AVAILABLE = True
+except (ImportError, RuntimeError):
+    RQ_AVAILABLE = False
+    # Define no-op function to avoid AttributeError
+    def get_current_job():
+        return None
+
 logger = logging.getLogger(__name__)
 
 # Redis connection
@@ -61,6 +71,13 @@ def sync_gmail_receipts_job(
     from server.models_sql import db, ReceiptSyncRun
     from server.services.gmail_sync_service import sync_gmail_receipts
     
+    # Get job_id from RQ context if available
+    job_id = None
+    if RQ_AVAILABLE:
+        current_job = get_current_job()
+        if current_job:
+            job_id = current_job.id
+    
     lock_key = f"receipt_sync_lock:{business_id}"
     run_id = None  # Initialize to avoid reference errors in exception handler
     
@@ -68,7 +85,7 @@ def sync_gmail_receipts_job(
     lock_acquired = redis_conn.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
     
     if not lock_acquired:
-        logger.warning(f"Could not acquire lock for business {business_id} - sync already running")
+        logger.warning(f"🔔 JOB BLOCKED: Could not acquire lock for business {business_id} - sync already running")
         return {
             "success": False,
             "error": "Sync already in progress for this business"
@@ -77,13 +94,15 @@ def sync_gmail_receipts_job(
     try:
         # Enhanced logging with all parameters for debugging
         logger.info("=" * 60)
-        logger.info(f"🔔 JOB START: Gmail receipts sync")
+        logger.info(f"🔔 JOB_START: Gmail receipts sync")
+        logger.info(f"  → job_id: {job_id or 'N/A'}")
         logger.info(f"  → business_id: {business_id}")
         logger.info(f"  → mode: {mode}")
         logger.info(f"  → from_date: {from_date}")
         logger.info(f"  → to_date: {to_date}")
         logger.info(f"  → max_messages: {max_messages}")
         logger.info(f"  → months_back: {months_back}")
+        logger.info(f"  → lock_key: {lock_key}")
         logger.info("=" * 60)
         
         # Create sync run record
@@ -151,7 +170,8 @@ def sync_gmail_receipts_job(
         
         duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
         logger.info("=" * 60)
-        logger.info(f"🔔 JOB DONE: Gmail sync completed")
+        logger.info(f"🔔 JOB_DONE: Gmail sync completed successfully")
+        logger.info(f"  → job_id: {job_id or 'N/A'}")
         logger.info(f"  → business_id: {business_id}")
         logger.info(f"  → run_id: {run_id}")
         logger.info(f"  → duration: {duration:.1f}s")
@@ -169,10 +189,12 @@ def sync_gmail_receipts_job(
         
     except Exception as e:
         logger.error("=" * 60)
-        logger.error(f"🔔 JOB FAIL: Gmail sync failed")
+        logger.error(f"🔔 JOB_FAIL: Gmail sync failed")
+        logger.error(f"  → job_id: {job_id or 'N/A'}")
         logger.error(f"  → business_id: {business_id}")
         logger.error(f"  → run_id: {run_id if run_id is not None else 'N/A'}")
         logger.error(f"  → error: {str(e)[:MAX_ERROR_LOG_LENGTH]}")
+        logger.error(f"  → error_type: {type(e).__name__}")
         logger.error("=" * 60)
         logger.error(f"Stack trace:", exc_info=True)
         
