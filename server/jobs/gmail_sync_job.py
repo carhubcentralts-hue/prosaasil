@@ -21,7 +21,9 @@ try:
     RQ_AVAILABLE = True
 except (ImportError, RuntimeError):
     RQ_AVAILABLE = False
-    get_current_job = None
+    # Define no-op function to avoid AttributeError
+    def get_current_job():
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +73,10 @@ def sync_gmail_receipts_job(
     
     # Get job_id from RQ context if available
     job_id = None
-    if RQ_AVAILABLE and get_current_job:
-        try:
-            current_job = get_current_job()
-            if current_job:
-                job_id = current_job.id
-        except (ImportError, RuntimeError):
-            # Not in RQ context
-            pass
+    if RQ_AVAILABLE:
+        current_job = get_current_job()
+        if current_job:
+            job_id = current_job.id
     
     lock_key = f"receipt_sync_lock:{business_id}"
     run_id = None  # Initialize to avoid reference errors in exception handler
