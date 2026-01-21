@@ -4,7 +4,7 @@
 # Validates that docker-compose files can be merged without errors
 # and that nginx upstream services exist in the compose config
 #
-# Usage: ./scripts/validate_compose.sh
+# Usage: ./scripts/validate_compose.sh [--skip-nginx-build]
 #
 # Exit codes:
 #   0 - Success (compose files merge correctly and upstreams exist)
@@ -18,6 +18,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+SKIP_NGINX_BUILD=false
+if [ "${1:-}" = "--skip-nginx-build" ]; then
+    SKIP_NGINX_BUILD=true
+    echo -e "${YELLOW}ℹ️  Skipping nginx build validation${NC}"
+    echo ""
+fi
 
 echo "🔍 Validating Docker Compose configuration..."
 echo ""
@@ -41,7 +48,8 @@ cleanup() {
 trap cleanup EXIT
 
 # Validate base compose file
-echo "📝 Checking docker-compose.yml..."
+echo "📝 Checking docker-compose.yml...
+"
 if docker compose -f docker-compose.yml config --quiet >/dev/null 2>&1; then
     echo -e "${GREEN}✅ docker-compose.yml is valid${NC}"
 else
@@ -101,10 +109,30 @@ if [ "$VALIDATION_FAILED" = true ]; then
     exit 1
 fi
 
+# Optional: Validate nginx config generation with envsubst
+if [ "$SKIP_NGINX_BUILD" = false ]; then
+    echo ""
+    echo "📝 Validating nginx config with envsubst (optional)..."
+    echo -e "${BLUE}Note: Use --skip-nginx-build to skip this step${NC}"
+    
+    # Check if nginx templates directory exists
+    if [ ! -d "docker/nginx/conf.d" ]; then
+        echo -e "${YELLOW}⚠️  Nginx templates directory not found, skipping nginx validation${NC}"
+    else
+        echo -e "${GREEN}✅ Nginx templates directory exists${NC}"
+        echo -e "${BLUE}ℹ️  For full nginx validation, run: docker build -f Dockerfile.nginx -t prosaas-nginx-test .${NC}"
+        echo -e "${BLUE}   Then test with: docker run --rm -e API_UPSTREAM=prosaas-api prosaas-nginx-test nginx -t${NC}"
+    fi
+fi
+
 echo ""
 echo -e "${GREEN}✅ All validations passed!${NC}"
 echo ""
-echo "You can now deploy with:"
+echo "Deployment commands:"
+echo "  # Production (without backend, uses prosaas-api/prosaas-calls):"
 echo "  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
+echo ""
+echo "  # Development (with backend using --profile dev):"
+echo "  docker compose --profile dev up -d"
 
 exit 0

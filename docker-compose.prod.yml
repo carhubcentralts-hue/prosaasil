@@ -38,6 +38,7 @@ services:
     volumes:
       # Override with SSL configuration
       - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
+    # Add production service dependencies
     depends_on:
       prosaas-api:
         condition: service_healthy
@@ -90,12 +91,12 @@ services:
       - local-db-only  # Won't start unless explicitly requested
 
   # ===========================================
-  # Backend API Service - Disabled in production
-  # In production, use prosaas-api and prosaas-calls instead
+  # Backend API Service - Use profiles to control dev vs prod
+  # Dev: backend service (single monolith)
+  # Prod: prosaas-api + prosaas-calls (split services)
   # ===========================================
-  backend:
-    deploy:
-      replicas: 0  # Don't start this service in production
+  # Note: backend is defined in base with profile "dev"
+  # In production, don't use --profile dev, use prosaas-api/prosaas-calls instead
 
   # ===========================================
   # Worker Service - Production Overrides
@@ -108,6 +109,7 @@ services:
       RUN_MIGRATIONS_ON_START: 0
       PRODUCTION: ${PRODUCTION:-1}
       RQ_QUEUES: high,default,low
+    # Add production service dependencies
     depends_on:
       redis:
         condition: service_healthy
