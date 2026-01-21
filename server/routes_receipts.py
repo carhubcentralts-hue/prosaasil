@@ -1642,3 +1642,112 @@ def cancel_sync(run_id):
             "cancelled_at": sync_run.cancelled_at.isoformat() if sync_run.cancelled_at else None
         }
     })
+
+
+@receipts_bp.route('/queue/diagnostics', methods=['GET'])
+@require_api_auth()
+def get_queue_diagnostics():
+    """
+    Get diagnostics for Redis Queue and worker status
+    
+    CRITICAL: This endpoint helps diagnose worker issues:
+    - Shows if Redis is accessible
+    - Lists all active workers
+    - Shows queue lengths
+    - Shows which queues each worker is listening to
+    
+    Returns 503 if Redis is unavailable
+    Returns 200 with diagnostic info otherwise
+    
+    USE THIS TO DEBUG:
+    - "Why are my jobs staying QUEUED?"
+    - "Is the worker running?"
+    - "Is the worker listening to the right queue?"
+    """
+    diagnostics = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "redis": {},
+        "workers": [],
+        "queues": {},
+        "configuration": {}
+    }
+    
+    # Check Redis configuration
+    diagnostics["configuration"]["redis_url_configured"] = REDIS_URL is not None
+    if REDIS_URL:
+        # Mask password in URL for security
+        masked_url = REDIS_URL
+        if '@' in REDIS_URL:
+            parts = REDIS_URL.split('@')
+            if ':' in parts[0]:
+                user_pass = parts[0].split(':')
+                masked_url = f"{user_pass[0]}:{user_pass[1].split('//')[0]}//***@{parts[1]}"
+        diagnostics["configuration"]["redis_url"] = masked_url
+    
+    diagnostics["configuration"]["rq_available"] = RQ_AVAILABLE
+    
+    if not RQ_AVAILABLE or not redis_conn:
+        diagnostics["redis"]["available"] = False
+        diagnostics["redis"]["error"] = "RQ not available or Redis connection not configured"
+        return jsonify(diagnostics), 503
+    
+    try:
+        # Test Redis connection
+        redis_conn.ping()
+        diagnostics["redis"]["available"] = True
+        diagnostics["redis"]["ping"] = "OK"
+        
+        # Get Redis info
+        info = redis_conn.info()
+        diagnostics["redis"]["version"] = info.get('redis_version', 'unknown')
+        diagnostics["redis"]["connected_clients"] = info.get('connected_clients', 0)
+        diagnostics["redis"]["used_memory_human"] = info.get('used_memory_human', 'unknown')
+        
+    except Exception as e:
+        diagnostics["redis"]["available"] = False
+        diagnostics["redis"]["error"] = str(e)
+        return jsonify(diagnostics), 503
+    
+    try:
+        from rq import Worker, Queue
+        
+        # Get all workers
+        workers = Worker.all(connection=redis_conn)
+        diagnostics["workers_count"] = len(workers)
+        
+        for worker in workers:
+            queue_names = [q.name for q in worker.queues]
+            worker_info = {
+                "name": worker.name,
+                "state": worker.get_state(),
+                "queues": queue_names,
+                "current_job_id": worker.get_current_job_id(),
+                "successful_job_count": worker.successful_job_count,
+                "failed_job_count": worker.failed_job_count,
+                "total_working_time": worker.total_working_time,
+            }
+            diagnostics["workers"].append(worker_info)
+        
+        # Check specific queues
+        for queue_name in ['high', 'default', 'low']:
+            queue = Queue(queue_name, connection=redis_conn)
+            diagnostics["queues"][queue_name] = {
+                "length": len(queue),
+                "job_ids": [job.id for job in queue.jobs[:5]],  # First 5 jobs
+                "has_worker_listening": any(queue_name in [q.name for q in worker.queues] for worker in workers)
+            }
+        
+        # Critical check: Does 'default' queue have a worker?
+        default_has_worker = diagnostics["queues"]["default"]["has_worker_listening"]
+        diagnostics["critical_checks"] = {
+            "default_queue_has_worker": default_has_worker,
+            "status": "OK" if default_has_worker else "ERROR: No worker listening to 'default' queue!"
+        }
+        
+    except Exception as e:
+        diagnostics["workers_error"] = str(e)
+        import traceback
+        diagnostics["workers_traceback"] = traceback.format_exc()
+    
+    return jsonify(diagnostics), 200
+
