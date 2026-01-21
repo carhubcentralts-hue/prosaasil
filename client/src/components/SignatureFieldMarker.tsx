@@ -52,84 +52,24 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     loadSignatureFields();
   }, [contractId]);
 
-  // Load PDF properly as blob and create ObjectURL
+  // Set PDF URL directly - the streaming endpoint handles authentication
   useEffect(() => {
     if (!pdfUrl) {
       setLoading(false);
       return;
     }
 
-    const loadPdf = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        console.log('[PDF_LOAD] Fetching PDF metadata from:', pdfUrl);
-        
-        // Step 1: Fetch the download endpoint to get the signed URL
-        const downloadResponse = await fetch(pdfUrl, {
-          credentials: 'include',
-        });
-        
-        if (!downloadResponse.ok) {
-          throw new Error(`Failed to fetch download URL: ${downloadResponse.status}`);
-        }
-        
-        const downloadData = await downloadResponse.json();
-        const signedUrl = downloadData.url;
-        
-        if (!signedUrl) {
-          throw new Error('No signed URL returned from download endpoint');
-        }
-        
-        console.log('[PDF_LOAD] Got signed URL, fetching PDF blob...');
-        
-        // Step 2: Fetch the actual PDF as a blob
-        const pdfResponse = await fetch(signedUrl, {
-          credentials: 'include',
-        });
-        
-        if (!pdfResponse.ok) {
-          throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
-        }
-        
-        const contentType = pdfResponse.headers.get('content-type');
-        console.log('[PDF_LOAD] PDF Content-Type:', contentType);
-        
-        const blob = await pdfResponse.blob();
-        
-        // Validate it's actually a PDF
-        if (!blob.type.includes('pdf') && !contentType?.includes('pdf')) {
-          console.error('[PDF_LOAD] Not a PDF! Blob type:', blob.type, 'Content-Type:', contentType);
-          throw new Error(`Expected PDF but got ${blob.type || contentType || 'unknown type'}`);
-        }
-        
-        console.log('[PDF_LOAD] PDF blob loaded, size:', blob.size);
-        
-        // Step 3: Create ObjectURL from blob
-        const objectUrl = URL.createObjectURL(blob);
-        setPdfObjectUrl(objectUrl);
-        
-        // Default to 10 pages - user can navigate
-        setTotalPages(10);
-        
-        console.log('[PDF_LOAD] PDF loaded successfully');
-      } catch (err) {
-        console.error('[PDF_LOAD] Error loading PDF:', err);
-        setError(err instanceof Error ? err.message : 'שגיאה בטעינת PDF');
-      } finally {
-        setLoading(false);
-      }
-    };
+    setLoading(true);
+    setError(null);
     
-    loadPdf();
+    console.log('[PDF_LOAD] Using streaming endpoint:', pdfUrl);
+    setPdfObjectUrl(pdfUrl);
     
-    // Cleanup: revoke ObjectURL when component unmounts
-    return () => {
-      if (pdfObjectUrl) {
-        console.log('[PDF_LOAD] Revoking ObjectURL');
-        URL.revokeObjectURL(pdfObjectUrl);
-      }
-    };
+    // Default to 10 pages - user can navigate
+    setTotalPages(10);
+    setLoading(false);
+    
+    // No cleanup needed - we're using a direct endpoint URL
   }, [pdfUrl]); // Only run when pdfUrl changes
   
   const loadSignatureFields = async () => {
@@ -317,6 +257,8 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
                   src={`${pdfObjectUrl}#page=${currentPage}&view=FitH`}
                   className="absolute inset-0 w-full h-full"
                   title="PDF Preview"
+                  sandbox="allow-same-origin allow-scripts allow-downloads"
+                  style={{ border: 'none', minHeight: '70vh' }}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
