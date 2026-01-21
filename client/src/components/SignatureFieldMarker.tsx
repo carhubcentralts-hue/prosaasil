@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Plus, Save, Trash2, Eye, Move } from 'lucide-react';
+import { X, Plus, Save, Trash2, Eye, Move, Edit3, Maximize2 } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
+import { EnhancedPDFViewer } from './EnhancedPDFViewer';
 
 export interface SignatureField {
   id: string;
@@ -38,16 +39,15 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentRect, setCurrentRect] = useState<Rectangle | null>(null);
+  const [signatureMarkingMode, setSignatureMarkingMode] = useState(false);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState<string | null>(null); // 'tl', 'tr', 'bl', 'br'
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [isResizing, setIsResizing] = useState<string | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number; fieldX: number; fieldY: number; fieldW: number; fieldH: number } | null>(null);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
+  const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   
   const canvasRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Load existing signature fields
   useEffect(() => {
@@ -107,9 +107,10 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     }
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!canvasRef.current) return;
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!canvasRef.current || !signatureMarkingMode) return;
     
+    // Get click position relative to canvas
     const rect = canvasRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
@@ -126,50 +127,112 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
       return;
     }
 
-    // Start drawing new field
-    setIsDrawing(true);
-    setCurrentRect({
-      startX: x,
-      startY: y,
-      endX: x,
-      endY: y,
-    });
+    // Create new signature field at click location
+    const newField: SignatureField = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+      page: currentPage,
+      x: Math.max(0, Math.min(1 - 0.15, x - 0.075)), // Center the box on click, ensure it fits
+      y: Math.max(0, Math.min(1 - 0.08, y - 0.04)),
+      w: 0.15, // Default width 15%
+      h: 0.08, // Default height 8%
+      required: true,
+    };
+    
+    setFields(prev => [...prev, newField]);
+    setSelectedFieldId(newField.id);
+    
+    // Show help tooltip first time
+    if (fields.length === 0) {
+      setShowHelpTooltip(true);
+      setTimeout(() => setShowHelpTooltip(false), 5000);
+    }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing || !currentRect || !canvasRef.current) return;
-
+  const handleFieldMouseDown = (e: React.MouseEvent, field: SignatureField, handle?: string) => {
+    e.stopPropagation();
+    if (!canvasRef.current) return;
+    
     const rect = canvasRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-
-    setCurrentRect({
-      ...currentRect,
-      endX: Math.max(0, Math.min(1, x)),
-      endY: Math.max(0, Math.min(1, y)),
+    
+    if (handle) {
+      setIsResizing(handle);
+    } else {
+      setIsDragging(true);
+    }
+    
+    setDragStart({
+      x,
+      y,
+      fieldX: field.x,
+      fieldY: field.y,
+      fieldW: field.w,
+      fieldH: field.h,
     });
+    setSelectedFieldId(field.id);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!canvasRef.current || !dragStart || !selectedFieldId) return;
+    
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    const dx = x - dragStart.x;
+    const dy = y - dragStart.y;
+    
+    setFields(prev => prev.map(f => {
+      if (f.id !== selectedFieldId) return f;
+      
+      if (isDragging) {
+        // Move the field
+        return {
+          ...f,
+          x: Math.max(0, Math.min(1 - f.w, dragStart.fieldX + dx)),
+          y: Math.max(0, Math.min(1 - f.h, dragStart.fieldY + dy)),
+        };
+      } else if (isResizing) {
+        // Resize the field based on handle
+        let newX = dragStart.fieldX;
+        let newY = dragStart.fieldY;
+        let newW = dragStart.fieldW;
+        let newH = dragStart.fieldH;
+        
+        if (isResizing.includes('r')) {
+          newX = dragStart.fieldX;
+          newW = Math.max(MIN_FIELD_SIZE, Math.min(1 - dragStart.fieldX, dragStart.fieldW + dx));
+        } else if (isResizing.includes('l')) {
+          newX = Math.max(0, Math.min(dragStart.fieldX + dragStart.fieldW - MIN_FIELD_SIZE, dragStart.fieldX + dx));
+          newW = dragStart.fieldW + (dragStart.fieldX - newX);
+        }
+        
+        if (isResizing.includes('t')) {
+          newY = Math.max(0, Math.min(dragStart.fieldY + dragStart.fieldH - MIN_FIELD_SIZE, dragStart.fieldY + dy));
+          newH = dragStart.fieldH + (dragStart.fieldY - newY);
+        } else if (isResizing.includes('b')) {
+          newY = dragStart.fieldY;
+          newH = Math.max(MIN_FIELD_SIZE, Math.min(1 - dragStart.fieldY, dragStart.fieldH + dy));
+        }
+        
+        return {
+          ...f,
+          x: newX,
+          y: newY,
+          w: newW,
+          h: newH,
+        };
+      }
+      
+      return f;
+    }));
   };
 
   const handleMouseUp = () => {
-    if (isDrawing && currentRect) {
-      const width = Math.abs(currentRect.endX - currentRect.startX);
-      const height = Math.abs(currentRect.endY - currentRect.startY);
-
-      if (width > MIN_FIELD_SIZE && height > MIN_FIELD_SIZE) {
-        const newField: SignatureField = {
-          id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-          page: currentPage,
-          x: Math.min(currentRect.startX, currentRect.endX),
-          y: Math.min(currentRect.startY, currentRect.endY),
-          w: width,
-          h: height,
-          required: true,
-        };
-        setFields(prev => [...prev, newField]);
-      }
-    }
-    setIsDrawing(false);
-    setCurrentRect(null);
+    setIsDragging(false);
+    setIsResizing(null);
+    setDragStart(null);
   };
 
   const deleteField = (fieldId: string) => {
@@ -199,16 +262,20 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto" dir="rtl">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl mx-4 my-8 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-2 md:p-4" dir="rtl">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-[95vw] mx-auto my-4 flex flex-col h-[95vh]">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">סימון אזורי חתימה</h2>
-            <p className="text-sm text-gray-600 mt-1">צייר מלבנים על המסמך כדי לסמן היכן יופיעו החתימות</p>
+            <h2 className="text-xl md:text-2xl font-bold text-gray-900">סימון אזורי חתימה</h2>
+            <p className="text-sm text-gray-600 mt-1">לחץ על המסמך כדי להוסיף אזור חתימה</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition">
-            <X className="w-5 h-5 text-gray-500" />
+          <button 
+            onClick={onClose} 
+            className="p-2 hover:bg-gray-100 rounded-lg transition min-w-[44px] min-h-[44px] flex items-center justify-center"
+            title="סגור"
+          >
+            <X className="w-6 h-6 text-gray-500" />
           </button>
         </div>
 
@@ -218,197 +285,182 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
           </div>
         )}
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-          {/* PDF Preview with Canvas Overlay */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Page Navigation */}
-            <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg mb-3 border border-blue-200">
+        {/* Main Content - Responsive Layout */}
+        <div className="flex-1 flex flex-col lg:flex-row-reverse gap-4 p-4 overflow-hidden min-h-0">
+          {/* PDF Preview - Main Area (70-75% on desktop) */}
+          <div className="flex-1 lg:w-[70%] flex flex-col min-h-0">
+            {/* Signature Marking Toggle */}
+            <div className="mb-3 flex items-center gap-3 bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-lg border-2 border-green-200">
               <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 bg-white border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setSignatureMarkingMode(!signatureMarkingMode)}
+                className={`flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all min-w-[160px] justify-center min-h-[44px] ${
+                  signatureMarkingMode
+                    ? 'bg-green-600 text-white shadow-lg hover:bg-green-700'
+                    : 'bg-white text-gray-700 border-2 border-gray-300 hover:bg-gray-50'
+                }`}
+                title={signatureMarkingMode ? 'מצב סימון פעיל - לחץ על המסמך להוספת חתימה' : 'לחץ להפעלת מצב סימון'}
               >
-                עמוד קודם
+                <Edit3 className="w-5 h-5" />
+                {signatureMarkingMode ? 'מצב סימון פעיל' : 'הפעל מצב סימון'}
               </button>
-              <span className="text-sm font-medium">
-                עמוד {currentPage} מתוך {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 bg-white border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                עמוד הבא
-              </button>
+              <div className="flex-1 text-sm text-gray-700">
+                {signatureMarkingMode ? (
+                  <p className="font-medium">✓ לחץ על המסמך כדי להוסיף אזור חתימה</p>
+                ) : (
+                  <p>הפעל מצב סימון כדי להוסיף שדות חתימה</p>
+                )}
+              </div>
             </div>
 
-            {/* PDF with Overlay */}
-            <div className="flex-1 relative border-2 border-gray-300 rounded-lg bg-white overflow-hidden">
-              {loading ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                  <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                    <p className="text-gray-600">טוען PDF...</p>
-                  </div>
-                </div>
-              ) : pdfObjectUrl ? (
-                <iframe
-                  ref={iframeRef}
-                  key={`${pdfObjectUrl}-${currentPage}`}
-                  src={`${pdfObjectUrl}#page=${currentPage}&view=FitH`}
-                  className="absolute inset-0 w-full h-full"
-                  title="PDF Preview"
-                  sandbox="allow-same-origin allow-scripts allow-downloads"
-                  style={{ border: 'none', minHeight: PDF_MIN_HEIGHT_VH }}
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                  <p className="text-red-600">לא ניתן לטעון PDF</p>
-                </div>
-              )}
-              
-              {/* Canvas Overlay for Drawing - only show when PDF is loaded */}
-              {pdfObjectUrl && !loading && (
-                <div
-                  ref={canvasRef}
-                  className="absolute inset-0 cursor-crosshair"
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                >
-                  {/* Render existing fields on current page */}
-                  {getCurrentPageFields().map(field => (
-                    <div
-                      key={field.id}
-                      className={`absolute border-2 ${
-                        selectedFieldId === field.id
-                          ? 'border-blue-500 bg-blue-100'
-                          : 'border-green-500 bg-green-100'
-                      } bg-opacity-30 transition-all`}
-                      style={{
-                        left: `${field.x * 100}%`,
-                        top: `${field.y * 100}%`,
-                        width: `${field.w * 100}%`,
-                        height: `${field.h * 100}%`,
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedFieldId(field.id);
-                      }}
-                    >
-                      {/* Field Label */}
-                      <div className="absolute -top-6 right-0 bg-green-600 text-white text-xs px-2 py-1 rounded">
-                        חתימה {fields.indexOf(field) + 1}
-                      </div>
-                      
-                      {/* Delete Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteField(field.id);
+            {/* Help Tooltip */}
+            {showHelpTooltip && (
+              <div className="mb-3 p-3 bg-blue-100 border-2 border-blue-400 rounded-lg text-blue-900 text-sm animate-pulse">
+                💡 ניתן לגרור את אזור החתימה למיקום אחר ולשנות את גודלו
+              </div>
+            )}
+
+            {/* Enhanced PDF Viewer with Overlay */}
+            <div className="flex-1 relative min-h-0">
+              <EnhancedPDFViewer
+                pdfUrl={pdfObjectUrl || ''}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                loading={loading}
+                error={error || undefined}
+                className="rounded-lg border-2 border-gray-300"
+              >
+                {/* Canvas Overlay for Signature Fields */}
+                {pdfObjectUrl && !loading && (
+                  <div
+                    ref={canvasRef}
+                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair' : 'cursor-default'}`}
+                    onClick={handleCanvasClick}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                  >
+                    {/* Render existing fields on current page */}
+                    {getCurrentPageFields().map((field, index) => (
+                      <div
+                        key={field.id}
+                        className={`absolute border-3 transition-all ${
+                          selectedFieldId === field.id
+                            ? 'border-blue-600 bg-blue-200 shadow-xl z-10'
+                            : 'border-green-600 bg-green-200 hover:border-green-700'
+                        } bg-opacity-40 cursor-move`}
+                        style={{
+                          left: `${field.x * 100}%`,
+                          top: `${field.y * 100}%`,
+                          width: `${field.w * 100}%`,
+                          height: `${field.h * 100}%`,
                         }}
-                        className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                        title="מחק שדה"
+                        onMouseDown={(e) => handleFieldMouseDown(e, field)}
                       >
-                        <X className="w-3 h-3" />
-                      </button>
+                        {/* Field Label */}
+                        <div className="absolute -top-7 right-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-t-lg shadow-md">
+                          חתימה #{fields.indexOf(field) + 1}
+                        </div>
+                        
+                        {/* Delete Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteField(field.id);
+                          }}
+                          className="absolute -top-2 -left-2 bg-red-600 text-white rounded-full p-1.5 hover:bg-red-700 shadow-lg z-20 min-w-[28px] min-h-[28px] flex items-center justify-center"
+                          title="מחק שדה"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
 
-                      {/* Resize Handles */}
-                      {selectedFieldId === field.id && (
-                        <>
-                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-nw-resize" />
-                          <div className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-ne-resize" />
-                          <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-sw-resize" />
-                          <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-blue-500 border border-white rounded-full cursor-se-resize" />
-                        </>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* Current drawing rectangle */}
-                  {isDrawing && currentRect && (
-                    <div
-                      className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-20"
-                      style={{
-                        left: `${Math.min(currentRect.startX, currentRect.endX) * 100}%`,
-                        top: `${Math.min(currentRect.startY, currentRect.endY) * 100}%`,
-                        width: `${Math.abs(currentRect.endX - currentRect.startX) * 100}%`,
-                        height: `${Math.abs(currentRect.endY - currentRect.startY) * 100}%`,
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Instructions */}
-            <div className="mt-3 p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
-              <p className="text-sm text-gray-700">
-                <strong>הוראות:</strong> לחץ וגרור על המסמך כדי לצייר מלבן חתימה. לחץ על מלבן קיים כדי לבחור אותו.
-              </p>
+                        {/* Resize Handles - Only show when selected */}
+                        {selectedFieldId === field.id && (
+                          <>
+                            <div 
+                              className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
+                            />
+                            <div 
+                              className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
+                            />
+                            <div 
+                              className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
+                            />
+                            <div 
+                              className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
+                            />
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </EnhancedPDFViewer>
             </div>
           </div>
 
-          {/* Sidebar - Fields List */}
-          <div className="w-full md:w-80 flex flex-col bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-200 bg-white">
-              <h3 className="font-bold text-gray-900 mb-2">שדות חתימה ({fields.length})</h3>
+          {/* Sidebar - Fields List (25-30% on desktop) */}
+          <div className="w-full lg:w-[30%] flex flex-col bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg border-2 border-gray-200 shadow-lg overflow-hidden min-h-[300px] lg:min-h-0">
+            <div className="p-4 border-b-2 border-gray-300 bg-white">
+              <h3 className="font-bold text-gray-900 mb-3 text-lg">אזורי חתימה ({fields.length})</h3>
               <Button
                 onClick={clearAllFields}
                 disabled={fields.length === 0}
                 variant="secondary"
-                className="w-full flex items-center justify-center gap-2 text-sm"
+                className="w-full flex items-center justify-center gap-2 text-sm min-h-[44px] font-medium"
               >
-                <Trash2 className="w-4 h-4" />
-                נקה הכל
+                <Trash2 className="w-5 h-5" />
+                נקה את כל השדות
               </Button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {fields.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Plus className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">לא נוספו שדות חתימה</p>
-                  <p className="text-xs mt-1">צייר על המסמך כדי להוסיף</p>
+                <div className="text-center py-12 text-gray-500">
+                  <Edit3 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-base font-medium">לא נוספו שדות</p>
+                  <p className="text-sm mt-2">הפעל מצב סימון ולחץ על המסמך</p>
                 </div>
               ) : (
                 fields.map((field, index) => (
                   <div
                     key={field.id}
-                    className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                    className={`p-4 rounded-lg border-2 transition-all cursor-pointer ${
                       selectedFieldId === field.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 bg-white hover:border-gray-300'
+                        ? 'border-blue-600 bg-blue-100 shadow-lg'
+                        : 'border-gray-300 bg-white hover:border-blue-400 hover:shadow-md'
                     }`}
                     onClick={() => focusOnField(field.id)}
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-gray-900">חתימה {index + 1}</p>
-                        <p className="text-sm text-gray-600">עמוד {field.page}</p>
+                      <div className="flex-1">
+                        <p className="font-bold text-gray-900 text-base">חתימה #{index + 1}</p>
+                        <p className="text-sm text-gray-600 mt-1">עמוד {field.page}</p>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             focusOnField(field.id);
                           }}
-                          className="p-1 hover:bg-blue-100 rounded transition"
+                          className="p-2 hover:bg-blue-200 rounded-lg transition min-w-[36px] min-h-[36px] flex items-center justify-center"
                           title="מקד על השדה"
                         >
-                          <Eye className="w-4 h-4 text-blue-600" />
+                          <Eye className="w-5 h-5 text-blue-700" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteField(field.id);
                           }}
-                          className="p-1 hover:bg-red-100 rounded transition"
+                          className="p-2 hover:bg-red-200 rounded-lg transition min-w-[36px] min-h-[36px] flex items-center justify-center"
                           title="מחק שדה"
                         >
-                          <Trash2 className="w-4 h-4 text-red-600" />
+                          <Trash2 className="w-5 h-5 text-red-700" />
                         </button>
                       </div>
                     </div>
@@ -419,17 +471,21 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-gray-200 flex gap-3 flex-wrap">
+        {/* Footer Actions - Fixed on Mobile */}
+        <div className="p-4 border-t-2 border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex gap-3 flex-wrap lg:justify-end">
           <Button
             onClick={handleSave}
             disabled={saving || fields.length === 0}
-            className="flex items-center gap-2"
+            className="flex-1 lg:flex-none flex items-center justify-center gap-2 min-h-[48px] text-base font-medium"
           >
-            <Save className="w-4 h-4" />
+            <Save className="w-5 h-5" />
             {saving ? 'שומר...' : `שמור ${fields.length} שדות`}
           </Button>
-          <Button onClick={onClose} variant="secondary">
+          <Button 
+            onClick={onClose} 
+            variant="secondary"
+            className="flex-1 lg:flex-none min-h-[48px] text-base font-medium"
+          >
             ביטול
           </Button>
         </div>
