@@ -158,12 +158,13 @@ def _do_dispatch(
                 ).update({PushSubscription.is_active: False}, synchronize_session=False)
                 db.session.commit()
                 result.deactivated = len(subscriptions_to_deactivate)
-                log.info(f"Deactivated {result.deactivated} invalid subscriptions")
+                # 🔥 PRODUCTION: Log as INFO (not separate log) to reduce verbosity
+                log.info(f"Push dispatch complete: {result.successful}/{result.total_subscriptions} successful, {result.deactivated} expired subscriptions deactivated")
             except Exception as e:
                 log.error(f"Error deactivating subscriptions: {e}")
                 db.session.rollback()
-        
-        log.info(f"Push dispatch complete: {result.successful}/{result.total_subscriptions} successful")
+        else:
+            log.info(f"Push dispatch complete: {result.successful}/{result.total_subscriptions} successful")
         return result
         
     except Exception as e:

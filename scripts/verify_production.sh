@@ -105,6 +105,59 @@ fi
 echo "✅ PASS: NGINX logs are clean"
 echo ""
 
+# Check 6: Database schema - receipt_sync_runs columns
+echo "=== Check 6: Database Schema - receipt_sync_runs Migration ==="
+echo "Checking if critical columns exist in receipt_sync_runs table..."
+
+# Check if prosaas-api is running (it has database access)
+if echo "$services" | grep -q "^prosaas-api$"; then
+    # Use prosaas-api to check database schema
+    schema_check=$(./scripts/dcprod.sh exec prosaas-api python -c "
+import os
+os.environ.setdefault('FLASK_ENV', 'production')
+from server.db import db
+from server.app_factory import create_app
+from sqlalchemy import text
+
+app = create_app()
+with app.app_context():
+    try:
+        result = db.session.execute(text('''
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+              AND table_name = 'receipt_sync_runs'
+              AND column_name IN ('from_date', 'to_date', 'months_back', 'run_to_completion', 'max_seconds_per_run', 'skipped_count')
+            ORDER BY column_name
+        ''')).fetchall()
+        columns_found = [row[0] for row in result]
+        required_columns = ['from_date', 'to_date', 'months_back', 'run_to_completion', 'max_seconds_per_run', 'skipped_count']
+        missing = [col for col in required_columns if col not in columns_found]
+        if missing:
+            print('MISSING:' + ','.join(missing))
+        else:
+            print('OK')
+    except Exception as e:
+        print(f'ERROR:{e}')
+" 2>&1 || echo "FAILED")
+
+    if echo "$schema_check" | grep -q "^OK$"; then
+        echo "✅ PASS: All receipt_sync_runs columns exist"
+    elif echo "$schema_check" | grep -q "^MISSING:"; then
+        missing_cols=$(echo "$schema_check" | sed 's/^MISSING://')
+        echo "❌ FAIL: Missing columns in receipt_sync_runs: $missing_cols"
+        echo "   This will cause 'UndefinedColumn' errors in Gmail sync worker"
+        echo "   Fix: Run migrations manually:"
+        echo "   ./scripts/dcprod.sh exec prosaas-api python -c 'from server.db_migrate import apply_migrations; from server.app_factory import create_app; app = create_app(); app.app_context().push(); apply_migrations()'"
+        exit 1
+    else
+        echo "⚠️  WARNING: Could not check database schema"
+        echo "   Response: $schema_check"
+    fi
+else
+    echo "⚠️  WARNING: prosaas-api not running, skipping database schema check"
+fi
+echo ""
+
 # Summary
 echo "╔══════════════════════════════════════════════════════════════════════════════╗"
 echo "║                            ✅ ALL CHECKS PASSED                              ║"

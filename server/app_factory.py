@@ -1137,56 +1137,77 @@ def create_app():
         except Exception:
             pass
         
+        # ====================================================================
+        # Background Schedulers and Workers
+        # ====================================================================
+        # 🔥 CRITICAL: Only run schedulers in worker service to prevent duplicates
+        # Use ENABLE_SCHEDULERS=true env var to enable (default: disabled in api/calls)
+        # Worker service should set ENABLE_SCHEDULERS=true
+        ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'false').lower() == 'true'
+        SERVICE_ROLE = os.getenv('SERVICE_ROLE', 'unknown')
+        
+        if ENABLE_SCHEDULERS:
+            logger.info(f"✅ [BACKGROUND] Schedulers ENABLED for service: {SERVICE_ROLE}")
+        else:
+            logger.info(f"⚠️ [BACKGROUND] Schedulers DISABLED for service: {SERVICE_ROLE}")
+            logger.info("   To enable schedulers, set: ENABLE_SCHEDULERS=true")
+        
         # Automatic recording cleanup scheduler (7-day retention)
-        try:
-            from server.tasks_recording import auto_cleanup_old_recordings
-            import time as scheduler_time
-            
-            def recording_cleanup_scheduler():
-                """Background scheduler - runs cleanup daily"""
-                scheduler_time.sleep(300)  # Wait 5 minutes after startup
-                while True:
-                    try:
-                        with app.app_context():
-                            auto_cleanup_old_recordings()
-                    except Exception:
-                        pass
-                    scheduler_time.sleep(21600)  # Run every 6 hours
-            
-            cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
-            cleanup_thread.start()
-        except Exception:
-            pass
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.tasks_recording import auto_cleanup_old_recordings
+                import time as scheduler_time
+                
+                def recording_cleanup_scheduler():
+                    """Background scheduler - runs cleanup daily"""
+                    scheduler_time.sleep(300)  # Wait 5 minutes after startup
+                    while True:
+                        try:
+                            with app.app_context():
+                                auto_cleanup_old_recordings()
+                        except Exception:
+                            pass
+                        scheduler_time.sleep(21600)  # Run every 6 hours
+                
+                cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
+                cleanup_thread.start()
+                logger.info("✅ [BACKGROUND] Recording cleanup scheduler started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start cleanup scheduler: {e}")
         
         # WhatsApp session processor (15-min auto-summary)
-        try:
-            from server.services.whatsapp_session_service import start_session_processor
-            start_session_processor()
-        except Exception:
-            pass
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.services.whatsapp_session_service import start_session_processor
+                start_session_processor()
+                logger.info("✅ [BACKGROUND] WhatsApp session processor started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start WhatsApp session processor: {e}")
         
         # Recording transcription worker (offline STT + lead extraction)
-        try:
-            from server.tasks_recording import start_recording_worker
-            
-            recording_thread = threading.Thread(
-                target=start_recording_worker,
-                args=(app,),
-                daemon=True,
-                name="RecordingWorker"
-            )
-            recording_thread.start()
-            logger.info("✅ [BACKGROUND] Recording worker started")
-        except Exception as e:
-            logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.tasks_recording import start_recording_worker
+                
+                recording_thread = threading.Thread(
+                    target=start_recording_worker,
+                    args=(app,),
+                    daemon=True,
+                    name="RecordingWorker"
+                )
+                recording_thread.start()
+                logger.info("✅ [BACKGROUND] Recording worker started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
         
         # 🔔 Reminder notification scheduler (sends push 30min and 15min before due time)
-        try:
-            from server.services.notifications.reminder_scheduler import start_reminder_scheduler
-            start_reminder_scheduler(app)
-            logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
-        except Exception as e:
-            logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
+        if ENABLE_SCHEDULERS:
+            try:
+                from server.services.notifications.reminder_scheduler import start_reminder_scheduler
+                start_reminder_scheduler(app)
+                logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
+            except Exception as e:
+                logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
     
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton

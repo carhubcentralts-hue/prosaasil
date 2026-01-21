@@ -151,7 +151,9 @@ class WebPushSender:
             should_deactivate = error_code in (404, 410)
             
             if should_deactivate:
-                log.warning(f"WebPush subscription invalid (HTTP {error_code}), marking for deactivation")
+                # 🔥 PRODUCTION: Log as INFO (not WARNING) to reduce log spam
+                # 410 Gone is expected when user unsubscribes/changes device
+                log.info(f"WebPush subscription expired (HTTP {error_code}), will deactivate")
             else:
                 log.error(f"WebPush failed: {error_message}")
             

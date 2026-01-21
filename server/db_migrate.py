@@ -4031,7 +4031,7 @@ def apply_migrations():
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN run_to_completion BOOLEAN
+                        ADD COLUMN run_to_completion BOOLEAN DEFAULT FALSE
                     """))
                     fields_to_add.append('run_to_completion')
                 except Exception as e:
