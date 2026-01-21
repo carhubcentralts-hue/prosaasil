@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 """
-Acceptance Criteria Test - Proves Worker Processes Jobs
+Worker Verification Script - POST-DEPLOYMENT MANUAL CHECK
 
-This test provides PROOF that the worker fix is complete:
+⚠️ THIS IS NOT A CI TEST - This is a manual verification script
+
+This script is designed to be run AFTER deploying to production to verify:
 1. Worker is running in production docker-compose
 2. Jobs enqueued to 'default' queue are processed
 3. JOB_START appears in logs within 10 seconds
 4. No worker = 503 error (not silent QUEUED)
 
-This test must pass before PR can be merged.
+USAGE:
+    # After deploying to production:
+    cd /path/to/prosaasil
+    python scripts/verify_receipts_worker.py
+
+This replaces the need for manual verification steps and provides
+a checklist of what should be working.
+
+For CI testing, see:
+- test_worker_availability_check.py (unit tests)
+- test_worker_integration.py (local integration tests)
 """
 
 import sys

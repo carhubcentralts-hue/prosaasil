@@ -1650,6 +1650,11 @@ def get_queue_diagnostics():
     """
     Get diagnostics for Redis Queue and worker status
     
+    🔒 SECURITY: This endpoint exposes infrastructure details
+    - Protected by API auth + additional checks
+    - Only accessible to system admins or with diagnostic key
+    - Do NOT expose to regular users
+    
     CRITICAL: This endpoint helps diagnose worker issues:
     - Shows if Redis is accessible
     - Lists all active workers
@@ -1664,6 +1669,28 @@ def get_queue_diagnostics():
     - "Is the worker running?"
     - "Is the worker listening to the right queue?"
     """
+    # SECURITY: Additional authorization check
+    # Method 1: Check for diagnostic key in header
+    diagnostic_key = request.headers.get('X-Diagnostic-Key')
+    expected_key = os.getenv('DIAGNOSTICS_KEY', '')
+    
+    # Method 2: Check if user is system_admin
+    user_role = None
+    if hasattr(g, 'user') and g.user:
+        user_role = g.user.get('role') if isinstance(g.user, dict) else getattr(g.user, 'role', None)
+    
+    # Allow if: has valid diagnostic key OR is system_admin
+    has_diagnostic_key = diagnostic_key and expected_key and diagnostic_key == expected_key
+    is_admin = user_role == 'system_admin'
+    
+    if not (has_diagnostic_key or is_admin):
+        logger.warning(f"Unauthorized diagnostics access attempt from user_role={user_role}")
+        return jsonify({
+            "success": False,
+            "error": "Forbidden: diagnostics endpoint requires system_admin role or diagnostic key",
+            "details": "This endpoint exposes infrastructure details and is restricted"
+        }), 403
+    
     diagnostics = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "redis": {},

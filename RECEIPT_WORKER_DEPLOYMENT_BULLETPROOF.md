@@ -1,14 +1,93 @@
 # Receipt Sync Worker - BULLETPROOF Implementation Complete
 
-## תיעוד בעברית - הכול סגור עכשיו
+## תיעוד בעברית - הכול סגור עכשיו (תוקן 3 נקודות קריטיות)
 
-### הבעיה המקורית
-Job הוכנס ל-QUEUED אבל Worker לא הריץ אותו - אין JOB_START בלוג.
+### תיקונים קריטיים שבוצעו ✅
 
-### הסיבה האמיתית (99%)
-Worker לא רץ/לא נפרס/נופל מיד/לא מאזין ל-default.
+#### 1. ✅ Healthcheck פשוט ויציב
+**הבעיה:** Healthcheck עם `Worker.all()` יכול לגרום ללופ של unhealthy/restart בהתחלה.
 
-### מה תוקן - 7 דברים חובה ✅
+**התיקון:**
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "python -c \"import redis; redis.from_url('redis://redis:6379/0').ping(); print('OK')\""]
+```
+
+**למה זה נכון:**
+- בודק רק Redis ping (מהיר ויציב)
+- לא תלוי ברישום של Worker ב-Redis
+- לא יוצר מצב של restart loop
+- בדיקת "מאזין ל-default" נשארת ב-API fail-fast ו-diagnostics
+
+#### 2. ✅ Diagnostics מאובטח (system_admin או diagnostic key)
+**הבעיה:** Endpoint חושף תשתית - לא יכול להיות פתוח לכולם.
+
+**התיקון:**
+```python
+# דרישה: system_admin OR X-Diagnostic-Key header
+if not (has_diagnostic_key or is_admin):
+    return jsonify({"error": "Forbidden"}), 403
+```
+
+**שימוש:**
+```bash
+# עם diagnostic key
+curl -H "X-Diagnostic-Key: YOUR_SECRET_KEY" \
+  /api/receipts/queue/diagnostics
+
+# עם system_admin role
+curl -H "Authorization: Bearer ADMIN_TOKEN" \
+  /api/receipts/queue/diagnostics
+```
+
+#### 3. ✅ Acceptance Test → Verification Script
+**הבעיה:** Test שתלוי בפרודקשן אמיתי לא טסט CI.
+
+**התיקון:**
+- הועבר ל-`scripts/verify_receipts_worker.py`
+- משמש לבדיקה ידנית אחרי פריסה
+- לא חלק מ-CI pipeline
+
+---
+
+## הארכיטקטורה התקינה
+
+### Worker Healthcheck (פשוט)
+```
+Worker Container
+  ↓
+Healthcheck: Redis.ping()
+  ↓
+✓ Healthy = Redis accessible
+✗ Unhealthy = Redis not accessible or worker crashed
+```
+
+### Worker Validation (בשלב API)
+```
+API Request → sync_receipts()
+  ↓
+1. Redis.ping() ✓
+2. _has_worker_for_queue('default') ✓
+  ↓
+  Yes → Enqueue job
+  No → 503 "Worker not running"
+```
+
+### Diagnostics (מאובטח)
+```
+GET /api/receipts/queue/diagnostics
+  + X-Diagnostic-Key OR system_admin role
+  ↓
+Returns:
+- Worker count
+- Queue lengths  
+- Worker → Queue mappings
+- Critical checks
+```
+
+---
+
+## Deployment (Production)
 
 #### 1. בדיקת Worker ספציפית לתור
 ```python
