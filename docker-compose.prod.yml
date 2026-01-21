@@ -33,18 +33,19 @@ services:
       context: .
       dockerfile: Dockerfile.nginx
       args:
-        # Use actual service names: backend (not prosaas-api/prosaas-calls)
-        # Both API and calls go to backend:5000 (single monolith in current deployment)
-        API_UPSTREAM: backend:5000
-        CALLS_UPSTREAM: backend:5000
+        # Production split architecture: separate API and Calls services
+        API_UPSTREAM: prosaas-api:5000
+        CALLS_UPSTREAM: prosaas-calls:5050
         FRONTEND_UPSTREAM: frontend
         USE_SSL: "true"
     volumes:
       # Only mount SSL certificates (read-only)
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
-    # Add production service dependencies - use actual service names
+    # Add production service dependencies
     depends_on:
-      backend:
+      prosaas-api:
+        condition: service_healthy
+      prosaas-calls:
         condition: service_healthy
       frontend:
         condition: service_healthy
@@ -93,24 +94,12 @@ services:
       - local-db-only  # Won't start unless explicitly requested
 
   # ===========================================
-  # Backend API Service - Production Overrides
-  # Use the single backend service (monolith), not split services
+  # Backend Service - DISABLED in production
+  # Use prosaas-api and prosaas-calls instead (split architecture)
   # ===========================================
   backend:
-    environment:
-      FLASK_ENV: production
-      PRODUCTION: ${PRODUCTION:-1}
-      RUN_MIGRATIONS_ON_START: 1
-      LOG_LEVEL: INFO
-      PYTHONUNBUFFERED: 1
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
+    profiles:
+      - legacy  # Don't start in production - use prosaas-api/prosaas-calls instead
 
   # ===========================================
   # Worker Service - Production Overrides
@@ -135,11 +124,11 @@ services:
       - ndots:0
       - timeout:2
       - attempts:2
-    # Add production service dependencies - use actual service: backend
+    # Add production service dependencies
     depends_on:
       redis:
         condition: service_healthy
-      backend:
+      prosaas-api:
         condition: service_healthy
     deploy:
       resources:
@@ -150,18 +139,151 @@ services:
           cpus: '0.5'
           memory: 512M
   
+  prosaas-api:
+    container_name: prosaas-api
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_ENV: production
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      RUN_MIGRATIONS_ON_START: 1
+      PRODUCTION: ${PRODUCTION:-1}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: api
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    expose:
+      - "5000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - prosaas-network
+
   # ===========================================
-  # NOTE: prosaas-api and prosaas-calls services REMOVED
-  # Current deployment uses single backend service (monolith)
-  # To enable split architecture in future, uncomment and update nginx dependencies
+  # Calls Service (WebSocket + Twilio streaming only)
+  # Handles: /ws/twilio-media, Twilio webhooks for calls
+  # Optimized for: High concurrency, low latency, backpressure
+  # 
+  # ⚠️ CRITICAL: SINGLE WORKER ONLY
+  # State (stream_registry, call sessions) is IN-MEMORY
+  # Multi-worker would cause lost call context and crashes
+  # See: STATE_MANAGEMENT_CONSTRAINTS.md
   # ===========================================
+  prosaas-calls:
+    container_name: prosaas-calls
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      FLASK_ENV: production
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      RUN_MIGRATIONS_ON_START: 0
+      PRODUCTION: ${PRODUCTION:-1}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-r2}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: calls
+      PORT: 5050
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    # ⚠️ CRITICAL: --workers MUST be 1 (not 4!)
+    # Reason: stream_registry is in-memory, not Redis
+    # Multi-worker = lost call state = crashes
+    # To scale: Refactor stream_registry to Redis first
+    # 🔥 PRODUCTION LOGGING: --log-level info to minimize access logs
+    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30", "--log-level", "info"]
+    expose:
+      - "5050"
+    volumes:
+      - recordings_data:/app/server/recordings
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    networks:
+      - prosaas-network
 
   # ===========================================
   # Baileys WhatsApp Service - Production settings
   # ===========================================
   baileys:
     depends_on:
-      backend:
+      prosaas-api:
         condition: service_healthy
     deploy:
       resources:

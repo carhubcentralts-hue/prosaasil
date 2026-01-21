@@ -70,11 +70,15 @@ fi
 # Step 3: Build images with latest changes
 echo -e "\n${BLUE}Step 3: Building Docker images...${NC}"
 echo -e "This may take several minutes..."
+echo -e "${YELLOW}⚠ Using --no-cache for nginx to ensure config is rebuilt${NC}"
 
-# Build with both base and production overrides
+# Build nginx with --no-cache to ensure build args are applied
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull --no-cache nginx
+
+# Build other services normally (with cache)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull \
-    nginx \
-    backend \
+    prosaas-api \
+    prosaas-calls \
     worker \
     frontend \
     baileys
@@ -88,7 +92,8 @@ echo -e "\n${BLUE}Step 4: Recreating containers...${NC}"
 # Use --no-deps to avoid recreating dependencies unnecessarily
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate \
     nginx \
-    backend \
+    prosaas-api \
+    prosaas-calls \
     worker \
     frontend \
     baileys \
@@ -118,12 +123,36 @@ NGINX_LOGS=$(docker logs prosaas-nginx --tail 20 2>&1 || true)
 if echo "$NGINX_LOGS" | grep -qi "host not found in upstream"; then
     echo -e "${RED}✗ NGINX ERROR: Upstream host not found${NC}"
     echo "$NGINX_LOGS"
+    echo -e "\n${YELLOW}Troubleshooting:${NC}"
+    echo "1. Check running containers: docker compose ps"
+    echo "2. Verify nginx config: docker exec prosaas-nginx nginx -T | grep proxy_pass"
+    echo "3. Check if prosaas-api and prosaas-calls are healthy"
     exit 1
 elif echo "$NGINX_LOGS" | grep -qi "error"; then
     echo -e "${YELLOW}⚠ NGINX warnings detected (may be normal):${NC}"
     echo "$NGINX_LOGS" | grep -i error
 else
     echo -e "${GREEN}✓ NGINX logs look good${NC}"
+fi
+
+# Step 8: Verify proxy_pass configuration
+echo -e "\n${BLUE}Step 8: Verifying NGINX proxy configuration...${NC}"
+PROXY_CONFIG=$(docker exec prosaas-nginx nginx -T 2>/dev/null | grep "proxy_pass" || true)
+
+if echo "$PROXY_CONFIG" | grep -q "prosaas-api:5000"; then
+    echo -e "${GREEN}✓ API upstream: prosaas-api:5000${NC}"
+else
+    echo -e "${RED}✗ API upstream NOT pointing to prosaas-api:5000${NC}"
+    echo "Current config:"
+    echo "$PROXY_CONFIG" | grep -i "api"
+fi
+
+if echo "$PROXY_CONFIG" | grep -q "prosaas-calls:5050"; then
+    echo -e "${GREEN}✓ Calls upstream: prosaas-calls:5050${NC}"
+else
+    echo -e "${RED}✗ Calls upstream NOT pointing to prosaas-calls:5050${NC}"
+    echo "Current config:"
+    echo "$PROXY_CONFIG" | grep -i "calls"
 fi
 
 # Summary
@@ -133,11 +162,13 @@ Deployment Complete! 🚀
 
 echo -e "\n${BLUE}Next steps:${NC}"
 echo "1. Check service status: docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
-echo "2. View logs: docker logs prosaas-backend"
-echo "3. Test health endpoint: curl http://localhost/health"
-echo "4. Monitor worker: docker logs prosaas-worker -f"
+echo "2. View API logs: docker logs prosaas-api"
+echo "3. View Calls logs: docker logs prosaas-calls"
+echo "4. Test health endpoint: curl http://localhost/health"
+echo "5. Monitor worker: docker logs prosaas-worker -f"
 
-echo -e "\n${YELLOW}Note: If you see 'host not found' errors, check that:"
-echo "  - Service names in docker-compose.prod.yml match actual running services"
-echo "  - NGINX build args (API_UPSTREAM, CALLS_UPSTREAM) point to correct services"
-echo "  - Run 'docker compose ps' to see actual service names${NC}"
+echo -e "\n${YELLOW}Important: If you STILL see 'host not found' errors:${NC}"
+echo "  1. Verify services are running: docker compose ps"
+echo "  2. Check nginx sees correct upstreams: docker exec prosaas-nginx nginx -T | grep proxy_pass"
+echo "  3. If upstreams are wrong, rebuild nginx: docker compose build --no-cache nginx"
+echo "  4. Then recreate: docker compose up -d --force-recreate nginx"
