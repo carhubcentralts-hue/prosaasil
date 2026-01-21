@@ -96,8 +96,9 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     try {
       await onSave(fields);
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'שגיאה בשמירת שדות החתימה');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'שגיאה בשמירת שדות החתימה';
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -153,7 +154,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
 
       if (width > MIN_FIELD_SIZE && height > MIN_FIELD_SIZE) {
         const newField: SignatureField = {
-          id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
           page: currentPage,
           x: Math.min(currentRect.startX, currentRect.endX),
           y: Math.min(currentRect.startY, currentRect.endY),

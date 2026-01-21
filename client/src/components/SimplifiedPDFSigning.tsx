@@ -186,9 +186,10 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
         signature_type: 'embedded',
         signature_count: result.signature_count,
       });
-    } catch (err: any) {
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'שגיאה בחתימה על המסמך';
       console.error('Error signing document:', err);
-      onError(err.message || 'שגיאה בחתימה על המסמך');
+      onError(errorMessage);
     } finally {
       setSigning(false);
     }
