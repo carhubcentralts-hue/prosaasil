@@ -5,6 +5,10 @@ Implements echo functionality to verify bidirectional WebSocket communication
 import json
 import base64
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class EchoModeHandler:
     """Echo handler for testing Twilio Media Streams connectivity"""
@@ -16,10 +20,10 @@ class EchoModeHandler:
         
     def run(self):
         """Main echo loop - returns received audio frames immediately"""
-        print(f"ECHO_MODE_STARTED enabled={self.echo_enabled}")
+        logger.info(f"ECHO_MODE_STARTED enabled={self.echo_enabled}")
         
         if not self.echo_enabled:
-            print("Echo mode disabled - use ECHO_TEST=1 to enable")
+            logger.info("Echo mode disabled - use ECHO_TEST=1 to enable")
             return
             
         try:
@@ -33,7 +37,7 @@ class EchoModeHandler:
                 
                 if event_type == "start":
                     self.stream_sid = evt["start"]["streamSid"]
-                    print(f"ECHO_STREAM_STARTED sid={self.stream_sid}")
+                    logger.info(f"ECHO_STREAM_STARTED sid={self.stream_sid}")
                     continue
                     
                 elif event_type == "media":
@@ -46,11 +50,11 @@ class EchoModeHandler:
                             "media": {"payload": b64_payload}
                         }
                         self.ws.send(json.dumps(echo_frame))
-                        print("ECHO_FRAME_SENT")
+                        logger.info("ECHO_FRAME_SENT")
                         
                 elif event_type == "stop":
-                    print("ECHO_STREAM_STOPPED")
+                    logger.info("ECHO_STREAM_STOPPED")
                     break
                     
         except Exception as e:
-            print(f"ECHO_ERROR: {e}")
+            logger.error(f"ECHO_ERROR: {e}")

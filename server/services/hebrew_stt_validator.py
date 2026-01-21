@@ -15,6 +15,10 @@ import math
 import re
 from typing import Set, Tuple, Optional
 from functools import lru_cache
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Hebrew character classes
 HEBREW_LETTERS = set('אבגדהוזחטיכלמנסעפצקרשתךםןףץ')
@@ -53,7 +57,7 @@ def load_hebrew_lexicon() -> Tuple[Set[str], Set[str], Set[str]]:
                             if alias:
                                 cities.add(alias.lower())
     except Exception as e:
-        print(f"[STT_VALIDATOR] Warning: Could not load cities: {e}")
+        logger.warning(f"[STT_VALIDATOR] Warning: Could not load cities: {e}")
     
     # Load names
     try:
@@ -69,7 +73,7 @@ def load_hebrew_lexicon() -> Tuple[Set[str], Set[str], Set[str]]:
                         if canonical:
                             names.add(canonical.lower())
     except Exception as e:
-        print(f"[STT_VALIDATOR] Warning: Could not load names: {e}")
+        logger.warning(f"[STT_VALIDATOR] Warning: Could not load names: {e}")
     
     # Load surnames
     try:
@@ -85,7 +89,7 @@ def load_hebrew_lexicon() -> Tuple[Set[str], Set[str], Set[str]]:
                         if canonical:
                             names.add(canonical.lower())
     except Exception as e:
-        print(f"[STT_VALIDATOR] Warning: Could not load surnames: {e}")
+        logger.warning(f"[STT_VALIDATOR] Warning: Could not load surnames: {e}")
     
     # Common Hebrew words (greetings, responses, numbers, etc.)
     # These are universal Hebrew words, not business-specific
@@ -362,7 +366,7 @@ def validate_stt_output(text: str, min_confidence: float = 0.5) -> Tuple[bool, s
     is_gib, gib_reason, confidence = is_gibberish(text_stripped)
     
     if is_gib and confidence >= min_confidence:
-        print(f"[STT_VALIDATOR] Rejected gibberish: '{text_stripped}' | Reason: {gib_reason} | Confidence: {confidence:.0%}")
+        logger.info(f"[STT_VALIDATOR] Rejected gibberish: '{text_stripped}' | Reason: {gib_reason} | Confidence: {confidence:.0%}")
         return False, f"gibberish: {gib_reason}", None
     
     return True, "valid", text_stripped

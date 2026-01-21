@@ -7,6 +7,10 @@ import requests
 import sys
 import os
 from typing import List, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Color codes for terminal output
 RED = '\033[91m'
@@ -64,10 +68,10 @@ def run_smoke_tests(base_url: str = None) -> bool:
     # Remove trailing slash
     base_url = base_url.rstrip('/')
     
-    print(f"\n{BLUE}═══════════════════════════════════════════════════════════{RESET}")
-    print(f"{BLUE}API Smoke Test - Production Readiness Check{RESET}")
-    print(f"{BLUE}Testing: {base_url}{RESET}")
-    print(f"{BLUE}═══════════════════════════════════════════════════════════{RESET}\n")
+    logger.info(f"\n{BLUE}═══════════════════════════════════════════════════════════{RESET}")
+    logger.info(f"{BLUE}API Smoke Test - Production Readiness Check{RESET}")
+    logger.info(f"{BLUE}Testing: {base_url}{RESET}")
+    logger.info(f"{BLUE}═══════════════════════════════════════════════════════════{RESET}\n")
     
     # Define all critical endpoints to test
     # Format: (path, expected_status_codes, display_name)
@@ -120,27 +124,27 @@ def run_smoke_tests(base_url: str = None) -> bool:
     for path, expected_codes, name in tests:
         success, message = test_endpoint(base_url, path, expected_codes, name)
         results.append((success, message))
-        print(message)
+        logger.info(message)
     
     # Summary
     passed = sum(1 for success, _ in results if success)
     total = len(results)
     failed = total - passed
     
-    print(f"\n{BLUE}═══════════════════════════════════════════════════════════{RESET}")
-    print(f"{BLUE}Results: {passed}/{total} tests passed{RESET}")
+    logger.info(f"\n{BLUE}═══════════════════════════════════════════════════════════{RESET}")
+    logger.info(f"{BLUE}Results: {passed}/{total} tests passed{RESET}")
     
     if failed > 0:
-        print(f"{RED}Failed: {failed} endpoints returning 404 or errors{RESET}")
-        print(f"{RED}❌ SMOKE TEST FAILED - NOT PRODUCTION READY{RESET}")
-        print(f"\n{YELLOW}Common fixes:{RESET}")
-        print(f"  1. Check nginx.conf has trailing slashes: location /api/ {{ proxy_pass http://backend:5000/api/; }}")
-        print(f"  2. Verify all blueprints are registered in server/app_factory.py")
-        print(f"  3. Restart nginx and backend containers")
+        logger.error(f"{RED}Failed: {failed} endpoints returning 404 or errors{RESET}")
+        logger.error(f"{RED}❌ SMOKE TEST FAILED - NOT PRODUCTION READY{RESET}")
+        logger.info(f"\n{YELLOW}Common fixes:{RESET}")
+        logger.info(f"  1. Check nginx.conf has trailing slashes: location /api/ {{ proxy_pass http://backend:5000/api/; }}")
+        logger.info(f"  2. Verify all blueprints are registered in server/app_factory.py")
+        logger.info(f"  3. Restart nginx and backend containers")
     else:
-        print(f"{GREEN}✅ ALL TESTS PASSED - PRODUCTION READY{RESET}")
+        logger.info(f"{GREEN}✅ ALL TESTS PASSED - PRODUCTION READY{RESET}")
     
-    print(f"{BLUE}═══════════════════════════════════════════════════════════{RESET}\n")
+    logger.info(f"{BLUE}═══════════════════════════════════════════════════════════{RESET}\n")
     
     return failed == 0
 

@@ -5,6 +5,10 @@ Time Parser - ניתוח זמנים ותאריכים מעברית
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     """
@@ -23,7 +27,7 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     now = datetime.now()
     
     # ✅ DEBUG: הדפס מה אנחנו מנתחים
-    print(f"🔍 TIME_PARSER: Analyzing text: '{text[:100]}...'")
+    logger.info(f"🔍 TIME_PARSER: Analyzing text: '{text[:100]}...'")
     
     # ✅ 🚨 CRITICAL: סינון סירובים - אם המשתמש אמר "לא", אין פגישה!
     rejection_phrases = [
@@ -36,7 +40,7 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     # בדוק אם יש סירוב בטקסט
     for rejection in rejection_phrases:
         if rejection in text_lower:
-            print(f"🚫 TIME_PARSER: REJECTION detected - '{rejection}' found in text. NO MEETING!")
+            logger.info(f"🚫 TIME_PARSER: REJECTION detected - '{rejection}' found in text. NO MEETING!")
             return None
     
     # ✅ ניתוח תאריך (יחסי)
@@ -159,7 +163,7 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
     
     # ✅ DEBUG: הדפס מה מצאנו
-    print(f"✅ TIME_PARSER: Parsed meeting time: {meeting_time.strftime('%Y-%m-%d %H:%M')} (end: {end_time.strftime('%H:%M')})")
+    logger.info(f"✅ TIME_PARSER: Parsed meeting time: {meeting_time.strftime('%Y-%m-%d %H:%M')} (end: {end_time.strftime('%H:%M')})")
     
     return (meeting_time, end_time)
 
@@ -190,7 +194,7 @@ def get_meeting_time_from_conversation(conversation_history: list) -> Optional[T
         
         for rejection in strong_rejections:
             if rejection in last_user_text:
-                print(f"🚫 CONVERSATION: Last turn is REJECTION - '{rejection}'. NO MEETING!")
+                logger.info(f"🚫 CONVERSATION: Last turn is REJECTION - '{rejection}'. NO MEETING!")
                 return None
     
     # בדוק את התורות האחרונים (5 תורות אחרונים) - שם בדרך כלל נקבע זמן
@@ -215,14 +219,14 @@ def get_meeting_time_from_conversation(conversation_history: list) -> Optional[T
         if user_text:
             result = parse_hebrew_time(user_text)
             if result:
-                print(f"✅ Found meeting time in USER text: {result[0]}")
+                logger.info(f"✅ Found meeting time in USER text: {result[0]}")
                 return result
         
         # אם יש אישור מהבוט, נסה לנתח את תגובת הבוט
         if bot_confirmed:
             result = parse_hebrew_time(bot_text)
             if result:
-                print(f"✅ Found meeting time in BOT confirmation: {result[0]}")
+                logger.info(f"✅ Found meeting time in BOT confirmation: {result[0]}")
                 return result
     
     # אם לא נמצא זמן מוסכם, נסה בכל השיחה

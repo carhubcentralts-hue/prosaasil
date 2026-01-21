@@ -70,20 +70,20 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
         auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
         
         if not account_sid or not auth_token:
-            print(f"❌ [REC_START] Missing Twilio credentials call_sid={call_sid}")
+            logger.error(f"❌ [REC_START] Missing Twilio credentials call_sid={call_sid}")
             logger.error(f"[REC_START] Missing Twilio credentials call_sid={call_sid}")
             return
         
         # Get host for callback URL
         public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
         if not public_host:
-            print(f"⚠️ [REC_START] PUBLIC_HOST not set, using fallback call_sid={call_sid}")
+            logger.warning(f"⚠️ [REC_START] PUBLIC_HOST not set, using fallback call_sid={call_sid}")
             logger.warning(f"[REC_START] PUBLIC_HOST not set call_sid={call_sid}")
             # We still need to try - use a reasonable fallback
             public_host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
         
         if not public_host:
-            print(f"❌ [REC_START] No host available for callback URL call_sid={call_sid}")
+            logger.error(f"❌ [REC_START] No host available for callback URL call_sid={call_sid}")
             logger.error(f"[REC_START] No host available for callback URL call_sid={call_sid}")
             return
         
@@ -94,7 +94,7 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
         # Recording will continue until call ends
         recording_callback_url = f"https://{public_host}/webhook/recording_status"
         
-        print(f"🎙️ [REC_START] call_sid={call_sid} ts={start_timestamp:.2f}")
+        logger.info(f"🎙️ [REC_START] call_sid={call_sid} ts={start_timestamp:.2f}")
         logger.info(f"[REC_START] call_sid={call_sid} ts={start_timestamp:.2f} callback={recording_callback_url}")
         
         try:
@@ -105,7 +105,7 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
             )
             
             elapsed_ms = int((time.time() - start_timestamp) * 1000)
-            print(f"✅ [REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
+            logger.info(f"✅ [REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
             logger.info(f"[REC_START] SUCCESS call_sid={call_sid} recording_sid={recording.sid} elapsed={elapsed_ms}ms")
             
             # Save recording_sid to CallLog immediately + set recording_mode
@@ -122,20 +122,20 @@ def _start_recording_from_second_zero(call_sid, from_number="", to_number=""):
                         # 💰 COST METRIC: Increment recording count
                         call_log.recording_count = (call_log.recording_count or 0) + 1
                         db.session.commit()
-                        print(f"✅ [REC_START] Saved recording_sid={recording.sid}, mode=RECORDING_API, count={call_log.recording_count} to CallLog")
+                        logger.info(f"✅ [REC_START] Saved recording_sid={recording.sid}, mode=RECORDING_API, count={call_log.recording_count} to CallLog")
                     else:
-                        print(f"⚠️ [REC_START] CallLog not found call_sid={call_sid}")
+                        logger.warning(f"⚠️ [REC_START] CallLog not found call_sid={call_sid}")
             except Exception as e:
-                print(f"⚠️ [REC_START] Failed to save recording_sid: {e}")
+                logger.error(f"⚠️ [REC_START] Failed to save recording_sid: {e}")
                 logger.warning(f"[REC_START] Failed to save recording_sid call_sid={call_sid}: {e}")
                 
         except Exception as e:
             elapsed_ms = int((time.time() - start_timestamp) * 1000)
-            print(f"❌ [REC_START] FAILED call_sid={call_sid} elapsed={elapsed_ms}ms error={e}")
+            logger.error(f"❌ [REC_START] FAILED call_sid={call_sid} elapsed={elapsed_ms}ms error={e}")
             logger.error(f"[REC_START] FAILED call_sid={call_sid} elapsed={elapsed_ms}ms error={e}")
             
     except Exception as e:
-        print(f"❌ [REC_START] CRITICAL_ERROR call_sid={call_sid} error={e}")
+        logger.error(f"❌ [REC_START] CRITICAL_ERROR call_sid={call_sid} error={e}")
         logger.error(f"[REC_START] CRITICAL_ERROR call_sid={call_sid} error={e}")
 
 def _trigger_recording_for_call(call_sid):
@@ -146,7 +146,7 @@ def _trigger_recording_for_call(call_sid):
         auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
         
         if not account_sid or not auth_token:
-            print(f"❌ Missing Twilio credentials for recording {call_sid}")
+            logger.error(f"❌ Missing Twilio credentials for recording {call_sid}")
             return
             
         from twilio.rest import Client
@@ -159,7 +159,7 @@ def _trigger_recording_for_call(call_sid):
             if recordings:
                 # נמצאו הקלטות - נעבד אותן
                 for recording in recordings:
-                    print(f"✅ Found existing recording for {call_sid}: {recording.uri}")
+                    logger.info(f"✅ Found existing recording for {call_sid}: {recording.uri}")
                     
                     # ✅ CRITICAL FIX: Save recording_url to CallLog IMMEDIATELY
                     # This ensures the worker can access the recording
@@ -172,11 +172,11 @@ def _trigger_recording_for_call(call_sid):
                             if call_log:
                                 call_log.recording_url = recording.uri
                                 db.session.commit()
-                                print(f"✅ Saved recording_url to CallLog for {call_sid}: {recording.uri}")
+                                logger.info(f"✅ Saved recording_url to CallLog for {call_sid}: {recording.uri}")
                             else:
-                                print(f"⚠️ CallLog not found for {call_sid}, recording_url not saved")
+                                logger.warning(f"⚠️ CallLog not found for {call_sid}, recording_url not saved")
                     except Exception as e:
-                        print(f"⚠️ Failed to save recording_url to CallLog: {e}")
+                        logger.error(f"⚠️ Failed to save recording_url to CallLog: {e}")
                     
                     # קבל פרטי השיחה למספרי טלפון
                     from_num = ''
@@ -186,7 +186,7 @@ def _trigger_recording_for_call(call_sid):
                         from_num = getattr(call, 'from_', '') or str(getattr(call, 'from_formatted', '') or '')
                         to_num = getattr(call, 'to', '') or str(getattr(call, 'to_formatted', '') or '')
                     except Exception as e:
-                        print(f"⚠️ Could not get call details: {e}")
+                        logger.warning(f"⚠️ Could not get call details: {e}")
                     
                     # בנה form data כמו webhook של Twilio
                     # ✅ FIX: Use recording.uri as-is (יחסי, מסתיים ב-.json)
@@ -202,11 +202,11 @@ def _trigger_recording_for_call(call_sid):
                     
                     # שלח לעיבוד
                     enqueue_recording(form_data)
-                    print(f"✅ Recording queued for processing: {call_sid}")
+                    logger.info(f"✅ Recording queued for processing: {call_sid}")
                     return
                     
         except Exception as e:
-            print(f"⚠️ Error checking recordings for {call_sid}: {e}")
+            logger.error(f"⚠️ Error checking recordings for {call_sid}: {e}")
         
         # אם אין הקלטות, נסה לעדכן השיחה לכלול Record (אם עדיין פעילה)
         try:
@@ -218,24 +218,24 @@ def _trigger_recording_for_call(call_sid):
                 public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
                 host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
                 if not host:
-                    print("❌ PUBLIC_HOST not configured - cannot update call to Record")
+                    logger.error("❌ PUBLIC_HOST not configured - cannot update call to Record")
                     return
                 # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
                 record_twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Record playBeep="false" timeout="30" maxLength="300" transcribe="false" action="https://{host}/webhook/handle_recording"/></Response>'
                 
                 try:
                     client.calls(call_sid).update(twiml=record_twiml)
-                    print(f"✅ Updated call {call_sid} to Record TwiML")
+                    logger.info(f"✅ Updated call {call_sid} to Record TwiML")
                 except Exception as e:
-                    print(f"⚠️ Could not update call {call_sid} (may have ended): {e}")
+                    logger.warning(f"⚠️ Could not update call {call_sid} (may have ended): {e}")
             else:
-                print(f"ℹ️ Call {call_sid} ended without recording (status: {call.status})")
+                logger.info(f"ℹ️ Call {call_sid} ended without recording (status: {call.status})")
                 
         except Exception as e:
-            print(f"⚠️ Error updating call {call_sid}: {e}")
+            logger.error(f"⚠️ Error updating call {call_sid}: {e}")
             
     except Exception as e:
-        print(f"❌ Failed to trigger recording for {call_sid}: {e}")
+        logger.error(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
 def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=None):
     """
@@ -247,7 +247,7 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
     
     # ✅ BUILD 152: to_number יקבע דינמית לפי עסק פעיל (אם חסר)
     
-    print(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
+    logger.info(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
     
     try:
         # 🔥 Get app WITHOUT creating new instance
@@ -256,7 +256,7 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
             from server.models_sql import CallLog, Business, Lead
             from server.db import db
             
-            print(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
+            logger.info(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
             
             # ✅ BUILD 100 FIX: זיהוי business לפי to_number - שימוש ב-phone_e164
             if not business_id:
@@ -271,15 +271,15 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                     ).first()
                     if biz:
                         business_id = biz.id
-                        print(f"✅ Thread resolved business_id={business_id} from to_number={to_number} (Business: {biz.name})")
+                        logger.info(f"✅ Thread resolved business_id={business_id} from to_number={to_number} (Business: {biz.name})")
                 
                 if not business_id:
                     biz = Business.query.filter_by(is_active=True).first()
                     if biz:
                         business_id = biz.id
-                        print(f"⚠️ Thread using fallback active business_id={business_id}")
+                        logger.warning(f"⚠️ Thread using fallback active business_id={business_id}")
                     else:
-                        print(f"❌ No business found for call {call_sid} - skipping lead creation")
+                        logger.error(f"❌ No business found for call {call_sid} - skipping lead creation")
                         return  # Don't create leads without valid business
             
             # ✅ שלב 1: עדכן call_log (אם כבר נוצר ב-incoming_call) עם customer_id
@@ -297,10 +297,10 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                     transcription="",
                     conversation_data={}
                 )
-                print(f"✅ CustomerIntelligence SUCCESS: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}, was_created={was_created}")
+                logger.info(f"✅ CustomerIntelligence SUCCESS: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}, was_created={was_created}")
                 logger.info(f"✅ LEAD_CREATED: business_id={business_id}, lead_id={lead.id if lead else None}, phone={from_number}")
             except Exception as e:
-                print(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
+                logger.error(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
                 logger.warning(f"CustomerIntelligence failed for call {call_sid}: {e}")
             
             # ✅ שלב 3: עדכן call_log עם customer_id + lead_id (אם נוצר)
@@ -318,7 +318,7 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                         parts.append(f"customer_id={customer.id}")
                     if lead:
                         parts.append(f"lead_id={lead.id}")
-                    print(f"✅ Updated call_log with {', '.join(parts) if parts else 'status only'}")
+                    logger.info(f"✅ Updated call_log with {', '.join(parts) if parts else 'status only'}")
             
             # ✅ שלב 4: fallback lead אם CustomerIntelligence נכשל
             # 🚨 CRITICAL: ALWAYS create lead if missing (user demand!)
@@ -332,7 +332,7 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                     
                     if existing_lead:
                         lead = existing_lead
-                        print(f"✅ Found existing lead ID={lead.id}")
+                        logger.info(f"✅ Found existing lead ID={lead.id}")
                         logger.info(f"✅ LEAD_FOUND: lead_id={lead.id}, phone={from_number}")
                     else:
                         lead = Lead()
@@ -344,24 +344,24 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                         lead.notes = f"שיחה נכנסת - {call_sid}"
                         db.session.add(lead)
                         db.session.commit()
-                        print(f"✅ CREATED FALLBACK LEAD ID={lead.id} for phone={from_number}")
+                        logger.info(f"✅ CREATED FALLBACK LEAD ID={lead.id} for phone={from_number}")
                         logger.info(f"✅ LEAD_CREATED_FALLBACK: lead_id={lead.id}, phone={from_number}, business_id={business_id}")
                     
                     # 🔥 FIX: Update call_log with lead_id for name resolution
                     if call_log and lead:
                         call_log.lead_id = lead.id
                         db.session.commit()
-                        print(f"✅ Updated call_log with lead_id={lead.id}")
+                        logger.info(f"✅ Updated call_log with lead_id={lead.id}")
                         
                 except Exception as e:
-                    print(f"❌ Fallback lead creation FAILED: {e}")
+                    logger.error(f"❌ Fallback lead creation FAILED: {e}")
                     logger.error(f"Fallback lead creation failed for {call_sid}: {e}")
                     import traceback
                     traceback.print_exc()
                     db.session.rollback()
         
     except Exception as e:
-        print(f"❌ CRITICAL: Thread failed for {call_sid}: {e}")
+        logger.error(f"❌ CRITICAL: Thread failed for {call_sid}: {e}")
         import traceback
         traceback.print_exc()
 
@@ -659,13 +659,13 @@ def incoming_call():
     logger.info(f"[GREETING_PROFILER] incoming_call TwiML ready in {twiml_ms}ms")
     
     status_emoji = "✅" if twiml_ms < twiml_threshold_ms else "⚠️"
-    print(f"{status_emoji} incoming_call: {twiml_ms}ms - {call_sid[:16]}")
+    logger.info(f"{status_emoji} incoming_call: {twiml_ms}ms - {call_sid[:16]}")
     
     # 🔥 DEBUG: Log exact TwiML being sent
     twiml_str = str(vr)
-    print(f"🔥 TWIML_HOST={host}")
-    print(f"🔥 TWIML_WS=wss://{host}/ws/twilio-media")
-    print(f"🔥 TWIML_FULL={twiml_str[:500]}")
+    logger.info(f"🔥 TWIML_HOST={host}")
+    logger.info(f"🔥 TWIML_WS=wss://{host}/ws/twilio-media")
+    logger.info(f"🔥 TWIML_FULL={twiml_str[:500]}")
     
     return _twiml(vr)
 
@@ -733,7 +733,7 @@ def outbound_call():
     vr = VoiceResponse()
     
     # 🎧 BUILD: Echo prevention for outbound calls
-    print(f"[CALL_SETUP] Outbound call - ai_only mode")
+    logger.info(f"[CALL_SETUP] Outbound call - ai_only mode")
     
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
@@ -842,7 +842,7 @@ def stream_ended():
         
         # Log for debugging
         if not call_sid:
-            print(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
+            logger.warning(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
         
         # 🔥 VERIFICATION #1: Close handler from webhook
         if call_sid:
@@ -855,7 +855,7 @@ def stream_ended():
         
         # 🎧 CRITICAL LOG: Recording starts AFTER stream ends (after AI greeting finished)
         if call_sid:
-            print(f"[RECORDING] Stream ended → safe to start recording for {call_sid}")
+            logger.info(f"[RECORDING] Stream ended → safe to start recording for {call_sid}")
             threading.Thread(
                 target=_trigger_recording_for_call, 
                 args=(call_sid,), 
@@ -864,7 +864,7 @@ def stream_ended():
             
         try:
             status = request.form.get('Status', 'N/A')
-            print(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
+            logger.info(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
         except:
             pass
             
@@ -872,7 +872,7 @@ def stream_ended():
     except Exception as e:
         # 🔥 CRITICAL: Always return 200 even on error to prevent Twilio "application error"
         current_app.logger.exception(f"[STREAM_ENDED] Error processing webhook: {e}")
-        print(f"⚠️ [STREAM_ENDED] Exception in webhook handler: {e}", flush=True)
+        logger.error(f"⚠️ [STREAM_ENDED] Exception in webhook handler: {e}", flush=True)
         resp = make_response("", 200)
         resp.headers["Cache-Control"] = "no-store"
         return resp
@@ -918,16 +918,16 @@ def handle_recording():
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if not call_log:
                 # Self-heal: צור fallback call_log
-                print(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
+                logger.warning(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
                 # ✅ BUILD 155: שימוש בעסק פעיל ראשון + טלפון דינמי (אין fallback ל-1)
                 from server.models_sql import Business
                 biz = Business.query.filter_by(is_active=True).first()
                 if not biz:
-                    print(f"❌ No active business - cannot create fallback call_log")
+                    logger.error(f"❌ No active business - cannot create fallback call_log")
                     return resp  # Return without creating orphan record
                 biz_id = biz.id
                 biz_phone = biz.phone_e164 or "unknown"
-                print(f"📊 handle_recording fallback: business_id={biz_id}")
+                logger.info(f"📊 handle_recording fallback: business_id={biz_id}")
                 
                 # 🔥 NEW: Normalize direction when creating fallback
                 normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
@@ -969,12 +969,12 @@ def handle_recording():
                 call_log.recording_url = rec_url
             if rec_sid:
                 call_log.recording_sid = rec_sid
-                print(f"✅ handle_recording: Saved recording_sid {rec_sid} for {call_sid}")
+                logger.info(f"✅ handle_recording: Saved recording_sid {rec_sid} for {call_sid}")
             
             db.session.commit()
-            print(f"✅ handle_recording: Updated call_log for {call_sid} (direction={call_log.direction}, parent={parent_call_sid})")
+            logger.info(f"✅ handle_recording: Updated call_log for {call_sid} (direction={call_log.direction}, parent={parent_call_sid})")
         except Exception as e:
-            print(f"⚠️ handle_recording DB error: {e}")
+            logger.error(f"⚠️ handle_recording DB error: {e}")
             db.session.rollback()
     
     # TRUE non-blocking background processing with daemon thread
@@ -987,9 +987,9 @@ def handle_recording():
                 """Background thread for recording processing"""
                 try:
                     enqueue_recording(form_copy)
-                    print(f"✅ REC_QUEUED_ASYNC: {call_sid[:16]} duration={rec_duration}")
+                    logger.info(f"✅ REC_QUEUED_ASYNC: {call_sid[:16]} duration={rec_duration}")
                 except Exception as e:
-                    print(f"❌ REC_QUEUE_ASYNC_FAIL: {call_sid[:16]} error={type(e).__name__}: {e}")
+                    logger.error(f"❌ REC_QUEUE_ASYNC_FAIL: {call_sid[:16]} error={type(e).__name__}: {e}")
             
             # Fire daemon thread and return immediately (non-blocking)
             threading.Thread(target=async_enqueue, daemon=True).start()
@@ -1052,12 +1052,12 @@ def recording_status():
     from_number = request.form.get("From", "")
     to_number = request.form.get("To", "")
     
-    print(f"🎙️ [REC_CB] recording_sid={recording_sid} call_sid={call_sid} status={recording_status_value} duration={recording_duration}s")
+    logger.info(f"🎙️ [REC_CB] recording_sid={recording_sid} call_sid={call_sid} status={recording_status_value} duration={recording_duration}s")
     logger.info(f"[REC_CB] recording_sid={recording_sid} call_sid={call_sid} status={recording_status_value} duration={recording_duration}s")
     
     # Only process completed recordings
     if recording_status_value == "completed":
-        print(f"✅ [REC_CB] COMPLETED call_sid={call_sid} recording_sid={recording_sid} duration={recording_duration}s")
+        logger.info(f"✅ [REC_CB] COMPLETED call_sid={call_sid} recording_sid={recording_sid} duration={recording_duration}s")
         
         # Update CallLog with recording information
         if call_sid:
@@ -1080,7 +1080,7 @@ def recording_status():
                             pass
                     
                     db.session.commit()
-                    print(f"✅ [REC_CB] Updated CallLog: recording_url saved, status=recorded, duration={recording_duration}s")
+                    logger.info(f"✅ [REC_CB] Updated CallLog: recording_url saved, status=recorded, duration={recording_duration}s")
                     logger.info(f"[REC_CB] Updated CallLog call_sid={call_sid} duration={recording_duration}s")
                     
                     # 🔥 CRITICAL: Trigger transcription job
@@ -1100,27 +1100,27 @@ def recording_status():
                             retry_count=0
                         )
                         
-                        print(f"✅ [REC_CB] Transcription job enqueued call_sid={call_sid}")
+                        logger.info(f"✅ [REC_CB] Transcription job enqueued call_sid={call_sid}")
                         logger.info(f"[REC_CB] Transcription job enqueued call_sid={call_sid}")
                         
                     except Exception as e:
-                        print(f"⚠️ [REC_CB] Failed to enqueue transcription: {e}")
+                        logger.error(f"⚠️ [REC_CB] Failed to enqueue transcription: {e}")
                         logger.error(f"[REC_CB] Failed to enqueue transcription call_sid={call_sid}: {e}")
                     
                 else:
-                    print(f"⚠️ [REC_CB] CallLog not found call_sid={call_sid}")
+                    logger.warning(f"⚠️ [REC_CB] CallLog not found call_sid={call_sid}")
                     logger.warning(f"[REC_CB] CallLog not found call_sid={call_sid}")
                     
             except Exception as e:
-                print(f"❌ [REC_CB] Database error: {e}")
+                logger.error(f"❌ [REC_CB] Database error: {e}")
                 logger.error(f"[REC_CB] Database error call_sid={call_sid}: {e}")
                 db.session.rollback()
         else:
-            print(f"⚠️ [REC_CB] No CallSid in webhook")
+            logger.warning(f"⚠️ [REC_CB] No CallSid in webhook")
             logger.warning(f"[REC_CB] No CallSid in recording_status webhook")
     
     else:
-        print(f"ℹ️ [REC_CB] Status '{recording_status_value}' call_sid={call_sid} - waiting for completion")
+        logger.info(f"ℹ️ [REC_CB] Status '{recording_status_value}' call_sid={call_sid} - waiting for completion")
         logger.info(f"[REC_CB] Non-completed status '{recording_status_value}' call_sid={call_sid}")
     
     processing_ms = int((time.time() - start_time) * 1000)
@@ -1148,7 +1148,7 @@ def stream_status():
         from_number = request.form.get('From', 'unknown')
         to_number = request.form.get('To', 'unknown')
         
-        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event} direction={twilio_direction}")
+        logger.info(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event} direction={twilio_direction}")
         
         # ✅ BUILD 89: עדכן או צור call_log
         if call_sid and call_sid != 'N/A':
@@ -1158,16 +1158,16 @@ def stream_status():
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if not call_log:
                     # Self-heal: צור fallback call_log
-                    print(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
+                    logger.warning(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
                     # ✅ BUILD 155: שימוש בעסק פעיל ראשון + טלפון דינמי (אין fallback ל-1)
                     from server.models_sql import Business
                     biz = Business.query.filter_by(is_active=True).first()
                     if not biz:
-                        print(f"❌ No active business - cannot create fallback call_log")
+                        logger.error(f"❌ No active business - cannot create fallback call_log")
                         return make_response("", 200)  # Return without creating orphan record
                     biz_id = biz.id
                     biz_phone = biz.phone_e164 or "unknown"
-                    print(f"📊 stream_status fallback: business_id={biz_id}")
+                    logger.info(f"📊 stream_status fallback: business_id={biz_id}")
                     
                     # 🔥 NEW: Normalize direction when creating fallback
                     normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
@@ -1206,9 +1206,9 @@ def stream_status():
                         call_log.to_number = to_number
                 
                 db.session.commit()
-                print(f"✅ stream_status: Updated call_log for {call_sid}")
+                logger.info(f"✅ stream_status: Updated call_log for {call_sid}")
             except Exception as e:
-                print(f"⚠️ stream_status DB error: {e}")
+                logger.error(f"⚠️ stream_status DB error: {e}")
                 db.session.rollback()
         
         # החזרה מיידית
@@ -1217,7 +1217,7 @@ def stream_status():
         return resp
         
     except Exception as e:
-        print(f"❌ stream_status error: {e}")
+        logger.error(f"❌ stream_status error: {e}")
         import traceback
         traceback.print_exc()
         return make_response("", 200)
@@ -1333,7 +1333,7 @@ def call_status():
             if call_sid:
                 session = stream_registry.get(call_sid)
                 if session:
-                    print(f"🛑 [CALL_STATUS] Call {call_status_val} - triggering WebSocket close for {call_sid}")
+                    logger.info(f"🛑 [CALL_STATUS] Call {call_status_val} - triggering WebSocket close for {call_sid}")
                     # Mark session as ended to trigger cleanup
                     session['ended'] = True
                     session['end_reason'] = f'call_status_{call_status_val}'

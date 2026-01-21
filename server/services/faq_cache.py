@@ -14,6 +14,10 @@ import json
 from typing import Dict, List, Optional, Tuple
 from openai import OpenAI
 from server.models_sql import FAQ, db
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # ENV-based configuration
 FAQ_CACHE_TTL_SECONDS = int(os.getenv("FAQ_CACHE_TTL_SEC", "120"))
@@ -92,7 +96,7 @@ class FAQCache:
         )
         embeddings = np.array([item.embedding for item in response.data])
         elapsed = (time.time() - start) * 1000
-        print(f"🔢 Generated {len(texts)} embeddings in {elapsed:.0f}ms")
+        logger.info(f"🔢 Generated {len(texts)} embeddings in {elapsed:.0f}ms")
         return embeddings
     
     def _load_business_faqs(self, business_id: int) -> Tuple[List[Dict], np.ndarray]:
@@ -100,7 +104,7 @@ class FAQCache:
         faqs = FAQ.query.filter_by(business_id=business_id, is_active=True).order_by(FAQ.order_index.asc().nullsfirst()).all()
         
         if not faqs:
-            print(f"📭 No FAQs found for business {business_id}")
+            logger.info(f"📭 No FAQs found for business {business_id}")
             return [], np.array([])
         
         faq_data = [
@@ -123,12 +127,12 @@ class FAQCache:
             try:
                 questions = [faq.question for faq in faqs]
                 embeddings = self._generate_embeddings(questions)
-                print(f"✅ Loaded {len(faq_data)} FAQs with embeddings for business {business_id}")
+                logger.info(f"✅ Loaded {len(faq_data)} FAQs with embeddings for business {business_id}")
             except Exception as e:
-                print(f"⚠️ Embeddings failed for business {business_id}: {e}")
-                print(f"✅ Loaded {len(faq_data)} FAQs (patterns-only mode) for business {business_id}")
+                logger.error(f"⚠️ Embeddings failed for business {business_id}: {e}")
+                logger.info(f"✅ Loaded {len(faq_data)} FAQs (patterns-only mode) for business {business_id}")
         else:
-            print(f"✅ Loaded {len(faq_data)} FAQs (patterns-only mode) for business {business_id}")
+            logger.info(f"✅ Loaded {len(faq_data)} FAQs (patterns-only mode) for business {business_id}")
         
         return faq_data, embeddings
     
@@ -138,13 +142,13 @@ class FAQCache:
             entry = self._cache.get(business_id)
             
             if entry and not entry.is_expired():
-                print(f"♻️  FAQ CACHE HIT for business {business_id}")
+                logger.info(f"♻️  FAQ CACHE HIT for business {business_id}")
                 return entry
             
             if entry:
-                print(f"⏰ FAQ cache EXPIRED for business {business_id}, reloading...")
+                logger.info(f"⏰ FAQ cache EXPIRED for business {business_id}, reloading...")
             else:
-                print(f"🆕 FAQ cache MISS for business {business_id}, loading...")
+                logger.info(f"🆕 FAQ cache MISS for business {business_id}, loading...")
         
         faqs, embeddings = self._load_business_faqs(business_id)
         
@@ -163,9 +167,9 @@ class FAQCache:
         with self._cache_lock:
             if business_id in self._cache:
                 del self._cache[business_id]
-                print(f"🗑️  FAQ cache INVALIDATED for business {business_id}")
+                logger.info(f"🗑️  FAQ cache INVALIDATED for business {business_id}")
             else:
-                print(f"ℹ️  No FAQ cache to invalidate for business {business_id}")
+                logger.info(f"ℹ️  No FAQ cache to invalidate for business {business_id}")
     
     def find_best_match(self, business_id: int, query: str) -> Optional[Dict]:
         """
@@ -180,26 +184,26 @@ class FAQCache:
         
         entry = self.get_or_load(business_id)
         if not entry or len(entry.faqs) == 0:
-            print(f"⚠️ No FAQs available for business {business_id}")
+            logger.warning(f"⚠️ No FAQs available for business {business_id}")
             return None
         
         # 🔥 STEP 1: Check patterns_json (keywords/regex) - PRIORITY!
         query_lower = query.lower().strip()
         query_words = set(query_lower.split())  # Split into words for smart matching
         
-        print(f"🔍 [FAQ DEBUG] Query words: {query_words}")
+        logger.debug(f"🔍 [FAQ DEBUG] Query words: {query_words}")
         
         for idx, faq in enumerate(entry.faqs):
             patterns = faq.get("patterns_json")
             if patterns and isinstance(patterns, list):
-                print(f"  FAQ #{idx} '{faq['question'][:40]}...' has {len(patterns)} patterns")
+                logger.info(f"  FAQ #{idx} '{faq['question'][:40]}...' has {len(patterns)} patterns")
                 for pattern in patterns:
                     pattern_lower = str(pattern).lower().strip()
                     
                     # Method 1: Exact substring match (fast)
                     if pattern_lower in query_lower or query_lower in pattern_lower:
                         elapsed = (time.time() - start) * 1000
-                        print(f"🎯 SUBSTRING MATCH! Pattern '{pattern}' (took {elapsed:.0f}ms)")
+                        logger.info(f"🎯 SUBSTRING MATCH! Pattern '{pattern}' (took {elapsed:.0f}ms)")
                         return {
                             "question": faq["question"],
                             "answer": faq["answer"],
@@ -222,7 +226,7 @@ class FAQCache:
                         matching_keywords = pattern_keywords & query_words
                         if len(matching_keywords) >= 2:  # At least 2 keywords must match
                             elapsed = (time.time() - start) * 1000
-                            print(f"🎯 KEYWORD MATCH! Pattern '{pattern}' matched {len(matching_keywords)}/{len(pattern_keywords)} keywords: {matching_keywords} (took {elapsed:.0f}ms)")
+                            logger.info(f"🎯 KEYWORD MATCH! Pattern '{pattern}' matched {len(matching_keywords)}/{len(pattern_keywords)} keywords: {matching_keywords} (took {elapsed:.0f}ms)")
                             return {
                                 "question": faq["question"],
                                 "answer": faq["answer"],
@@ -234,13 +238,13 @@ class FAQCache:
                                 "score": 0.95  # Slightly lower than exact match
                             }
         
-        print(f"📭 No keyword match found, trying embeddings...")
+        logger.info(f"📭 No keyword match found, trying embeddings...")
         
         # 🔥 STEP 2: Semantic similarity (embeddings) - FALLBACK
         query_embedding = self._generate_embeddings([query])
         
         if query_embedding.size == 0:
-            print("⚠️ Failed to generate query embedding")
+            logger.error("⚠️ Failed to generate query embedding")
             return None
         
         similarities = np.dot(entry.embeddings, query_embedding[0])
@@ -253,15 +257,15 @@ class FAQCache:
         second_best_score = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
         
         elapsed = (time.time() - start) * 1000
-        print(f"🔍 FAQ matching took {elapsed:.0f}ms")
-        print(f"   Best match: score={best_score:.3f}, question='{entry.faqs[best_idx]['question']}'")
+        logger.info(f"🔍 FAQ matching took {elapsed:.0f}ms")
+        logger.info(f"   Best match: score={best_score:.3f}, question='{entry.faqs[best_idx]['question']}'")
         
         if best_score < SIMILARITY_THRESHOLD:
-            print(f"❌ Best score {best_score:.3f} below threshold {SIMILARITY_THRESHOLD}")
+            logger.error(f"❌ Best score {best_score:.3f} below threshold {SIMILARITY_THRESHOLD}")
             return None
         
         if (best_score - second_best_score) < AMBIGUITY_MARGIN:
-            print(f"⚠️ Ambiguous match: best={best_score:.3f}, second={second_best_score:.3f}, margin={best_score - second_best_score:.3f} < {AMBIGUITY_MARGIN}")
+            logger.warning(f"⚠️ Ambiguous match: best={best_score:.3f}, second={second_best_score:.3f}, margin={best_score - second_best_score:.3f} < {AMBIGUITY_MARGIN}")
             return None
         
         matched_faq = entry.faqs[best_idx]

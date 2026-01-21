@@ -161,7 +161,7 @@ class OpenAIRealtimeClient:
         await client.connect()
         await client.send_event({"type": "session.update", ...})
         async for event in client.recv_events():
-            print(event)
+            logger.info(event)
     """
     
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini-realtime-preview"):
@@ -225,7 +225,7 @@ class OpenAIRealtimeClient:
                 )
                 # 🔥 BUILD 331: Clear logging when WebSocket opens
                 logger.debug(f"[REALTIME] Connected (attempt {attempt}/{max_retries})")
-                print(f"🟢 REALTIME_WS_OPEN model={self.model}")
+                logger.info(f"🟢 REALTIME_WS_OPEN model={self.model}")
                 return self.ws
                 
             except Exception as e:
@@ -247,10 +247,10 @@ class OpenAIRealtimeClient:
                 await self.ws.close()
                 logger.debug("✅ WebSocket connection closed cleanly")
                 # 🔥 BUILD 331: Clear logging when WebSocket closes
-                print(f"🔴 REALTIME_WS_CLOSED reason={reason}")
+                logger.info(f"🔴 REALTIME_WS_CLOSED reason={reason}")
             except Exception as e:
                 logger.warning(f"⚠️ Error during disconnect: {e}")
-                print(f"🔴 REALTIME_WS_CLOSED reason=error:{e}")
+                logger.error(f"🔴 REALTIME_WS_CLOSED reason=error:{e}")
             finally:
                 self.ws = None
                 logger.debug("🔌 Disconnected from Realtime API (session destroyed)")
@@ -694,7 +694,7 @@ class OpenAIRealtimeClient:
         # 🔥 BUILD 332: COST ALERT - Warn if session.update exceeds expected baseline
         if self._session_update_count > 2:
             logger.warning(f"⚠️ [COST ALERT] Session update #{self._session_update_count} exceeds expected baseline of 2! Check for prompt regeneration loop!")
-            print(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
+            logger.warning(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
         else:
             logger.debug(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
         

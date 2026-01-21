@@ -517,7 +517,7 @@ def _session_processor_loop():
     it backs off exponentially and recovers automatically when DB returns.
     """
     logger.info("[WHATSAPP_SESSION] processor loop started interval=300s")
-    print("[WHATSAPP_SESSION] 📱 Background processor thread started - checking every 5 minutes")
+    logger.info("[WHATSAPP_SESSION] 📱 Background processor thread started - checking every 5 minutes")
     
     # Wait 60 seconds after startup before first check
     time.sleep(60)
@@ -540,25 +540,31 @@ def _session_processor_loop():
                 # 🔥 DB RESILIENCE: Check DB health before heavy queries
                 if not db_ping():
                     logger.warning("[WHATSAPP_SESSION] DB not ready, skipping cycle")
-                    print(f"[WHATSAPP_SESSION] ⚠️ DB not ready, skipping cycle #{iteration}")
+                    logger.warning(f"[WHATSAPP_SESSION] ⚠️ DB not ready, skipping cycle #{iteration}")
                     time.sleep(5)  # Short sleep before retry
                     consecutive_errors += 1
                     continue
                 
-                # 🔥 DEBUG: Log every check for troubleshooting
+                # 🔥 PRODUCTION LOGGING: Only log if stale sessions found (no "Found 0" spam)
                 stale_count = len(get_stale_sessions())
-                print(f"[WHATSAPP_SESSION] 📱 Check #{iteration}: Found {stale_count} stale sessions to process")
-                logger.info(f"[WHATSAPP_SESSION] Check #{iteration}: Found {stale_count} stale sessions")
                 
-                processed = process_stale_sessions()
-                if processed > 0:
-                    print(f"[WHATSAPP_SESSION] ✅ Processed {processed} stale sessions with AI summaries")
-                    logger.info(f"[WHATSAPP_SESSION] Background job: processed {processed} sessions")
+                if stale_count > 0:
+                    logger.info(f"[WHATSAPP_SESSION] 📱 Check #{iteration}: Found {stale_count} stale sessions to process")
+                    logger.info(f"[WHATSAPP_SESSION] Check #{iteration}: Found {stale_count} stale sessions")
+                    
+                    processed = process_stale_sessions()
+                    if processed > 0:
+                        logger.info(f"[WHATSAPP_SESSION] ✅ Processed {processed} stale sessions with AI summaries")
+                        logger.info(f"[WHATSAPP_SESSION] Background job: processed {processed} sessions")
+                else:
+                    # Only log once every 30 minutes (every 6 iterations) in debug mode to confirm service is running
+                    if iteration % 6 == 0:
+                        logger.debug(f"[WHATSAPP_SESSION] Check #{iteration}: No stale sessions (service healthy)")
                 
                 # Reset error counter on success
                 if consecutive_errors > 0:
                     logger.info(f"[DB_RECOVERED] op=whatsapp_session_loop after {consecutive_errors} attempts")
-                    print(f"[WHATSAPP_SESSION] ✅ DB recovered after {consecutive_errors} attempts")
+                    logger.error(f"[WHATSAPP_SESSION] ✅ DB recovered after {consecutive_errors} attempts")
                 consecutive_errors = 0
                 
         except (OperationalError, DisconnectionError) as e:
@@ -572,9 +578,9 @@ def _session_processor_loop():
             log_db_error(e, context="whatsapp_session_loop")
             
             if is_neon_error(e):
-                print(f"[WHATSAPP_SESSION] 🔴 Neon endpoint disabled - backing off {backoff_sleep}s")
+                logger.info(f"[WHATSAPP_SESSION] 🔴 Neon endpoint disabled - backing off {backoff_sleep}s")
             else:
-                print(f"[WHATSAPP_SESSION] 🔴 DB error - backing off {backoff_sleep}s")
+                logger.error(f"[WHATSAPP_SESSION] 🔴 DB error - backing off {backoff_sleep}s")
             
             logger.error(
                 f"[DB_BACKOFF] service=whatsapp_session attempt={consecutive_errors} "
@@ -597,7 +603,7 @@ def _session_processor_loop():
             
             log_db_error(e, context="whatsapp_session_loop")
             
-            print(f"[WHATSAPP_SESSION] 🔴 Postgres error - backing off {backoff_sleep}s")
+            logger.error(f"[WHATSAPP_SESSION] 🔴 Postgres error - backing off {backoff_sleep}s")
             logger.error(
                 f"[DB_BACKOFF] service=whatsapp_session attempt={consecutive_errors} "
                 f"sleep={backoff_sleep}s reason=psycopg2.OperationalError"
@@ -615,7 +621,7 @@ def _session_processor_loop():
             # 🔥 DB RESILIENCE: Catch any other errors to prevent thread death
             consecutive_errors += 1
             
-            print(f"[WHATSAPP_SESSION] ❌ Background processor error: {e}")
+            logger.error(f"[WHATSAPP_SESSION] ❌ Background processor error: {e}")
             logger.error(f"[WHATSAPP_SESSION] DB error handled - continuing loop: {e}", exc_info=True)
             
             # Shorter backoff for non-DB errors

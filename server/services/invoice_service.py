@@ -8,6 +8,10 @@ import os
 import tempfile
 from server.models_sql import Invoice, Deal, Customer
 from server.db import db
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def next_invoice_number():
     """יצירת מספר חשבונית הבא"""
@@ -127,9 +131,9 @@ def create_invoice_for_payment(payment):
         pdf_path = os.path.join(out_dir, f"{inv_no}.pdf")
         pdfkit.from_string(html, pdf_path, options={'encoding': 'UTF-8'})
     except ImportError:
-        print("⚠️ pdfkit not available, saving as HTML")
+        logger.warning("⚠️ pdfkit not available, saving as HTML")
     except Exception as e:
-        print(f"⚠️ PDF conversion failed: {e}, using HTML")
+        logger.error(f"⚠️ PDF conversion failed: {e}, using HTML")
     
     # שמירת חשבונית במסד הנתונים
     inv = Invoice()

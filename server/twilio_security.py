@@ -9,6 +9,10 @@ import base64
 from functools import wraps
 from flask import request, abort
 from urllib.parse import urlencode
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def _effective_url(req):
     """
@@ -47,7 +51,7 @@ def require_twilio_signature(f):
         if flask_env == 'development':
             validate_signature_env = os.getenv('VALIDATE_TWILIO_SIGNATURE', 'true').lower()
             if validate_signature_env == 'false':
-                print("⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped")
+                logger.warning("⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped")
                 return f(*args, **kwargs)
             
         # Get Twilio auth token
@@ -55,16 +59,16 @@ def require_twilio_signature(f):
         if not auth_token:
             # ✅ BUILD 153 FINAL: SECURITY FIX - reject in production if no auth token
             if flask_env == 'development':
-                print("⚠️ DEV MODE: TWILIO_AUTH_TOKEN not set - signature validation skipped")
+                logger.warning("⚠️ DEV MODE: TWILIO_AUTH_TOKEN not set - signature validation skipped")
                 return f(*args, **kwargs)
             else:
-                print("❌ PRODUCTION: TWILIO_AUTH_TOKEN not set - rejecting request")
+                logger.error("❌ PRODUCTION: TWILIO_AUTH_TOKEN not set - rejecting request")
                 abort(403)
         
         # Get signature from header
         signature = request.headers.get('X-Twilio-Signature')
         if not signature:
-            print("❌ Missing X-Twilio-Signature header")
+            logger.error("❌ Missing X-Twilio-Signature header")
             abort(403)
         
         # Get effective URL behind proxy
@@ -84,17 +88,17 @@ def require_twilio_signature(f):
             validated = False
             for alt_url in alternate_urls:
                 if validate_signature(auth_token, signature, alt_url, params):
-                    print(f"✅ Twilio signature validated with alternate URL: {alt_url}")
+                    logger.info(f"✅ Twilio signature validated with alternate URL: {alt_url}")
                     validated = True
                     break
             
             if not validated:
-                print(f"❌ Invalid Twilio signature:")
-                print(f"   URL calculated: {url}")
-                print(f"   Alternate URLs tried: {alternate_urls}")
-                print(f"   X-Twilio-Signature: {signature}")
-                print(f"   Request method: {request.method}")
-                print(f"   Request path: {request.path}")
+                logger.error(f"❌ Invalid Twilio signature:")
+                logger.info(f"   URL calculated: {url}")
+                logger.info(f"   Alternate URLs tried: {alternate_urls}")
+                logger.info(f"   X-Twilio-Signature: {signature}")
+                logger.info(f"   Request method: {request.method}")
+                logger.info(f"   Request path: {request.path}")
                 abort(403)
             
         return f(*args, **kwargs)
@@ -169,5 +173,5 @@ def validate_signature(auth_token, signature, url, params):
         
         return hmac.compare_digest(signature, computed_signature)
     except Exception as e:
-        print(f"❌ Signature validation error: {e}")
+        logger.error(f"❌ Signature validation error: {e}")
         return False

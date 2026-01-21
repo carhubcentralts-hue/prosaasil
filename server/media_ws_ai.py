@@ -172,8 +172,8 @@ if _env_model:
     )
     OPENAI_REALTIME_MODEL = _env_model
 
-print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
-print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
+logger.info(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
+logger.info(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -602,10 +602,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                 requested_dt_aware = requested_dt
             
             if requested_dt_aware < min_allowed_time:
-                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                logger.error(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
                 return False
             else:
-                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
+                logger.info(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
         
         # Check booking window (max days ahead)
         if policy.booking_window_days > 0:
@@ -616,10 +616,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                 requested_dt_aware = requested_dt
             
             if requested_dt_aware > max_booking_date:
-                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                logger.error(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
                 return False
             else:
-                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+                logger.info(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
         
         # 🔥 STEP 1: Check business hours (skip for 24/7)
         if not policy.allow_24_7:
@@ -637,13 +637,13 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             
             weekday_key = weekday_map.get(requested_dt.weekday())
             if not weekday_key:
-                print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+                logger.error(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
                 return False
             
             # Get opening hours for this day
             day_hours = policy.opening_hours.get(weekday_key, [])
             if not day_hours:
-                print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+                logger.error(f"❌ [VALIDATION] Business closed on {weekday_key}")
                 return False
             
             # Check if time falls within any window
@@ -670,12 +670,12 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
                         break
             
             if not time_valid:
-                print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+                logger.error(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
                 return False
             else:
-                print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
+                logger.info(f"✅ [VALIDATION] Slot {requested_time} within business hours")
         else:
-            print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
+            logger.info(f"✅ [VALIDATION] 24/7 business - hours check skipped")
         
         # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
         # Calculate end time using slot_size_min from policy
@@ -710,14 +710,14 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             ).count()
             
             if overlapping > 0:
-                print(f"❌ [VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
+                logger.error(f"❌ [VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
                 return False
             else:
-                print(f"✅ [VALIDATION] Calendar available - no conflicts")
+                logger.info(f"✅ [VALIDATION] Calendar available - no conflicts")
                 return True
         
     except Exception as e:
-        print(f"❌ [VALIDATION] Error validating slot: {e}")
+        logger.error(f"❌ [VALIDATION] Error validating slot: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -774,7 +774,7 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                     lead.last_contact_at = datetime.utcnow()
                     session.commit()
                     lead_id = lead.id
-                    print(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
+                    logger.info(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
                     return lead_id
                 else:
                     # Create new lead
@@ -790,12 +790,12 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                     session.add(lead)
                     session.commit()
                     lead_id = lead.id
-                    print(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
+                    logger.info(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
                     return lead_id
                     
             except Exception as e:
                 session.rollback()
-                print(f"❌ [CRM] ensure_lead DB error: {e}")
+                logger.error(f"❌ [CRM] ensure_lead DB error: {e}")
                 import traceback
                 traceback.print_exc()
                 return None
@@ -804,7 +804,7 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
                 Session.remove()
                 
     except Exception as e:
-        print(f"❌ [CRM] ensure_lead error: {e}")
+        logger.error(f"❌ [CRM] ensure_lead error: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -839,7 +839,7 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
             try:
                 lead = session.query(Lead).get(lead_id)
                 if not lead:
-                    print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                    logger.warning(f"⚠️ [CRM] Lead #{lead_id} not found")
                     return
                 
                 # Update fields
@@ -857,11 +857,11 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
                 lead.updated_at = datetime.utcnow()
                 session.commit()
                 
-                print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+                logger.info(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
                 
             except Exception as e:
                 session.rollback()
-                print(f"❌ [CRM] update_lead_on_call DB error: {e}")
+                logger.error(f"❌ [CRM] update_lead_on_call DB error: {e}")
                 import traceback
                 traceback.print_exc()
             finally:
@@ -869,7 +869,7 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
                 Session.remove()
             
     except Exception as e:
-        print(f"❌ [CRM] update_lead_on_call error: {e}")
+        logger.error(f"❌ [CRM] update_lead_on_call error: {e}")
         import traceback
         traceback.print_exc()
 
@@ -896,23 +896,23 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         int (appointment ID) for backwards compatibility OR
         None on error
     """
-    print(f"")
-    print(f"🔧 [CREATE_APPT] ========== create_appointment_from_realtime called ==========")
-    print(f"🔧 [CREATE_APPT] Input parameters:")
-    print(f"🔧 [CREATE_APPT]   - business_id: {business_id}")
-    print(f"🔧 [CREATE_APPT]   - customer_name: {customer_name}")
-    print(f"🔧 [CREATE_APPT]   - customer_phone: {customer_phone}")
-    print(f"🔧 [CREATE_APPT]   - treatment_type: {treatment_type}")
-    print(f"🔧 [CREATE_APPT]   - start_iso: {start_iso}")
-    print(f"🔧 [CREATE_APPT]   - end_iso: {end_iso}")
-    print(f"🔧 [CREATE_APPT]   - notes: {notes}")
+    logger.info(f"")
+    logger.info(f"🔧 [CREATE_APPT] ========== create_appointment_from_realtime called ==========")
+    logger.info(f"🔧 [CREATE_APPT] Input parameters:")
+    logger.info(f"🔧 [CREATE_APPT]   - business_id: {business_id}")
+    logger.info(f"🔧 [CREATE_APPT]   - customer_name: {customer_name}")
+    logger.info(f"🔧 [CREATE_APPT]   - customer_phone: {customer_phone}")
+    logger.info(f"🔧 [CREATE_APPT]   - treatment_type: {treatment_type}")
+    logger.info(f"🔧 [CREATE_APPT]   - start_iso: {start_iso}")
+    logger.info(f"🔧 [CREATE_APPT]   - end_iso: {end_iso}")
+    logger.info(f"🔧 [CREATE_APPT]   - notes: {notes}")
     
     try:
         from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
         
         app = _get_flask_app()
         with app.app_context():
-            print(f"🔧 [CREATE_APPT] Creating CreateAppointmentInput...")
+            logger.info(f"🔧 [CREATE_APPT] Creating CreateAppointmentInput...")
             input_data = CreateAppointmentInput(
                 business_id=business_id,
                 customer_name=customer_name,
@@ -923,20 +923,20 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 notes=notes,
                 source="realtime_phone"
             )
-            print(f"🔧 [CREATE_APPT] Input created successfully, calling _calendar_create_appointment_impl...")
+            logger.info(f"🔧 [CREATE_APPT] Input created successfully, calling _calendar_create_appointment_impl...")
             
             result = _calendar_create_appointment_impl(input_data, context=None, session=None)
-            print(f"🔧 [CREATE_APPT] _calendar_create_appointment_impl returned: {type(result)}")
+            logger.info(f"🔧 [CREATE_APPT] _calendar_create_appointment_impl returned: {type(result)}")
             
             # 🔥 FIX: Handle CreateAppointmentOutput dataclass (not dict!)
             if hasattr(result, 'appointment_id'):
                 # Success - got CreateAppointmentOutput
                 appt_id = result.appointment_id
-                print(f"✅ [CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
-                print(f"✅ [CREATE_APPT]   - status: {result.status}")
-                print(f"✅ [CREATE_APPT]   - whatsapp_status: {result.whatsapp_status}")
-                print(f"✅ [CREATE_APPT]   - lead_id: {result.lead_id}")
-                print(f"✅ [CREATE_APPT]   - message: {result.confirmation_message}")
+                logger.info(f"✅ [CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
+                logger.info(f"✅ [CREATE_APPT]   - status: {result.status}")
+                logger.info(f"✅ [CREATE_APPT]   - whatsapp_status: {result.whatsapp_status}")
+                logger.info(f"✅ [CREATE_APPT]   - lead_id: {result.lead_id}")
+                logger.info(f"✅ [CREATE_APPT]   - message: {result.confirmation_message}")
                 # Return dict for backwards compatibility
                 return {
                     "ok": True,
@@ -948,22 +948,22 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 }
             elif isinstance(result, dict):
                 # Legacy dict format
-                print(f"🔧 [CREATE_APPT] Got dict result: {result}")
+                logger.info(f"🔧 [CREATE_APPT] Got dict result: {result}")
                 if result.get("ok"):
                     appt_id = result.get("appointment_id")
-                    print(f"✅ [CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
+                    logger.info(f"✅ [CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
                 else:
                     error_msg = result.get("message", "Unknown error")
-                    print(f"❌ [CREATE_APPT] FAILED (dict): {error_msg}")
+                    logger.error(f"❌ [CREATE_APPT] FAILED (dict): {error_msg}")
                 return result
             else:
                 # Unexpected result format
-                print(f"❌ [CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
-                print(f"❌ [CREATE_APPT] Result value: {result}")
+                logger.error(f"❌ [CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
+                logger.error(f"❌ [CREATE_APPT] Result value: {result}")
                 return None
                 
     except Exception as e:
-        print(f"❌ [CRM] create_appointment_from_realtime error: {e}")
+        logger.error(f"❌ [CRM] create_appointment_from_realtime error: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -1054,7 +1054,7 @@ def _register_session(call_sid: str, session, tenant_id=None):
             "tenant": tenant_id,
             "ts": time.time()
         }
-        if DEBUG: print(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
+        if DEBUG: logger.debug(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
 
 def _get_session(call_sid: str):
     """Get STT session for a call (thread-safe)"""
@@ -1076,9 +1076,9 @@ def _close_session(call_sid: str):
     if item:
         try:
             item["session"].close()
-            if DEBUG: print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
+            if DEBUG: logger.debug(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
-            if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
+            if DEBUG: logger.debug(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
 def _register_handler(call_sid: str, handler):
     """
@@ -1166,14 +1166,14 @@ def _create_dispatcher_callbacks(call_sid: str):
                 current_best = utt.get("last_partial", "")
                 if len(text) > len(current_best):
                     utt["last_partial"] = text
-                    if DEBUG: print(f"🟡 [PARTIAL] BEST updated: '{text}' ({len(text)} chars) for {call_sid[:8]}...")
+                    if DEBUG: logger.debug(f"🟡 [PARTIAL] BEST updated: '{text}' ({len(text)} chars) for {call_sid[:8]}...")
                 else:
-                    if DEBUG: print(f"🟡 [PARTIAL] IGNORED (shorter): '{text}' ({len(text)} chars) vs '{current_best}' ({len(current_best)} chars)")
+                    if DEBUG: logger.debug(f"🟡 [PARTIAL] IGNORED (shorter): '{text}' ({len(text)} chars) vs '{current_best}' ({len(current_best)} chars)")
             
             # ⚡ BUILD 114: Early Finalization - if partial is strong enough, trigger final AND continue
             # This saves 400-600ms by triggering final event early
             if text and len(text) > 15 and text.rstrip().endswith(('.', '?', '!')):
-                if DEBUG: print(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final event")
+                if DEBUG: logger.debug(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final event")
                 # Trigger final event (but continue to call partial callback)
                 final_event = utt.get("final_received")
                 if final_event:
@@ -1185,7 +1185,7 @@ def _create_dispatcher_callbacks(call_sid: str):
                 try:
                     cb(text)
                 except Exception as e:
-                    print(f"⚠️ Partial callback error for {call_sid[:8]}...: {e}")
+                    logger.error(f"⚠️ Partial callback error for {call_sid[:8]}...: {e}")
     
     def on_final(text: str):
         utt = _get_utterance_state(call_sid)
@@ -1193,13 +1193,13 @@ def _create_dispatcher_callbacks(call_sid: str):
             buf = utt.get("final_buf")
             if buf is not None:
                 buf.append(text)
-                if DEBUG: print(f"✅ [FINAL] '{text}' received for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
+                if DEBUG: logger.debug(f"✅ [FINAL] '{text}' received for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
                 
                 # ⚡ Signal that final has arrived!
                 final_event = utt.get("final_received")
                 if final_event:
                     final_event.set()
-                    if DEBUG: print(f"📢 [FINAL_EVENT] Set for {call_sid[:8]}...")
+                    if DEBUG: logger.debug(f"📢 [FINAL_EVENT] Set for {call_sid[:8]}...")
     
     return on_partial, on_final
 
@@ -1215,7 +1215,7 @@ def _cleanup_stale_sessions():
         ]
     
     for call_sid in stale_call_sids:
-        if DEBUG: print(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
+        if DEBUG: logger.debug(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
         _close_session(call_sid)
 
 # Start session reaper thread
@@ -1227,11 +1227,11 @@ def _start_session_reaper():
             try:
                 _cleanup_stale_sessions()
             except Exception as e:
-                print(f"⚠️ [REAPER] Error during cleanup: {e}")
+                logger.error(f"⚠️ [REAPER] Error during cleanup: {e}")
     
     reaper_thread = threading.Thread(target=reaper_loop, daemon=True, name="SessionReaper")
     reaper_thread.start()
-    print("🧹 [REAPER] Session cleanup thread started")
+    logger.info("🧹 [REAPER] Session cleanup thread started")
 
 # Start reaper on module load (only if streaming enabled)
 if USE_STREAMING_STT:
@@ -1898,11 +1898,11 @@ class MediaStreamHandler:
             except Exception as e:
                 self.failed_send_count += 1
                 if self.failed_send_count <= 3:  # Only log first 3 errors
-                    print(f"❌ WebSocket send error #{self.failed_send_count}: {e}")
+                    logger.error(f"❌ WebSocket send error #{self.failed_send_count}: {e}")
                 
                 if self.failed_send_count >= 10:  # Increased threshold - After 10 failures, mark as dead
                     self.ws_connection_failed = True
-                    print(f"🚨 WebSocket connection marked as FAILED after {self.failed_send_count} attempts")
+                    logger.error(f"🚨 WebSocket connection marked as FAILED after {self.failed_send_count} attempts")
                 
                 return False
         
@@ -1995,7 +1995,7 @@ class MediaStreamHandler:
                    f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
                    f"sample_rate=8000, encoding=pcmu", flush=True)
         
-        print("🎯 AI CONVERSATION STARTED")
+        logger.info("🎯 AI CONVERSATION STARTED")
         
         # מאפיינים לזיהוי עסק
         self.business_id = None  # ✅ יזוהה דינמית לפי to_number
@@ -2235,7 +2235,7 @@ class MediaStreamHandler:
         self._audio_guard_music_cooldown_frames = 0
         self._audio_guard_drop_count = 0  # Rate-limited logging
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
-        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED}, MusicMode={MUSIC_MODE_ENABLED} (dynamic noise floor, speech gating, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
+        logger.info(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED}, MusicMode={MUSIC_MODE_ENABLED} (dynamic noise floor, speech gating, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -2726,7 +2726,7 @@ class MediaStreamHandler:
                 utt_state["final_received"] = threading.Event()  # ⚡ NEW: wait for final
                 utt_state["last_partial"] = ""  # ⚡ NEW: save last partial as backup
             
-            if DEBUG: print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
+            if DEBUG: logger.debug(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
     def _utterance_end(self, timeout=0.850):
         """
@@ -2734,16 +2734,16 @@ class MediaStreamHandler:
         ⚡ BUILD 118: Increased timeout to 850ms - streaming STT needs time for final results
         """
         if not self.call_sid:
-            print("⚠️ _utterance_end: No call_sid")
+            logger.warning("⚠️ _utterance_end: No call_sid")
             return ""
         
         utt_state = _get_utterance_state(self.call_sid)
         if utt_state is None:
-            print(f"⚠️ _utterance_end: No utterance state for call {self.call_sid[:8]}")
+            logger.warning(f"⚠️ _utterance_end: No utterance state for call {self.call_sid[:8]}")
             return ""
         
         utt_id = utt_state.get("id", "???")
-        print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
+        logger.info(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
         
         # ⚡ BUILD 118: Wait 850ms for streaming results - allows time for final transcription
         # Streaming STT enabled by default → fast partial results
@@ -2754,9 +2754,9 @@ class MediaStreamHandler:
             got_final = final_event.wait(timeout=timeout)  # 850ms wait for streaming
             wait_duration = time.time() - wait_start
             if got_final:
-                print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
+                logger.info(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
             else:
-                print(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_duration:.3f}s - using fallback")  
+                logger.warning(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_duration:.3f}s - using fallback")
         
         # Collect text - prioritize partial over finals
         with _registry_lock:
@@ -2770,13 +2770,13 @@ class MediaStreamHandler:
             # Use partial if available, otherwise finals
             if last_partial:
                 text = last_partial
-                print(f"✅ [{self.call_sid[:8]}] Using partial: '{text[:50]}...' ({len(text)} chars)")
+                logger.info(f"✅ [{self.call_sid[:8]}] Using partial: '{text[:50]}...' ({len(text)} chars)")
             elif finals_text:
                 text = finals_text
-                print(f"✅ [{self.call_sid[:8]}] Using final: '{text[:50]}...' ({len(text)} chars)")
+                logger.info(f"✅ [{self.call_sid[:8]}] Using final: '{text[:50]}...' ({len(text)} chars)")
             else:
                 text = ""
-                print(f"⚠️ [{self.call_sid[:8]}] No text available - returning empty")
+                logger.warning(f"⚠️ [{self.call_sid[:8]}] No text available - returning empty")
             
             # Reset dispatcher
             utt_state["id"] = None
@@ -2786,8 +2786,8 @@ class MediaStreamHandler:
             utt_state["last_partial"] = ""
         
         # ⚡ BUILD 114: Detailed latency logging
-        print(f"🏁 [{self.call_sid[:8]}] Utterance {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
-        print(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
+        logger.info(f"🏁 [{self.call_sid[:8]}] Utterance {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
+        logger.info(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
         
         return text
     
@@ -2831,14 +2831,14 @@ class MediaStreamHandler:
                 if result:
                     call_log, lead, business, settings = result
                     ctx = CallContext(call_log, lead, business, settings, outbound_job)
-                    print(f"✅ [CALL_CACHE] Loaded context: lead_id={ctx.lead_id}, business={ctx.business_name}")
+                    logger.info(f"✅ [CALL_CACHE] Loaded context: lead_id={ctx.lead_id}, business={ctx.business_name}")
                     return ctx
                 else:
                     # Call not in DB yet - create minimal context
                     business = Business.query.get(business_id)
                     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
                     ctx = CallContext(None, None, business, settings, outbound_job)
-                    print(f"✅ [CALL_CACHE] Minimal context: business={ctx.business_name}")
+                    logger.info(f"✅ [CALL_CACHE] Minimal context: business={ctx.business_name}")
                     return ctx
                     
         except Exception as e:
@@ -2854,7 +2854,7 @@ class MediaStreamHandler:
         """
         if getattr(self, 'in_live_call', False):
             logger.warning(f"[DB_GUARD] Blocked {operation} during live call")
-            print(f"⚠️ [DB_GUARD] Attempted {operation} during live call - using cache instead")
+            logger.warning(f"⚠️ [DB_GUARD] Attempted {operation} during live call - using cache instead")
             return True
         return False
     
@@ -2864,7 +2864,7 @@ class MediaStreamHandler:
         PERFORMANCE: Single commit instead of 3-4 mid-call commits.
         """
         if not self.db_write_queue:
-            print(f"✅ [DB_FLUSH] No buffered writes to flush")
+            logger.info(f"✅ [DB_FLUSH] No buffered writes to flush")
             return
         
         try:
@@ -2874,7 +2874,7 @@ class MediaStreamHandler:
             app = _get_flask_app()
             with app.app_context():
                 write_count = len(self.db_write_queue)
-                print(f"🔄 [DB_FLUSH] Flushing {write_count} buffered writes...")
+                logger.info(f"🔄 [DB_FLUSH] Flushing {write_count} buffered writes...")
                 
                 for write in self.db_write_queue:
                     try:
@@ -2883,7 +2883,7 @@ class MediaStreamHandler:
                             if lead:
                                 for field, value in write['updates'].items():
                                     setattr(lead, field, value)
-                                    print(f"   ✓ Lead {lead.id}.{field} = {value}")
+                                    logger.info(f"   ✓ Lead {lead.id}.{field} = {value}")
                         
                         elif write['type'] == 'callsession_update':
                             session = CallSession.query.filter_by(
@@ -2892,14 +2892,14 @@ class MediaStreamHandler:
                             if session:
                                 for field, value in write['updates'].items():
                                     setattr(session, field, value)
-                                    print(f"   ✓ CallSession.{field} = {value}")
+                                    logger.info(f"   ✓ CallSession.{field} = {value}")
                         
                     except Exception as write_err:
                         logger.error(f"[DB_FLUSH] Failed to apply write {write}: {write_err}")
                 
                 # Single commit for all writes
                 db.session.commit()
-                print(f"✅ [DB_FLUSH] Successfully committed {write_count} writes")
+                logger.info(f"✅ [DB_FLUSH] Successfully committed {write_count} writes")
                 self.db_write_queue = []
                 
         except Exception as e:
@@ -2943,12 +2943,12 @@ class MediaStreamHandler:
                 required_lead_fields=self.required_lead_fields,
                 closing_sentence=""
             )
-            print(f"🔒 [DEFAULTS] Created fallback CallConfig for business={self.business_id}")
+            logger.info(f"🔒 [DEFAULTS] Created fallback CallConfig for business={self.business_id}")
         
         # Force bot_speaks_first on error/timeout paths
         if force_greeting:
             self.bot_speaks_first = True
-            print(f"🔒 [DEFAULTS] Forced bot_speaks_first=True for greeting")
+            logger.info(f"🔒 [DEFAULTS] Forced bot_speaks_first=True for greeting")
 
     def _run_realtime_mode_thread(self):
         """
@@ -2999,7 +2999,7 @@ class MediaStreamHandler:
             logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION")
             _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
         finally:
-            print(f"🔚 [REALTIME] Thread ended for call {call_id}")
+            logger.info(f"🔚 [REALTIME] Thread ended for call {call_id}")
             logger.debug(f"[REALTIME] Thread ended for call {call_id}")
     
     async def _run_realtime_mode_async(self):
@@ -3143,7 +3143,7 @@ class MediaStreamHandler:
             logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             t_client = time.time()
-            if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
+            if DEBUG: logger.debug(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
             _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
@@ -3196,8 +3196,8 @@ class MediaStreamHandler:
             
             # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
-                print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
-            if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
+                logger.warning(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
+            if DEBUG: logger.debug(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
             
@@ -3206,7 +3206,7 @@ class MediaStreamHandler:
             logger.debug("[REALTIME] Connected")
             
             # 🚀 PARALLEL STEP 2: Wait briefly for business info (do NOT block greeting)
-            print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
+            logger.info(f"⏳ [PARALLEL] Waiting for business info from DB query...")
             
             # Use asyncio to wait for the threading.Event
             loop = asyncio.get_event_loop()
@@ -3218,9 +3218,9 @@ class MediaStreamHandler:
                 )
                 t_ready = time.time()
                 wait_ms = (t_ready - t_connected) * 1000
-                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
+                logger.info(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
             except asyncio.TimeoutError:
-                print(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults (do not block greeting)")
+                logger.warning(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults (do not block greeting)")
                 # Use helper with force_greeting=True to ensure greeting fires
                 self._set_safe_business_defaults(force_greeting=True)
             
@@ -3250,9 +3250,9 @@ class MediaStreamHandler:
                 )
                 if self.call_ctx:
                     self.call_ctx_loaded = True
-                    print(f"✅ [CALL_CACHE] Context loaded and ready")
+                    logger.info(f"✅ [CALL_CACHE] Context loaded and ready")
                 else:
-                    print(f"⚠️ [CALL_CACHE] Failed to load - will use direct queries as fallback")
+                    logger.error(f"⚠️ [CALL_CACHE] Failed to load - will use direct queries as fallback")
             
             # 🔥 NAME SSOT: Resolve customer name from database by call_sid, lead_id, or phone
             # This is the authoritative source for outbound call names
@@ -3288,7 +3288,7 @@ class MediaStreamHandler:
                         from server.services.realtime_prompt_builder import extract_first_name
                         first_name = extract_first_name(name) if name else None
                         if first_name:
-                            print(f"✅ [CALL_CACHE] Using cached name: {first_name}")
+                            logger.info(f"✅ [CALL_CACHE] Using cached name: {first_name}")
                             return (first_name, "call_cache")
                 
                 try:
@@ -3497,7 +3497,7 @@ class MediaStreamHandler:
                                 # Fetch gender
                                 if lead_for_context.gender:
                                     self.pending_customer_gender = lead_for_context.gender
-                                    print(f"✅ [GENDER] Fetched from Lead: '{lead_for_context.gender}' (lead_id={lead_for_context.id})")
+                                    logger.info(f"✅ [GENDER] Fetched from Lead: '{lead_for_context.gender}' (lead_id={lead_for_context.id})")
                                 
                                 # 🔥 NEW: Fetch lead notes (last 3 notes for context)
                                 # Notes provide critical context about customer history, preferences, issues
@@ -3521,32 +3521,32 @@ class MediaStreamHandler:
                                         if notes_parts:
                                             combined_notes = " | ".join(notes_parts)
                                             self.pending_lead_notes = combined_notes
-                                            print(f"✅ [NOTES] Fetched {len(notes_parts)} notes from Lead (lead_id={lead_for_context.id})")
-                                            print(f"📝 [NOTES] Preview: {combined_notes[:100]}...")
+                                            logger.info(f"✅ [NOTES] Fetched {len(notes_parts)} notes from Lead (lead_id={lead_for_context.id})")
+                                            logger.info(f"📝 [NOTES] Preview: {combined_notes[:100]}...")
                                 except Exception as notes_err:
                                     logger.warning(f"[NOTES] Failed to fetch notes: {notes_err}")
-                                    print(f"⚠️ [NOTES] Error fetching notes: {notes_err}")
+                                    logger.error(f"⚠️ [NOTES] Error fetching notes: {notes_err}")
                     except Exception as e:
                         logger.warning(f"[CONTEXT] Failed to fetch lead context (gender/notes): {e}")
                     
                     # 🔥 DEBUG LOG: Show what we resolved
-                    print(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB ({call_direction}):")
-                    print(f"   call_sid: {self.call_sid[:8]}...")
-                    print(f"   lead_id from customParameters: {lead_id}")
-                    print(f"   phone_number for fallback: {phone_number}")
-                    print(f"   resolved_name: {resolved_name}")
-                    print(f"   name_source: {name_source}")
-                    print(f"   call_direction: {call_direction}")
-                    print(f"   pending_customer_name: {self.pending_customer_name}")
-                    print(f"   pending_customer_gender: {getattr(self, 'pending_customer_gender', None)}")
+                    logger.debug(f"🎯 [NAME_ANCHOR DEBUG] Resolved from DB ({call_direction}):")
+                    logger.info(f"   call_sid: {self.call_sid[:8]}...")
+                    logger.info(f"   lead_id from customParameters: {lead_id}")
+                    logger.info(f"   phone_number for fallback: {phone_number}")
+                    logger.info(f"   resolved_name: {resolved_name}")
+                    logger.info(f"   name_source: {name_source}")
+                    logger.info(f"   call_direction: {call_direction}")
+                    logger.info(f"   pending_customer_name: {self.pending_customer_name}")
+                    logger.info(f"   pending_customer_gender: {getattr(self, 'pending_customer_gender', None)}")
                 else:
                     # 🔥 DEBUG: Log why resolution failed
-                    print(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED ({call_direction}):")
-                    print(f"   call_sid: {self.call_sid[:8]}...")
-                    print(f"   lead_id from customParameters: {lead_id}")
-                    print(f"   phone_number for fallback: {phone_number}")
-                    print(f"   call_direction: {call_direction}")
-                    print(f"   Result: No name found in any source")
+                    logger.error(f"⚠️ [NAME_ANCHOR DEBUG] Name resolution FAILED ({call_direction}):")
+                    logger.info(f"   call_sid: {self.call_sid[:8]}...")
+                    logger.info(f"   lead_id from customParameters: {lead_id}")
+                    logger.info(f"   phone_number for fallback: {phone_number}")
+                    logger.info(f"   call_direction: {call_direction}")
+                    logger.info(f"   Result: No name found in any source")
             
             # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
@@ -3570,7 +3570,7 @@ class MediaStreamHandler:
                     'call_direction': call_direction,
                     'business_prompt': None,  # Will be set after prompt is loaded
                 }
-                print(f"✅ [AGENT_CONTEXT] Agent context stored for Realtime tools: business={business_id_safe}, phone={caller_phone}")
+                logger.info(f"✅ [AGENT_CONTEXT] Agent context stored for Realtime tools: business={business_id_safe}, phone={caller_phone}")
             except Exception as ctx_err:
                 # Not critical for call to proceed - tools will work without context
                 logger.warning(f"⚠️ [AGENT_CONTEXT] Failed to set agent context: {ctx_err}")
@@ -3591,50 +3591,50 @@ class MediaStreamHandler:
             
             # Step 2: Validate or rebuild
             if not full_prompt:
-                print(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - building fresh from DB")
-                print(f"🔍 [PROMPT_DEBUG] Missing prebuilt for call_direction={call_direction}")
+                logger.warning(f"⚠️ [PROMPT] Pre-built FULL prompt not found in registry - building fresh from DB")
+                logger.debug(f"🔍 [PROMPT_DEBUG] Missing prebuilt for call_direction={call_direction}")
                 # Build fresh from DB
                 from server.services.realtime_prompt_builder import build_realtime_system_prompt
                 full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=True)
             else:
-                print(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
-                print(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
+                logger.info(f"🚀 [PROMPT] Using PRE-BUILT FULL prompt from registry (LATENCY-FIRST)")
+                logger.info(f"   └─ FULL: {len(full_prompt)} chars (sent ONCE at start)")
                 
                 # 🔥 CRITICAL: Validate direction matches - REBUILD if mismatch
                 if prebuilt_direction and prebuilt_direction != call_direction:
-                    print(f"❌ [PROMPT_MISMATCH] Direction mismatch detected!")
-                    print(f"   Expected: {call_direction}, Pre-built for: {prebuilt_direction}")
-                    print(f"   🔄 REBUILDING with correct direction from DB")
+                    logger.error(f"❌ [PROMPT_MISMATCH] Direction mismatch detected!")
+                    logger.info(f"   Expected: {call_direction}, Pre-built for: {prebuilt_direction}")
+                    logger.info(f"   🔄 REBUILDING with correct direction from DB")
                     _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prebuilt_direction} action=REBUILD", flush=True)
                     
                     # Rebuild with correct direction
                     from server.services.realtime_prompt_builder import build_realtime_system_prompt
                     full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction, use_cache=False)
-                    print(f"   ✅ Rebuilt prompt: {len(full_prompt)} chars")
+                    logger.info(f"   ✅ Rebuilt prompt: {len(full_prompt)} chars")
                 else:
-                    print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
+                    logger.info(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
                     _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
             
             # Use FULL prompt immediately - no compact, no upgrade
             greeting_prompt_to_use = full_prompt
-            print(f"🎯 [LATENCY-FIRST] Using FULL prompt from start: {len(greeting_prompt_to_use)} chars")
+            logger.info(f"🎯 [LATENCY-FIRST] Using FULL prompt from start: {len(greeting_prompt_to_use)} chars")
             logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=FULL_ONLY")
             
             # 🔥 NEW: Update agent_context with business prompt
             try:
                 if hasattr(self, 'agent_context') and isinstance(self.agent_context, dict):
                     self.agent_context['business_prompt'] = full_prompt
-                    print(f"✅ [AGENT_CONTEXT] Updated with business_prompt ({len(full_prompt)} chars)")
+                    logger.info(f"✅ [AGENT_CONTEXT] Updated with business_prompt ({len(full_prompt)} chars)")
             except Exception:
                 pass  # Not critical
             
             # 🔥 CRITICAL LOGGING: Verify business isolation
             if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
-                print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL BUSINESS prompt")
+                logger.info(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL BUSINESS prompt")
             elif full_prompt:
                 logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL BUSINESS prompt")
             
-            print(f"📊 [PROMPT STATS] full={len(full_prompt)} chars (SENT ONCE at start)")
+            logger.info(f"📊 [PROMPT STATS] full={len(full_prompt)} chars (SENT ONCE at start)")
             
             # 🔥 FINAL: Set greeting prompt to FULL
             # No compact, no upgrade - AI gets full context from the start
@@ -3653,7 +3653,7 @@ class MediaStreamHandler:
             call_voice = DEFAULT_VOICE  # Default fallback
             if self.call_ctx_loaded and self.call_ctx:
                 call_voice = getattr(self.call_ctx, 'business_voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
-                print(f"🎤 [VOICE_LIBRARY] Using cached voice from CallContext: {call_voice}")
+                logger.info(f"🎤 [VOICE_LIBRARY] Using cached voice from CallContext: {call_voice}")
             else:
                 # Fallback: Load business from DB if cache not available
                 try:
@@ -3667,7 +3667,7 @@ class MediaStreamHandler:
                         else:
                             logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice db_value={business_voice} fallback={DEFAULT_VOICE}")
                             call_voice = DEFAULT_VOICE
-                        print(f"🎤 [VOICE_LIBRARY] Loaded voice from DB: {call_voice}")
+                        logger.info(f"🎤 [VOICE_LIBRARY] Loaded voice from DB: {call_voice}")
                 except Exception as e:
                     logger.warning(f"[VOICE_LIBRARY] Failed to load voice from DB: {e}, using default: {DEFAULT_VOICE}")
                     call_voice = DEFAULT_VOICE
@@ -3680,7 +3680,7 @@ class MediaStreamHandler:
                 call_voice = DEFAULT_VOICE
             
             self._call_voice = call_voice  # Store for session.update reuse
-            print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
+            logger.info(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
             logger.info(f"[VOICE_LIBRARY] Call voice selected: {call_voice} for business {business_id_safe}")
             
             # 🔥 FIX: Calculate max_tokens based on greeting length
@@ -3696,12 +3696,12 @@ class MediaStreamHandler:
             # User reported reduced max_tokens causes AI silence!
             # OpenAI knows how to manage tokens efficiently
             greeting_max_tokens = 4096
-            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
+            logger.info(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
             # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
             # Vocabulary prompts were causing hallucinations with business names
             # Pure approach: language="he" + no prompt = best accuracy
-            print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
+            logger.info(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 STEP 0.5: Build tools BEFORE session.update (must be included in FIRST update!)
@@ -3719,10 +3719,10 @@ class MediaStreamHandler:
                 logger.debug(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
                 
                 if realtime_tools:
-                    print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)} (will be sent in FIRST session.update)")
+                    logger.info(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)} (will be sent in FIRST session.update)")
                     logger.debug(f"[TOOLS][REALTIME] Tools will be included in initial session configuration")
                 else:
-                    print(f"[TOOLS][REALTIME] NO tools for this call (disabled or not applicable)")
+                    logger.info(f"[TOOLS][REALTIME] NO tools for this call (disabled or not applicable)")
                     
             except Exception as tools_error:
                 logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
@@ -3886,27 +3886,27 @@ class MediaStreamHandler:
                 
                 # Log policy determination with source
                 logger.info(f"[NAME_POLICY] source=business_prompt result={use_name_policy} matched=\"{matched_phrase or 'none'}\"")
-                print(f"🎯 [NAME_POLICY] source=business_prompt result={use_name_policy} (matched: '{matched_phrase or 'none'}')")
+                logger.info(f"🎯 [NAME_POLICY] source=business_prompt result={use_name_policy} (matched: '{matched_phrase or 'none'}')")
                 _orig_print(f"[NAME_POLICY] source=business_prompt result={use_name_policy} matched=\"{matched_phrase or 'none'}\"", flush=True)
                 
                 # Step 2: Extract customer name
                 customer_name_to_inject = _extract_customer_name()
                 
                 # 🔥 ENHANCED DEBUG: Show comprehensive name resolution state
-                print(f"🔍 [NAME_ANCHOR DEBUG] Extraction attempt:")
-                print(f"   call_sid: {self.call_sid[:8] if self.call_sid else 'N/A'}...")
-                print(f"   business_id: {business_id_safe}")
-                print(f"   call_direction: {call_direction}")
-                print(f"   outbound_lead_name: {outbound_lead_name}")
-                print(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
-                print(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
-                print(f"   extracted name: {customer_name_to_inject}")
-                print(f"   use_name_policy: {use_name_policy}")
+                logger.debug(f"🔍 [NAME_ANCHOR DEBUG] Extraction attempt:")
+                logger.info(f"   call_sid: {self.call_sid[:8] if self.call_sid else 'N/A'}...")
+                logger.info(f"   business_id: {business_id_safe}")
+                logger.info(f"   call_direction: {call_direction}")
+                logger.info(f"   outbound_lead_name: {outbound_lead_name}")
+                logger.info(f"   crm_context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
+                logger.info(f"   pending_customer_name: {getattr(self, 'pending_customer_name', None)}")
+                logger.info(f"   extracted name: {customer_name_to_inject}")
+                logger.info(f"   use_name_policy: {use_name_policy}")
                 
                 # 🔥 CRITICAL: Do NOT inject NAME_ANCHOR if name is None or invalid
                 # This prevents the bug where we inject "name='None'" into the conversation
                 if customer_name_to_inject is None:
-                    print(f"⚠️ [NAME_ANCHOR] Skipping injection - no valid customer name found")
+                    logger.warning(f"⚠️ [NAME_ANCHOR] Skipping injection - no valid customer name found")
                     logger.info(f"[NAME_ANCHOR] skipped reason=no_name call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}")
                     _orig_print(f"[NAME_ANCHOR] skipped reason=no_name", flush=True)
                 else:
@@ -3931,7 +3931,7 @@ class MediaStreamHandler:
                         if hasattr(self, 'pending_customer_gender') and self.pending_customer_gender:
                             customer_gender = self.pending_customer_gender
                             logger.info(f"[GENDER_DETECT] Using pending gender from early lookup: {customer_gender}")
-                            print(f"🧠 [GENDER] Using pending: {customer_gender}")
+                            logger.info(f"🧠 [GENDER] Using pending: {customer_gender}")
                         
                         # Priority 1: Check database for saved gender (fallback if pending not available)
                         if not customer_gender:
@@ -3950,7 +3950,7 @@ class MediaStreamHandler:
                                     if lead and lead.gender:
                                         customer_gender = lead.gender
                                         logger.info(f"[GENDER_DETECT] Using saved gender from database: {customer_gender} (Lead {lead.id})")
-                                        print(f"🧠 [GENDER] Using saved: {customer_gender} from Lead {lead.id}")
+                                        logger.info(f"🧠 [GENDER] Using saved: {customer_gender} from Lead {lead.id}")
                             except Exception as e:
                                 logger.warning(f"[GENDER_DETECT] Error checking database gender: {e}")
                         
@@ -3959,10 +3959,10 @@ class MediaStreamHandler:
                             customer_gender = detect_gender_from_name(customer_name_to_inject)
                             if customer_gender:
                                 logger.info(f"[GENDER_DETECT] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
-                                print(f"🧠 [GENDER] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
+                                logger.info(f"🧠 [GENDER] Detected from name: {customer_gender} for '{customer_name_to_inject}'")
                             else:
                                 logger.info(f"[GENDER_DETECT] Cannot determine gender from name: '{customer_name_to_inject}' (unisex or unknown)")
-                                print(f"🧠 [GENDER] Unknown/unisex name: '{customer_name_to_inject}' (will wait for conversation)")
+                                logger.info(f"🧠 [GENDER] Unknown/unisex name: '{customer_name_to_inject}' (will wait for conversation)")
                         
                         # 🔥 NEW: Get lead notes if available (fetched during name resolution)
                         lead_notes = getattr(self, 'pending_lead_notes', None)
@@ -4003,10 +4003,10 @@ class MediaStreamHandler:
                         
                         # Log injection with hash
                         logger.info(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject}\" item_id={item_id} hash={name_anchor_hash_short}")
-                        print(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject}', hash={name_anchor_hash_short}")
+                        logger.info(f"✅ [NAME_ANCHOR] Injected: enabled={use_name_policy}, name='{customer_name_to_inject}', hash={name_anchor_hash_short}")
                         _orig_print(f"[NAME_ANCHOR] injected enabled={use_name_policy} name=\"{customer_name_to_inject}\" hash={name_anchor_hash_short}", flush=True)
                     else:
-                        print(f"ℹ️ [NAME_ANCHOR] Skip duplicate (hash={name_anchor_hash_short} already injected)")
+                        logger.info(f"ℹ️ [NAME_ANCHOR] Skip duplicate (hash={name_anchor_hash_short} already injected)")
                         logger.debug(f"[NAME_ANCHOR] skip_duplicate hash={name_anchor_hash_short}")
                     
             except Exception as e:
@@ -4030,14 +4030,14 @@ class MediaStreamHandler:
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
             prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
-            print(f"🔒 [PROMPT_BIND] business_id={business_id_safe} direction={call_direction} hash={prompt_hash} binding=INITIAL")
+            logger.info(f"🔒 [PROMPT_BIND] business_id={business_id_safe} direction={call_direction} hash={prompt_hash} binding=INITIAL")
             _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... business_id={business_id_safe} direction={call_direction} hash={prompt_hash}", flush=True)
             
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
             total_ms = (t_after_config - t_start) * 1000
-            print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
-            print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
+            logger.info(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
+            logger.info(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
             # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
             # Bot speaks first is now HARDCODED behavior for all calls
@@ -4050,7 +4050,7 @@ class MediaStreamHandler:
             
             # 🔥 MASTER FIX: Always trigger greeting (hardcoded bot-first behavior)
             greeting_start_ts = time.time()
-            print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
+            logger.info(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
             self.greeting_sent = True  # Mark greeting as sent to allow audio through
             self.is_playing_greeting = True
             self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
@@ -4088,9 +4088,9 @@ class MediaStreamHandler:
                     f"⏱️ [LATENCY BREAKDOWN] connect={connect_delta}ms, wait_biz={wait_delta}ms, config={config_delta}ms, total={total_openai_ms:.0f}ms (T0→greeting={total_from_t0}ms)",
                     flush=True,
                 )
-                print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                logger.info(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
             else:
-                print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
+                logger.error(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
                 # Reset flags since greeting failed
                 self.greeting_sent = False
                 self.is_playing_greeting = False
@@ -4172,7 +4172,7 @@ class MediaStreamHandler:
                 # This prevents duplicate injections and reduces model confusion.
                 pass  # 🔥 NO-OP: CRM context injection disabled
             else:
-                print(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
+                logger.warning(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
                 self.crm_context = None
             
             logger.debug(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
@@ -4224,7 +4224,7 @@ class MediaStreamHandler:
                 # 🔥 BUILD 331: Pass reason for disconnect logging
                 disconnect_reason = "limit_exceeded" if getattr(self, 'realtime_stop_flag', False) else "normal_end"
                 await client.disconnect(reason=disconnect_reason)
-                print(f"🔌 [REALTIME] Disconnected")
+                logger.info(f"🔌 [REALTIME] Disconnected")
                 logger.info(f"[CALL DEBUG] OpenAI Realtime disconnected")
     
     async def _realtime_audio_sender(self, client):
@@ -4247,7 +4247,7 @@ class MediaStreamHandler:
         
         ═══════════════════════════════════════════════════════════════════════
         """
-        print(f"[PIPELINE] LIVE AUDIO PIPELINE ACTIVE: Twilio → realtime_audio_in_queue → send_audio_chunk (single path)")
+        logger.info(f"[PIPELINE] LIVE AUDIO PIPELINE ACTIVE: Twilio → realtime_audio_in_queue → send_audio_chunk (single path)")
         
         # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
         _greeting_block_logged = False
@@ -4311,7 +4311,7 @@ class MediaStreamHandler:
                     continue
                 
                 if audio_chunk is None:
-                    print(f"📤 [REALTIME] Stop signal received")
+                    logger.info(f"📤 [REALTIME] Stop signal received")
                     break
                 
                 # 🔥 BUILD 341: Count incoming frames
@@ -4323,9 +4323,9 @@ class MediaStreamHandler:
                 if _greeting_block_logged and not _greeting_resumed_logged:
                     buffered = getattr(self, "_greeting_input_audio_buffer", [])
                     if buffered:
-                        print(f"🗑️ [GREETING_LOCK] Discarding buffered user audio (frames={len(buffered)})")
+                        logger.info(f"🗑️ [GREETING_LOCK] Discarding buffered user audio (frames={len(buffered)})")
                         buffered.clear()
-                    print("✅ [GREETING_LOCK] Greeting done - resuming live audio to OpenAI")
+                    logger.info("✅ [GREETING_LOCK] Greeting done - resuming live audio to OpenAI")
                     _greeting_resumed_logged = True
                 
                 # 🔥 FIX: CLOSING STATE - Block audio input when call is closing
@@ -4333,7 +4333,7 @@ class MediaStreamHandler:
                 # This prevents VAD/STT from triggering new END_OF_UTTERANCE events during goodbye audio drain
                 if self.call_state == CallState.CLOSING:
                     if not hasattr(self, '_closing_block_logged') or not self._closing_block_logged:
-                        print("🚫 [CLOSING] Call in CLOSING state - ignoring all user audio input")
+                        logger.info("🚫 [CLOSING] Call in CLOSING state - ignoring all user audio input")
                         self._closing_block_logged = True
                     self._stats_audio_blocked += 1
                     _frames_dropped += 1
@@ -4352,17 +4352,17 @@ class MediaStreamHandler:
                 if not _limit_exceeded:
                     if call_elapsed > MAX_REALTIME_SECONDS_PER_CALL:
                         _limit_exceeded = True
-                        print(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! call_duration={call_elapsed:.1f}s > max={MAX_REALTIME_SECONDS_PER_CALL}s")
+                        logger.info(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! call_duration={call_elapsed:.1f}s > max={MAX_REALTIME_SECONDS_PER_CALL}s")
                     elif _total_frames_sent > MAX_AUDIO_FRAMES_PER_CALL:
                         _limit_exceeded = True
-                        print(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! frames={_total_frames_sent} > max={MAX_AUDIO_FRAMES_PER_CALL}")
+                        logger.info(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! frames={_total_frames_sent} > max={MAX_AUDIO_FRAMES_PER_CALL}")
                 
                 # If limit exceeded, stop sending audio and trigger IMMEDIATE call termination
                 if _limit_exceeded:
                     if not _limit_logged:
                         _limit_logged = True
-                        print(f"🛑 [BUILD 331] OPENAI_USAGE_GUARD: frames_sent={_total_frames_sent}, estimated_seconds={call_elapsed:.1f}")
-                        print(f"🛑 [BUILD 332] HARD LIMIT HIT - Triggering immediate call termination!")
+                        logger.info(f"🛑 [BUILD 331] OPENAI_USAGE_GUARD: frames_sent={_total_frames_sent}, estimated_seconds={call_elapsed:.1f}")
+                        logger.info(f"🛑 [BUILD 332] HARD LIMIT HIT - Triggering immediate call termination!")
                         
                         # 🔥 BUILD 332: Set flags to trigger FULL call shutdown
                         self.realtime_stop_flag = True
@@ -4378,18 +4378,18 @@ class MediaStreamHandler:
                                 # Get the underlying socket and force shutdown
                                 if hasattr(self.ws, 'socket'):
                                     self.ws.socket.shutdown(socket.SHUT_RDWR)
-                                    print(f"✅ [BUILD 332] Socket shutdown triggered - main loop will exit!")
+                                    logger.info(f"✅ [BUILD 332] Socket shutdown triggered - main loop will exit!")
                                 elif hasattr(self.ws, '_socket'):
                                     self.ws._socket.shutdown(socket.SHUT_RDWR)
-                                    print(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
+                                    logger.info(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
                                 else:
                                     # Fallback: try to close normally (set flag to prevent double close)
                                     if not self._ws_closed:
                                         self.ws.close()
                                         self._ws_closed = True
-                                        print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
+                                        logger.warning(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
                             except Exception as e:
-                                print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
+                                logger.error(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
                         
                         # 🔥 BUILD 332: ALSO CALL TWILIO API as additional guarantee
                         if hasattr(self, 'call_sid') and self.call_sid:
@@ -4401,9 +4401,9 @@ class MediaStreamHandler:
                                 if account_sid and auth_token:
                                     twilio_client = TwilioClient(account_sid, auth_token)
                                     twilio_client.calls(self.call_sid).update(status='completed')
-                                    print(f"✅ [BUILD 332] Twilio call {self.call_sid} terminated via API!")
+                                    logger.info(f"✅ [BUILD 332] Twilio call {self.call_sid} terminated via API!")
                             except Exception as e:
-                                print(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
+                                logger.warning(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
                     
                     break  # Exit the audio sender loop immediately
                 
@@ -4455,15 +4455,15 @@ class MediaStreamHandler:
                             response_age = now - self._stuck_check_first_seen_ts
                         
                         if response_age > response_stuck_seconds:
-                            print(f"🔧 [BUILD 301] STUCK RESPONSE DETECTED! Clearing active_response_id after {response_age:.1f}s")
-                            print(f"   Was: {self.active_response_id[:20]}...")
+                            logger.info(f"🔧 [BUILD 301] STUCK RESPONSE DETECTED! Clearing active_response_id after {response_age:.1f}s")
+                            logger.info(f"   Was: {self.active_response_id[:20]}...")
                             self.active_response_id = None
                             self.active_response_status = "done"  # 🔥 IDEMPOTENT CANCEL: Mark as done (timeout)
                             self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                             self.response_pending_event.clear()
                             self.is_ai_speaking_event.clear()
                             self._stuck_check_first_seen_ts = None  # Reset for next response
-                            print(f"   ✅ Response guards cleared - AI can respond again")
+                            logger.info(f"   ✅ Response guards cleared - AI can respond again")
                     else:
                         # No active response - reset the tracking
                         if hasattr(self, '_stuck_check_first_seen_ts'):
@@ -4477,7 +4477,7 @@ class MediaStreamHandler:
                         if barge_start:
                             barge_age = now - barge_start
                             if barge_age > BARGE_IN_TIMEOUT_SEC:
-                                print(f"🔧 [BUILD 302] BARGE-IN TIMEOUT! Clearing after {barge_age:.1f}s (speech_stopped never received)")
+                                logger.info(f"🔧 [BUILD 302] BARGE-IN TIMEOUT! Clearing after {barge_age:.1f}s (speech_stopped never received)")
                                 self.barge_in_active = False
                                 self._barge_in_started_ts = None
                     
@@ -4502,7 +4502,7 @@ class MediaStreamHandler:
         self._usage_guard_frames = _total_frames_sent
         self._usage_guard_seconds = time.time() - _call_start_time
         self._usage_guard_limit_hit = _limit_exceeded
-        print(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
+        logger.info(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # ✅ NO QUEUE FLUSH: Removed per requirements - no flush on barge-in
@@ -4598,7 +4598,7 @@ class MediaStreamHandler:
             if not self._audio_guard_music_mode and self._audio_guard_music_frames_counter >= AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER:
                 self._audio_guard_music_mode = True
                 self._audio_guard_music_cooldown_frames = AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
-                print(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
+                logger.info(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
             
             # Exit music mode after cooldown
             if self._audio_guard_music_mode:
@@ -4606,7 +4606,7 @@ class MediaStreamHandler:
                 if self._audio_guard_music_cooldown_frames <= 0:
                     self._audio_guard_music_mode = False
                     self._audio_guard_music_frames_counter = 0
-                    print(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
+                    logger.info(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
                 # During music mode, drop all frames
                 return False
         else:
@@ -4625,13 +4625,13 @@ class MediaStreamHandler:
         if not is_speech:
             self._audio_guard_drop_count += 1
             if self._audio_guard_drop_count % 50 == 0:  # Log every 50 drops (~1 second)
-                print(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} non-speech frames (rms={rms:.1f}, zcr={zcr:.3f}, threshold={effective_threshold:.1f})")
+                logger.info(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} non-speech frames (rms={rms:.1f}, zcr={zcr:.3f}, threshold={effective_threshold:.1f})")
         
         # Periodic summary log every 5 seconds
         now = time.time()
         if now - self._audio_guard_last_summary_ts >= 5.0:
             self._audio_guard_last_summary_ts = now
-            print(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, music_mode={self._audio_guard_music_mode}")
+            logger.info(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, music_mode={self._audio_guard_music_mode}")
         
         return is_speech
     
@@ -4667,7 +4667,7 @@ class MediaStreamHandler:
         # Use stored client if not provided
         _client = client or self.realtime_client
         if not _client:
-            print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
+            logger.warning(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
             return False
         
         # 🔥 CRITICAL SESSION GATE: Block response.create until session is confirmed
@@ -4699,19 +4699,19 @@ class MediaStreamHandler:
         # 🔥 CRITICAL GUARD: Block response.create while user is speaking
         # This is THE key to proper turn-taking: wait until user finishes before responding
         if getattr(self, 'user_speaking', False) and not is_greeting:
-            print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
+            logger.info(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending or call is closing
         # Don't let AI start new conversation loops after call should end
         if getattr(self, 'pending_hangup', False):
-            print(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
+            logger.info(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
             return False
         
         # 🔥 FIX: Block response.create when call is in CLOSING state
         # Once BOT_BYE_DETECTED, no more AI responses should be created
         if self.call_state == CallState.CLOSING:
-            print(f"🚫 [RESPONSE GUARD] Call in CLOSING state - blocking new responses ({reason})")
+            logger.info(f"🚫 [RESPONSE GUARD] Call in CLOSING state - blocking new responses ({reason})")
             return False
         
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
@@ -4721,11 +4721,11 @@ class MediaStreamHandler:
         if getattr(self, '_awaiting_user_correction', False):
             # Clear the flag - AI can respond (but city is empty so it will ask dynamically)
             self._awaiting_user_correction = False
-            print(f"🔄 [BUILD 308] User rejected - city cleared, AI will ask dynamically")
+            logger.info(f"🔄 [BUILD 308] User rejected - city cleared, AI will ask dynamically")
         
         # 🛡️ GUARD 2: Check if response is pending (race condition prevention)
         if self.response_pending_event.is_set() and not (force and is_greeting):
-            print(f"⏸️ [RESPONSE GUARD] Response pending - skipping ({reason})")
+            logger.info(f"⏸️ [RESPONSE GUARD] Response pending - skipping ({reason})")
             return False
         
         # 🛡️ GUARD 3: Loop guard check (inbound calls only, skip for greeting)
@@ -4733,10 +4733,10 @@ class MediaStreamHandler:
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
             if not is_outbound:
                 if self._loop_guard_engaged:
-                    print(f"🛑 [RESPONSE GUARD] Loop guard engaged - blocking ({reason})")
+                    logger.info(f"🛑 [RESPONSE GUARD] Loop guard engaged - blocking ({reason})")
                     return False
                 if self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
-                    print(f"🛑 [RESPONSE GUARD] Too many consecutive responses ({self._consecutive_ai_responses}) - blocking ({reason})")
+                    logger.info(f"🛑 [RESPONSE GUARD] Too many consecutive responses ({self._consecutive_ai_responses}) - blocking ({reason})")
                     return False
         
         # ✅ All guards passed - trigger response
@@ -4791,12 +4791,12 @@ class MediaStreamHandler:
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
-            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
+            logger.info(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
             return True
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
             self.response_pending_event.clear()
-            print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
+            logger.error(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
             return False
     
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -4882,14 +4882,14 @@ class MediaStreamHandler:
             # This prevents injecting name='None' which is a bug
             if not current_name or not str(current_name).strip():
                 logger.debug(f"[NAME_ANCHOR] ensure: skipping - no valid name available")
-                print(f"ℹ️ [NAME_ANCHOR] ensure: No valid name to re-inject")
+                logger.info(f"ℹ️ [NAME_ANCHOR] ensure: No valid name to re-inject")
                 return
             
             # Validate name is not a placeholder
             name_lower = str(current_name).lower().strip()
             if name_lower in INVALID_NAME_PLACEHOLDERS:
                 logger.debug(f"[NAME_ANCHOR] ensure: skipping - invalid name '{current_name}'")
-                print(f"ℹ️ [NAME_ANCHOR] ensure: Invalid placeholder name '{current_name}'")
+                logger.info(f"ℹ️ [NAME_ANCHOR] ensure: Invalid placeholder name '{current_name}'")
                 return
             
             # 🔥 ANTI-DUPLICATE: Check using hash fingerprint
@@ -4974,12 +4974,12 @@ class MediaStreamHandler:
                 
                 # Log re-injection with hash
                 logger.info(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name}\" item_id={item_id} hash={new_hash_short}")
-                print(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name}', hash={new_hash_short}")
+                logger.info(f"✅ [NAME_ANCHOR] Re-injected after upgrade: enabled={current_policy}, name='{current_name}', hash={new_hash_short}")
                 _orig_print(f"[NAME_ANCHOR] re-injected enabled={current_policy} name=\"{current_name}\" hash={new_hash_short}", flush=True)
             else:
                 # No change needed - log with hash
                 logger.debug(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}")
-                print(f"ℹ️ [NAME_ANCHOR] Ensured - no change needed (hash={existing_hash})")
+                logger.info(f"ℹ️ [NAME_ANCHOR] Ensured - no change needed (hash={existing_hash})")
                 _orig_print(f"[NAME_ANCHOR] ensured ok (no change) hash={existing_hash}", flush=True)
                 
         except Exception as e:
@@ -4992,7 +4992,7 @@ class MediaStreamHandler:
         Send text input (e.g., DTMF) from queue to Realtime API
         ✅ Resilient: Retries on failure, never drops DTMF input silently
         """
-        print(f"📝 [REALTIME] Text sender started")
+        logger.info(f"📝 [REALTIME] Text sender started")
         
         while not self.realtime_stop_flag and not self.closed:
             try:
@@ -5007,40 +5007,40 @@ class MediaStreamHandler:
                     continue
                 
                 if text_message is None:
-                    print(f"📝 [REALTIME] Stop signal received")
+                    logger.info(f"📝 [REALTIME] Stop signal received")
                     break
                 
                 # ✅ Resilient send with retry
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
-                        print(f"📝 [REALTIME] Sending user message (attempt {attempt+1}/{max_retries}): '{text_message[:50]}...'")
+                        logger.info(f"📝 [REALTIME] Sending user message (attempt {attempt+1}/{max_retries}): '{text_message[:50]}...'")
                         await client.send_user_message(text_message)
-                        print(f"✅ [REALTIME] User message sent successfully")
+                        logger.info(f"✅ [REALTIME] User message sent successfully")
                         break  # Success - exit retry loop
                     except Exception as send_error:
                         if attempt < max_retries - 1:
-                            print(f"⚠️ [REALTIME] Send failed (attempt {attempt+1}), retrying: {send_error}")
+                            logger.error(f"⚠️ [REALTIME] Send failed (attempt {attempt+1}), retrying: {send_error}")
                             await asyncio.sleep(0.1)  # Brief delay before retry
                         else:
                             # All retries exhausted - log critical error
-                            print(f"❌ [REALTIME] CRITICAL: Failed to send DTMF input after {max_retries} attempts: {send_error}")
-                            print(f"❌ [REALTIME] Lost message: '{text_message[:100]}'")
+                            logger.error(f"❌ [REALTIME] CRITICAL: Failed to send DTMF input after {max_retries} attempts: {send_error}")
+                            logger.error(f"❌ [REALTIME] Lost message: '{text_message[:100]}'")
                             import traceback
                             traceback.print_exc()
                             # Don't re-raise - continue processing queue
                 
             except Exception as e:
-                print(f"❌ [REALTIME] Text sender error: {e}")
+                logger.error(f"❌ [REALTIME] Text sender error: {e}")
                 import traceback
                 traceback.print_exc()
                 # Don't stop the loop - keep trying to process messages
         
-        print(f"📝 [REALTIME] Text sender ended")
+        logger.info(f"📝 [REALTIME] Text sender ended")
     
     async def _realtime_audio_receiver(self, client):
         """Receive audio and events from Realtime API"""
-        print(f"📥 [REALTIME] Audio receiver started")
+        logger.info(f"📥 [REALTIME] Audio receiver started")
         
         # 🔥 CRITICAL: Signal that RX loop is ready to receive events
         # This ensures session.update is sent ONLY after recv_events() is listening
@@ -5093,21 +5093,21 @@ class MediaStreamHandler:
                             self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
-                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False, barge_in_stop_tx=False (response_id={response_id[:20]}...)")
+                            logger.info(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, ai_response_active=False, barge_in_stop_tx=False (response_id={response_id[:20]}...)")
                         
                         self._cancelled_response_ids.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
                         self._cancelled_response_timestamps.pop(response_id, None)
                         # ✅ P0 FIX: Also remove from cancel guard set
                         self._cancel_sent_for_response_ids.discard(response_id)
-                        print(f"🪓 [BARGE-IN] Final event for cancelled response {response_id[:20]}... (type={event_type})")
+                        logger.info(f"🪓 [BARGE-IN] Final event for cancelled response {response_id[:20]}... (type={event_type})")
                         # Don't continue - let it process through normal response.done/cancelled handler below
                     else:
                         # ✅ P0-3: Log when dropping audio delta for cancelled response
                         if event_type == "response.audio.delta":
-                            print(f"[BARGE_IN_DROP_DELTA] response_id={response_id[:20]}... reason=cancelled_response")
+                            logger.info(f"[BARGE_IN_DROP_DELTA] response_id={response_id[:20]}... reason=cancelled_response")
                         else:
-                            print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
+                            logger.info(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
                         continue
                 
                 # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
@@ -5171,7 +5171,8 @@ class MediaStreamHandler:
                                     _orig_print(f"   - status: {status}", flush=True)
                                     _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
                             
-                            print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
+                            # 🔥 TX_RESPONSE: Changed to DEBUG to reduce production spam
+                            logger.debug(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}")
                             # Cleanup
                             del self._response_tracking[resp_id]
                         
@@ -5308,7 +5309,8 @@ class MediaStreamHandler:
                             'frames_sent': 0,
                             'first_audio_ts': None
                         }
-                        print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
+                        # 🔥 TX_RESPONSE: Changed to DEBUG to reduce production spam
+                        logger.debug(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}")
                     elif event_type == "response.audio_transcript.delta":
                         # 🔥 FIX: Update activity timestamp for transcript deltas to prevent watchdog false positives
                         # The AI is actively transcribing its speech, so the call is definitely not idle
@@ -5341,7 +5343,7 @@ class MediaStreamHandler:
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
                         self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission
-                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, barge_in_stop_tx=False ({cancelled_resp_id[:20]}...)")
+                        logger.info(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, status=cancelled, cancel_in_flight=False, is_ai_speaking=False, barge_in_stop_tx=False ({cancelled_resp_id[:20]}...)")
                 
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
@@ -5546,14 +5548,14 @@ class MediaStreamHandler:
                 if event_type == "conversation.item.input_audio_transcription.failed":
                     self.transcription_failed_count += 1
                     error_msg = event.get("error", {}).get("message", "Unknown error")
-                    print(f"[SAFETY] Transcription failed (#{self.transcription_failed_count}): {error_msg}")
-                    print(f"[SAFETY] NO RETRY - continuing conversation without transcription")
+                    logger.error(f"[SAFETY] Transcription failed (#{self.transcription_failed_count}): {error_msg}")
+                    logger.info(f"[SAFETY] NO RETRY - continuing conversation without transcription")
                     # ✅ Continue processing - don't retry, don't crash, just log and move on
                     continue
                 
                 # 🎯 Handle function calls from Realtime (appointment scheduling)
                 if event_type == "response.function_call_arguments.done":
-                    print(f"🔧 [TOOLS][REALTIME] Function call received!")
+                    logger.info(f"🔧 [TOOLS][REALTIME] Function call received!")
                     logger.debug(f"[TOOLS][REALTIME] Processing function call from OpenAI Realtime")
                     await self._handle_function_call(event, client)
                     continue
@@ -5563,7 +5565,7 @@ class MediaStreamHandler:
                     if DEBUG:
                         logger.debug(f"[REALTIME] event: {event_type}")
                     else:
-                        print(f"[REALTIME] event: {event_type}")
+                        logger.info(f"[REALTIME] event: {event_type}")
                 
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
@@ -5591,7 +5593,7 @@ class MediaStreamHandler:
                     if DEBUG:
                         logger.debug(f"[SPEECH_STARTED] User started speaking")
                     else:
-                        print(f"🎤 [SPEECH_STARTED] User started speaking")
+                        logger.info(f"🎤 [SPEECH_STARTED] User started speaking")
                     
                     # 🔥 NEW REQUIREMENT: ECHO PROTECTION - Verify real speech vs background noise
                     # Check time since last AI audio to avoid canceling on echo
@@ -5604,7 +5606,7 @@ class MediaStreamHandler:
                     if is_in_echo_window:
                         # Within echo window - this might be echo, not real speech
                         # Log but continue - we'll verify with transcription
-                        print(f"⚠️ [ECHO_CHECK] Speech {time_since_ai_audio:.0f}ms after AI (within {ECHO_WINDOW_MS}ms window) - verifying...")
+                        logger.warning(f"⚠️ [ECHO_CHECK] Speech {time_since_ai_audio:.0f}ms after AI (within {ECHO_WINDOW_MS}ms window) - verifying...")
 
                     # 🔥 REMOVED: greeting_lock check - allow speech detection during greeting
                     
@@ -5624,20 +5626,20 @@ class MediaStreamHandler:
                     if DEBUG:
                         logger.debug(f"[TURN_TAKING] user_speaking=True - blocking response.create")
                     else:
-                        print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
+                        logger.info(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
                     
                     # Set user_has_spoken flag (user has interacted)
                     if not self.user_has_spoken:
                         self.user_has_spoken = True
-                        print(f"✅ [FIRST_SPEECH] user_has_spoken=True")
+                        logger.info(f"✅ [FIRST_SPEECH] user_has_spoken=True")
                     
                     # Reset loop guard when user speaks
                     if self._consecutive_ai_responses > 0:
                         self._consecutive_ai_responses = 0
-                        print(f"✅ [LOOP_GUARD] Reset counter on user speech")
+                        logger.info(f"✅ [LOOP_GUARD] Reset counter on user speech")
                     if self._loop_guard_engaged:
                         self._loop_guard_engaged = False
-                        print(f"✅ [LOOP_GUARD] Disengaged on user speech")
+                        logger.info(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
@@ -5726,23 +5728,23 @@ class MediaStreamHandler:
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
-                    print(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
+                    logger.info(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
                 
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     # 🔄 ADAPTIVE: Clear OpenAI confirmation flag when speech stops
                     if self._openai_speech_started_confirmed:
-                        print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
+                        logger.info(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
                         self._openai_speech_started_confirmed = False
-                    print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    logger.info(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                     
                     # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
                     # Don't allow response.create between speech_stopped and transcription
                     if DEBUG:
                         logger.debug(f"[TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
                     else:
-                        print(f"⏸️ [TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
+                        logger.info(f"⏸️ [TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
                     
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
                     # If no transcription arrives within 1.8s, finalize the turn anyway
@@ -5752,14 +5754,14 @@ class MediaStreamHandler:
                             # Check if we're still waiting for transcription
                             if self._candidate_user_speaking and not self.user_has_spoken:
                                 # Timeout expired - force turn finalization
-                                print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
+                                logger.info(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
                                 self._finalize_user_turn_on_timeout()
                         except asyncio.CancelledError:
                             # Task was cancelled (connection closed or transcription received)
-                            print(f"[TURN_END] Timeout check cancelled")
+                            logger.info(f"[TURN_END] Timeout check cancelled")
                         except Exception as e:
                             # Log but don't crash
-                            print(f"[TURN_END] Error in timeout check: {e}")
+                            logger.error(f"[TURN_END] Error in timeout check: {e}")
                     
                     # Schedule timeout check and track it for cleanup
                     timeout_task = asyncio.create_task(_user_turn_timeout_check())
@@ -5779,35 +5781,35 @@ class MediaStreamHandler:
                             barge_duration = time.time() - barge_start
                         else:
                             barge_duration = 0
-                        print(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
+                        logger.info(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
                         self.barge_in_active = False
                         self._barge_in_started_ts = None
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
-                        print(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery...")
+                        logger.info(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery...")
                         # Schedule a delayed recovery check in a separate task
                         async def _recovery_check():
                             await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
                             # 🎯 P0-5: Multiple guards to prevent double triggers
                             # Guard 1: Check if recovery is still needed
                             if not self._cancelled_response_needs_recovery:
-                                print(f"🔄 [P0-5] Recovery cancelled - flag cleared")
+                                logger.info(f"🔄 [P0-5] Recovery cancelled - flag cleared")
                                 return
                             # Guard 2: Check if AI is already speaking
                             if self.is_ai_speaking_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [P0-5] Recovery skipped - AI already speaking")
+                                logger.info(f"🔄 [P0-5] Recovery skipped - AI already speaking")
                                 return
                             # Guard 3: Check if there's a pending response
                             if self.response_pending_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [P0-5] Recovery skipped - response pending")
+                                logger.info(f"🔄 [P0-5] Recovery skipped - response pending")
                                 return
                             # Guard 4: Check if user is speaking (prevents retry during real user speech)
                             if self._realtime_speech_active or self.user_has_spoken:
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [P0-5] Recovery skipped - user is speaking")
+                                logger.info(f"🔄 [P0-5] Recovery skipped - user is speaking")
                                 return
                             
                             # All guards passed - trigger recovery via central function
@@ -5815,9 +5817,9 @@ class MediaStreamHandler:
                             self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
                             triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client)
                             if not triggered:
-                                print(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
+                                logger.warning(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
                             else:
-                                print(f"✅ [P0-5] Recovery response triggered successfully")
+                                logger.info(f"✅ [P0-5] Recovery response triggered successfully")
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -5850,15 +5852,15 @@ class MediaStreamHandler:
                         _orig_print(f"✅ [BARGE-IN] ai_response_active=True, status=in_progress on response.created (id={response_id[:20]}...)", flush=True)
                         self.barge_in_active = False  # Reset barge-in flag for new response
                         self.barge_in_stop_tx = False  # 🔥 NEW FIX: Re-enable TX transmission for new response
-                        print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
+                        logger.info(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
                         
-                        print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
+                        logger.info(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
                         # 🔥 BUILD 187: Response grace period - track when response started
                         # This prevents false turn_detected from echo/noise in first 500ms
                         self._response_created_ts = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
-                            print(f"🔄 [P0-5] New response created - cancelling recovery")
+                            logger.info(f"🔄 [P0-5] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
                         # 🎯 P0-5: Reset retry flag for new response (allows recovery for this response)
                         self._cancel_retry_attempted = False
@@ -5895,14 +5897,14 @@ class MediaStreamHandler:
                         if not self.is_ai_speaking_event.is_set():
                             # First audio delta - initialize timestamps
                             if DEBUG:
-                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
-                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
+                                logger.info(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            logger.info(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True
                             self._last_ai_audio_start_ts = now
                             if self._cancelled_response_needs_recovery:
-                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
+                                logger.info(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
                         
                         # 🔥 CRITICAL: Set flag on EVERY audio.delta to maintain state during long responses
@@ -5954,7 +5956,7 @@ class MediaStreamHandler:
                             if not hasattr(self, '_greeting_audio_started_logged'):
                                 self._greeting_audio_started_logged = False
                             if not self._greeting_audio_started_logged:
-                                print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                                logger.info(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
                                 self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Note: is_ai_speaking already set above at start of audio.delta handler
@@ -6003,7 +6005,7 @@ class MediaStreamHandler:
                         is_greeting_response = self.greeting_mode_active and not self.greeting_completed
                         if not SIMPLE_MODE and not self.user_has_spoken and not is_greeting_response:
                             # User never spoke, and this is not the greeting – block it
-                            print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
+                            logger.info(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
                             # If there is a response_id in the event, send response.cancel once (with duplicate guard)
                             response_id = event.get("response_id")
                             if response_id and self._should_send_cancel(response_id):
@@ -6014,7 +6016,7 @@ class MediaStreamHandler:
                                     })
                                     self._mark_response_cancelled_locally(response_id, "pre_user_guard")
                                 except Exception:
-                                    print("[GUARD] Failed to send response.cancel for pre-user-response")
+                                    logger.error("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
                         
                         # Note: is_ai_speaking was already set at the beginning of audio.delta handler (before all guards)
@@ -6039,7 +6041,7 @@ class MediaStreamHandler:
                         # 🔍 GAP DETECTION: Log if >500ms between chunks (potential pause source)
                         gap_ms = (now - getattr(self, '_last_audio_chunk_ts', now)) * 1000
                         if gap_ms > 500 and self._openai_audio_chunks_received > 3:
-                            print(f"⚠️ [AUDIO GAP] {gap_ms:.0f}ms gap between chunks #{self._openai_audio_chunks_received-1} and #{self._openai_audio_chunks_received} - OpenAI delay!")
+                            logger.warning(f"⚠️ [AUDIO GAP] {gap_ms:.0f}ms gap between chunks #{self._openai_audio_chunks_received-1} and #{self._openai_audio_chunks_received} - OpenAI delay!")
                             
                             # 🔥 BUILD 181: GAP RECOVERY - Insert silence frames for gaps >3 seconds
                             # 🔥 BUILD 320: DISABLED when AUDIO_GUARD is ON - let real timing flow naturally
@@ -6062,7 +6064,7 @@ class MediaStreamHandler:
                                             self._enq_counter += 1
                                         except queue.Full:
                                             break
-                                print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms) for {gap_ms:.0f}ms gap")
+                                logger.info(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms) for {gap_ms:.0f}ms gap")
                         self._last_audio_chunk_ts = now
                         
                         if self._openai_audio_chunks_received <= 3:
@@ -6075,7 +6077,7 @@ class MediaStreamHandler:
                             if DEBUG:
                                 logger.debug(f"{audio_type} chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes}")
                             else:
-                                print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
+                                logger.info(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
                         # 🔥 VERIFICATION #3: Block audio enqueue if closed
                         if not self.closed:
@@ -6134,7 +6136,7 @@ class MediaStreamHandler:
                         greeting_duration = 0
                         if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
                             greeting_duration = (greeting_end_ts - self._greeting_start_ts) * 1000
-                        print(f"🎤 [GREETING] Greeting finished at {greeting_end_ts:.3f} (duration: {greeting_duration:.0f}ms)")
+                        logger.info(f"🎤 [GREETING] Greeting finished at {greeting_end_ts:.3f} (duration: {greeting_duration:.0f}ms)")
                         
                         # 🎯 FIX A: Mark greeting as completed - ALL future responses are NORMAL
                         self.greeting_mode_active = False
@@ -6144,45 +6146,45 @@ class MediaStreamHandler:
                         
                         # 🔥 PERFORMANCE: Mark call as live (DB access forbidden from now on)
                         self.in_live_call = True
-                        print(f"🔒 [DB_GUARD] Live call active - DB access blocked until call ends")
+                        logger.info(f"🔒 [DB_GUARD] Live call active - DB access blocked until call ends")
                         
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
-                        print(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
+                        logger.info(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
                     elif self.is_playing_greeting:
                         # This shouldn't happen after our fix, but handle gracefully
-                        print(f"⚠️ [GREETING] is_playing_greeting was True but greeting already completed - clearing flag")
+                        logger.warning(f"⚠️ [GREETING] is_playing_greeting was True but greeting already completed - clearing flag")
                         self.is_playing_greeting = False
                         
                         # 🔥 MASTER FIX: Validation check for greeting SLA
                         self._validate_greeting_sla()
                         # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
-                        print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
+                        logger.info(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
                         
                         # 🔥 BUILD 303: GREETING FLOW - Now waiting for first user utterance
                         # Don't let AI create new response until user answers the greeting question
                         self.awaiting_greeting_answer = True
                         self.first_post_greeting_utterance_handled = False
-                        print(f"⏳ [BUILD 303] Waiting for user's first response to greeting...")
+                        logger.info(f"⏳ [BUILD 303] Waiting for user's first response to greeting...")
                         self._post_greeting_window_active = True
                         self._post_greeting_window_started_at = time.time()
                         self._post_greeting_window_finished = False
                         self._post_greeting_heard_user = False
                         self._post_greeting_speech_cycle_complete = False
-                        print(f"🧘 [GREETING] Breathing window started ({self._post_greeting_breath_window_sec:.1f}s)")
+                        logger.info(f"🧘 [GREETING] Breathing window started ({self._post_greeting_breath_window_sec:.1f}s)")
                         
                         # 🔥 BUILD 172: Transition to ACTIVE state and start silence monitor
                         if self.call_state == CallState.WARMUP:
                             self.call_state = CallState.ACTIVE
-                            print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)")
+                            logger.info(f"📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)")
                             asyncio.create_task(self._start_silence_monitor())
                     
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
                     if self.is_ai_speaking_event.is_set():
-                        print(f"🔇 [REALTIME] AI stopped speaking ({event_type})")
+                        logger.info(f"🔇 [REALTIME] AI stopped speaking ({event_type})")
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
@@ -6199,7 +6201,7 @@ class MediaStreamHandler:
                     # Let the audio bridge naturally drain the queue.
                     queue_size = self.realtime_audio_out_queue.qsize()
                     if queue_size > 0:
-                        print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (NO TRUNCATION)")
+                        logger.info(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (NO TRUNCATION)")
                     
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
@@ -6291,7 +6293,7 @@ class MediaStreamHandler:
                     
                     transcript = event.get("transcript", "")
                     if transcript:
-                        print(f"🤖 [REALTIME] AI said: {transcript}")
+                        logger.info(f"🤖 [REALTIME] AI said: {transcript}")
                         
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🔥 VOICEMAIL DETECTION: Check AI transcript too (first 10 seconds only)
@@ -6318,7 +6320,7 @@ class MediaStreamHandler:
                             if has_goodbye:
                                 resp_id = event.get('response_id')
                                 # 🔥 FIX: Log full text without truncation to see complete goodbye sentence
-                                force_print(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw}'")
+                                logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw}'")
                                 logger.info(f"[BOT_BYE_DETECTED] resp_id={resp_id} text='{_t_raw}'")
                                 
                                 # 🔥 FIX: Only MARK for hangup, don't execute until audio.done
@@ -6330,7 +6332,7 @@ class MediaStreamHandler:
                                     "bot",
                                     response_id=resp_id,
                                 )
-                                force_print(f"[BOT_BYE] Marked for hangup - will execute after audio completes (response.audio.done)")
+                                logger.info(f"[BOT_BYE] Marked for hangup - will execute after audio completes (response.audio.done)")
                                 
                                 # ⚠️ REMOVED: Don't check audio_already_done here
                                 # Let the response.audio.done handler do the hangup AFTER audio completes
@@ -6339,7 +6341,7 @@ class MediaStreamHandler:
                                 continue
                         except Exception as e:
                             # Never break the realtime loop due to hangup matching errors.
-                            force_print(f"⚠️ [BOT_BYE_DETECT] Error checking goodbye: {e}")
+                            logger.error(f"⚠️ [BOT_BYE_DETECT] Error checking goodbye: {e}")
                             pass
                         
                         # ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
@@ -6431,8 +6433,8 @@ class MediaStreamHandler:
                             
                             # 🔥 BUILD 338 DEBUG: Log the comparison details
                             if extra_tokens_flexible:
-                                print(f"🔍 [BUILD 338] Extra tokens (after prefix/plural normalization): {extra_tokens_flexible}")
-                                print(f"🔍 [BUILD 338] After removing filler: {substantive_extras}")
+                                logger.info(f"🔍 [BUILD 338] Extra tokens (after prefix/plural normalization): {extra_tokens_flexible}")
+                                logger.info(f"🔍 [BUILD 338] After removing filler: {substantive_extras}")
                             
                             # 🔥 BUILD 339 FIX: GENERIC TOKEN-BASED VALIDATION
                             # city_ok: STRICT - ALL city tokens must be present (for multi-word cities like "קריית גת")
@@ -6463,7 +6465,7 @@ class MediaStreamHandler:
                                                 found = True
                                                 break
                                     if not found:
-                                        print(f"⚠️ [BUILD 339] City token '{city_token}' NOT FOUND in transcript tokens: {transcript_tokens}")
+                                        logger.warning(f"⚠️ [BUILD 339] City token '{city_token}' NOT FOUND in transcript tokens: {transcript_tokens}")
                                         return False
                                 return True
                             
@@ -6512,7 +6514,7 @@ class MediaStreamHandler:
                                 # Jaccard-like similarity
                                 jaccard = effective_matches / max(len(canon_set), 1)
                                 
-                                print(f"🔍 [BUILD 339] Service matching: canon_set={canon_set}, ai_set={ai_set}, intersection={intersection}, partial={partial_matches}, jaccard={jaccard:.2f}")
+                                logger.info(f"🔍 [BUILD 339] Service matching: canon_set={canon_set}, ai_set={ai_set}, intersection={intersection}, partial={partial_matches}, jaccard={jaccard:.2f}")
                                 
                                 # Accept if:
                                 # 1) At least 1 token matches AND jaccard >= 0.5
@@ -6536,11 +6538,11 @@ class MediaStreamHandler:
                                     normalized_city = _normalize_hebrew(self._city_raw_from_stt)
                                     city_ok = _city_tokens_all_present(normalized_city, normalized_transcript)
                                     if not city_ok:
-                                        print(f"⚠️ [BUILD 339] City FAILED! Expected ALL tokens of '{self._city_raw_from_stt}' (normalized: '{normalized_city}') in transcript")
+                                        logger.error(f"⚠️ [BUILD 339] City FAILED! Expected ALL tokens of '{self._city_raw_from_stt}' (normalized: '{normalized_city}') in transcript")
                                 else:
                                     # Lock set but no value - inconsistent state, fail
                                     city_ok = False
-                                    print(f"⚠️ [BUILD 339] City locked but no raw STT value!")
+                                    logger.warning(f"⚠️ [BUILD 339] City locked but no raw STT value!")
                             
                             # SERVICE: If locked, use generic semantic matching (Jaccard similarity)
                             if self._service_locked:
@@ -6548,11 +6550,11 @@ class MediaStreamHandler:
                                     normalized_service = _normalize_hebrew(self._service_raw_from_stt)
                                     service_ok = _service_matches_semantically(normalized_service, normalized_transcript, allowed_filler_normalized)
                                     if not service_ok:
-                                        print(f"⚠️ [BUILD 339] Service FAILED! Expected semantic match for '{self._service_raw_from_stt}' (normalized: '{normalized_service}') in transcript")
+                                        logger.error(f"⚠️ [BUILD 339] Service FAILED! Expected semantic match for '{self._service_raw_from_stt}' (normalized: '{normalized_service}') in transcript")
                                 else:
                                     # Lock set but no value - inconsistent state, fail
                                     service_ok = False
-                                    print(f"⚠️ [BUILD 339] Service locked but no raw STT value!")
+                                    logger.warning(f"⚠️ [BUILD 339] Service locked but no raw STT value!")
                             
                             # Check for extra substantive tokens (after filler removal)
                             no_extra_content = len(substantive_extras) == 0
@@ -6561,7 +6563,7 @@ class MediaStreamHandler:
                             
                             # 🔥 BUILD 339: Detailed logging for debugging
                             if substantive_extras:
-                                print(f"⚠️ [BUILD 339] Extra tokens after filler removal: {substantive_extras}")
+                                logger.warning(f"⚠️ [BUILD 339] Extra tokens after filler removal: {substantive_extras}")
                             
                             # 🔥 BUILD 339 VALIDATION LOGIC:
                             # Accept confirmation if:
@@ -6575,23 +6577,23 @@ class MediaStreamHandler:
                             
                             if exact_match:
                                 self._confirmation_validated = True
-                                print(f"✅ [BUILD 339] EXACT MATCH! AI said exactly what we asked")
+                                logger.info(f"✅ [BUILD 339] EXACT MATCH! AI said exactly what we asked")
                             elif city_ok and service_ok and no_extra_content:
                                 self._confirmation_validated = True
-                                print(f"✅ [BUILD 339] VALID CONFIRMATION (city_ok=True, service_ok=True, no extras)")
+                                logger.info(f"✅ [BUILD 339] VALID CONFIRMATION (city_ok=True, service_ok=True, no extras)")
                             else:
                                 # 🚨 BUILD 339: Validation failed - wrong city, wrong service, or extra content
-                                print(f"🚨 [BUILD 339] VALIDATION FAILED! Extras: {substantive_extras}, city_ok={city_ok}, service_ok={service_ok}")
+                                logger.error(f"🚨 [BUILD 339] VALIDATION FAILED! Extras: {substantive_extras}, city_ok={city_ok}, service_ok={service_ok}")
                                 # AI deviated - resend instruction (limit to 2 retries to prevent infinite loop)
                                 if self._speak_exact_resend_count < 2:
                                     self._speak_exact_resend_count += 1
-                                    print(f"🔁 [BUILD 339] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
+                                    logger.info(f"🔁 [BUILD 339] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
                                     # 🔥 FIX: Clear stale state before resend
                                     asyncio.create_task(self._send_server_event_to_ai(
                                         f"[SPEAK_EXACT] עצור! אמרת פרטים שגויים. אמור בדיוק: \"{expected}\""
                                     ))
                                 else:
-                                    print(f"❌ [BUILD 339] Max resends reached - AI keeps deviating")
+                                    logger.error(f"❌ [BUILD 339] Max resends reached - AI keeps deviating")
                                     # 🔥 FIX: Reset state to allow retry with fresh data
                                     self._expected_confirmation = None
                                     self._speak_exact_resend_count = 0
@@ -6628,7 +6630,7 @@ class MediaStreamHandler:
                                     similarity = _text_similarity(transcript, prev_response)
                                     if similarity > 0.70:
                                         is_repeating = True
-                                        print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
+                                        logger.warning(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
                                         break
                         
                         # 🔥 BUILD 169.1: MISHEARING DETECTION (Architect: reduced to 2 for better UX)
@@ -6639,7 +6641,7 @@ class MediaStreamHandler:
                             is_confused = any(phrase in transcript for phrase in confusion_phrases)
                             if is_confused:
                                 self._mishearing_count += 1
-                                print(f"❓ [MISHEARING] AI confused ({self._mishearing_count} times): '{transcript[:50]}...'")
+                                logger.info(f"❓ [MISHEARING] AI confused ({self._mishearing_count} times): '{transcript[:50]}...'")
                             else:
                                 self._mishearing_count = 0  # Reset on clear response
                         
@@ -6656,7 +6658,7 @@ class MediaStreamHandler:
                         # 🔥 BUILD 311: DON'T count SILENCE_HANDLER responses towards consecutive
                         is_silence_handler = getattr(self, '_is_silence_handler_response', False)
                         if is_silence_handler:
-                            print(f"📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive")
+                            logger.info(f"📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive")
                             self._is_silence_handler_response = False  # Reset flag
                             # Don't increment consecutive counter for silence warnings
                         else:
@@ -6702,30 +6704,30 @@ class MediaStreamHandler:
                             # Set scheduling mode flag if keywords detected
                             if has_keywords and not is_scheduling_flag:
                                 self._is_scheduling_mode = True
-                                print(f"📋 [BUILD 337] Scheduling mode ACTIVATED (keywords detected)")
+                                logger.info(f"📋 [BUILD 337] Scheduling mode ACTIVATED (keywords detected)")
                             
                             # Clear scheduling mode if appointment created
                             if has_appointment and is_scheduling_flag:
                                 self._is_scheduling_mode = False
-                                print(f"✅ [BUILD 337] Scheduling mode DEACTIVATED (appointment created)")
+                                logger.info(f"✅ [BUILD 337] Scheduling mode DEACTIVATED (appointment created)")
                             
                             is_scheduling = is_scheduling_flag or has_keywords
                             
                             if in_post_greeting_grace:
                                 # 🔥 BUILD 311: NEVER engage loop guard during grace period - give customer time to respond!
                                 should_engage_guard = False
-                                print(f"⏳ [BUILD 311] Post-greeting grace period ({time_since_greeting:.1f}s/{grace_period}s) - LOOP GUARD DISABLED")
+                                logger.info(f"⏳ [BUILD 311] Post-greeting grace period ({time_since_greeting:.1f}s/{grace_period}s) - LOOP GUARD DISABLED")
                             elif is_outbound:
                                 # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
                                 should_engage_guard = False
                             elif is_closing or is_hanging_up:
                                 # 🔥 BUILD 179: Never engage loop guard during call ending
                                 should_engage_guard = False
-                                print(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
+                                logger.info(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
                             elif has_appointment:
                                 # 🔥 BUILD 182: Skip loop guard ONLY if appointment already created
                                 should_engage_guard = False
-                                print(f"⏭️ [LOOP GUARD] Skipped - appointment confirmed (has_appointment=True)")
+                                logger.info(f"⏭️ [LOOP GUARD] Skipped - appointment confirmed (has_appointment=True)")
                             elif is_scheduling:
                                 # 🔥 BUILD 337: LIMITED loop guard during scheduling - prevent AI monologues!
                                 # Allow 2 consecutive responses during scheduling, then engage guard
@@ -6733,10 +6735,10 @@ class MediaStreamHandler:
                                 max_scheduling_consecutive = 2
                                 if self._consecutive_ai_responses >= max_scheduling_consecutive and user_silent_long_time:
                                     should_engage_guard = True
-                                    print(f"⚠️ [BUILD 337] LOOP GUARD ENGAGED during scheduling! ({self._consecutive_ai_responses} consecutive, user silent)")
+                                    logger.warning(f"⚠️ [BUILD 337] LOOP GUARD ENGAGED during scheduling! ({self._consecutive_ai_responses} consecutive, user silent)")
                                 else:
                                     should_engage_guard = False
-                                    print(f"📋 [BUILD 337] Scheduling flow - limited guard ({self._consecutive_ai_responses}/{max_scheduling_consecutive})")
+                                    logger.info(f"📋 [BUILD 337] Scheduling flow - limited guard ({self._consecutive_ai_responses}/{max_scheduling_consecutive})")
                             else:
                                 # INBOUND: Normal loop guard logic
                                 max_consecutive = self._max_consecutive_ai_responses
@@ -6750,8 +6752,8 @@ class MediaStreamHandler:
                         if should_engage_guard and ENABLE_LOOP_DETECT:
                             guard_reason = "consecutive_responses" if self._consecutive_ai_responses >= self._max_consecutive_ai_responses else \
                                           "semantic_repetition" if is_repeating else "mishearing_loop"
-                            print(f"⚠️ [LOOP GUARD] Triggered by {guard_reason}!")
-                            print(f"🛑 [LOOP GUARD] BLOCKING further responses until user speaks!")
+                            logger.warning(f"⚠️ [LOOP GUARD] Triggered by {guard_reason}!")
+                            logger.info(f"🛑 [LOOP GUARD] BLOCKING further responses until user speaks!")
                             # 🛑 ENGAGE GUARD FIRST - before any other operations to prevent race conditions
                             self._loop_guard_engaged = True
                             
@@ -6773,16 +6775,16 @@ class MediaStreamHandler:
                                             "response_id": cancelled_id
                                         })
                                         self._mark_response_cancelled_locally(cancelled_id, "loop_guard")
-                                        print(f"🛑 [LOOP GUARD] Cancelled active AI response (id={cancelled_id})")
+                                        logger.info(f"🛑 [LOOP GUARD] Cancelled active AI response (id={cancelled_id})")
                                     except:
                                         pass
                             else:
-                                print(f"⏭️ [LOOP GUARD] Skipped cancel - no active response (id={self.active_response_id}, speaking={self.is_ai_speaking_event.is_set()})")
+                                logger.info(f"⏭️ [LOOP GUARD] Skipped cancel - no active response (id={self.active_response_id}, speaking={self.is_ai_speaking_event.is_set()})")
                             
                             # 🔥 BUILD 305: DON'T clear queues - this causes choppy audio!
                             # The _tx_enqueue function already blocks audio when _loop_guard_engaged=True
                             # Old code cleared TX queue here, causing mid-sentence cuts
-                            print(f"✅ [LOOP GUARD] Engaged - blocking new audio (existing queue: {self.tx_q.qsize()} frames will play)")
+                            logger.info(f"✅ [LOOP GUARD] Engaged - blocking new audio (existing queue: {self.tx_q.qsize()} frames will play)")
                             # Mark AI as not speaking
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
@@ -6810,7 +6812,7 @@ class MediaStreamHandler:
                             elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
                             if elapsed_ms < self.min_call_duration_after_greeting_ms:
                                 can_detect_goodbye = False
-                                print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
+                                logger.info(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
                         # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
                         # 🔴 DISABLED — Old goodbye detection (replaced by BYE-ONLY at line 5131-5176)
@@ -6829,7 +6831,7 @@ class MediaStreamHandler:
                         
                         # If AI says goodbye too early, ignore it (likely part of greeting/introduction)
                         if ai_polite_closing_detected and time_since_greeting < MIN_CALL_DURATION_FOR_SMART_ENDING:
-                            print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {time_since_greeting:.0f}ms since greeting (min={MIN_CALL_DURATION_FOR_SMART_ENDING}ms)")
+                            logger.info(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {time_since_greeting:.0f}ms since greeting (min={MIN_CALL_DURATION_FOR_SMART_ENDING}ms)")
                             ai_polite_closing_detected = False
                         
                         # 🎯 BUILD 170.5: FIXED HANGUP LOGIC
@@ -6854,8 +6856,8 @@ class MediaStreamHandler:
                         if ai_polite_closing_detected:
                             hangup_reason = "bot_goodbye"
                             should_hangup = True
-                            print(f"✅ [HANGUP] Bot said goodbye (ביי/להתראות) - disconnecting")
-                            print(f"📞 [HANGUP] This is the ONLY normal disconnect condition - bot must say goodbye!")
+                            logger.info(f"✅ [HANGUP] Bot said goodbye (ביי/להתראות) - disconnecting")
+                            logger.info(f"📞 [HANGUP] This is the ONLY normal disconnect condition - bot must say goodbye!")
                         
                         # NOTE: All conditions below are UNREACHABLE because ai_polite_closing_detected
                         # always triggers the condition above. The bot MUST say goodbye to disconnect.
@@ -6867,7 +6869,7 @@ class MediaStreamHandler:
                             # barge_in_voice_frames is always initialized to 0 in __init__
                             user_is_speaking = getattr(self, 'barge_in_voice_frames', 0) > 0
                             if user_is_speaking:
-                                print(f"🔒 [GOODBYE] Blocking hangup - user currently speaking! voice_frames={self.barge_in_voice_frames}")
+                                logger.info(f"🔒 [GOODBYE] Blocking hangup - user currently speaking! voice_frames={self.barge_in_voice_frames}")
                                 should_hangup = False
                         
                         if should_hangup:
@@ -6882,10 +6884,10 @@ class MediaStreamHandler:
                             # 🔥 BUILD 172: Transition to CLOSING state
                             if self.call_state == CallState.ACTIVE:
                                 self.call_state = CallState.CLOSING
-                                print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (reason: {hangup_reason})")
-                            print(f"📞 [HANGUP TRIGGER] ✅ pending_hangup=True - hangup WILL execute after audio completes")
-                            print(f"📞 [HANGUP TRIGGER]    reason={hangup_reason}, transcript='{transcript[:50]}...'")
-                            print(f"📞 [HANGUP TRIGGER]    Flow: response.audio.done → delayed_hangup() → _trigger_auto_hangup()")
+                                logger.info(f"📞 [STATE] Transitioning ACTIVE → CLOSING (reason: {hangup_reason})")
+                            logger.info(f"📞 [HANGUP TRIGGER] ✅ pending_hangup=True - hangup WILL execute after audio completes")
+                            logger.info(f"📞 [HANGUP TRIGGER]    reason={hangup_reason}, transcript='{transcript[:50]}...'")
+                            logger.info(f"📞 [HANGUP TRIGGER]    Flow: response.audio.done → delayed_hangup() → _trigger_auto_hangup()")
                         
                         # 🔥 NOTE: Hangup is now triggered in response.audio.done to let audio finish!
                 
@@ -6973,10 +6975,10 @@ class MediaStreamHandler:
                     # Minimum requirement: At least MIN_TRANSCRIPTION_LENGTH characters after cleanup
                     if not self.user_has_spoken and text and len(text.strip()) >= MIN_TRANSCRIPTION_LENGTH:
                         self.user_has_spoken = True
-                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...', len={len(text.strip())})")
+                        logger.info(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...', len={len(text.strip())})")
                     elif not self.user_has_spoken and text:
                         # Log when we get text but it's too short to count
-                        print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
+                        logger.info(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call
@@ -7038,10 +7040,10 @@ class MediaStreamHandler:
                                             'lead_id': lead.id,
                                             'updates': {'gender': detected_gender}
                                         })
-                                        print(f"[DB_BUFFER] Queued gender update for lead {lead.id}: {detected_gender}")
+                                        logger.info(f"[DB_BUFFER] Queued gender update for lead {lead.id}: {detected_gender}")
                                         
                                         logger.info(f"[GENDER_CONVERSATION] Detected gender for lead {lead.id}: {old_gender} → {detected_gender} (buffered)")
-                                        print(f"🧠 [GENDER] Detected from conversation: {detected_gender} (will save at call end)")
+                                        logger.info(f"🧠 [GENDER] Detected from conversation: {detected_gender} (will save at call end)")
                                         
                                         # Re-inject NAME_ANCHOR with updated gender
                                         if hasattr(self, '_name_anchor_customer_name') and self._name_anchor_customer_name:
@@ -7065,7 +7067,7 @@ class MediaStreamHandler:
                                                         "content": [{"type": "input_text", "text": updated_anchor}]
                                                     }
                                                 })
-                                                print(f"🧠 [GENDER] Updated AI context with detected gender")
+                                                logger.info(f"🧠 [GENDER] Updated AI context with detected gender")
                                             except Exception as e:
                                                 logger.warning(f"[GENDER_CONVERSATION] Failed to update AI context: {e}")
                                     else:
@@ -7116,15 +7118,15 @@ class MediaStreamHandler:
                                                 'lead_id': lead.id,
                                                 'updates': {'first_name': detected_name, 'last_name': None}
                                             })
-                                            print(f"[DB_BUFFER] Queued name update for lead {lead.id}: '{detected_name}'")
+                                            logger.info(f"[DB_BUFFER] Queued name update for lead {lead.id}: '{detected_name}'")
                                             
                                             logger.info(f"[NAME_CONVERSATION] Detected name for lead {lead.id}: '{old_name}' → '{detected_name}' (buffered)")
-                                            print(f"📝 [NAME] Detected from conversation: '{detected_name}' (will save at call end)")
+                                            logger.info(f"📝 [NAME] Detected from conversation: '{detected_name}' (will save at call end)")
                                             
                                             # Update CRM context if it exists
                                             if hasattr(self, 'crm_context') and self.crm_context:
                                                 self.crm_context.customer_name = detected_name
-                                                print(f"📝 [NAME] Updated CRM context with detected name")
+                                                logger.info(f"📝 [NAME] Updated CRM context with detected name")
                                         else:
                                             logger.debug(f"[NAME_CONVERSATION] Lead {lead.id} already has valid name '{current_name}' - not overriding")
                                     else:
@@ -7149,7 +7151,7 @@ class MediaStreamHandler:
                     if getattr(self, '_greeting_needs_transcription_confirm', False):
                         self._greeting_needs_transcription_confirm = False
                         if DEBUG:
-                            print("🔒 [GREETING] Ignoring transcription-confirm greeting interruption")
+                            logger.info("🔒 [GREETING] Ignoring transcription-confirm greeting interruption")
                     
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
@@ -7157,7 +7159,7 @@ class MediaStreamHandler:
                     if DEBUG:
                         logger.debug(f"[TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     else:
-                        print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                        logger.info(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -7202,7 +7204,7 @@ class MediaStreamHandler:
                         time_since_ai_finished = (now_sec - self._ai_finished_speaking_ts) * 1000
                         # 🔥 BUILD 300: Only LOG, don't reject! OpenAI knows better than local timing
                         if time_since_ai_finished < 500:  # Very fast response - just log for debugging
-                            print(f"⚡ [BUILD 300] Fast response: {time_since_ai_finished:.0f}ms after AI (trusting OpenAI)")
+                            logger.info(f"⚡ [BUILD 300] Fast response: {time_since_ai_finished:.0f}ms after AI (trusting OpenAI)")
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
@@ -7296,7 +7298,7 @@ class MediaStreamHandler:
                         words_in_text = set(re.findall(r'[a-zA-Z]+', text_lower))
                         if words_in_text and words_in_text.issubset(english_common_words):
                             is_hallucination = True
-                            print(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
+                            logger.info(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
                     
                     # 🔥 BUILD 303: INCREMENT USER UTTERANCE COUNT
                     self.user_utterance_count += 1
@@ -7308,7 +7310,7 @@ class MediaStreamHandler:
                     filter_reason = ""
                     
                     if SIMPLE_MODE:
-                        print(f"✅ [SIMPLE_MODE] Bypassing all filters - accepting: '{text}'")
+                        logger.info(f"✅ [SIMPLE_MODE] Bypassing all filters - accepting: '{text}'")
                         # In SIMPLE_MODE: skip all filtering, go straight to segment merging
                     else:
                         # 🔥 BUILD 186: GENERIC STT VALIDATION - No hardcoded patterns!
@@ -7324,13 +7326,13 @@ class MediaStreamHandler:
                         )
                         
                         if bypass_gibberish_for_patience:
-                            print(f"✅ [BUILD 303 PATIENCE] Bypassing gibberish check for utterance #{self.user_utterance_count}: '{text_stripped}' (hebrew_chars={hebrew_chars})")
+                            logger.info(f"✅ [BUILD 303 PATIENCE] Bypassing gibberish check for utterance #{self.user_utterance_count}: '{text_stripped}' (hebrew_chars={hebrew_chars})")
                         elif hebrew_chars > 0 and text_stripped not in natural_elongations:
                             # Use the generic Hebrew STT validator (no hardcoded patterns)
                             is_gib, gib_reason, gib_confidence = is_gibberish(text_stripped)
                             if is_gib and gib_confidence >= 0.5:
                                 is_gibberish_detected = True
-                                print(f"[GIBBERISH] Detected: '{text_stripped}' | Reason: {gib_reason} | Confidence: {gib_confidence:.0%}")
+                                logger.info(f"[GIBBERISH] Detected: '{text_stripped}' | Reason: {gib_reason} | Confidence: {gib_confidence:.0%}")
                         
                         # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
                         is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
@@ -7344,11 +7346,11 @@ class MediaStreamHandler:
                         if is_valid_short_hebrew or starts_with_valid:
                             # ✅ ALWAYS allow valid short Hebrew words or phrases starting with them
                             should_filter = False
-                            print(f"✅ [NOISE FILTER] ALLOWED Hebrew: '{text}'")
+                            logger.info(f"✅ [NOISE FILTER] ALLOWED Hebrew: '{text}'")
                         elif has_meaningful_hebrew and not is_gibberish_detected:
                             # ✅ Has Hebrew characters and not gibberish - probably valid
                             should_filter = False
-                            print(f"✅ [NOISE FILTER] ALLOWED (has Hebrew): '{text}'")
+                            logger.info(f"✅ [NOISE FILTER] ALLOWED (has Hebrew): '{text}'")
                         elif is_hallucination:
                             should_filter = True
                             filter_reason = "hallucination"
@@ -7364,17 +7366,17 @@ class MediaStreamHandler:
                             filter_reason = "pure_english_hallucination"
                         
                         if should_filter:
-                            print(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
-                            print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                            logger.error(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
+                            logger.error(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                             # 🔥 BUILD 182: STILL record filtered transcripts for webhook/transcript purposes!
                             # Only skip AI processing, not conversation history
                             if len(text) >= 2 and filter_reason not in ["gibberish", "too_short_or_punctuation"]:
                                 self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
-                                print(f"📝 [TRANSCRIPT] Recorded filtered user speech for webhook: '{text}'")
+                                logger.info(f"📝 [TRANSCRIPT] Recorded filtered user speech for webhook: '{text}'")
                             continue
                         
                         # ✅ PASSED FILTER
-                        print(f"[NOISE FILTER] ✅ ACCEPTED: '{text}' (hebrew={hebrew_chars}, english={english_chars})")
+                        logger.info(f"[NOISE FILTER] ✅ ACCEPTED: '{text}' (hebrew={hebrew_chars}, english={english_chars})")
                     
                     # 🔥 BUILD 169.1: IMPROVED SEGMENT MERGING (Architect-reviewed)
                     # Added: max length limit, flush on long pause, proper reset
@@ -7392,7 +7394,7 @@ class MediaStreamHandler:
                         current_text = text.strip().lower()
                         if last_buffered == current_text:
                             is_duplicate = True
-                            print(f"🔄 [BUILD 308 DEDUPE] Skipping duplicate segment: '{text}'")
+                            logger.info(f"🔄 [BUILD 308 DEDUPE] Skipping duplicate segment: '{text}'")
                     
                     if self._stt_last_segment_ts > 0:
                         time_since_last = now_ms - self._stt_last_segment_ts
@@ -7402,11 +7404,11 @@ class MediaStreamHandler:
                         if time_since_last >= LONG_PAUSE_MS:
                             # Long pause = distinct intent, flush buffer first
                             should_flush = True
-                            print(f"📝 [SEGMENT MERGE] FLUSH - long pause ({time_since_last:.0f}ms)")
+                            logger.info(f"📝 [SEGMENT MERGE] FLUSH - long pause ({time_since_last:.0f}ms)")
                         elif buffer_len >= MAX_MERGE_LENGTH:
                             # Buffer too long, flush to avoid over-merging
                             should_flush = True
-                            print(f"📝 [SEGMENT MERGE] FLUSH - max length ({buffer_len} chars)")
+                            logger.info(f"📝 [SEGMENT MERGE] FLUSH - max length ({buffer_len} chars)")
                         elif time_since_last < STT_MERGE_WINDOW_MS:
                             # Within merge window, continue buffering
                             should_merge = True
@@ -7414,7 +7416,7 @@ class MediaStreamHandler:
                     # Process any pending buffer if flush needed
                     if should_flush and self._stt_merge_buffer:
                         flushed_text = " ".join(self._stt_merge_buffer)
-                        print(f"📝 [SEGMENT MERGE] Flushed buffer: '{flushed_text}'")
+                        logger.info(f"📝 [SEGMENT MERGE] Flushed buffer: '{flushed_text}'")
                         self._stt_merge_buffer = []
                         # Process flushed text separately - let it flow through
                         # Current text will be processed as new segment
@@ -7423,7 +7425,7 @@ class MediaStreamHandler:
                         # Merge with previous segment (but skip duplicates!)
                         self._stt_merge_buffer.append(text)
                         self._stt_last_segment_ts = now_ms
-                        print(f"📝 [SEGMENT MERGE] Buffering: '{text}' (wait for more)")
+                        logger.info(f"📝 [SEGMENT MERGE] Buffering: '{text}' (wait for more)")
                         continue  # Wait for more segments
                     elif is_duplicate:
                         # Skip duplicate, don't update timestamp
@@ -7446,9 +7448,9 @@ class MediaStreamHandler:
                             second_half = ' '.join(words[mid:])
                             if first_half.strip() == second_half.strip():
                                 text = first_half
-                                print(f"🔄 [BUILD 308 DEDUPE] Removed duplicate half: '{second_half}'")
+                                logger.info(f"🔄 [BUILD 308 DEDUPE] Removed duplicate half: '{second_half}'")
                         
-                        print(f"📝 [SEGMENT MERGE] Combined {len(self._stt_merge_buffer)} segments: '{text}'")
+                        logger.info(f"📝 [SEGMENT MERGE] Combined {len(self._stt_merge_buffer)} segments: '{text}'")
                         self._stt_merge_buffer = []
                     
                     self._stt_last_segment_ts = now_ms
@@ -7475,7 +7477,7 @@ class MediaStreamHandler:
                     
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 3: Log final transcript
                     # Format: [STT_FINAL] → what goes into Lead State / AI processing
-                    print(f"[STT_FINAL] '{transcript}' (from raw: '{raw_text[:30]}...')")
+                    logger.info(f"[STT_FINAL] '{transcript}' (from raw: '{raw_text[:30]}...')")
                     
                     # 🔥 BUILD 204: CONSOLIDATED STT LOGGING - One line per final utterance for easy debugging
                     # Includes: business_id, raw_text, corrected_text, prompt_used, corrections applied
@@ -7495,7 +7497,7 @@ class MediaStreamHandler:
                     # This prevents hallucinated utterances from setting user_has_spoken flag
                     self.user_has_spoken = True
                     self._candidate_user_speaking = False  # Clear candidate flag
-                    print(f"✅ [STT_GUARD] Validated utterance - user_has_spoken=True")
+                    logger.info(f"✅ [STT_GUARD] Validated utterance - user_has_spoken=True")
                     
                     # 🔥 BUILD 170.3: LOOP PREVENTION - Reset counter when user speaks
                     self._consecutive_ai_responses = 0
@@ -7507,7 +7509,7 @@ class MediaStreamHandler:
                     self._update_speech_time(is_user_speech=True)
                     # 🛑 DISENGAGE LOOP GUARD - user spoke, allow AI to respond again
                     if self._loop_guard_engaged:
-                        print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
+                        logger.info(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
                         self._loop_guard_engaged = False
                     
                     # 💰 COST TRACKING: User finished speaking - stop timer (DEBUG only)
@@ -7518,9 +7520,9 @@ class MediaStreamHandler:
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
-                        print(f"👤 [REALTIME] User said: {transcript}")
+                        logger.info(f"👤 [REALTIME] User said: {transcript}")
                         if self._awaiting_confirmation_reply:
-                            print(f"✅ [CONFIRMATION] Received user response - clearing pending confirmation flag")
+                            logger.info(f"✅ [CONFIRMATION] Received user response - clearing pending confirmation flag")
                         self._awaiting_confirmation_reply = False
                         
                         # Track metadata for downstream extraction logic
@@ -7535,7 +7537,7 @@ class MediaStreamHandler:
                         if self.awaiting_greeting_answer and not self.first_post_greeting_utterance_handled:
                             self.first_post_greeting_utterance_handled = True
                             self.awaiting_greeting_answer = False
-                            print(f"✅ [BUILD 303] First post-greeting utterance: '{transcript[:50]}...' - processing as answer to greeting question")
+                            logger.info(f"✅ [BUILD 303] First post-greeting utterance: '{transcript[:50]}...' - processing as answer to greeting question")
                         
                         # ═══════════════════════════════════════════════════════════════════════════
                         # 🔥 PROMPT-ONLY: NEGATIVE ANSWER DETECTION - Full reset on "לא"
@@ -7570,7 +7572,7 @@ class MediaStreamHandler:
                                     p in last_ai_msg for p in ["נכון", "לאשר", "מאשר", "מאשרת", "לקבוע", "לשריין", "שנקבע", "שקובעים"]
                                 )
                                 if not (is_explicit_cancel or ai_is_asking_confirmation):
-                                    print(f"ℹ️ [APPOINTMENT] Short 'no' detected but NOT cancelling/resetting state: '{transcript}'")
+                                    logger.info(f"ℹ️ [APPOINTMENT] Short 'no' detected but NOT cancelling/resetting state: '{transcript}'")
                                 else:
                                     # Treat as rejection/cancel at the relevant step, but avoid clearing unrelated locked fields.
                                     self.user_rejected_confirmation = True
@@ -7583,7 +7585,7 @@ class MediaStreamHandler:
                                         "Do NOT reset unrelated collected details. Ask for a new date/time or confirm if they still want to book."
                                     ))
                             else:
-                                print(f"🔥 [PROMPT-ONLY] STRONG REJECTION detected: '{transcript}' - resetting verification state")
+                                logger.info(f"🔥 [PROMPT-ONLY] STRONG REJECTION detected: '{transcript}' - resetting verification state")
                             
                             # 1) Clear verification / lead candidate state
                             self._verification_state = None
@@ -7598,28 +7600,28 @@ class MediaStreamHandler:
                             self._service_locked = False
                             self._service_raw_from_stt = None
                             
-                            print(f"   → Cleared verification state, lead candidate, and locked fields")
+                            logger.info(f"   → Cleared verification state, lead candidate, and locked fields")
                             
                             # 3) Inject system message to guide AI (context only, no script)
                             system_msg = "[SYSTEM] User rejected previous understanding. Ask again per your instructions."
                             
                             # Queue system message for next processing cycle
                             asyncio.create_task(self._send_text_to_ai(system_msg))
-                            print(f"   → Sent reset system message to AI")
+                            logger.info(f"   → Sent reset system message to AI")
                             
                         elif is_negative_answer:
-                            print(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
+                            logger.warning(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
                             # Mark that we need to handle this as a correction, not move forward
                             self.user_rejected_confirmation = True
                             # If we're tracking what AI asked, mark it for retry
                             if self.last_ai_question_type:
-                                print(f"   Last AI question type: {self.last_ai_question_type} - needs retry")
+                                logger.info(f"   Last AI question type: {self.last_ai_question_type} - needs retry")
                         else:
                             # 🔥 BUILD 308: User provided meaningful content (not just rejection)
                             # Clear the cool-off flag so AI can respond normally
                             if getattr(self, '_awaiting_user_correction', False):
                                 self._awaiting_user_correction = False
-                                print(f"✅ [BUILD 308] User provided content - clearing cool-off flag")
+                                logger.info(f"✅ [BUILD 308] User provided content - clearing cool-off flag")
                         
                         # 🔥 BUILD 313: SIMPLIFIED - City correction handled by OpenAI Tool
                         # When user says "לא", AI naturally asks again and user provides correct city
@@ -7642,7 +7644,7 @@ class MediaStreamHandler:
                             ]
                             if transcript_clean in nonsense_first_responses:
                                 is_incoherent_response = True
-                                print(f"⚠️ [BUILD 186] INCOHERENT: First response '{transcript}' doesn't make sense after greeting")
+                                logger.warning(f"⚠️ [BUILD 186] INCOHERENT: First response '{transcript}' doesn't make sense after greeting")
                         
                         # Check 2: If AI asked for city, response should contain city-related words or a city name
                         if last_ai_msg and ("עיר" in last_ai_msg or "איפה" in last_ai_msg or "מאיפה" in last_ai_msg):
@@ -7658,19 +7660,19 @@ class MediaStreamHandler:
                                 # Short response with no location after city question
                                 if transcript_clean in ["תודה רבה", "תודה", "כן", "לא", "אוקי"]:
                                     is_incoherent_response = True
-                                    print(f"⚠️ [BUILD 186] INCOHERENT: Response '{transcript}' doesn't match city question")
+                                    logger.warning(f"⚠️ [BUILD 186] INCOHERENT: Response '{transcript}' doesn't match city question")
                         
                         # Check 3: If AI asked for name, response should be a name-like pattern
                         if last_ai_msg and ("שם" in last_ai_msg or "איך קוראים" in last_ai_msg):
                             # Response should be name-like (not just "thank you")
                             if transcript_clean in ["תודה רבה", "תודה", "שלום", "ביי"]:
                                 is_incoherent_response = True
-                                print(f"⚠️ [BUILD 186] INCOHERENT: Response '{transcript}' doesn't match name question")
+                                logger.warning(f"⚠️ [BUILD 186] INCOHERENT: Response '{transcript}' doesn't match name question")
                         
                         # If incoherent, mark for AI to handle with clarification
                         if is_incoherent_response:
                             # Add marker to transcript so AI knows to ask for clarification
-                            print(f"🔄 [BUILD 186] Marked incoherent response - AI will ask for clarification")
+                            logger.info(f"🔄 [BUILD 186] Marked incoherent response - AI will ask for clarification")
                         
                         # 🛡️ BUILD 168: Detect user confirmation words (expanded in BUILD 176)
                         confirmation_words = [
@@ -7685,14 +7687,14 @@ class MediaStreamHandler:
                             # 🔥 FIX: Only set verification_confirmed if verification is enabled
                             verification_enabled = getattr(self.call_config, 'verification_enabled', False) if self.call_config else False
                             if verification_enabled:
-                                print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
+                                logger.info(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
                                 self.verification_confirmed = True
                                 self._lead_confirmation_received = True
                                 self._awaiting_confirmation_reply = False
                                 # 🔥 BUILD 203: Clear rejection flag when user confirms
                                 self.user_rejected_confirmation = False
                             else:
-                                print(f"ℹ️ [BUILD 176] User said '{transcript[:30]}' but verification feature is DISABLED - ignoring as confirmation")
+                                logger.info(f"ℹ️ [BUILD 176] User said '{transcript[:30]}' but verification feature is DISABLED - ignoring as confirmation")
                         
                         # 🛡️ BUILD 168: If user says correction words, reset verification
                         # 🔥 BUILD 310: IMPROVED REJECTION DETECTION
@@ -7732,7 +7734,7 @@ class MediaStreamHandler:
                         )
                         
                         if should_reset_verification:
-                            print(f"🔄 [BUILD 310] User CORRECTION detected: strong={is_strong_rejection}, weak={is_weak_rejection}, ai_verify={ai_asked_verification}")
+                            logger.info(f"🔄 [BUILD 310] User CORRECTION detected: strong={is_strong_rejection}, weak={is_weak_rejection}, ai_verify={ai_asked_verification}")
                             self.verification_confirmed = False
                             self._lead_confirmation_received = False
                             self._awaiting_confirmation_reply = False
@@ -7743,7 +7745,7 @@ class MediaStreamHandler:
                             self.goodbye_detected = False  # Clear goodbye flag
                             if self.call_state == CallState.CLOSING:
                                 self.call_state = CallState.ACTIVE
-                                print(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
+                                logger.info(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
                             
                             # 🔥 BUILD 326: UNLOCK city - user is correcting
                             # This allows user to provide new city
@@ -7756,10 +7758,10 @@ class MediaStreamHandler:
                             # 🔥 BUILD 308: POST-REJECTION COOL-OFF
                             self._awaiting_user_correction = True
                             self._rejection_timestamp = time.time()
-                            print(f"⏳ [BUILD 308] POST-REJECTION COOL-OFF - AI will wait for user to speak")
+                            logger.info(f"⏳ [BUILD 308] POST-REJECTION COOL-OFF - AI will wait for user to speak")
                         elif "לא" in transcript_stripped:
                             # Incidental "לא" - just log it, don't reset
-                            print(f"ℹ️ [BUILD 310] Incidental 'לא' in '{transcript[:30]}' - NOT resetting verification")
+                            logger.info(f"ℹ️ [BUILD 310] Incidental 'לא' in '{transcript[:30]}' - NOT resetting verification")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
@@ -7781,7 +7783,7 @@ class MediaStreamHandler:
                         if self._looks_like_user_goodbye(transcript):
                             self.user_said_goodbye = True
                             self.last_user_goodbye_at = time.time() * 1000  # ms
-                            print(f"[USER GOODBYE] User said goodbye: '{transcript[:50]}...'")
+                            logger.info(f"[USER GOODBYE] User said goodbye: '{transcript[:50]}...'")
                         
                         self._current_stt_confidence = None
                         self._current_transcript_token_count = 0
@@ -7794,7 +7796,7 @@ class MediaStreamHandler:
                             if last_ai_city and 'city' in getattr(self, 'required_lead_fields', []):
                                 # User confirmed - save the city!
                                 self._update_lead_capture_state('city', last_ai_city)
-                                print(f"🔒 [BUILD 313] User confirmed city '{last_ai_city}'")
+                                logger.info(f"🔒 [BUILD 313] User confirmed city '{last_ai_city}'")
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -7804,7 +7806,7 @@ class MediaStreamHandler:
                         # ═══════════════════════════════════════════════════════════════════════
                         if self.barge_in_active:
                             self.barge_in_active = False
-                            print(f"✅ [BARGE-IN] Cleared barge_in flag after transcription")
+                            logger.info(f"✅ [BARGE-IN] Cleared barge_in flag after transcription")
                         
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🔥 SILENCE COMMANDS: Handle "שקט/די/רגע/תפסיק" → HARD STOP
@@ -7819,7 +7821,7 @@ class MediaStreamHandler:
                         is_silence_command = transcript_normalized in silence_commands
                         
                         if is_silence_command:
-                            print(f"🤫 [SILENCE_CMD] User said '{transcript}' - HARD STOP, no response, returning to listening")
+                            logger.info(f"🤫 [SILENCE_CMD] User said '{transcript}' - HARD STOP, no response, returning to listening")
                             # Clear user_speaking flag immediately - ready for next input
                             self.user_speaking = False
                             # Mark that we received input but won't respond
@@ -7827,7 +7829,7 @@ class MediaStreamHandler:
                             # CRITICAL: Do NOT trigger response.create
                             # Do NOT send "לא שמעתי" or any acknowledgment
                             # Just go back to listening mode
-                            print(f"✅ [SILENCE_CMD] Back to listening mode - awaiting next user input")
+                            logger.info(f"✅ [SILENCE_CMD] Back to listening mode - awaiting next user input")
                             continue  # Skip all response logic
                         
                         # ──────────────────────────────────────────────────────────────
@@ -7845,7 +7847,7 @@ class MediaStreamHandler:
                             if self.active_response_id and self.active_response_status == "in_progress":
                                 if self._should_send_cancel(self.active_response_id):
                                     try:
-                                        print(f"🛑 [MANUAL_TURN] Cancelling active response {self.active_response_id[:20]}... before creating new one")
+                                        logger.info(f"🛑 [MANUAL_TURN] Cancelling active response {self.active_response_id[:20]}... before creating new one")
                                         await self.realtime_client.cancel_response(self.active_response_id)
                                         self._mark_response_cancelled_locally(self.active_response_id, "manual_turn_barge_in")
                                         
@@ -7853,41 +7855,41 @@ class MediaStreamHandler:
                                         # Check for active_response_id to be cleared or status to change
                                         for _ in range(50):  # 50 * 10ms = 500ms max wait
                                             if not self.active_response_id or self.active_response_status != "in_progress":
-                                                print(f"✅ [MANUAL_TURN] Cancellation completed, proceeding with new response")
+                                                logger.info(f"✅ [MANUAL_TURN] Cancellation completed, proceeding with new response")
                                                 break
                                             await asyncio.sleep(0.01)
                                         else:
-                                            print(f"⚠️ [MANUAL_TURN] Cancellation timeout - proceeding anyway")
+                                            logger.warning(f"⚠️ [MANUAL_TURN] Cancellation timeout - proceeding anyway")
                                     except Exception as cancel_err:
                                         error_str = str(cancel_err).lower()
                                         if 'not_active' not in error_str and 'already_cancelled' not in error_str:
-                                            print(f"⚠️ [MANUAL_TURN] Cancel error (continuing): {cancel_err}")
+                                            logger.error(f"⚠️ [MANUAL_TURN] Cancel error (continuing): {cancel_err}")
                             
                             try:
                                 handled = await self._maybe_server_first_schedule_from_transcript(client, transcript)
                                 if not handled:
                                     await self.trigger_response("APPOINTMENT_MANUAL_TURN", client)
                             except Exception as _sf_err:
-                                print(f"⚠️ [SERVER_FIRST] Error (continuing with normal AI turn): {_sf_err}")
+                                logger.error(f"⚠️ [SERVER_FIRST] Error (continuing with normal AI turn): {_sf_err}")
                                 await self.trigger_response("APPOINTMENT_MANUAL_TURN", client)
 
                         # 🔥 DEFAULT (Realtime-native): DO NOT manually trigger response.create here.
                         # OpenAI's server_vad already automatically creates responses when speech ends.
                         if not manual_turn:
                             if transcript and len(transcript.strip()) > 0:
-                                print(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
+                                logger.info(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
                             else:
-                                print(f"⚠️ [TRANSCRIPTION] Empty transcript received")
+                                logger.warning(f"⚠️ [TRANSCRIPTION] Empty transcript received")
                         
                         # 🛡️ CHECK: Don't run NLP twice for same appointment
                         already_confirmed = getattr(self, 'appointment_confirmed_in_session', False)
                         if already_confirmed:
-                            print(f"🛡️ [NLP] SKIP - Appointment already confirmed in this session")
+                            logger.info(f"🛡️ [NLP] SKIP - Appointment already confirmed in this session")
                         else:
                             # ⭐ BUILD 350: NLP disabled - no mid-call appointment logic
                             if ENABLE_LEGACY_TOOLS:
                                 # LEGACY: Check for appointment confirmation after user speaks
-                                print(f"🔍 [LEGACY DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
+                                logger.debug(f"🔍 [LEGACY DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                                 self._check_appointment_confirmation(transcript)
                         
                         # 🔴 CRITICAL — Real Hangup (USER): transcript-only + closing-sentence only
@@ -7918,12 +7920,12 @@ class MediaStreamHandler:
                             readiness_confirmed = (self.lead_captured or self._lead_confirmation_received) and self.verification_confirmed
                             
                             if readiness_confirmed and not self._lead_closing_dispatched:
-                                print(f"✅ [BUILD 163] Lead confirmed - closing call (verification enabled)")
+                                logger.info(f"✅ [BUILD 163] Lead confirmed - closing call (verification enabled)")
                                 self._lead_closing_dispatched = True
                                 
                                 if self.call_state == CallState.ACTIVE:
                                     self.call_state = CallState.CLOSING
-                                    print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead confirmed)")
+                                    logger.info(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead confirmed)")
                                 
                                 asyncio.create_task(self._send_server_event_to_ai(
                                     "[SERVER] ✅ הלקוח אישר את הפרטים! סיים בצורה מנומסת - הודה ללקוח ואמור להתראות."
@@ -7931,14 +7933,14 @@ class MediaStreamHandler:
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured_confirmed"))
                             elif fields_ready and not self.verification_confirmed and not getattr(self, '_verification_prompt_sent', False) and not self._awaiting_confirmation_reply:
                                 self._verification_prompt_sent = True
-                                print(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
+                                logger.info(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
                                 
                                 templated_confirmation = self._build_confirmation_from_state()
                                 has_locked_data = self._city_locked or self._service_locked
                                 
                                 if templated_confirmation and has_locked_data:
-                                    print(f"🎯 [BUILD 336] Injecting LOCKED templated confirmation: '{templated_confirmation}'")
-                                    print(f"🔒 [BUILD 336] city_locked={self._city_locked}, service_locked={self._service_locked}")
+                                    logger.info(f"🎯 [BUILD 336] Injecting LOCKED templated confirmation: '{templated_confirmation}'")
+                                    logger.info(f"🔒 [BUILD 336] city_locked={self._city_locked}, service_locked={self._service_locked}")
                                     
                                     self._expected_confirmation = templated_confirmation
                                     self._confirmation_validated = False
@@ -7949,7 +7951,7 @@ class MediaStreamHandler:
                                         f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח (ללא שינויים!): \"{templated_confirmation}\""
                                     ))
                                 elif templated_confirmation:
-                                    print(f"⚠️ [BUILD 336] Sending confirmation without locks: '{templated_confirmation}'")
+                                    logger.warning(f"⚠️ [BUILD 336] Sending confirmation without locks: '{templated_confirmation}'")
                                     
                                     self._expected_confirmation = templated_confirmation
                                     self._confirmation_validated = False
@@ -7960,18 +7962,18 @@ class MediaStreamHandler:
                                         f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח: \"{templated_confirmation}\""
                                     ))
                                 else:
-                                    print(f"❌ [BUILD 336] No STT data to confirm - waiting for more info")
+                                    logger.error(f"❌ [BUILD 336] No STT data to confirm - waiting for more info")
                                     self._verification_prompt_sent = False
                                     self._expected_confirmation = None
                                     self._confirmation_validated = False
                                     self._speak_exact_resend_count = 0
                     
                     # ✅ COST SAFETY: Transcription completed successfully
-                    print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                    logger.error(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                 
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")
-                    print(f"❌ [REALTIME] Error event: {error_msg}")
+                    logger.error(f"❌ [REALTIME] Error event: {error_msg}")
                     # 🔒 Clear locks on error to prevent permanent stall
                     self.response_pending_event.clear()
                     self.active_response_id = None
@@ -7979,7 +7981,7 @@ class MediaStreamHandler:
                     self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
                     # 🔥 CRITICAL: Reset greeting state on error to prevent hangup block
                     if self.is_playing_greeting:
-                        print(f"🛡️ [ERROR CLEANUP] Resetting is_playing_greeting due to error")
+                        logger.error(f"🛡️ [ERROR CLEANUP] Resetting is_playing_greeting due to error")
                         self.is_playing_greeting = False
                         self.greeting_completed_at = time.time()  # Mark greeting as done
                 
@@ -7995,18 +7997,18 @@ class MediaStreamHandler:
             
             # 🔥 CRITICAL: Reset greeting state on exception to prevent hangup block
             if self.is_playing_greeting:
-                print(f"🛡️ [EXCEPTION CLEANUP] Resetting is_playing_greeting due to exception")
+                logger.error(f"🛡️ [EXCEPTION CLEANUP] Resetting is_playing_greeting due to exception")
                 self.is_playing_greeting = False
                 self.greeting_completed_at = time.time()
         
         # 🔥 CRITICAL: Always reset greeting state when receiver ends
         if self.is_playing_greeting:
-            print(f"🛡️ [EXIT CLEANUP] Resetting is_playing_greeting on receiver exit")
+            logger.info(f"🛡️ [EXIT CLEANUP] Resetting is_playing_greeting on receiver exit")
             self.is_playing_greeting = False
             if self.greeting_completed_at is None:
                 self.greeting_completed_at = time.time()
         
-        print(f"📥 [REALTIME] Audio receiver ended")
+        logger.info(f"📥 [REALTIME] Audio receiver ended")
     
     async def _send_server_event_to_ai(self, message_text: str):
         """
@@ -8041,7 +8043,7 @@ class MediaStreamHandler:
         
         NOTE: This is async wrapper for _finalize_user_turn_on_timeout
         """
-        print(f"[TURN_END] Async silence warning triggered")
+        logger.warning(f"[TURN_END] Async silence warning triggered")
         self._finalize_user_turn_on_timeout()
     
     def _finalize_user_turn_on_timeout(self):
@@ -8058,16 +8060,16 @@ class MediaStreamHandler:
         
         ✅ NEW REQ: "Gentle" implementation - doesn't create response, doesn't override state
         """
-        print(f"[TURN_END] Timeout finalization triggered")
+        logger.info(f"[TURN_END] Timeout finalization triggered")
         
         # ✅ NEW REQ: Don't act if user is still speaking
         if getattr(self, 'user_speaking', False):
-            print(f"[TURN_END] User still speaking - skipping timeout action")
+            logger.info(f"[TURN_END] User still speaking - skipping timeout action")
             return
         
         # ✅ NEW REQ: Don't act if session is closing/closed
         if getattr(self, 'closed', False) or getattr(self, 'hangup_triggered', False):
-            print(f"[TURN_END] Session closing - skipping timeout action")
+            logger.info(f"[TURN_END] Session closing - skipping timeout action")
             return
         
         # Clear candidate flag
@@ -8079,25 +8081,25 @@ class MediaStreamHandler:
         if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
             # No AI response in progress - this means we're stuck
             # The transcription probably failed or was rejected
-            print(f"[TURN_END] No AI response in progress - system was stuck in silence")
+            logger.info(f"[TURN_END] No AI response in progress - system was stuck in silence")
             
             # CORRECTIVE ACTION: Clear any stale state that might block response
             # ✅ NEW REQ: Only clear stale state, don't create new response
             if self.active_response_id:
-                print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
+                logger.info(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
                 self.active_response_id = None
                 self.active_response_status = "done"  # 🔥 IDEMPOTENT CANCEL: Mark as done (timeout)
                 self.cancel_in_flight = False  # 🔥 IDEMPOTENT CANCEL: Reset flag
             
             if self.has_pending_ai_response:
-                print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
+                logger.info(f"[TURN_END] Clearing stale has_pending_ai_response flag")
                 self.has_pending_ai_response = False
             
             # The silence monitor will detect this and trigger a prompt for user to speak
             # We don't force a response here to avoid AI hallucinations
-            print(f"[TURN_END] State cleared - silence monitor will handle next action")
+            logger.info(f"[TURN_END] State cleared - silence monitor will handle next action")
         else:
-            print(f"[TURN_END] AI response already in progress - no action needed")
+            logger.info(f"[TURN_END] AI response already in progress - no action needed")
     
     def _simple_barge_in_stop(self, reason="user_speech"):
         """
@@ -8114,7 +8116,7 @@ class MediaStreamHandler:
 
         # 🛡️ PROTECT GREETING - Never cancel during greeting playback!
         if hasattr(self, 'is_playing_greeting') and self.is_playing_greeting:
-            print(f"🛡️ [BARGE_IN] Ignoring - greeting still playing")
+            logger.info(f"🛡️ [BARGE_IN] Ignoring - greeting still playing")
             return
         
         # 1) Cancel OpenAI current response
@@ -8143,11 +8145,11 @@ class MediaStreamHandler:
                         loop
                     )
                     future.result(timeout=0.3)  # Quick timeout
-                    print(f"[BARGE_IN] cancel_sent response_id={cancelled_id[:20] if cancelled_id else 'None'}")
+                    logger.info(f"[BARGE_IN] cancel_sent response_id={cancelled_id[:20] if cancelled_id else 'None'}")
                 except Exception as cancel_err:
-                    print(f"⚠️ [BARGE_IN] Cancel failed: {cancel_err}")
+                    logger.error(f"⚠️ [BARGE_IN] Cancel failed: {cancel_err}")
         except Exception as e:
-            print(f"⚠️ [BARGE_IN] Error during cancel: {e}")
+            logger.error(f"⚠️ [BARGE_IN] Error during cancel: {e}")
         
         # 2) Flush BOTH queues to stop audio playback immediately
         # 🔥 FIX 5: NO TRUNCATION enforcement - MUST clear ALL queues during barge-in
@@ -8175,9 +8177,9 @@ class MediaStreamHandler:
                     except queue.Empty:
                         break
         except Exception as e:
-            print(f"⚠️ [BARGE_IN] Error during flush: {e}")
+            logger.error(f"⚠️ [BARGE_IN] Error during flush: {e}")
         
-        print(f"[BARGE_IN] queues_flushed realtime={realtime_cleared} tx={tx_cleared} total={realtime_cleared + tx_cleared}")
+        logger.info(f"[BARGE_IN] queues_flushed realtime={realtime_cleared} tx={tx_cleared} total={realtime_cleared + tx_cleared}")
         _orig_print(f"🧹 [FIX 5] NO TRUNCATION enforced: cleared {realtime_cleared + tx_cleared} frames", flush=True)
         
         # 3) Clear speaking flags
@@ -8198,9 +8200,9 @@ class MediaStreamHandler:
                 self.pending_hangup_response_id = None
                 self.pending_hangup_reason = None
         except Exception as e:
-            print(f"⚠️ [BARGE_IN] Error clearing flags: {e}")
+            logger.error(f"⚠️ [BARGE_IN] Error clearing flags: {e}")
         
-        print(f"🛑 [BARGE_IN] Stop complete (reason={reason})")
+        logger.info(f"🛑 [BARGE_IN] Stop complete (reason={reason})")
 
     async def _check_appointment_confirmation_async(self):
         """
@@ -8209,17 +8211,17 @@ class MediaStreamHandler:
         """
         # Skip if business_id not set yet
         if not self.business_id:
-            print(f"⚠️ [NLP] No business_id - skipping")
+            logger.warning(f"⚠️ [NLP] No business_id - skipping")
             return
         
         # Skip if no conversation history
         if not self.conversation_history:
-            print(f"⚠️ [NLP] No conversation history - skipping")
+            logger.warning(f"⚠️ [NLP] No conversation history - skipping")
             return
         
-        print(f"🔍 [NLP] ▶️ Analyzing conversation for appointment intent...")
-        print(f"🔍 [NLP] Conversation history has {len(self.conversation_history)} messages")
-        print(f"🔍 [NLP] Last 3 messages: {self.conversation_history[-3:]}")
+        logger.info(f"🔍 [NLP] ▶️ Analyzing conversation for appointment intent...")
+        logger.info(f"🔍 [NLP] Conversation history has {len(self.conversation_history)} messages")
+        logger.info(f"🔍 [NLP] Last 3 messages: {self.conversation_history[-3:]}")
         
         # Call GPT-4o-mini NLP parser
         result = await extract_appointment_request(
@@ -8227,10 +8229,10 @@ class MediaStreamHandler:
             self.business_id
         )
         
-        print(f"🔍 [NLP] ◀️ NLP result: {result}")
+        logger.info(f"🔍 [NLP] ◀️ NLP result: {result}")
         
         if not result or result.get("action") == "none":
-            print(f"📭 [NLP] No appointment action detected (action={result.get('action') if result else 'None'})")
+            logger.info(f"📭 [NLP] No appointment action detected (action={result.get('action') if result else 'None'})")
             return
         
         action = result.get("action")
@@ -8249,30 +8251,30 @@ class MediaStreamHandler:
             # 🔥 BUILD 337 FIX: Reset name reminder flag now that we have the name!
             if getattr(self, '_name_reminder_sent', False):
                 self._name_reminder_sent = False
-                print(f"✅ [BUILD 337] Name captured - reset _name_reminder_sent flag")
+                logger.info(f"✅ [BUILD 337] Name captured - reset _name_reminder_sent flag")
             
             crm_context = getattr(self, 'crm_context', None)
             if crm_context:
                 # Context exists - save there
                 if not crm_context.customer_name:
                     crm_context.customer_name = customer_name
-                    print(f"✅ [NLP] Saved customer name to crm_context: {customer_name}")
+                    logger.info(f"✅ [NLP] Saved customer name to crm_context: {customer_name}")
             else:
                 # Context doesn't exist yet - save to temporary cache
                 self.pending_customer_name = customer_name
-                print(f"✅ [NLP] Saved customer name to temporary cache: {customer_name}")
+                logger.info(f"✅ [NLP] Saved customer name to temporary cache: {customer_name}")
         
         # Fall back to saved name if NLP returns None
         if not customer_name:
             crm_context = getattr(self, 'crm_context', None)
             if crm_context and crm_context.customer_name:
                 customer_name = crm_context.customer_name
-                print(f"🔄 [NLP] Retrieved customer name from crm_context: {customer_name}")
+                logger.info(f"🔄 [NLP] Retrieved customer name from crm_context: {customer_name}")
             elif hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                 customer_name = self.pending_customer_name
-                print(f"🔄 [NLP] Retrieved customer name from temporary cache: {customer_name}")
+                logger.info(f"🔄 [NLP] Retrieved customer name from temporary cache: {customer_name}")
         
-        print(f"🎯 [NLP] ✅ Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
+        logger.info(f"🎯 [NLP] ✅ Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
         
         # 🔍 DEBUG: Check CRM context state
         crm_context = getattr(self, 'crm_context', None)
@@ -8293,10 +8295,10 @@ class MediaStreamHandler:
                 # Only update if we have new values (don't overwrite with None)
                 if date_iso:
                     crm_context.pending_slot['date'] = date_iso
-                    print(f"💾 [NLP] Saved date to pending_slot: {date_iso}")
+                    logger.info(f"💾 [NLP] Saved date to pending_slot: {date_iso}")
                 if time_str:
                     crm_context.pending_slot['time'] = time_str
-                    print(f"💾 [NLP] Saved time to pending_slot: {time_str}")
+                    logger.info(f"💾 [NLP] Saved time to pending_slot: {time_str}")
             
             # 🔥 BUILD 340: Save preferred_time to lead_capture_state for webhook/smart hangup
             # Handle partial data - save whatever we have
@@ -8320,17 +8322,17 @@ class MediaStreamHandler:
                 
                 if preferred_time:
                     self._update_lead_capture_state('preferred_time', preferred_time, source='nlp')
-                    print(f"💾 [BUILD 340] Saved preferred_time to lead state: {preferred_time}")
+                    logger.info(f"💾 [BUILD 340] Saved preferred_time to lead state: {preferred_time}")
         
         # 🔥 NEW: Handle "hours_info" action (user asking about business hours, NOT appointment!)
         if action == "hours_info":
-            print(f"📋 [NLP] User asking for business hours info - responding with policy")
+            logger.info(f"📋 [NLP] User asking for business hours info - responding with policy")
             try:
                 # Load business hours from policy
                 from server.policy.business_policy import get_business_policy
                 policy = get_business_policy(self.business_id)
                 
-                if DEBUG: print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
+                if DEBUG: logger.debug(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
                 
                 if policy.allow_24_7:
                     await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
@@ -8347,13 +8349,13 @@ class MediaStreamHandler:
                             hours_lines.append(f"{day_names[day_key]}: {time_ranges}")
                     
                     hours_text = "שעות הפעילות שלנו:\n" + "\n".join(hours_lines)
-                    print(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
+                    logger.info(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
                     await self._send_server_event_to_ai(f"hours_info - {hours_text}")
                 else:
-                    print(f"⚠️ [DEBUG] No opening_hours in policy!")
+                    logger.warning(f"⚠️ [DEBUG] No opening_hours in policy!")
                     await self._send_server_event_to_ai("hours_info - שעות הפעילות לא הוגדרו במערכת.")
             except Exception as e:
-                print(f"❌ [ERROR] Failed to load business policy: {e}")
+                logger.error(f"❌ [ERROR] Failed to load business policy: {e}")
                 import traceback
                 traceback.print_exc()
                 await self._send_server_event_to_ai("hours_info - לא הצלחתי לטעון את שעות הפעילות. אפשר ליצור קשר ישירות.")
@@ -8361,18 +8363,18 @@ class MediaStreamHandler:
         
         # 🔥 NEW: Handle "ask" action (user asking for availability for specific date/time)
         if action == "ask":
-            print(f"❓ [NLP] User asking for availability - checking slot...")
+            logger.info(f"❓ [NLP] User asking for availability - checking slot...")
             
             # 🔥 BUILD 186: OUTBOUND CALLS - Skip scheduling entirely!
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
             if is_outbound:
-                print(f"⚠️ [NLP] OUTBOUND call - skipping availability check (outbound follows prompt only)")
+                logger.warning(f"⚠️ [NLP] OUTBOUND call - skipping availability check (outbound follows prompt only)")
                 return
             
             # 🔥 CHECK IF APPOINTMENTS ARE ENABLED (call_goal)
             call_goal = getattr(self, 'call_goal', 'lead_only')
             if call_goal != 'appointment':
-                print(f"⚠️ [NLP] Appointments not enabled (call_goal={call_goal}) - not checking availability")
+                logger.warning(f"⚠️ [NLP] Appointments not enabled (call_goal={call_goal}) - not checking availability")
                 return
             
             # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - BLOCK scheduling!
@@ -8389,17 +8391,17 @@ class MediaStreamHandler:
             if name_required and not has_name:
                 name_reminder_sent = getattr(self, '_name_reminder_sent', False)
                 if not name_reminder_sent:
-                    print(f"⚠️ [BUILD 337] Name required but missing! Reminding AI to ask for name FIRST")
+                    logger.warning(f"⚠️ [BUILD 337] Name required but missing! Reminding AI to ask for name FIRST")
                     await self._send_server_event_to_ai("need_name_first - לפני שנקבע תור, שאל את הלקוח: מה השם שלך?")
                     self._name_reminder_sent = True  # Don't send reminder again
                 else:
-                    print(f"📋 [BUILD 337] Name still missing (reminder already sent) - blocking scheduling")
+                    logger.info(f"📋 [BUILD 337] Name still missing (reminder already sent) - blocking scheduling")
                 # 🔥 CRITICAL: RETURN to block scheduling - don't just continue!
                 return
             
             if not date_iso or not time_str:
                 # User wants appointment but didn't specify date/time
-                print(f"⚠️ [NLP] User wants appointment but no date/time - asking for it")
+                logger.warning(f"⚠️ [NLP] User wants appointment but no date/time - asking for it")
                 await self._send_server_event_to_ai("need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
                 return
             
@@ -8408,7 +8410,7 @@ class MediaStreamHandler:
             if crm_context and hasattr(crm_context, 'busy_slots'):
                 busy_key = f"{date_iso}_{time_str}"
                 if busy_key in crm_context.busy_slots:
-                    print(f"🛡️ [GUARD] Slot {busy_key} already marked busy - skipping re-check to prevent loop")
+                    logger.info(f"🛡️ [GUARD] Slot {busy_key} already marked busy - skipping re-check to prevent loop")
                     return
             
             # Parse requested datetime
@@ -8429,7 +8431,7 @@ class MediaStreamHandler:
                 
                 if is_available:
                     # ✅ SLOT AVAILABLE - Save to pending_slot and inform AI
-                    print(f"✅ [NLP] Slot {date_iso} {time_str} is AVAILABLE!")
+                    logger.info(f"✅ [NLP] Slot {date_iso} {time_str} is AVAILABLE!")
                     if crm_context:
                         crm_context.pending_slot = {
                             "date": date_iso,
@@ -8440,12 +8442,12 @@ class MediaStreamHandler:
                     # 🔥 BUILD 340: Save confirmed slot to lead_capture_state for webhook
                     preferred_time = f"{date_iso} {time_str}"
                     self._update_lead_capture_state('preferred_time', preferred_time, source='availability_check')
-                    print(f"💾 [BUILD 340] Saved CONFIRMED preferred_time to lead state: {preferred_time}")
+                    logger.info(f"💾 [BUILD 340] Saved CONFIRMED preferred_time to lead state: {preferred_time}")
                     
                     await self._send_server_event_to_ai(f"✅ פנוי! {date_iso} {time_str}")
                 else:
                     # ❌ SLOT TAKEN - Find alternatives and inform AI
-                    print(f"❌ [NLP] Slot {date_iso} {time_str} is TAKEN - finding alternatives...")
+                    logger.error(f"❌ [NLP] Slot {date_iso} {time_str} is TAKEN - finding alternatives...")
                     
                     # 🛡️ BUILD 149 FIX: Clear pending_slot and track busy slots to prevent loop
                     if crm_context:
@@ -8455,7 +8457,7 @@ class MediaStreamHandler:
                             crm_context.busy_slots = set()
                         busy_key = f"{date_iso}_{time_str}"
                         crm_context.busy_slots.add(busy_key)
-                        print(f"🛡️ [GUARD] Marked slot {busy_key} as busy - will not recheck")
+                        logger.info(f"🛡️ [GUARD] Marked slot {busy_key} as busy - will not recheck")
                     
                     # Find next 3 available slots
                     from server.policy.business_policy import get_business_policy
@@ -8480,7 +8482,7 @@ class MediaStreamHandler:
                         await self._send_server_event_to_ai(f"❌ תפוס - השעה {time_str} תפוסה. תנסה יום אחר?")
                     
             except Exception as e:
-                print(f"❌ [NLP] Error checking availability: {e}")
+                logger.error(f"❌ [NLP] Error checking availability: {e}")
                 import traceback
                 traceback.print_exc()
                 await self._send_server_event_to_ai("need_datetime - לא הצלחתי לבדוק זמינות. באיזה תאריך ושעה?")
@@ -8489,115 +8491,115 @@ class MediaStreamHandler:
         
         # 🔥 NEW: Handle "confirm" action (user confirmed appointment)
         if action == "confirm":
-            print(f"")
-            print(f"=" * 80)
-            print(f"🎯 [APPOINTMENT FLOW] ========== CONFIRM ACTION TRIGGERED ==========")
-            print(f"=" * 80)
+            logger.info(f"")
+            logger.info(f"=" * 80)
+            logger.info(f"🎯 [APPOINTMENT FLOW] ========== CONFIRM ACTION TRIGGERED ==========")
+            logger.info(f"=" * 80)
             
             # 🔥 BUILD 186: OUTBOUND CALLS - Skip scheduling entirely!
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
             if is_outbound:
-                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - OUTBOUND call (outbound follows prompt only)")
+                logger.warning(f"⚠️ [APPOINTMENT FLOW] BLOCKED - OUTBOUND call (outbound follows prompt only)")
                 return
             
             # 🔥 CHECK IF APPOINTMENTS ARE ENABLED (call_goal)
             call_goal = getattr(self, 'call_goal', 'lead_only')
             if call_goal != 'appointment':
-                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - call_goal={call_goal} (expected 'appointment')")
+                logger.warning(f"⚠️ [APPOINTMENT FLOW] BLOCKED - call_goal={call_goal} (expected 'appointment')")
                 return
             
             # 🛡️ CRITICAL GUARD: Check if appointment was already created in this session
             # This prevents the loop where NLP keeps detecting "confirm" from AI's confirmation message
             if getattr(self, 'appointment_confirmed_in_session', False):
-                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Appointment already created in this session!")
-                print(f"⚠️ [APPOINTMENT FLOW] Ignoring duplicate confirm action to prevent loop")
+                logger.warning(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Appointment already created in this session!")
+                logger.warning(f"⚠️ [APPOINTMENT FLOW] Ignoring duplicate confirm action to prevent loop")
                 return
             
             # 🛡️ Also check CRM context flag
             crm_context = getattr(self, 'crm_context', None)
             if crm_context and crm_context.has_appointment_created:
-                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - CRM context shows appointment already created!")
-                print(f"⚠️ [APPOINTMENT FLOW] Ignoring duplicate confirm action to prevent loop")
+                logger.warning(f"⚠️ [APPOINTMENT FLOW] BLOCKED - CRM context shows appointment already created!")
+                logger.warning(f"⚠️ [APPOINTMENT FLOW] Ignoring duplicate confirm action to prevent loop")
                 return
             
-            print(f"📝 [FLOW STEP 1] NLP returned: action={action}, date={date_iso}, time={time_str}, name={customer_name}")
-            print(f"📝 [FLOW STEP 1] confidence={confidence}")
+            logger.info(f"📝 [FLOW STEP 1] NLP returned: action={action}, date={date_iso}, time={time_str}, name={customer_name}")
+            logger.info(f"📝 [FLOW STEP 1] confidence={confidence}")
             
-            print(f"📝 [FLOW STEP 2] CRM context exists: {crm_context is not None}")
+            logger.info(f"📝 [FLOW STEP 2] CRM context exists: {crm_context is not None}")
             
             # ✅ BUILD 145: FALLBACK - Use pending_slot if NLP didn't return date/time
             # This handles cases where user confirmed but NLP missed the time from earlier messages
             if crm_context and hasattr(crm_context, 'pending_slot') and crm_context.pending_slot:
                 pending = crm_context.pending_slot
-                print(f"📝 [FLOW STEP 3] pending_slot found: {pending}")
+                logger.info(f"📝 [FLOW STEP 3] pending_slot found: {pending}")
                 
                 # Use pending_slot values if NLP values are missing
                 if not date_iso and pending.get('date'):
                     date_iso = pending['date']
-                    print(f"📝 [FLOW STEP 3] Using date from pending_slot: {date_iso}")
+                    logger.info(f"📝 [FLOW STEP 3] Using date from pending_slot: {date_iso}")
                 if not time_str and pending.get('time'):
                     time_str = pending['time']
-                    print(f"📝 [FLOW STEP 3] Using time from pending_slot: {time_str}")
+                    logger.info(f"📝 [FLOW STEP 3] Using time from pending_slot: {time_str}")
             else:
-                print(f"📝 [FLOW STEP 3] No pending_slot available")
+                logger.info(f"📝 [FLOW STEP 3] No pending_slot available")
             
             # ✅ STEP 1: Validate we have date and time
-            print(f"📝 [FLOW STEP 4] Checking date/time: date={date_iso}, time={time_str}")
+            logger.info(f"📝 [FLOW STEP 4] Checking date/time: date={date_iso}, time={time_str}")
             if not date_iso or not time_str:
-                print(f"❌ [FLOW STEP 4] FAILED - Missing date/time! Asking AI to clarify")
+                logger.error(f"❌ [FLOW STEP 4] FAILED - Missing date/time! Asking AI to clarify")
                 # Clear stale pending_slot to avoid loops
                 if crm_context and hasattr(crm_context, 'pending_slot'):
                     crm_context.pending_slot = None
-                    print(f"🧹 [FLOW STEP 4] Cleared stale pending_slot")
+                    logger.info(f"🧹 [FLOW STEP 4] Cleared stale pending_slot")
                 # Ask AI to clarify the time
                 await self._send_server_event_to_ai("need_datetime - חסרים פרטים לקביעת התור. שאל את הלקוח: לאיזה יום ושעה תרצה לקבוע?")
                 return
             
-            print(f"✅ [FLOW STEP 4] OK - Date/time valid: {date_iso} {time_str}")
+            logger.info(f"✅ [FLOW STEP 4] OK - Date/time valid: {date_iso} {time_str}")
             
             # ✅ STEP 2: Check if we have customer name and phone
             # 🔥 BUILD 182: Phone priority: 1) crm_context, 2) DTMF, 3) Caller ID
             customer_phone = None
             if crm_context and crm_context.customer_phone:
                 customer_phone = crm_context.customer_phone
-                print(f"📝 [FLOW STEP 5] Phone from crm_context: {customer_phone}")
+                logger.info(f"📝 [FLOW STEP 5] Phone from crm_context: {customer_phone}")
             elif hasattr(self, 'customer_phone_dtmf') and self.customer_phone_dtmf:
                 customer_phone = self.customer_phone_dtmf
-                print(f"📝 [FLOW STEP 5] Phone from DTMF: {customer_phone}")
+                logger.info(f"📝 [FLOW STEP 5] Phone from DTMF: {customer_phone}")
             elif hasattr(self, 'phone_number') and self.phone_number:
                 # 🔥 BUILD 182: Use Caller ID as fallback!
                 customer_phone = self.phone_number
-                print(f"📝 [FLOW STEP 5] Phone from Caller ID: {customer_phone}")
+                logger.info(f"📝 [FLOW STEP 5] Phone from Caller ID: {customer_phone}")
             
-            print(f"📝 [FLOW STEP 5] Checking customer info:")
-            print(f"📝 [FLOW STEP 5]   - phone: {customer_phone}")
-            print(f"📝 [FLOW STEP 5]   - name from NLP: {customer_name}")
+            logger.info(f"📝 [FLOW STEP 5] Checking customer info:")
+            logger.info(f"📝 [FLOW STEP 5]   - phone: {customer_phone}")
+            logger.info(f"📝 [FLOW STEP 5]   - name from NLP: {customer_name}")
             
             # 🔥 FALLBACK: If NLP didn't extract name, check temp cache and crm_context
             if not customer_name:
                 if crm_context and crm_context.customer_name:
                     customer_name = crm_context.customer_name
-                    print(f"📝 [FLOW STEP 5]   - name from crm_context: {customer_name}")
+                    logger.info(f"📝 [FLOW STEP 5]   - name from crm_context: {customer_name}")
                 elif hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                     customer_name = self.pending_customer_name
-                    print(f"📝 [FLOW STEP 5]   - name from temp cache: {customer_name}")
+                    logger.info(f"📝 [FLOW STEP 5]   - name from temp cache: {customer_name}")
                     # CRITICAL: Write name back to crm_context so it's persisted!
                     if crm_context:
                         crm_context.customer_name = customer_name
-                        print(f"📝 [FLOW STEP 5]   - hydrated temp cache → crm_context")
+                        logger.info(f"📝 [FLOW STEP 5]   - hydrated temp cache → crm_context")
             
             # 🔥 BUILD 182: Check if business requires phone verification via DTMF
             from server.policy.business_policy import get_business_policy
             policy = get_business_policy(self.business_id)
             require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
-            print(f"📝 [FLOW STEP 5.5] Business setting require_phone_before_booking: {require_phone_verification}")
+            logger.info(f"📝 [FLOW STEP 5.5] Business setting require_phone_before_booking: {require_phone_verification}")
             
             # 🔥 Check if all required data is complete
-            print(f"📝 [FLOW STEP 6] Checking if all data is complete...")
+            logger.info(f"📝 [FLOW STEP 6] Checking if all data is complete...")
             
             # Priority 1: Name (ALWAYS ask for name first!)
             if not customer_name:
-                print(f"❌ [FLOW STEP 6] BLOCKED - Need name first! Sending need_name event")
+                logger.error(f"❌ [FLOW STEP 6] BLOCKED - Need name first! Sending need_name event")
                 await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
                 return
             else:
@@ -8608,34 +8610,34 @@ class MediaStreamHandler:
             # Otherwise, use Caller ID automatically - no verbal phone extraction needed!
             if not customer_phone:
                 if require_phone_verification:
-                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Asking via DTMF")
+                    logger.error(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Asking via DTMF")
                     await self._send_server_event_to_ai("need_phone_dtmf - בקש מהלקוח להקליד את מספר הטלפון שלו על המקשים ולסיים בסולמית (#).")
                     return
                 else:
                     # 🔥 BUILD 182: Try to use caller ID one more time
                     if hasattr(self, 'phone_number') and self.phone_number:
                         customer_phone = self.phone_number
-                        print(f"📝 [FLOW STEP 6] Using Caller ID as phone: {customer_phone}")
+                        logger.info(f"📝 [FLOW STEP 6] Using Caller ID as phone: {customer_phone}")
                     else:
-                        print(f"⚠️ [FLOW STEP 6] No phone available but require_phone_before_booking=False")
-                        print(f"⚠️ [FLOW STEP 6] Proceeding without phone (will use empty string)")
+                        logger.warning(f"⚠️ [FLOW STEP 6] No phone available but require_phone_before_booking=False")
+                        logger.warning(f"⚠️ [FLOW STEP 6] Proceeding without phone (will use empty string)")
                         customer_phone = ""
             
             if customer_phone:
                 self._update_lead_capture_state('phone', customer_phone, source='appointment_flow')
             
-            print(f"")
-            print(f"✅ [FLOW STEP 6] ALL DATA COMPLETE!")
-            print(f"✅ [FLOW STEP 6]   - name: {customer_name}")
-            print(f"✅ [FLOW STEP 6]   - phone: {customer_phone}")
-            print(f"✅ [FLOW STEP 6]   - date: {date_iso}")
-            print(f"✅ [FLOW STEP 6]   - time: {time_str}")
+            logger.info(f"")
+            logger.info(f"✅ [FLOW STEP 6] ALL DATA COMPLETE!")
+            logger.info(f"✅ [FLOW STEP 6]   - name: {customer_name}")
+            logger.info(f"✅ [FLOW STEP 6]   - phone: {customer_phone}")
+            logger.info(f"✅ [FLOW STEP 6]   - date: {date_iso}")
+            logger.info(f"✅ [FLOW STEP 6]   - time: {time_str}")
             
             # 🛡️ BUILD 149 FIX: Set guard IMMEDIATELY when confirm action starts processing
             # This prevents barge-in from allowing re-entry into the confirm flow
             # The guard must be set BEFORE any awaits, as barge-in can happen at any time
             self.appointment_confirmed_in_session = True
-            print(f"🛡️ [GUARD] Set appointment_confirmed_in_session=True EARLY to prevent re-entry")
+            logger.info(f"🛡️ [GUARD] Set appointment_confirmed_in_session=True EARLY to prevent re-entry")
             
             # Calculate datetime
             from datetime import datetime, timedelta
@@ -8658,29 +8660,29 @@ class MediaStreamHandler:
             slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes from DB settings
             end_dt = start_dt + timedelta(minutes=slot_duration_min)
             
-            print(f"📝 [FLOW STEP 7] Calculated times:")
-            print(f"📝 [FLOW STEP 7]   - start_dt: {start_dt.isoformat()}")
-            print(f"📝 [FLOW STEP 7]   - duration: {slot_duration_min} minutes (from DB policy)")
-            print(f"📝 [FLOW STEP 7]   - end_dt: {end_dt.isoformat()}")
+            logger.info(f"📝 [FLOW STEP 7] Calculated times:")
+            logger.info(f"📝 [FLOW STEP 7]   - start_dt: {start_dt.isoformat()}")
+            logger.info(f"📝 [FLOW STEP 7]   - duration: {slot_duration_min} minutes (from DB policy)")
+            logger.info(f"📝 [FLOW STEP 7]   - end_dt: {end_dt.isoformat()}")
             
             # ✅ STEP 1: Validate slot is within business hours AND check calendar availability
-            print(f"📝 [FLOW STEP 8] Validating slot availability...")
+            logger.info(f"📝 [FLOW STEP 8] Validating slot availability...")
             is_valid = validate_appointment_slot(self.business_id, start_dt)
-            print(f"📝 [FLOW STEP 8] Slot validation result: {is_valid}")
+            logger.info(f"📝 [FLOW STEP 8] Slot validation result: {is_valid}")
             
             if not is_valid:
-                print(f"❌ [FLOW STEP 8] FAILED - Slot outside business hours or taken!")
+                logger.error(f"❌ [FLOW STEP 8] FAILED - Slot outside business hours or taken!")
                 # 🔥 Send feedback to AI
                 await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} תפוסה או מחוץ לשעות העבודה. תציע שעה אחרת ללקוח.")
                 return
             
-            print(f"✅ [FLOW STEP 8] OK - Slot is available!")
+            logger.info(f"✅ [FLOW STEP 8] OK - Slot is available!")
             
             # 🛡️ STEP 2: DB-BASED DEDUPLICATION - Check CallSession table
             appt_hash = start_dt.isoformat()
-            print(f"📝 [FLOW STEP 9] Checking for duplicate appointments...")
-            print(f"📝 [FLOW STEP 9]   - appt_hash: {appt_hash}")
-            print(f"📝 [FLOW STEP 9]   - call_sid: {self.call_sid}")
+            logger.info(f"📝 [FLOW STEP 9] Checking for duplicate appointments...")
+            logger.info(f"📝 [FLOW STEP 9]   - appt_hash: {appt_hash}")
+            logger.info(f"📝 [FLOW STEP 9]   - call_sid: {self.call_sid}")
             
             # Check DB for duplicate
             try:
@@ -8688,23 +8690,23 @@ class MediaStreamHandler:
                 app = _get_flask_app()
                 with app.app_context():
                     call_session = CallSession.query.filter_by(call_sid=self.call_sid).first()
-                    print(f"📝 [FLOW STEP 9]   - call_session exists: {call_session is not None}")
+                    logger.info(f"📝 [FLOW STEP 9]   - call_session exists: {call_session is not None}")
                     
                     if call_session and call_session.last_confirmed_slot == appt_hash:
-                        print(f"⚠️ [FLOW STEP 9] SKIPPED - Duplicate detected! Appointment for {appt_hash} already created")
+                        logger.warning(f"⚠️ [FLOW STEP 9] SKIPPED - Duplicate detected! Appointment for {appt_hash} already created")
                         return
                     
-                    print(f"✅ [FLOW STEP 9] OK - No duplicate found")
+                    logger.info(f"✅ [FLOW STEP 9] OK - No duplicate found")
                     
                     # 🛡️ CRITICAL: customer_phone is guaranteed valid from previous checks
-                    print(f"")
-                    print(f"🚀 [FLOW STEP 10] ========== CREATING APPOINTMENT IN DATABASE ==========")
-                    print(f"🚀 [FLOW STEP 10] Parameters:")
-                    print(f"🚀 [FLOW STEP 10]   - business_id: {self.business_id}")
-                    print(f"🚀 [FLOW STEP 10]   - customer_name: {customer_name}")
-                    print(f"🚀 [FLOW STEP 10]   - customer_phone: {customer_phone}")
-                    print(f"🚀 [FLOW STEP 10]   - start_iso: {start_dt.isoformat()}")
-                    print(f"🚀 [FLOW STEP 10]   - end_iso: {end_dt.isoformat()}")
+                    logger.info(f"")
+                    logger.info(f"🚀 [FLOW STEP 10] ========== CREATING APPOINTMENT IN DATABASE ==========")
+                    logger.info(f"🚀 [FLOW STEP 10] Parameters:")
+                    logger.info(f"🚀 [FLOW STEP 10]   - business_id: {self.business_id}")
+                    logger.info(f"🚀 [FLOW STEP 10]   - customer_name: {customer_name}")
+                    logger.info(f"🚀 [FLOW STEP 10]   - customer_phone: {customer_phone}")
+                    logger.info(f"🚀 [FLOW STEP 10]   - start_iso: {start_dt.isoformat()}")
+                    logger.info(f"🚀 [FLOW STEP 10]   - end_iso: {end_dt.isoformat()}")
                     
                     # Create appointment with call summary if available
                     appt_notes = "נקבע בשיחה טלפונית"
@@ -8726,7 +8728,7 @@ class MediaStreamHandler:
                         notes=appt_notes
                     )
                     
-                    print(f"🚀 [FLOW STEP 10] create_appointment_from_realtime returned: {result}")
+                    logger.info(f"🚀 [FLOW STEP 10] create_appointment_from_realtime returned: {result}")
                     
                     # 🔥 ENHANCED: Handle appointment creation result with proper error handling
                     if result and isinstance(result, dict):
@@ -8735,7 +8737,7 @@ class MediaStreamHandler:
                             error_type = result.get("error", "unknown")
                             error_msg = result.get("message", "שגיאה לא ידועה")
                             
-                            print(f"❌ [FLOW STEP 10] FAILED - {error_type}: {error_msg}")
+                            logger.error(f"❌ [FLOW STEP 10] FAILED - {error_type}: {error_msg}")
 
                             # 🔥 CRITICAL: Send appropriate server event based on error type
                             if error_type == "need_phone":
@@ -8762,23 +8764,23 @@ class MediaStreamHandler:
                                 'call_sid': self.call_sid,
                                 'updates': {'last_confirmed_slot': appt_hash}
                             })
-                            print(f"[DB_BUFFER] Queued appointment marker update")
+                            logger.info(f"[DB_BUFFER] Queued appointment marker update")
                         
-                        print(f"")
-                        print(f"=" * 80)
-                        print(f"✅✅✅ [FLOW STEP 11] APPOINTMENT CREATED SUCCESSFULLY! ✅✅✅")
-                        print(f"=" * 80)
-                        print(f"✅ [FLOW STEP 11]   - appointment_id: {appt_id}")
-                        print(f"✅ [FLOW STEP 11]   - customer: {customer_name}")
-                        print(f"✅ [FLOW STEP 11]   - phone: {customer_phone}")
-                        print(f"✅ [FLOW STEP 11]   - datetime: {date_iso} {time_str}")
-                        print(f"=" * 80)
-                        print(f"")
+                        logger.info(f"")
+                        logger.info(f"=" * 80)
+                        logger.info(f"✅✅✅ [FLOW STEP 11] APPOINTMENT CREATED SUCCESSFULLY! ✅✅✅")
+                        logger.info(f"=" * 80)
+                        logger.info(f"✅ [FLOW STEP 11]   - appointment_id: {appt_id}")
+                        logger.info(f"✅ [FLOW STEP 11]   - customer: {customer_name}")
+                        logger.info(f"✅ [FLOW STEP 11]   - phone: {customer_phone}")
+                        logger.info(f"✅ [FLOW STEP 11]   - datetime: {date_iso} {time_str}")
+                        logger.info(f"=" * 80)
+                        logger.info(f"")
                         
                         # 🛡️ BUILD 149 FIX: Set ALL guards BEFORE sending any message to AI
                         # This prevents race condition where NLP triggers from AI's response
                         self.appointment_confirmed_in_session = True
-                        print(f"🔒 [GUARD] Set appointment_confirmed_in_session=True BEFORE AI event")
+                        logger.info(f"🔒 [GUARD] Set appointment_confirmed_in_session=True BEFORE AI event")
                         
                         # Update CRM context with appointment ID
                         if crm_context:
@@ -8786,26 +8788,26 @@ class MediaStreamHandler:
                             # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
                             crm_context.has_appointment_created = True
                             logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
-                            print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
+                            logger.info(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
                             
                         # 🔥 BUILD 146: Clear pending_slot ONLY after successful appointment creation
                         if crm_context:
                             crm_context.pending_slot = None
-                            print(f"🧹 [CONFIRM] Cleared pending_slot after successful creation")
+                            logger.info(f"🧹 [CONFIRM] Cleared pending_slot after successful creation")
                         
                         # 🔥 BUILD 149 FIX: Simplified confirmation message - don't instruct AI to "notify"
                         # Just state the fact. The system prompt already tells AI what to say.
                         await self._send_server_event_to_ai(f"✅ appointment_created: {customer_name}, {date_iso}, {time_str}")
                     else:
-                        print(f"")
-                        print(f"❌❌❌ [FLOW STEP 11] FAILED TO CREATE APPOINTMENT! ❌❌❌")
-                        print(f"❌ [FLOW STEP 11] Result was None or had no appointment_id")
+                        logger.info(f"")
+                        logger.error(f"❌❌❌ [FLOW STEP 11] FAILED TO CREATE APPOINTMENT! ❌❌❌")
+                        logger.error(f"❌ [FLOW STEP 11] Result was None or had no appointment_id")
                         # 🔥 Send failure to AI
                         await self._send_server_event_to_ai("❌ שגיאה ביצירת התור. נסה שעה אחרת.")
             except Exception as e:
-                print(f"")
-                print(f"❌❌❌ [FLOW STEP 10] EXCEPTION DURING APPOINTMENT CREATION! ❌❌❌")
-                print(f"❌ [FLOW STEP 10] Error: {e}")
+                logger.info(f"")
+                logger.error(f"❌❌❌ [FLOW STEP 10] EXCEPTION DURING APPOINTMENT CREATION! ❌❌❌")
+                logger.error(f"❌ [FLOW STEP 10] Error: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -9012,7 +9014,7 @@ class MediaStreamHandler:
                     if queue_size >= backpressure_threshold:
                         now = time.time()
                         if not hasattr(self, '_last_backpressure_log') or now - self._last_backpressure_log > 5:
-                            print(f"⏸️ [BACKPRESSURE] Queue high ({queue_size}/{queue_maxsize}), applying backpressure (blocking put)")
+                            logger.info(f"⏸️ [BACKPRESSURE] Queue high ({queue_size}/{queue_maxsize}), applying backpressure (blocking put)")
                             self._last_backpressure_log = now
                     
                     # 🔥 FIX: Use blocking put() with timeout instead of put_nowait()
@@ -9025,7 +9027,7 @@ class MediaStreamHandler:
                         # Only happens if TX thread is stalled/dead
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 5:
-                            print(f"⚠️ [AUDIO BACKPRESSURE TIMEOUT] Queue full for >500ms ({queue_size}/{queue_maxsize}) - TX thread may be stalled!")
+                            logger.warning(f"⚠️ [AUDIO BACKPRESSURE TIMEOUT] Queue full for >500ms ({queue_size}/{queue_maxsize}) - TX thread may be stalled!")
                             self._last_full_error = now
                         # Drop this ONE frame only as emergency measure
                         pass
@@ -9295,7 +9297,7 @@ class MediaStreamHandler:
         finally:
             # 🔥 PERFORMANCE: Flush buffered DB writes before final cleanup
             self.in_live_call = False
-            print(f"🔓 [DB_GUARD] Call ended - DB access allowed for cleanup")
+            logger.info(f"🔓 [DB_GUARD] Call ended - DB access allowed for cleanup")
             self._flush_db_writes()
             
             # STEP 7: Update call_status in database immediately
@@ -9391,7 +9393,7 @@ class MediaStreamHandler:
             while True:
                 # 🔥 BUILD 331: Check if hard limit was exceeded - exit immediately
                 if self._limit_exceeded:
-                    print(f"🛑 [BUILD 331] LIMIT_EXCEEDED flag detected in main loop - exiting immediately")
+                    logger.info(f"🛑 [BUILD 331] LIMIT_EXCEEDED flag detected in main loop - exiting immediately")
                     break
                 
                 # 🔥 CRITICAL FIX: Check if call ended externally (call_status webhook)
@@ -9400,7 +9402,7 @@ class MediaStreamHandler:
                     session = stream_registry.get(self.call_sid)
                     if session and session.get('ended'):
                         end_reason = session.get('end_reason', 'external_signal')
-                        print(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
+                        logger.info(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
                         self.hangup_triggered = True
                         self.call_state = CallState.ENDED
                         break
@@ -9430,16 +9432,16 @@ class MediaStreamHandler:
                         elif hasattr(self.ws, 'read'):
                             raw = self.ws.read()
                         else:
-                            print(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
+                            logger.warning(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
                             raise Exception(f"No compatible receive method found for {type(self.ws)}")
                         
                     if raw is None or raw == '':
-                        print("📞 WebSocket connection closed normally", flush=True)
+                        logger.info("📞 WebSocket connection closed normally", flush=True)
                         break
                     
                     # 🔥 BUILD 331: Check limit flag after receiving - exit if limit exceeded
                     if self._limit_exceeded:
-                        print(f"🛑 [BUILD 331] LIMIT_EXCEEDED after receive - exiting main loop")
+                        logger.info(f"🛑 [BUILD 331] LIMIT_EXCEEDED after receive - exiting main loop")
                         break
                         
                     # Handle both string and bytes
@@ -9450,14 +9452,14 @@ class MediaStreamHandler:
                     et = evt.get("event")
                     
                 except json.JSONDecodeError as e:
-                    print(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}", flush=True)
+                    logger.error(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}", flush=True)
                     continue
                 except Exception as e:
                     # 🔥 BUILD 331: Check limit flag on exception - exit if limit exceeded
                     if self._limit_exceeded:
-                        print(f"🛑 [BUILD 331] LIMIT_EXCEEDED during exception - exiting main loop")
+                        logger.error(f"🛑 [BUILD 331] LIMIT_EXCEEDED during exception - exiting main loop")
                         break
-                    print(f"⚠️ WebSocket receive error: {e}", flush=True)
+                    logger.error(f"⚠️ WebSocket receive error: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
                     # Try to continue, might be temporary - don't crash the connection
@@ -9544,16 +9546,16 @@ class MediaStreamHandler:
                         if hasattr(self, 'call_direction') and self.call_direction:
                             if self.call_direction != incoming_direction:
                                 # 🔥 CRITICAL ERROR: Attempt to change direction after it was set
-                                print(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
-                                print(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
-                                print(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
+                                logger.error(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
+                                logger.info(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
+                                logger.info(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
                                 _orig_print(f"[ERROR] CALL_DIRECTION_CHANGE_BLOCKED call_sid={self.call_sid[:8]}... current={self.call_direction} attempted={incoming_direction}", flush=True)
                             else:
-                                print(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
+                                logger.info(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
                         else:
                             # First time setting direction - this is the ONLY allowed assignment
                             self.call_direction = incoming_direction
-                            print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
+                            logger.info(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
                             _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
                         
                         self.outbound_lead_id = custom_params.get("lead_id")
@@ -9564,15 +9566,15 @@ class MediaStreamHandler:
                         
                         # 🔥 CRITICAL DEBUG: Log all outbound parameters to verify they arrive
                         # This proves whether lead_id/phone actually reach media_ws_ai.py
-                        print(f"📞 [OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id}, phone={self.phone_number}, call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...")
+                        logger.info(f"📞 [OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id}, phone={self.phone_number}, call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...")
                         logger.info(f"[OUTBOUND_PARAMS] lead_id={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid}")
                         _orig_print(f"[OUTBOUND_PARAMS] lead_id_raw={self.outbound_lead_id} phone={self.phone_number} call_sid={self.call_sid[:8] if self.call_sid else 'N/A'}...", flush=True)
                         
                         # 🔥 DEBUG: Log outbound lead name explicitly
                         if self.outbound_lead_name:
-                            print(f"✅ [OUTBOUND] Lead name received: '{self.outbound_lead_name}'")
+                            logger.info(f"✅ [OUTBOUND] Lead name received: '{self.outbound_lead_name}'")
                         else:
-                            print(f"⚠️ [OUTBOUND] No lead_name in customParameters!")
+                            logger.warning(f"⚠️ [OUTBOUND] No lead_name in customParameters!")
                         
                         # 🔥 OPTIMIZATION: Pre-load outbound greeting to avoid DB query in async loop
                         if self.call_direction == "outbound" and self.outbound_template_id and self.outbound_lead_name:
@@ -9582,18 +9584,18 @@ class MediaStreamHandler:
                                 if template and template.greeting_template:
                                     biz_name = self.outbound_business_name or "העסק"
                                     self.outbound_greeting_text = template.greeting_template.replace("{{lead_name}}", self.outbound_lead_name).replace("{{business_name}}", biz_name)
-                                    print(f"✅ [OUTBOUND] Pre-loaded greeting: '{self.outbound_greeting_text[:50]}...'")
+                                    logger.info(f"✅ [OUTBOUND] Pre-loaded greeting: '{self.outbound_greeting_text[:50]}...'")
                             except Exception as e:
-                                print(f"⚠️ [OUTBOUND] Failed to pre-load greeting: {e}")
+                                logger.error(f"⚠️ [OUTBOUND] Failed to pre-load greeting: {e}")
                         
                         # 🔍 DEBUG: Log phone numbers and outbound params
-                        print(f"\n📞 START EVENT (customParameters path):")
-                        print(f"   customParams.From: {custom_params.get('From')}")
-                        print(f"   customParams.CallFrom: {custom_params.get('CallFrom')}")
-                        print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
-                        print(f"   ✅ self.to_number set to: '{self.to_number}'")
+                        logger.info(f"\n📞 START EVENT (customParameters path):")
+                        logger.info(f"   customParams.From: {custom_params.get('From')}")
+                        logger.info(f"   customParams.CallFrom: {custom_params.get('CallFrom')}")
+                        logger.info(f"   ✅ self.phone_number set to: '{self.phone_number}'")
+                        logger.info(f"   ✅ self.to_number set to: '{self.to_number}'")
                         if self.call_direction == "outbound":
-                            print(f"   📤 OUTBOUND CALL: lead={self.outbound_lead_name}, template={self.outbound_template_id}")
+                            logger.info(f"   📤 OUTBOUND CALL: lead={self.outbound_lead_name}, template={self.outbound_template_id}")
                         
                         # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
                         if self.phone_number:
@@ -9622,16 +9624,16 @@ class MediaStreamHandler:
                         if hasattr(self, 'call_direction') and self.call_direction:
                             if self.call_direction != incoming_direction:
                                 # 🔥 CRITICAL ERROR: Attempt to change direction after it was set
-                                print(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
-                                print(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
-                                print(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
+                                logger.error(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
+                                logger.info(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
+                                logger.info(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
                                 _orig_print(f"[ERROR] CALL_DIRECTION_CHANGE_BLOCKED call_sid={self.call_sid[:8]}... current={self.call_direction} attempted={incoming_direction}", flush=True)
                             else:
-                                print(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
+                                logger.info(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
                         else:
                             # First time setting direction - this is the ONLY allowed assignment
                             self.call_direction = incoming_direction
-                            print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
+                            logger.info(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
                             _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
                         
                         self.outbound_lead_id = evt.get("lead_id")
@@ -9648,15 +9650,15 @@ class MediaStreamHandler:
                                 if template and template.greeting_template:
                                     biz_name = self.outbound_business_name or "העסק"
                                     self.outbound_greeting_text = template.greeting_template.replace("{{lead_name}}", self.outbound_lead_name).replace("{{business_name}}", biz_name)
-                                    print(f"✅ [OUTBOUND] Pre-loaded greeting: '{self.outbound_greeting_text[:50]}...'")
+                                    logger.info(f"✅ [OUTBOUND] Pre-loaded greeting: '{self.outbound_greeting_text[:50]}...'")
                             except Exception as e:
-                                print(f"⚠️ [OUTBOUND] Failed to pre-load greeting: {e}")
+                                logger.error(f"⚠️ [OUTBOUND] Failed to pre-load greeting: {e}")
                         
                         # 🔍 DEBUG: Log phone number on start
-                        print(f"\n📞 START EVENT - Phone numbers:")
-                        print(f"   from field: {evt.get('from')}")
-                        print(f"   phone_number field: {evt.get('phone_number')}")
-                        print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
+                        logger.info(f"\n📞 START EVENT - Phone numbers:")
+                        logger.info(f"   from field: {evt.get('from')}")
+                        logger.info(f"   phone_number field: {evt.get('phone_number')}")
+                        logger.info(f"   ✅ self.phone_number set to: '{self.phone_number}'")
                         
                         # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
                         if self.phone_number:
@@ -9665,7 +9667,7 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
                     self.t0_connected = time.time()  # ⚡ [T0] WebSocket connected
-                    print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
+                    logger.info(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                         
@@ -9716,13 +9718,13 @@ class MediaStreamHandler:
                             try:
                                 from server.services.realtime_prompt_builder import build_full_business_prompt
                                 self._prebuilt_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
-                                print(f"✅ [PART D] Pre-built FULL BUSINESS prompt: {len(self._prebuilt_prompt)} chars")
+                                logger.info(f"✅ [PART D] Pre-built FULL BUSINESS prompt: {len(self._prebuilt_prompt)} chars")
                             except Exception as prompt_err:
-                                print(f"⚠️ [PART D] Failed to pre-build prompt: {prompt_err}")
+                                logger.error(f"⚠️ [PART D] Failed to pre-build prompt: {prompt_err}")
                                 self._prebuilt_prompt = None  # Async loop will build it as fallback
                             
                         t_biz_end = time.time()
-                        print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        logger.info(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
                         # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
@@ -9790,7 +9792,7 @@ class MediaStreamHandler:
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
                     if not USE_REALTIME_API:
                         self._init_streaming_stt()
-                        print("✅ Google STT initialized (USE_REALTIME_API=False)")
+                        logger.info("✅ Google STT initialized (USE_REALTIME_API=False)")
                     
                     # 🚀 DEFERRED: Call log creation (recording deferred until FIRST_AUDIO_SENT)
                     def _deferred_call_setup():
@@ -9802,7 +9804,7 @@ class MediaStreamHandler:
                                     self._call_log_created = True
                                     # 🔥 RECORDING DEFERRED: Will start after FIRST_AUDIO_SENT (in TX loop)
                         except Exception as e:
-                            print(f"⚠️ Deferred call setup failed: {e}")
+                            logger.error(f"⚠️ Deferred call setup failed: {e}")
                     
                     # Start deferred setup in background (doesn't block greeting)
                     threading.Thread(target=_deferred_call_setup, daemon=True).start()
@@ -9836,19 +9838,19 @@ class MediaStreamHandler:
                     if not self.greeting_sent and USE_REALTIME_API:
                         self.t1_greeting_start = time.time()
                         if greet:
-                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME!")
+                            logger.info(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME!")
                             self.greeting_text = greet
                             if not hasattr(self, 'greeting_sent'):
                                 self.greeting_sent = False
-                            print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...' (len={len(greet)})")
+                            logger.info(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...' (len={len(greet)})")
                         else:
-                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first!")
+                            logger.info(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first!")
                             self.greeting_text = None
                             self.greeting_sent = True
                     
                     # 🚀 SIGNAL: Tell OpenAI thread that business info is ready!
                     total_startup_ms = (time.time() - self.t0_connected) * 1000
-                    print(f"🚀 [PARALLEL] Signaling business info ready at T0+{total_startup_ms:.0f}ms")
+                    logger.info(f"🚀 [PARALLEL] Signaling business info ready at T0+{total_startup_ms:.0f}ms")
                     self.business_info_ready_event.set()
                     
                     # Note: Realtime thread was already started above (BEFORE DB query)
@@ -9856,14 +9858,14 @@ class MediaStreamHandler:
                     # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime
                     if not self.greeting_sent and not USE_REALTIME_API:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
-                        print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
+                        logger.info(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
                         try:
                             self._speak_greeting(greet)  # ✅ פונקציה מיוחדת לברכה ללא sleep!
                             self.t2_greeting_end = time.time()  # ⚡ [T2] Greeting end
-                            print(f"🎯 [T2={self.t2_greeting_end:.3f}] GREETING_COMPLETE! (Duration={(self.t2_greeting_end - self.t1_greeting_start)*1000:.0f}ms)")
+                            logger.info(f"🎯 [T2={self.t2_greeting_end:.3f}] GREETING_COMPLETE! (Duration={(self.t2_greeting_end - self.t1_greeting_start)*1000:.0f}ms)")
                             self.greeting_sent = True
                         except Exception as e:
-                            print(f"❌ CRITICAL ERROR sending greeting: {e}")
+                            logger.error(f"❌ CRITICAL ERROR sending greeting: {e}")
                             import traceback
                             traceback.print_exc()
                     continue
@@ -9891,7 +9893,7 @@ class MediaStreamHandler:
                     # 🔥 VERIFICATION: Track VAD calibration in first 3 seconds
                     if self._vad_calibration_start_ts is None:
                         self._vad_calibration_start_ts = time.time()
-                        print(f"🎯 [VAD_CALIBRATION] Started tracking first 3 seconds")
+                        logger.info(f"🎯 [VAD_CALIBRATION] Started tracking first 3 seconds")
                     
                     if not self._vad_calibration_complete:
                         calibration_elapsed = time.time() - self._vad_calibration_start_ts
@@ -9902,12 +9904,12 @@ class MediaStreamHandler:
                             self._vad_calibration_complete = True
                             self._vad_calibrated_noise_floor = getattr(self, '_recent_audio_rms', 0)
                             self._vad_calibrated_threshold = getattr(self, 'vad_threshold', 0)
-                            print(f"✅ [VAD_CALIBRATION] Complete after 3s:")
-                            print(f"   noise_floor={self._vad_calibrated_noise_floor:.1f}")
-                            print(f"   threshold={self._vad_calibrated_threshold:.1f}")
-                            print(f"   vad_calibrated=True")
-                            print(f"   frames_in_first_3s={self._vad_frames_in_first_3s}")
-                            print(f"   speech_started_count_first_3s={self._vad_speech_started_count_first_3s}")
+                            logger.info(f"✅ [VAD_CALIBRATION] Complete after 3s:")
+                            logger.info(f"   noise_floor={self._vad_calibrated_noise_floor:.1f}")
+                            logger.info(f"   threshold={self._vad_calibrated_threshold:.1f}")
+                            logger.info(f"   vad_calibrated=True")
+                            logger.info(f"   frames_in_first_3s={self._vad_frames_in_first_3s}")
+                            logger.info(f"   speech_started_count_first_3s={self._vad_speech_started_count_first_3s}")
                             if self._vad_speech_started_count_first_3s > 0 and self._vad_frames_in_first_3s < 50:
                                 # Warning: speech_started triggered very early (possible false trigger)
                                 logger.warning(
@@ -9934,7 +9936,7 @@ class MediaStreamHandler:
                         if elapsed > self._realtime_speech_timeout_sec:
                             self._realtime_speech_active = False
                             speech_bypass_active = False
-                            print(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
+                            logger.info(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
                     
                     # 🔥 BUILD 302: BARGE-IN BYPASS - During barge-in, NEVER treat anything as noise
                     # This ensures 100% of user's speech goes to OpenAI when they interrupt AI
@@ -9965,12 +9967,12 @@ class MediaStreamHandler:
                                 # 🔥 BUILD 325: Use config constants for VAD thresholds
                                 self.vad_threshold = VAD_BASELINE_TIMEOUT  # 80.0 from config
                                 logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
+                                logger.info(f"🎛️ VAD TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
                             else:
                                 # 🔥 BUILD 325: Adaptive: noise + offset, capped for quiet speakers
                                 self.vad_threshold = min(VAD_ADAPTIVE_CAP, self.noise_floor + VAD_ADAPTIVE_OFFSET)
                                 logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
+                                logger.info(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
                             self.is_calibrated = True
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
@@ -10034,7 +10036,7 @@ class MediaStreamHandler:
                                 # Open forwarding window when VAD confirms real speech
                                 if is_likely_real_speech and not self._forwarding_window_open_ts:
                                     self._forwarding_window_open_ts = time.time()
-                                    print(f"🔓 [P0-3] Opening {FORWARDING_WINDOW_MS}ms forwarding window - VAD confirmed speech")
+                                    logger.info(f"🔓 [P0-3] Opening {FORWARDING_WINDOW_MS}ms forwarding window - VAD confirmed speech")
                                 
                                 # Check if forwarding window is still open
                                 window_is_open = False
@@ -10045,7 +10047,7 @@ class MediaStreamHandler:
                                     else:
                                         # Window expired - close it
                                         self._forwarding_window_open_ts = None
-                                        print(f"🔒 [P0-3] Forwarding window closed after {elapsed_ms:.0f}ms")
+                                        logger.info(f"🔒 [P0-3] Forwarding window closed after {elapsed_ms:.0f}ms")
                                 
                                 if self.is_ai_speaking_event.is_set():
                                     # AI is actively speaking - block ALL audio UNLESS:
@@ -10055,7 +10057,7 @@ class MediaStreamHandler:
                                     if not self.barge_in_active and not self._realtime_speech_active and not window_is_open:
                                         # Block - this is echo or noise
                                         if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                            print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
+                                            logger.info(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
                                             self._echo_gate_logged = True
                                         # 🔥 FIX: Track frame drop reason
                                         self._stats_audio_blocked += 1
@@ -10065,7 +10067,7 @@ class MediaStreamHandler:
                                     elif window_is_open:
                                         # Forwarding window is open - let audio through
                                         if not hasattr(self, '_forwarding_window_logged'):
-                                            print(f"📤 [P0-3] Forwarding audio through {FORWARDING_WINDOW_MS}ms window (frames={self._echo_gate_consec_frames})")
+                                            logger.info(f"📤 [P0-3] Forwarding audio through {FORWARDING_WINDOW_MS}ms window (frames={self._echo_gate_consec_frames})")
                                             self._forwarding_window_logged = True
                                 
                                 # Check echo decay period (800ms after AI stops speaking)
@@ -10078,7 +10080,7 @@ class MediaStreamHandler:
                                         # 3. Forwarding window is open
                                         if not self._realtime_speech_active and not self.barge_in_active and not window_is_open:
                                             if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                                print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
+                                                logger.info(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
                                                 self._echo_decay_logged = True
                                             # 🔥 FIX: Track frame drop reason
                                             self._stats_audio_blocked += 1
@@ -10146,8 +10148,8 @@ class MediaStreamHandler:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
                                     mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
                                     guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
-                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
+                                    logger.info(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                    logger.info(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
@@ -10160,7 +10162,7 @@ class MediaStreamHandler:
                                     self._queue_full_log_count = 0
                                 self._queue_full_log_count += 1
                                 if self._queue_full_log_count % 50 == 1:
-                                    print(f"⚠️ [QUEUE_FULL] Dropped {self._queue_full_log_count} frames - realtime_audio_in_queue full")
+                                    logger.warning(f"⚠️ [QUEUE_FULL] Dropped {self._queue_full_log_count} frames - realtime_audio_in_queue full")
                                 pass
                         else:
                             # 🔥 BUILD 171: Enhanced logging for debugging
@@ -10170,7 +10172,7 @@ class MediaStreamHandler:
                             # Log every 100 rejected frames with more detail
                             if self._noise_reject_count % 100 == 0:
                                 reason = "noise" if is_noise else f"insufficient_consec_frames({self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
-                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
+                                logger.info(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
                     elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
@@ -10184,7 +10186,7 @@ class MediaStreamHandler:
                         elif USE_STREAMING_STT:
                             # ⚠️ Session should exist but doesn't!
                             if not hasattr(self, '_session_warning_logged'):
-                                print(f"⚠️ [STT] No streaming session for {self.call_sid[:8]} - using fallback")
+                                logger.warning(f"⚠️ [STT] No streaming session for {self.call_sid[:8]} - using fallback")
                                 self._session_warning_logged = True
                     
                     # 🔥 BUILD 165: RMS already calculated above at line 2937 (before noise gate)
@@ -10226,7 +10228,7 @@ class MediaStreamHandler:
                         self.last_voice_ts = current_time
                         # 🔧 Reduced logging spam - max once per 3 seconds
                         if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
-                            print(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'vad_threshold', 'uncalibrated'):.1f}")
+                            logger.info(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'vad_threshold', 'uncalibrated'):.1f}")
                             self.last_debug_ts = current_time
                     
                     # חישוב דממה אמיתי - מאז הקול האחרון! 
@@ -10267,7 +10269,7 @@ class MediaStreamHandler:
                             speech_threshold = getattr(self, "vad_threshold", None) or MIN_SPEECH_RMS
                             
                             if rms >= speech_threshold:
-                                print(f"[BARGE-IN FALLBACK] User speech detected (rms={rms:.1f}, threshold={speech_threshold:.1f})")
+                                logger.info(f"[BARGE-IN FALLBACK] User speech detected (rms={rms:.1f}, threshold={speech_threshold:.1f})")
                                 
                                 # Stop AI speaking
                                 self.speaking = False
@@ -10279,7 +10281,7 @@ class MediaStreamHandler:
                                 self.last_voice_ts = current_time
                                 self.voice_in_row = 0
                                 
-                                print("🎤 BARGE-IN -> LISTENING (user can speak now)")
+                                logger.info("🎤 BARGE-IN -> LISTENING (user can speak now)")
                                 
                                 # Send clear to Twilio
                                 if not self.ws_connection_failed:
@@ -10305,9 +10307,9 @@ class MediaStreamHandler:
                                     current_best = getattr(self, "last_partial_text", "")
                                     if len(text) > len(current_best):
                                         self.last_partial_text = text
-                                        print(f"🔊 PARTIAL (best): '{text}' ({len(text)} chars)")
+                                        logger.info(f"🔊 PARTIAL (best): '{text}' ({len(text)} chars)")
                                     else:
-                                        print(f"🔊 PARTIAL (ignored): '{text}' ({len(text)} chars) - keeping '{current_best}' ({len(current_best)} chars)")
+                                        logger.info(f"🔊 PARTIAL (ignored): '{text}' ({len(text)} chars) - keeping '{current_best}' ({len(current_best)} chars)")
                                 
                                 self.last_partial_text = ""  # Reset
                                 self._utterance_begin(partial_cb=save_partial)
@@ -10337,14 +10339,14 @@ class MediaStreamHandler:
                             early_silence = silence_time >= 0.35  # דממה קצרצרה
                             
                             if high_conf_partial and early_silence and dur >= 0.5:
-                                print(f"⚡⚡⚡ EARLY EOU on strong partial: '{last_partial}' ({dur:.1f}s, {silence_time:.2f}s silence)")
+                                logger.info(f"⚡⚡⚡ EARLY EOU on strong partial: '{last_partial}' ({dur:.1f}s, {silence_time:.2f}s silence)")
                                 # קפיצה מיידית לעיבוד!
                                 silent = True
                                 buffer_big_enough = True
                             
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
-                                print(f"🎤 END OF UTTERANCE: {dur:.1f}s audio, conversation #{self.conversation_id}")
+                                logger.info(f"🎤 END OF UTTERANCE: {dur:.1f}s audio, conversation #{self.conversation_id}")
                                 
                                 # ✅ מדידת Turn Latency - התחלת מדידה
                                 self.eou_timestamp = time.time()
@@ -10361,12 +10363,12 @@ class MediaStreamHandler:
                                 self.buf.clear()
                                 self.last_voice_ts = 0  # אפס לסיבוב הבא
                                 
-                                print(f"🧠 STATE -> PROCESSING | len={len(utt_pcm)} | silence_ms={silence_time*1000:.0f}")
+                                logger.info(f"🧠 STATE -> PROCESSING | len={len(utt_pcm)} | silence_ms={silence_time*1000:.0f}")
                                 
                                 try:
                                     self._process_utterance_safe(utt_pcm, current_id)
                                 except Exception as proc_err:
-                                    print(f"❌ Audio processing failed for conversation #{current_id}: {proc_err}")
+                                    logger.error(f"❌ Audio processing failed for conversation #{current_id}: {proc_err}")
                                     import traceback
                                     traceback.print_exc()
                                     # Continue without crashing WebSocket
@@ -10374,7 +10376,7 @@ class MediaStreamHandler:
                                     self.processing = False
                                     if self.state == STATE_THINK:
                                         self.state = STATE_LISTEN
-                                    print(f"✅ Processing complete for conversation #{current_id}")
+                                    logger.info(f"✅ Processing complete for conversation #{current_id}")
                     
                     # ✅ WebSocket Keepalive - מונע נפילות אחרי 5 דקות (DEBUG only)
                     if current_time - self.last_keepalive_ts > self.keepalive_interval:
@@ -10399,14 +10401,14 @@ class MediaStreamHandler:
                     
                     # ✅ Watchdog: וודא שלא תקועים במצב + EOU כפויה
                     if self.processing and (current_time - self.processing_start_ts) > 2.5:
-                        print("⚠️ PROCESSING TIMEOUT - forcing reset")
+                        logger.warning("⚠️ PROCESSING TIMEOUT - forcing reset")
                         self.processing = False
                         self.state = STATE_LISTEN
                         self.buf.clear()
                     
                     # ✅ LONGER speaking timeout to prevent cutoff mid-sentence
                     if self.speaking and (current_time - self.speaking_start_ts) > 15.0:
-                        print("⚠️ SPEAKING TIMEOUT - forcing reset after 15s")  
+                        logger.warning("⚠️ SPEAKING TIMEOUT - forcing reset after 15s")
                         self.speaking = False
                         self.state = STATE_LISTEN
                     
@@ -10414,7 +10416,7 @@ class MediaStreamHandler:
                     if (not self.processing and self.state == STATE_LISTEN and 
                         len(self.buf) > 96000 and  # ✅ FIX: 6.0s של אודיו (לא קוטע משפטים ארוכים!)
                         silence_time > 2.0):      # ✅ FIX: 2.0s שקט לחירום - שקט אמיתי!
-                        print(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
+                        logger.info(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
                         # כפה EOU
                         self.processing = True
                         self.processing_start_ts = current_time
@@ -10426,12 +10428,12 @@ class MediaStreamHandler:
                         self.buf.clear()
                         self.last_voice_ts = 0
                         
-                        print(f"🧠 EMERGENCY STATE -> PROCESSING | len={len(utt_pcm)} | silence_ms={silence_time*1000:.0f}")
+                        logger.info(f"🧠 EMERGENCY STATE -> PROCESSING | len={len(utt_pcm)} | silence_ms={silence_time*1000:.0f}")
                         
                         try:
                             self._process_utterance_safe(utt_pcm, current_id)
                         except Exception as proc_err:
-                            print(f"❌ Emergency audio processing failed for conversation #{current_id}: {proc_err}")
+                            logger.error(f"❌ Emergency audio processing failed for conversation #{current_id}: {proc_err}")
                             import traceback
                             traceback.print_exc()
                             # Continue without crashing WebSocket
@@ -10439,37 +10441,37 @@ class MediaStreamHandler:
                             self.processing = False
                             if self.state == STATE_THINK:
                                 self.state = STATE_LISTEN
-                            print(f"✅ Emergency processing complete for conversation #{current_id}")
+                            logger.info(f"✅ Emergency processing complete for conversation #{current_id}")
                     
                     continue
                 
                 if et == "dtmf":
                     # ⚡ BUILD 121: DTMF digit collection for phone number input
                     digit = evt.get("dtmf", {}).get("digit", "")
-                    print(f"📞 DTMF pressed: {digit} (buffer={self.dtmf_buffer})")
+                    logger.info(f"📞 DTMF pressed: {digit} (buffer={self.dtmf_buffer})")
                     
                     if digit == "#":
                         # End of input - process collected digits
                         if not self.dtmf_buffer:
                             # 🎯 תרחיש 1: סולמית בלבד = דילוג
-                            print(f"⏭️ DTMF skip: empty buffer, user skipped phone input")
+                            logger.info(f"⏭️ DTMF skip: empty buffer, user skipped phone input")
                             self.waiting_for_dtmf = False
                             
                             # Inject skip message to AI
                             skip_text = "אני מדלג על מתן המספר"
-                            print(f"🎯 DTMF skip -> AI: '{skip_text}'")
+                            logger.info(f"🎯 DTMF skip -> AI: '{skip_text}'")
                             
                             try:
                                 self._process_dtmf_skip()
                             except Exception as e:
-                                print(f"❌ DTMF skip processing failed: {e}")
+                                logger.error(f"❌ DTMF skip processing failed: {e}")
                                 import traceback
                                 traceback.print_exc()
                         
                         elif len(self.dtmf_buffer) >= 9:
                             # 🎯 תרחיש 2: ספרות + # = שליחה
                             phone_number = self.dtmf_buffer
-                            print(f"✅ DTMF phone collected: {phone_number}")
+                            logger.info(f"✅ DTMF phone collected: {phone_number}")
                             
                             # Clear buffer
                             self.dtmf_buffer = ""
@@ -10477,18 +10479,18 @@ class MediaStreamHandler:
                             
                             # Inject as if customer said the number
                             hebrew_text = f"המספר שלי הוא {phone_number}"
-                            print(f"🎯 DTMF -> AI: '{hebrew_text}'")
+                            logger.info(f"🎯 DTMF -> AI: '{hebrew_text}'")
                             
                             # Process as normal utterance (trigger AI response)
                             try:
                                 self._process_dtmf_phone(phone_number)
                             except Exception as e:
-                                print(f"❌ DTMF processing failed: {e}")
+                                logger.error(f"❌ DTMF processing failed: {e}")
                                 import traceback
                                 traceback.print_exc()
                         else:
                             # Buffer too short
-                            print(f"⚠️ DTMF input too short: {self.dtmf_buffer} (need 9+ digits)")
+                            logger.warning(f"⚠️ DTMF input too short: {self.dtmf_buffer} (need 9+ digits)")
                             # Speak error message
                             self._speak_tts("המספר קצר מדי, נא להקיש 9 ספרות לפחות או לחץ סולמית כדי לדלג")
                         
@@ -10498,19 +10500,19 @@ class MediaStreamHandler:
                         
                     elif digit == "*":
                         # Clear/restart input
-                        print(f"🔄 DTMF cleared (was: {self.dtmf_buffer})")
+                        logger.info(f"🔄 DTMF cleared (was: {self.dtmf_buffer})")
                         self.dtmf_buffer = ""
                         # Don't speak - just clear buffer
                         
                     elif digit.isdigit():
                         # Append digit
                         self.dtmf_buffer += digit
-                        print(f"📝 DTMF buffer: {self.dtmf_buffer}")
+                        logger.info(f"📝 DTMF buffer: {self.dtmf_buffer}")
                         
                         # 🔥 AUTO-SUBMIT: If we have 10 digits (Israeli mobile), auto-process without waiting for #
                         if len(self.dtmf_buffer) == 10:
                             phone_number = self.dtmf_buffer
-                            print(f"✅ DTMF auto-submit (10 digits): {phone_number}")
+                            logger.info(f"✅ DTMF auto-submit (10 digits): {phone_number}")
                             
                             # Clear buffer
                             self.dtmf_buffer = ""
@@ -10520,7 +10522,7 @@ class MediaStreamHandler:
                             try:
                                 self._process_dtmf_phone(phone_number)
                             except Exception as e:
-                                print(f"❌ DTMF auto-submit processing failed: {e}")
+                                logger.error(f"❌ DTMF auto-submit processing failed: {e}")
                                 import traceback
                                 traceback.print_exc()
                     
@@ -10530,7 +10532,7 @@ class MediaStreamHandler:
                     # ✅ סימון TTS הושלם - חזור להאזנה
                     mark_name = evt.get("mark", {}).get("name", "")
                     if mark_name == "assistant_tts_end":
-                        print("🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING")
+                        logger.info("🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING")
                         self.speaking = False
                         self.state = STATE_LISTEN
                         self.mark_pending = False
@@ -10538,14 +10540,14 @@ class MediaStreamHandler:
                         # איפוס חשוב למערכת VAD
                         self.last_voice_ts = 0
                         self.voice_in_row = 0
-                        print("🎤 STATE -> LISTENING | buffer_reset")
+                        logger.info("🎤 STATE -> LISTENING | buffer_reset")
                     elif mark_name.startswith("heartbeat_"):
                         # אישור keepalive - התעלם
                         pass
                     continue
 
                 if et == "stop":
-                    print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+                    logger.info(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
                     # ✅ CRITICAL: סיכום שיחה בסיום
                     self._finalize_call_on_stop()
                     # 🔥 SESSION LIFECYCLE: Call atomic close_session instead of manual cleanup
@@ -10553,7 +10555,7 @@ class MediaStreamHandler:
                     break
 
         except ConnectionClosed as e:
-            print(f"📞 WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx} reason=ConnectionClosed")
+            logger.info(f"📞 WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx} reason=ConnectionClosed")
             # 🔥 SESSION LIFECYCLE: Call atomic close_session
             self.close_session("ws_connection_closed")
         except Exception as e:
@@ -10590,7 +10592,7 @@ class MediaStreamHandler:
                 warnings_str = ", ".join(warnings_errors) if warnings_errors else "none"
                 logger.warning(f"[CALL_END] call_sid={call_sid} duration={call_duration:.1f}s warnings={warnings_str}")
             
-            print(f"📞 [{session_id}] CALL ENDED - duration={call_duration:.1f}s, business_id={business_id}, rx={self.rx}, tx={self.tx}")
+            logger.info(f"📞 [{session_id}] CALL ENDED - duration={call_duration:.1f}s, business_id={business_id}, rx={self.rx}, tx={self.tx}")
             logger.info(f"[{session_id}] DISCONNECT - duration={call_duration:.1f}s, business={business_id}")
             
             # ═══════════════════════════════════════════════════════════════════════
@@ -10689,7 +10691,7 @@ class MediaStreamHandler:
             seconds_used = getattr(self, '_usage_guard_seconds', 0.0)
             limit_hit = getattr(self, '_usage_guard_limit_hit', False)
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
-            print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
+            logger.info(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
             # 🔥 SESSION LIFECYCLE: close_session() already handled WebSocket close, no need to duplicate
             # Mark as ended
@@ -10697,19 +10699,19 @@ class MediaStreamHandler:
                 stream_registry.clear(self.call_sid)
         
         # Final cleanup
-        print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+        logger.info(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
 
     def _interrupt_speaking(self):
         """✅ FIXED: עצירה מיידית של דיבור הבוט - סדר פעולות נכון"""
-        print("🚨 INTERRUPT_START: Beginning full interrupt sequence")
+        logger.info("🚨 INTERRUPT_START: Beginning full interrupt sequence")
         
         # ✅ STEP 1: שלח clear לטוויליו ראשון
         if not self.ws_connection_failed:
             try:
                 self._tx_enqueue({"type": "clear"})
-                print("✅ CLEAR_SENT: Twilio clear command sent")
+                logger.info("✅ CLEAR_SENT: Twilio clear command sent")
             except Exception as e:
-                print(f"⚠️ CLEAR_FAILED: {e}")
+                logger.error(f"⚠️ CLEAR_FAILED: {e}")
         
         # ✅ STEP 2: נקה את תור השידור אחר clear
         try:
@@ -10718,9 +10720,9 @@ class MediaStreamHandler:
                 self.tx_q.get_nowait()
                 cleared_count += 1
             if cleared_count > 0:
-                print(f"✅ TX_QUEUE_CLEARED: Removed {cleared_count} pending audio frames")
+                logger.info(f"✅ TX_QUEUE_CLEARED: Removed {cleared_count} pending audio frames")
         except Exception as e:
-            print(f"⚠️ TX_CLEAR_FAILED: {e}")
+            logger.error(f"⚠️ TX_CLEAR_FAILED: {e}")
         
         # ✅ STEP 3: עדכן מצבים
         self.state = STATE_LISTEN
@@ -10732,14 +10734,14 @@ class MediaStreamHandler:
         # ✅ STEP 4: רק בסוף - עדכן speaking=False
         self.speaking = False
         
-        print("✅ INTERRUPT_COMPLETE: Full interrupt sequence finished - ready to listen")
+        logger.info("✅ INTERRUPT_COMPLETE: Full interrupt sequence finished - ready to listen")
 
     # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
     def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
         """עיבוד מבע עם הגנה כפולה מפני לולאות"""
         # 🚀 REALTIME API: Skip Google STT/TTS completely in Realtime mode
         if USE_REALTIME_API:
-            print(f"⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only")
+            logger.info(f"⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only")
             # Reset buffer and state to prevent accumulation
             if hasattr(self, 'buf'):
                 self.buf.clear()
@@ -10749,17 +10751,17 @@ class MediaStreamHandler:
         
         # וודא שלא מעבדים את אותו ID פעמיים
         if conversation_id <= self.last_processing_id:
-            print(f"🚫 DUPLICATE processing ID {conversation_id} (last: {self.last_processing_id}) - SKIP")
+            logger.info(f"🚫 DUPLICATE processing ID {conversation_id} (last: {self.last_processing_id}) - SKIP")
             return
         
         self.last_processing_id = conversation_id
         
         # וודא שהמערכת לא מדברת כרגע
         if self.speaking:
-            print("🚫 Still speaking - cannot process new utterance")
+            logger.info("🚫 Still speaking - cannot process new utterance")
             return
             
-        print(f"🎤 SAFE PROCESSING: conversation #{conversation_id}")
+        logger.info(f"🎤 SAFE PROCESSING: conversation #{conversation_id}")
         self.state = STATE_THINK  # מעבר למצב חשיבה
         
         text = ""  # initialize to avoid unbound variable
@@ -10768,16 +10770,16 @@ class MediaStreamHandler:
             try:
                 # ⚡ PHASE 2: Use smart wrapper (streaming or single-request)
                 text = self._hebrew_stt_wrapper(pcm16_8k) or ""
-                print(f"🎤 USER: {text}")
+                logger.info(f"🎤 USER: {text}")
                 
                 # ✅ מדידת ASR Latency
                 if hasattr(self, 'eou_timestamp'):
                     asr_latency = time.time() - self.eou_timestamp
                     self.last_stt_time = asr_latency  # ⚡ CRITICAL: Save for TOTAL_LATENCY calculation
-                    if DEBUG: print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
+                    if DEBUG: logger.debug(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
                     
             except Exception as e:
-                print(f"❌ STT ERROR: {e}")
+                logger.error(f"❌ STT ERROR: {e}")
                 text = ""
             
             # ✅ SMART HANDLING: כשלא מבין - בשקט או "לא הבנתי" אחרי כמה ניסיונות
@@ -10789,14 +10791,14 @@ class MediaStreamHandler:
                 
                 # אם 2 כישלונות ברצף - תגיד "לא הבנתי"
                 if self.consecutive_empty_stt >= 2:
-                    print("🚫 MULTIPLE_EMPTY_STT: Saying 'didn't understand'")
+                    logger.info("🚫 MULTIPLE_EMPTY_STT: Saying 'didn't understand'")
                     self.consecutive_empty_stt = 0  # איפוס
                     try:
                         self._speak_simple("לא הבנתי, אפשר לחזור?")
                     except:
                         pass
                 else:
-                    print("🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)")
+                    logger.info("🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)")
                 
                 self.state = STATE_LISTEN
                 self.processing = False
@@ -10809,7 +10811,7 @@ class MediaStreamHandler:
             # If STT returned text, it's real speech. Don't reject valid words like "שוודי" or names like "שי"
             # Only reject if it's EXTREMELY short (1 char) which is likely noise
             if len(text.strip()) <= 1:
-                print(f"🚫 VERY_SHORT_TEXT: '{text}' (≤1 char) - likely noise")
+                logger.info(f"🚫 VERY_SHORT_TEXT: '{text}' (≤1 char) - likely noise")
                 self.state = STATE_LISTEN
                 self.processing = False
                 return
@@ -10818,7 +10820,7 @@ class MediaStreamHandler:
             uh = zlib.crc32(text.strip().encode("utf-8"))
             if (self.last_user_hash == uh and 
                 (time.time() - self.last_user_hash_ts) <= DEDUP_WINDOW_SEC):
-                print("🚫 DUPLICATE USER INPUT (ignored)")
+                logger.info("🚫 DUPLICATE USER INPUT (ignored)")
                 self.processing = False
                 self.state = STATE_LISTEN
                 return
@@ -10836,16 +10838,16 @@ class MediaStreamHandler:
                     if business_id:
                         faq_match = match_faq(business_id, text, channel="voice")
                 except Exception as e:
-                    force_print(f"⚠️ [FAQ_ERROR] {e}")
+                    logger.error(f"⚠️ [FAQ_ERROR] {e}")
             
             # If FAQ matched - respond immediately and skip AgentKit!
             if faq_match:
                 faq_ms = (time.time() - faq_start_time) * 1000
-                force_print(f"🚀 [FAQ_HIT] biz={getattr(self, 'business_id', '?')} intent={faq_match['intent_key']} score={faq_match['score']:.3f} method={faq_match['method']} ms={faq_ms:.0f}ms")
+                logger.info(f"🚀 [FAQ_HIT] biz={getattr(self, 'business_id', '?')} intent={faq_match['intent_key']} score={faq_match['score']:.3f} method={faq_match['method']} ms={faq_ms:.0f}ms")
                 reply = faq_match['answer']
                 
                 # Track as FAQ turn (no Agent SDK call)
-                force_print(f"🤖 [FAQ_RESPONSE] {reply[:100]}... (skipped Agent)")
+                logger.info(f"🤖 [FAQ_RESPONSE] {reply[:100]}... (skipped Agent)")
                 
                 # Speak the FAQ answer and return to listening
                 if reply and reply.strip():
@@ -10858,12 +10860,12 @@ class MediaStreamHandler:
                 # Return to LISTEN state
                 self.state = STATE_LISTEN
                 self.processing = False
-                force_print(f"✅ [FAQ_COMPLETE] Returned to LISTEN (total: {(time.time() - faq_start_time)*1000:.0f}ms)")
+                logger.info(f"✅ [FAQ_COMPLETE] Returned to LISTEN (total: {(time.time() - faq_start_time)*1000:.0f}ms)")
                 return
             else:
                 # FAQ miss - proceed to AgentKit
                 faq_ms = (time.time() - faq_start_time) * 1000
-                force_print(f"⏭️ [FAQ_MISS] No match found (search took {faq_ms:.0f}ms) → proceeding to AgentKit")
+                logger.info(f"⏭️ [FAQ_MISS] No match found (search took {faq_ms:.0f}ms) → proceeding to AgentKit")
             
             # No FAQ match - proceed with AgentKit (normal flow)
             ai_processing_start = time.time()
@@ -10873,7 +10875,7 @@ class MediaStreamHandler:
             
             # ✅ FIXED: אם AI החזיר None (אין טקסט אמיתי) - אל תגיב!
             if reply is None:
-                print("🚫 AI_RETURNED_NONE: No response needed - returning to listen mode")
+                logger.info("🚫 AI_RETURNED_NONE: No response needed - returning to listen mode")
                 self.processing = False
                 self.state = STATE_LISTEN
                 return
@@ -10887,11 +10889,11 @@ class MediaStreamHandler:
             if isinstance(reply, dict):
                 # Extract text from dict structure
                 reply = reply.get('output', '') or reply.get('message', '') or str(reply)
-                print(f"⚠️ AgentKit returned dict - extracted: '{reply[:50]}...'")
+                logger.warning(f"⚠️ AgentKit returned dict - extracted: '{reply[:50]}...'")
             reply_trimmed = reply.strip() if reply else ""
             exact_duplicates = [r for r in self.recent_replies if r == reply_trimmed]
             if len(exact_duplicates) >= 3:  # ✅ FIXED: רק אחרי 3 כפילויות מדויקות
-                print("🚫 EXACT DUPLICATE detected (3+ times) - adding variation")
+                logger.info("🚫 EXACT DUPLICATE detected (3+ times) - adding variation")
                 if "תודה" in text.lower():
                     reply = "בשמחה! יש לי עוד אפשרויות אם אתה מעוניין."
                 else:
@@ -10906,11 +10908,11 @@ class MediaStreamHandler:
             
             # ✅ FIXED: רק אם יש תשובה אמיתית - דפס, שמור ודבר
             if reply and reply.strip():
-                print(f"🤖 BOT: {reply}")
+                logger.info(f"🤖 BOT: {reply}")
                 
                 # ✅ מדידת AI Processing Time
                 ai_processing_time = time.time() - ai_processing_start
-                if DEBUG: print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
+                if DEBUG: logger.debug(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
                 
                 # 5. הוסף להיסטוריה (שני מבנים - סנכרון)
                 self.response_history.append({
@@ -10935,16 +10937,16 @@ class MediaStreamHandler:
                 # 6. דבר רק אם יש מה לומר
                 self._speak_simple(reply)
             else:
-                print("🚫 NO_VALID_RESPONSE: AI returned empty/None - staying silent")
+                logger.info("🚫 NO_VALID_RESPONSE: AI returned empty/None - staying silent")
                 # לא דופסים, לא שומרים בהיסטוריה, לא מדברים
             
             # ✅ CRITICAL: חזור למצב האזנה אחרי כל תגובה!
             self.state = STATE_LISTEN
-            print(f"✅ RETURNED TO LISTEN STATE after conversation #{conversation_id}")
+            logger.info(f"✅ RETURNED TO LISTEN STATE after conversation #{conversation_id}")
             
         except Exception as e:
-            print(f"❌ CRITICAL Processing error: {e}")
-            print(f"   Text was: '{text}' ({len(text)} chars)")
+            logger.error(f"❌ CRITICAL Processing error: {e}")
+            logger.info(f"   Text was: '{text}' ({len(text)} chars)")
             # ✅ תיקון קריטי: דבק לטראסבק ואל תקריס
             import traceback
             traceback.print_exc()
@@ -10955,9 +10957,9 @@ class MediaStreamHandler:
                 emergency_response = "מצטערת, לא שמעתי טוב. אפשר לחזור שוב בבקשה?"
                 self._speak_with_breath(emergency_response)
                 self.state = STATE_LISTEN
-                print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
+                logger.error(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
             except Exception as emergency_err:
-                print(f"❌ EMERGENCY RESPONSE FAILED: {emergency_err}")
+                logger.error(f"❌ EMERGENCY RESPONSE FAILED: {emergency_err}")
                 self.state = STATE_LISTEN
                 # ✅ חזור למצב האזנה בכל מקרה
 
@@ -10971,7 +10973,7 @@ class MediaStreamHandler:
         # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
         self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
+        logger.info(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -10979,55 +10981,55 @@ class MediaStreamHandler:
         
         # 🚀 REALTIME API: Send greeting via Realtime API if enabled
         if USE_REALTIME_API:
-            print(f"🚀 [REALTIME] Sending greeting via Realtime API: '{text[:50]}...'")
+            logger.info(f"🚀 [REALTIME] Sending greeting via Realtime API: '{text[:50]}...'")
             try:
                 # ✅ FIX: Queue greeting text to be sent via Realtime API (non-blocking)
                 # Queue is initialized in __init__ to avoid AttributeError
                 try:
                     self.realtime_greeting_queue.put_nowait(text)
-                    print(f"✅ [REALTIME] Greeting queued for Realtime API")
+                    logger.info(f"✅ [REALTIME] Greeting queued for Realtime API")
                 except queue.Full:
                     # Queue full - replace old greeting with new one
-                    print(f"⚠️ [REALTIME] Greeting queue full, replacing...")
+                    logger.warning(f"⚠️ [REALTIME] Greeting queue full, replacing...")
                     try:
                         self.realtime_greeting_queue.get_nowait()
                         self.realtime_greeting_queue.put_nowait(text)
-                        print(f"✅ [REALTIME] Greeting replaced in queue")
+                        logger.info(f"✅ [REALTIME] Greeting replaced in queue")
                     except:
-                        print(f"❌ [REALTIME] Failed to replace greeting - will fallback")
+                        logger.error(f"❌ [REALTIME] Failed to replace greeting - will fallback")
                         # Don't raise - fall through to Google TTS
                         pass
                 except Exception as e:
-                    print(f"❌ [REALTIME] Failed to queue greeting: {e}")
+                    logger.error(f"❌ [REALTIME] Failed to queue greeting: {e}")
                     # Don't raise - will try again on next attempt
                     pass
                 else:
                     # Successfully queued - exit early
                     return
             except Exception as e:
-                print(f"❌ [REALTIME] Greeting queueing error: {e}")
+                logger.error(f"❌ [REALTIME] Greeting queueing error: {e}")
                 import traceback
                 traceback.print_exc()
             
             # ✅ Realtime mode: Greeting will be sent by async loop, no Google TTS fallback
-            print(f"📭 [REALTIME] Greeting queued or will be retried by async loop")
+            logger.info(f"📭 [REALTIME] Greeting queued or will be retried by async loop")
             return
         
         # Google TTS (only when USE_REALTIME_API=False)
-        print(f"🔊 GREETING_TTS_START (Google): '{text[:50]}...'")
+        logger.info(f"🔊 GREETING_TTS_START (Google): '{text[:50]}...'")
         
         try:
             # ⚡ בלי sleep - ברכה מיידית!
             tts_audio = self._hebrew_tts(text)
             if tts_audio and len(tts_audio) > 1000:
-                print(f"✅ GREETING_TTS_SUCCESS: {len(tts_audio)} bytes")
+                logger.info(f"✅ GREETING_TTS_SUCCESS: {len(tts_audio)} bytes")
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
             else:
-                print("❌ GREETING_TTS_FAILED - sending beep")
+                logger.error("❌ GREETING_TTS_FAILED - sending beep")
                 self._send_beep(800)
                 self._finalize_speaking()
         except Exception as e:
-            print(f"❌ GREETING_TTS_ERROR: {e}")
+            logger.error(f"❌ GREETING_TTS_ERROR: {e}")
             import traceback
             traceback.print_exc()
             try:
@@ -11048,32 +11050,32 @@ class MediaStreamHandler:
         # 🔥 BUILD 118: Defensive check (should be normalized already in _ai_response)
         # This is a safety net in case dict slips through
         if isinstance(text, dict):
-            print(f"⚠️ DICT STILL HERE! Should have been normalized in _ai_response: {text}")
+            logger.warning(f"⚠️ DICT STILL HERE! Should have been normalized in _ai_response: {text}")
             if 'text' in text:
                 text = text['text']
-                print(f"✅ Extracted text field: '{text}'")
+                logger.info(f"✅ Extracted text field: '{text}'")
             else:
-                print(f"❌ No 'text' field in dict - using fallback")
+                logger.error(f"❌ No 'text' field in dict - using fallback")
                 text = "סליחה, לא הבנתי. אפשר לחזור?"
             
         if self.speaking:
-            print("🚫 Already speaking - stopping current and starting new")
+            logger.info("🚫 Already speaking - stopping current and starting new")
             try:
                 # ✅ FIXED: בצע interrupt מלא לפני התחלת TTS חדש
                 self._interrupt_speaking()
                 time.sleep(0.05)  # המתנה קצרה
             except Exception as e:
-                print(f"⚠️ Interrupt error (non-critical): {e}")
+                logger.error(f"⚠️ Interrupt error (non-critical): {e}")
         
         # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
         self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
+        logger.info(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
         self.state = STATE_SPEAK
-        print(f"🔊 TTS_START: '{text}'")
+        logger.info(f"🔊 TTS_START: '{text}'")
         
         # ⚡ BUILD 107: Save EOU timestamp for total latency calculation
         eou_saved = getattr(self, 'eou_timestamp', None)
@@ -11092,11 +11094,11 @@ class MediaStreamHandler:
                     last_sent = shortened.rfind(delimiter)
                     if last_sent > 250:  # Very high threshold
                         text = shortened[:last_sent + 1]
-                        print(f"🔪 TTS_SAFETY_CUT (sentence): {text}")
+                        logger.info(f"🔪 TTS_SAFETY_CUT (sentence): {text}")
                         break
                 else:
                     # Keep original text - don't cut!
-                    print(f"⚠️ TTS_LONG_RESPONSE: {len(text)} chars (no cut)")
+                    logger.warning(f"⚠️ TTS_LONG_RESPONSE: {len(text)} chars (no cut)")
             
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()
@@ -11106,14 +11108,14 @@ class MediaStreamHandler:
             
             tts_audio = self._hebrew_tts(text)
             tts_generation_time = time.time() - tts_start
-            if DEBUG: print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
+            if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
             
             if tts_audio and len(tts_audio) > 1000:
-                print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
+                logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
                 send_start = time.time()
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
                 send_time = time.time() - send_start
-                if DEBUG: print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
+                if DEBUG: logger.debug(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
                 
                 # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
                 if eou_saved:
@@ -11122,19 +11124,19 @@ class MediaStreamHandler:
                     stt_time = getattr(self, 'last_stt_time', 0.0)
                     ai_time = getattr(self, 'last_ai_time', 0.0)
                     
-                    if DEBUG: print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
-                    if DEBUG: print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
-                    print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                    if DEBUG: logger.debug(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
+                    if DEBUG: logger.debug(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                    logger.info(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
                     
                     # Clear for next measurement
                     if hasattr(self, 'eou_timestamp'):
                         delattr(self, 'eou_timestamp')
             else:
-                print("🔊 TTS FAILED - sending beep")
+                logger.error("🔊 TTS FAILED - sending beep")
                 self._send_beep(800)
                 self._finalize_speaking()
         except Exception as e:
-            print(f"❌ TTS_ERROR: {e}")
+            logger.error(f"❌ TTS_ERROR: {e}")
             import traceback
             traceback.print_exc()
             try:
@@ -11188,7 +11190,7 @@ class MediaStreamHandler:
                 # Throttled logging - max once per 2 seconds
                 now = time.monotonic()
                 if now - self._last_overflow_log > 2.0:
-                    print("⚠️ tx_q full (drop oldest)", flush=True)
+                    logger.warning("⚠️ tx_q full (drop oldest)", flush=True)
                     self._last_overflow_log = now
     
     def _finalize_speaking(self):
@@ -11199,7 +11201,7 @@ class MediaStreamHandler:
         self.state = STATE_LISTEN
         self.last_voice_ts = 0  # איפוס למערכת VAD
         self.voice_in_row = 0
-        print("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
+        logger.info("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
 
     def _send_pcm16_as_mulaw_frames_with_mark(self, pcm16_8k: bytes):
         """שליחת אודיו עם סימון לטוויליו וברג-אין"""
@@ -11215,12 +11217,12 @@ class MediaStreamHandler:
         frames_sent = 0
         total_frames = len(mulaw) // FR
         
-        if DEBUG: print(f"🔊 TTS_FRAMES: {total_frames} frames ({total_frames * 20}ms)")
+        if DEBUG: logger.debug(f"🔊 TTS_FRAMES: {total_frames} frames ({total_frames * 20}ms)")
         
         for i in range(0, len(mulaw), FR):
             # בדיקת ברג-אין
             if not self.speaking:
-                print(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
+                logger.info(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
                 # IMMEDIATE clear for instant interruption
                 self._tx_enqueue({"type": "clear"})
                 self._finalize_speaking()
@@ -11302,7 +11304,7 @@ class MediaStreamHandler:
         
         # ⚡ Only log if there was an issue
         if frames_sent < total_frames:
-            print(f"⚠️ Audio incomplete: {frames_sent}/{total_frames} frames sent")
+            logger.warning(f"⚠️ Audio incomplete: {frames_sent}/{total_frames} frames sent")
 
     def _send_beep(self, ms: int):
         """צפצוף פשוט"""
@@ -11331,7 +11333,7 @@ class MediaStreamHandler:
             from scipy import signal
         except ImportError:
             # numpy/scipy לא מותקנים - החזר כמו שזה
-            print("⚠️ numpy/scipy not available - using raw audio")
+            logger.warning("⚠️ numpy/scipy not available - using raw audio")
             return pcm16_8k
         
         try:
@@ -11371,10 +11373,10 @@ class MediaStreamHandler:
             return audio_16k_int16.tobytes()
             
         except ImportError:
-            print(f"⚠️ numpy/scipy not available - using raw audio")
+            logger.warning(f"⚠️ numpy/scipy not available - using raw audio")
             return pcm16_8k
         except Exception as e:
-            print(f"⚠️ Audio processing failed, using raw audio: {e}")
+            logger.error(f"⚠️ Audio processing failed, using raw audio: {e}")
             # Fallback: החזר אודיו כמו שזה
             try:
                 import numpy as np
@@ -11385,7 +11387,7 @@ class MediaStreamHandler:
                 audio_16k_int16 = np.array(audio_16k * 32767, dtype=np.int16)
                 return audio_16k_int16.tobytes()
             except Exception as e2:
-                print(f"⚠️ Even simple resample failed: {e2}")
+                logger.error(f"⚠️ Even simple resample failed: {e2}")
                 # Ultimate fallback: duplicate samples (crude but works)
                 return pcm16_8k + pcm16_8k  # Double the data for "16kHz"
 
@@ -11402,7 +11404,7 @@ class MediaStreamHandler:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self.exec, self._hebrew_stt, audio_data)
         except Exception as e:
-            print(f"❌ [STT_FALLBACK_ASYNC] Failed: {e}", flush=True)
+            logger.error(f"❌ [STT_FALLBACK_ASYNC] Failed: {e}", flush=True)
             return ""
     
     def _stt_fallback_nonblocking(self, audio_data: bytes) -> None:
@@ -11423,7 +11425,7 @@ class MediaStreamHandler:
             try:
                 text = f.result()
             except Exception as e:
-                print(f"❌ [STT_FALLBACK_NB] Failed: {e}", flush=True)
+                logger.error(f"❌ [STT_FALLBACK_NB] Failed: {e}", flush=True)
                 text = ""
             
             # If there's a loop and events queue, use it
@@ -11434,7 +11436,7 @@ class MediaStreamHandler:
                 )
             else:
                 # Fallback: direct callback (sync mode)
-                print(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
+                logger.info(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
         
         fut.add_done_callback(_on_done)
 
@@ -11452,26 +11454,26 @@ class MediaStreamHandler:
             # Streaming mode: collect results from dispatcher
             # Audio is already being fed to session in WS loop
             # Just collect what's been accumulated
-            print(f"⏱️ [STT_STREAM] Calling _utterance_end...")
+            logger.info(f"⏱️ [STT_STREAM] Calling _utterance_end...")
             utt_start = time.time()
             result = self._utterance_end()
             utt_duration = time.time() - utt_start
-            print(f"⏱️ [STT_STREAM] _utterance_end took {utt_duration:.3f}s, result: '{result[:50] if result else '(empty)'}'")
+            logger.info(f"⏱️ [STT_STREAM] _utterance_end took {utt_duration:.3f}s, result: '{result[:50] if result else '(empty)'}'")
             
             # ✅ FIX: Fallback on empty results
             if not result or not result.strip():
-                print("⚠️ [STT] Streaming returned empty → fallback to single")
+                logger.warning("⚠️ [STT] Streaming returned empty → fallback to single")
                 fallback_start = time.time()
                 fallback_result = self._hebrew_stt(pcm16_8k)
                 fallback_duration = time.time() - fallback_start
-                print(f"⏱️ [STT_FALLBACK] Single-request took {fallback_duration:.3f}s, result: '{fallback_result[:50] if fallback_result else '(empty)'}'")
+                logger.info(f"⏱️ [STT_FALLBACK] Single-request took {fallback_duration:.3f}s, result: '{fallback_result[:50] if fallback_result else '(empty)'}'")
                 return fallback_result
                 
             return result
             
         except Exception as e:
             # Fallback to single-request on exception
-            print(f"⚠️ [STT] Streaming failed → fallback to single. err={e}")
+            logger.error(f"⚠️ [STT] Streaming failed → fallback to single. err={e}")
             import traceback
             traceback.print_exc()
             return self._hebrew_stt(pcm16_8k)
@@ -11486,30 +11488,30 @@ class MediaStreamHandler:
             return ""
         
         try:
-            print(f"🎵 STT_PROCEED: Processing {len(pcm16_8k)} bytes with Google STT (audio validated)")
+            logger.info(f"🎵 STT_PROCEED: Processing {len(pcm16_8k)} bytes with Google STT (audio validated)")
             
             # ✅ FIXED: בדיקת איכות אודיו מתקדמת - מניעת עיבוד של רעש/שקט
             import audioop
             max_amplitude = audioop.max(pcm16_8k, 2)
             rms = audioop.rms(pcm16_8k, 2)
             duration = len(pcm16_8k) / (2 * 8000)
-            if DEBUG: print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
+            if DEBUG: logger.debug(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
             # 🔥 BUILD 164B: BALANCED NOISE GATE - Filter noise, allow quiet speech
             
             # 1. Basic amplitude check - balanced threshold
             if max_amplitude < 100:  # Back to reasonable threshold for quiet speech
-                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 100)")
+                logger.info(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 100)")
                 return ""
             
             # 2. RMS energy check - balanced (typical speech is 180-500)
             if rms < 80:  # Allow soft speech while filtering pure noise
-                print(f"🚫 STT_BLOCKED: Audio below noise threshold (rms={rms} < 80)")
+                logger.info(f"🚫 STT_BLOCKED: Audio below noise threshold (rms={rms} < 80)")
                 return ""
             
             # 3. Duration check - slightly longer minimum
             if duration < 0.18:  # 180ms minimum for meaningful audio
-                print(f"🚫 STT_BLOCKED: Audio too short ({duration:.2f}s < 0.18s)")
+                logger.info(f"🚫 STT_BLOCKED: Audio too short ({duration:.2f}s < 0.18s)")
                 return ""
             
             # 4. 🔥 BUILD 164B: BALANCED noise detection with variance/ZCR
@@ -11522,25 +11524,25 @@ class MediaStreamHandler:
                 # Block pure silence and monotonic sounds (DTMF tones, carrier noise)
                 # But allow normal speech variance (200k+)
                 if energy_variance < 200000:  # Back to balanced threshold
-                    print(f"🚫 STT_BLOCKED: Low energy variance - likely noise (variance={energy_variance:.0f})")
+                    logger.info(f"🚫 STT_BLOCKED: Low energy variance - likely noise (variance={energy_variance:.0f})")
                     return ""
                 
                 # Block DTMF tones (very low ZCR) but allow speech
                 if zero_crossings < 0.01 or zero_crossings > 0.3:  # Relaxed range
-                    print(f"🚫 STT_BLOCKED: Abnormal ZCR - likely noise/tone (zcr={zero_crossings:.3f})")
+                    logger.info(f"🚫 STT_BLOCKED: Abnormal ZCR - likely noise/tone (zcr={zero_crossings:.3f})")
                     return ""
                 
-                print(f"✅ AUDIO_VALIDATED: amp={max_amplitude}, rms={rms}, var={int(energy_variance)}, zcr={zero_crossings:.3f}")
+                logger.info(f"✅ AUDIO_VALIDATED: amp={max_amplitude}, rms={rms}, var={int(energy_variance)}, zcr={zero_crossings:.3f}")
                 
             except ImportError:
-                print("⚠️ numpy not available - skipping advanced audio validation")
+                logger.warning("⚠️ numpy not available - skipping advanced audio validation")
             except Exception as numpy_error:
-                print(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
+                logger.error(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
                 # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
             
             # 🚫 Google STT is DISABLED - use Whisper only
             if DISABLE_GOOGLE:
-                print("🚫 Google STT is DISABLED - using Whisper")
+                logger.info("🚫 Google STT is DISABLED - using Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
             # Even if not disabled, warn and use Whisper
@@ -11548,7 +11550,7 @@ class MediaStreamHandler:
             return self._whisper_fallback(pcm16_8k)
                 
         except Exception as e:
-            print(f"❌ STT_ERROR: {e}")
+            logger.error(f"❌ STT_ERROR: {e}")
             return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
@@ -11561,22 +11563,22 @@ class MediaStreamHandler:
             return ""
         
         try:
-            print(f"🔄 WHISPER_VALIDATED: Processing {len(pcm16_8k)} bytes with fabrication prevention")
+            logger.info(f"🔄 WHISPER_VALIDATED: Processing {len(pcm16_8k)} bytes with fabrication prevention")
             
             # ✅ בדיקת איכות אודיו חמורה יותר
             import audioop
             max_amplitude = audioop.max(pcm16_8k, 2)
             rms = audioop.rms(pcm16_8k, 2)
             duration = len(pcm16_8k) / (2 * 8000)
-            if DEBUG: print(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
+            if DEBUG: logger.debug(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
             # 🔥 BUILD 164B: BALANCED noise gate for Whisper
             if max_amplitude < 200 or rms < 120:  # Balanced thresholds - allow quiet speech
-                print(f"🚫 WHISPER_BLOCKED: Audio too weak (amp={max_amplitude}<200, rms={rms}<120)")
+                logger.info(f"🚫 WHISPER_BLOCKED: Audio too weak (amp={max_amplitude}<200, rms={rms}<120)")
                 return ""  # Don't let Whisper hallucinate!
             
             if duration < 0.3:  # Less than 300ms
-                print("🚫 WHISPER_BLOCKED: Audio too short - likely noise")
+                logger.info("🚫 WHISPER_BLOCKED: Audio too short - likely noise")
                 return ""
             
             # Check for monotonic energy (noise vs speech)
@@ -11585,7 +11587,7 @@ class MediaStreamHandler:
                 pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
                 energy_variance = np.var(pcm_array.astype(np.float32))
                 if energy_variance < 1000000:  # Balanced threshold
-                    print(f"🚫 WHISPER_BLOCKED: Low energy variance ({energy_variance:.0f}) - background noise")
+                    logger.info(f"🚫 WHISPER_BLOCKED: Low energy variance ({energy_variance:.0f}) - background noise")
                     return ""
             except:
                 pass  # If check fails - continue
@@ -11593,12 +11595,12 @@ class MediaStreamHandler:
             from server.services.lazy_services import get_openai_client
             client = get_openai_client()
             if not client:
-                print("❌ OpenAI client not available")
+                logger.error("❌ OpenAI client not available")
                 return ""
             
             # Resample to 16kHz for Whisper
             pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
-            print(f"🔄 RESAMPLED: {len(pcm16_8k)} bytes @ 8kHz → {len(pcm16_16k)} bytes @ 16kHz")
+            logger.info(f"🔄 RESAMPLED: {len(pcm16_8k)} bytes @ 8kHz → {len(pcm16_16k)} bytes @ 16kHz")
             
             # ✅ Whisper עם פרמטרים חמורים נגד המצאות
             import tempfile
@@ -11628,7 +11630,7 @@ class MediaStreamHandler:
             
             # ✅ FINAL validation - בדיקת תוצאה חשודה
             if not result or len(result) < 2:
-                print("✅ WHISPER_VALIDATED: Empty/minimal result - good!")
+                logger.info("✅ WHISPER_VALIDATED: Empty/minimal result - good!")
                 return ""
             
             # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (refined)
@@ -11640,7 +11642,7 @@ class MediaStreamHandler:
             
             # If no Hebrew at all and has English - likely hallucination
             if hebrew_chars == 0 and english_chars > 3:
-                print(f"🚫 WHISPER_PURE_ENGLISH: '{result}' has no Hebrew - blocking fabrication")
+                logger.info(f"🚫 WHISPER_PURE_ENGLISH: '{result}' has no Hebrew - blocking fabrication")
                 return ""
             
             # 🛡️ Block PURE English fabrication phrases (only when no Hebrew present)
@@ -11652,13 +11654,13 @@ class MediaStreamHandler:
             if hebrew_chars == 0:
                 for hallucination in pure_english_hallucinations:
                     if hallucination in result_lower:
-                        print(f"🚫 WHISPER_ENGLISH_PHRASE: Found '{hallucination}' in '{result}' - blocking")
+                        logger.info(f"🚫 WHISPER_ENGLISH_PHRASE: Found '{hallucination}' in '{result}' - blocking")
                         return ""
             
             # 🔥 BUILD 164: ENHANCED anti-hallucination for Whisper
             # Block ultra-short results (likely noise transcription)
             if len(result) <= 1:
-                print(f"🚫 WHISPER_TOO_SHORT: Result '{result}' - blocking")
+                logger.info(f"🚫 WHISPER_TOO_SHORT: Result '{result}' - blocking")
                 return ""
             
             # Block common noise hallucinations (Hebrew + English)
@@ -11667,7 +11669,7 @@ class MediaStreamHandler:
                 ".", "..", "...", "-", "—", " "
             ]
             if result.lower().strip() in noise_hallucinations:
-                print(f"🚫 WHISPER_NOISE_HALLUCINATION: '{result}' - blocking")
+                logger.info(f"🚫 WHISPER_NOISE_HALLUCINATION: '{result}' - blocking")
                 return ""
             
             # Block suspicious single Hebrew words that Whisper invents from noise
@@ -11678,14 +11680,14 @@ class MediaStreamHandler:
             ]
             words = result.split()
             if len(words) == 1 and result.strip() in suspicious_single_words:
-                print(f"🚫 WHISPER_SUSPICIOUS_SINGLE: '{result}' - likely fabrication")
+                logger.info(f"🚫 WHISPER_SUSPICIOUS_SINGLE: '{result}' - likely fabrication")
                 return ""
             
-            print(f"✅ WHISPER_VALIDATED_SUCCESS: '{result}'")
+            logger.info(f"✅ WHISPER_VALIDATED_SUCCESS: '{result}'")
             return result
             
         except Exception as e:
-            print(f"❌ WHISPER_VALIDATED_ERROR: {e}")
+            logger.error(f"❌ WHISPER_VALIDATED_ERROR: {e}")
             return ""
     
     def _whisper_fallback(self, pcm16_8k: bytes) -> str:
@@ -11709,7 +11711,7 @@ class MediaStreamHandler:
                     ).first()
                     if business:
                         self.business_id = business.id
-                        print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
+                        logger.info(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
                 
                 # ✅ BUILD 152: אם אין עדיין business_id, השתמש בfallback דינמי (ללא hardcoded phone)
                 if not self.business_id:
@@ -11717,10 +11719,10 @@ class MediaStreamHandler:
                     # ✅ BUILD 152: Use actual to_number if available, otherwise get first active business
                     lookup_phone = self.to_number or self.phone_number or None
                     self.business_id, status = resolve_business_with_fallback('twilio_voice', lookup_phone)
-                    print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
+                    logger.info(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
                 
                 if not self.business_id:
-                    print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל כללי")
+                    logger.error("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל כללי")
                     return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
                 
                 # טען פרומפט מ-BusinessSettings
@@ -11735,27 +11737,27 @@ class MediaStreamHandler:
                         prompt_data = json.loads(settings.ai_prompt)
                         prompt_text = prompt_data.get(channel, prompt_data.get('calls', ''))
                         if prompt_text:
-                            print(f"AI_PROMPT loaded tenant={self.business_id} channel={channel}")
+                            logger.info(f"AI_PROMPT loaded tenant={self.business_id} channel={channel}")
                             return prompt_text
                     else:
                         # פרומפט יחיד (legacy)
-                        print(f"✅ טען פרומפט legacy מדאטאבייס לעסק {self.business_id}")
+                        logger.info(f"✅ טען פרומפט legacy מדאטאבייס לעסק {self.business_id}")
                         return settings.ai_prompt
                 except Exception as e:
-                    print(f"⚠️ שגיאה בפרסור פרומפט JSON: {e}")
+                    logger.warning(f"⚠️ שגיאה בפרסור פרומפט JSON: {e}")
                     # fallback לפרומפט כטקסט רגיל
                     return settings.ai_prompt
             
             # אם אין ב-BusinessSettings, בדוק את business.system_prompt
             if business and business.system_prompt:
-                print(f"✅ טען פרומפט מטבלת businesses לעסק {self.business_id}")
+                logger.info(f"✅ טען פרומפט מטבלת businesses לעסק {self.business_id}")
                 return business.system_prompt
                 
-            print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל כללי")
+            logger.warning(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל כללי")
             return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
             
         except Exception as e:
-            print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
+            logger.error(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
             return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
 
     def _identify_business_and_get_greeting(self) -> tuple:
@@ -11778,12 +11780,12 @@ class MediaStreamHandler:
                 
                 if call_direction == 'outbound' and outbound_business_id:
                     # 🔒 OUTBOUND CALL: Use explicit business_id (NOT phone-based resolution)
-                    print(f"🔒 OUTBOUND CALL: Using explicit business_id={outbound_business_id} (NOT phone-based resolution)")
+                    logger.info(f"🔒 OUTBOUND CALL: Using explicit business_id={outbound_business_id} (NOT phone-based resolution)")
                     try:
                         business_id_int = int(outbound_business_id)
                         business = Business.query.get(business_id_int)
                         if business:
-                            print(f"✅ OUTBOUND: Loaded business {business.name} (id={business.id})")
+                            logger.info(f"✅ OUTBOUND: Loaded business {business.name} (id={business.id})")
                         else:
                             logger.error(f"❌ OUTBOUND: Business {outbound_business_id} NOT FOUND - security violation?")
                             return (None, None)
@@ -11792,7 +11794,7 @@ class MediaStreamHandler:
                         return (None, None)
                 else:
                     # INBOUND CALL: Use phone-based resolution
-                    print(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
+                    logger.info(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
                     
                     if to_number:
                         normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
@@ -11805,7 +11807,7 @@ class MediaStreamHandler:
                         ).first()
                         
                         if business:
-                            print(f"✅ מצא עסק: {business.name} (id={business.id})")
+                            logger.info(f"✅ מצא עסק: {business.name} (id={business.id})")
                     
                     if not business:
                         from server.services.business_resolver import resolve_business_with_fallback
@@ -11844,7 +11846,7 @@ class MediaStreamHandler:
                     # 🔥 BUILD 178: OUTBOUND CALLS - Disable all call control settings!
                     # Outbound calls should ONLY follow the AI prompt, not call control settings
                     if call_direction == 'outbound':
-                        print(f"📤 [OUTBOUND] Disabling all call control settings - AI follows prompt only!")
+                        logger.info(f"📤 [OUTBOUND] Disabling all call control settings - AI follows prompt only!")
                         # Force settings that won't interfere with outbound calls
                         self.bot_speaks_first = True  # AI always speaks first in outbound
                         self.auto_end_after_lead_capture = False  # Don't auto-end
@@ -11855,7 +11857,7 @@ class MediaStreamHandler:
                         self.required_lead_fields = []  # No required fields
                         self._loop_guard_engaged = False  # Ensure loop guard is off
                         self._max_consecutive_ai_responses = 20  # Very high limit
-                        print(f"   ✓ auto_end=OFF, silence_timeout=20s, max_warnings=0, smart_hangup=OFF")
+                        logger.warning(f"   ✓ auto_end=OFF, silence_timeout=20s, max_warnings=0, smart_hangup=OFF")
                     else:
                         # Copy config values to instance variables for backward compatibility (INBOUND only)
                         # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - ignore DB value
@@ -11873,22 +11875,22 @@ class MediaStreamHandler:
                     # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
                     if self.bot_speaks_first:
                         self.is_playing_greeting = True
-                        print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
+                        logger.info(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
                     
                     # 🔥 CRITICAL: Mark settings as loaded to prevent duplicate loading
                     self._call_settings_loaded = True
                     
                     t_end = time.time()
-                    print(f"⚡ BUILD 172: CallConfig loaded in {(t_end-t_start)*1000:.0f}ms")
-                    print(f"   bot_speaks_first={self.bot_speaks_first}, auto_end_goodbye={self.auto_end_on_goodbye}")
-                    print(f"   auto_end_lead={self.auto_end_after_lead_capture}, silence_timeout={self.silence_timeout_sec}s")
-                    print(f"🔍 [CONFIG] required_lead_fields={self.required_lead_fields}")
-                    print(f"🔍 [CONFIG] smart_hangup_enabled={self.smart_hangup_enabled}")
-                    print(f"🔍 [BUILD 309] call_goal={getattr(self, 'call_goal', 'lead_only')}, confirm_before_hangup={getattr(self, 'confirm_before_hangup', True)}")
+                    logger.info(f"⚡ BUILD 172: CallConfig loaded in {(t_end-t_start)*1000:.0f}ms")
+                    logger.info(f"   bot_speaks_first={self.bot_speaks_first}, auto_end_goodbye={self.auto_end_on_goodbye}")
+                    logger.info(f"   auto_end_lead={self.auto_end_after_lead_capture}, silence_timeout={self.silence_timeout_sec}s")
+                    logger.info(f"🔍 [CONFIG] required_lead_fields={self.required_lead_fields}")
+                    logger.info(f"🔍 [CONFIG] smart_hangup_enabled={self.smart_hangup_enabled}")
+                    logger.info(f"🔍 [BUILD 309] call_goal={getattr(self, 'call_goal', 'lead_only')}, confirm_before_hangup={getattr(self, 'confirm_before_hangup', True)}")
                     
                     # 🔥 COMPREHENSIVE LOGGING: Show SIMPLE_MODE, direction, and goal at call start
                     call_direction = getattr(self, 'call_direction', 'inbound')
-                    print(f"📞 [BUILD] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} goal={getattr(self, 'call_goal', 'lead_only')}")
+                    logger.info(f"📞 [BUILD] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} goal={getattr(self, 'call_goal', 'lead_only')}")
                     
                     return (self.business_id, greeting)
                 else:
@@ -11911,7 +11913,7 @@ class MediaStreamHandler:
         """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
         # קודם כל - בדוק אם יש business_id
         if not hasattr(self, 'business_id') or not self.business_id:
-            print(f"⚠️ business_id חסר בקריאה ל-_get_business_greeting_cached!")
+            logger.warning(f"⚠️ business_id חסר בקריאה ל-_get_business_greeting_cached!")
             return None  # ✅ NO fallback - return None
         
         try:
@@ -11933,23 +11935,23 @@ class MediaStreamHandler:
                         # החלפת placeholder בשם האמיתי
                         greeting = greeting.replace("{{business_name}}", business_name)
                         greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                        print(f"✅ ברכה נטענה: business_id={self.business_id}, greeting='{greeting}' (len={len(greeting)})")
+                        logger.info(f"✅ ברכה נטענה: business_id={self.business_id}, greeting='{greeting}' (len={len(greeting)})")
                     else:
-                        print(f"✅ No greeting defined for business_id={self.business_id} - AI will speak first!")
+                        logger.info(f"✅ No greeting defined for business_id={self.business_id} - AI will speak first!")
                     
                     return greeting
                 else:
-                    print(f"⚠️ Business {self.business_id} לא נמצא")
+                    logger.warning(f"⚠️ Business {self.business_id} לא נמצא")
                     return None
         except Exception as e:
-            print(f"❌ שגיאה בטעינת ברכה: {e}")
+            logger.error(f"❌ שגיאה בטעינת ברכה: {e}")
             import traceback
             traceback.print_exc()
             return None  # ✅ NO fallback - return None on error
     
     def _get_business_greeting(self) -> str | None:
         """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
-        print(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
+        logger.info(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
         
         try:
             from server.app_factory import create_app
@@ -11957,42 +11959,42 @@ class MediaStreamHandler:
             
             # זיהוי עסק אם עדיין לא זוהה
             if not hasattr(self, 'business_id') or not self.business_id:
-                print(f"⚠️ business_id לא מוגדר - מזהה עסק עכשיו...")
+                logger.warning(f"⚠️ business_id לא מוגדר - מזהה עסק עכשיו...")
                 app = _get_flask_app()  # ✅ Use singleton
                 with app.app_context():
                     self._identify_business_from_phone()
-                print(f"🔍 אחרי זיהוי: business_id={getattr(self, 'business_id', 'STILL NOT SET')}")
+                logger.info(f"🔍 אחרי זיהוי: business_id={getattr(self, 'business_id', 'STILL NOT SET')}")
             
             # טעינת ברכה מה-DB
             app = _get_flask_app()  # ✅ Use singleton
             with app.app_context():
                 business = Business.query.get(self.business_id)
-                print(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
+                logger.info(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
                 
                 if business:
                     # קבלת הברכה המותאמת - אם אין, return None (לא fallback!)
                     greeting = business.greeting_message or None
                     business_name = business.name or "העסק שלנו"
                     
-                    print(f"🔍 פרטי עסק: name={business_name}, greeting_message={business.greeting_message}")
+                    logger.info(f"🔍 פרטי עסק: name={business_name}, greeting_message={business.greeting_message}")
                     
                     if greeting:
                         # החלפת placeholder בשם האמיתי
                         greeting = greeting.replace("{{business_name}}", business_name)
                         greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
                         
-                        print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
+                        logger.info(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
                     else:
-                        print(f"✅ No greeting defined for business {self.business_id} - AI will speak first!")
+                        logger.info(f"✅ No greeting defined for business {self.business_id} - AI will speak first!")
                     
                     return greeting
                 else:
-                    print(f"⚠️ Business {self.business_id} not found")
+                    logger.warning(f"⚠️ Business {self.business_id} not found")
                     return None
         except Exception as e:
             import traceback
-            print(f"❌ Error loading business greeting: {e}")
-            print(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error(f"❌ Error loading business greeting: {e}")
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
             return None
 
     # 🔥 BUILD 172 CLEANUP: _load_call_behavior_settings() REMOVED
@@ -12010,23 +12012,23 @@ class MediaStreamHandler:
             timeout_seconds: How long to wait before triggering hangup
             trigger_type: What triggered this ("user_goodbye", "lead_captured", etc.)
         """
-        print(f"⏰ [TIMEOUT] Starting {timeout_seconds}s timer for {trigger_type}...")
+        logger.info(f"⏰ [TIMEOUT] Starting {timeout_seconds}s timer for {trigger_type}...")
         
         await asyncio.sleep(timeout_seconds)
         
         # Check if already disconnected
         if self.hangup_triggered:
-            print(f"✅ [TIMEOUT] Call already ended - no action needed")
+            logger.info(f"✅ [TIMEOUT] Call already ended - no action needed")
             return
         
         # Check if pending_hangup was set (AI said closing phrase)
         if self.pending_hangup:
-            print(f"✅ [TIMEOUT] pending_hangup already set - normal flow working")
+            logger.info(f"✅ [TIMEOUT] pending_hangup already set - normal flow working")
             return
         
         # Timeout expired - trigger hangup
-        print(f"📞 [TIMEOUT] {timeout_seconds}s passed - triggering hangup for {trigger_type}")
-        print(f"📞 [AUTO_DISCONNECT] Disconnecting due to timeout - prevents wasted minutes")
+        logger.info(f"📞 [TIMEOUT] {timeout_seconds}s passed - triggering hangup for {trigger_type}")
+        logger.info(f"📞 [AUTO_DISCONNECT] Disconnecting due to timeout - prevents wasted minutes")
         
         # Trigger hangup
         await self.request_hangup(
@@ -12113,7 +12115,7 @@ class MediaStreamHandler:
             return
         
         if self._hangup_retry_count > 30:
-            print(f"⚠️ [BUILD 178] Max hangup retries exceeded - forcing hangup")
+            logger.warning(f"⚠️ [BUILD 178] Max hangup retries exceeded - forcing hangup")
             self.hangup_triggered = True
             self.call_state = CallState.ENDED
             return
@@ -12121,12 +12123,12 @@ class MediaStreamHandler:
         # 🔥 BUILD 172: Transition to CLOSING state (only log first time)
         if self.call_state != CallState.ENDED and self.call_state != CallState.CLOSING:
             self.call_state = CallState.CLOSING
-            print(f"📞 [STATE] Transitioning to CLOSING (reason: {reason})")
+            logger.info(f"📞 [STATE] Transitioning to CLOSING (reason: {reason})")
         
         # 🔥🔥 CRITICAL PROTECTION: Don't hangup during greeting
         if self.is_playing_greeting:
             if self._hangup_retry_count == 0:
-                print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing")
+                logger.info(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing")
             self._hangup_retry_count += 1
             threading.Timer(1.0, self._trigger_auto_hangup, args=(reason,)).start()
             return
@@ -12137,7 +12139,7 @@ class MediaStreamHandler:
             if elapsed_ms < self.min_call_duration_after_greeting_ms:
                 remaining_ms = self.min_call_duration_after_greeting_ms - elapsed_ms
                 if self._hangup_retry_count == 0:
-                    print(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting")
+                    logger.info(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting")
                 self._hangup_retry_count += 1
                 threading.Timer(remaining_ms / 1000.0, self._trigger_auto_hangup, args=(reason,)).start()
                 return
@@ -12147,7 +12149,7 @@ class MediaStreamHandler:
         if not self.goodbye_message_sent:
             self.goodbye_message_sent = True
             self._hangup_retry_count += 1
-            print(f"📞 [BUILD 303] SMART HANGUP - Scheduling goodbye before disconnect...")
+            logger.info(f"📞 [BUILD 303] SMART HANGUP - Scheduling goodbye before disconnect...")
             
             # Use closing sentence if available, otherwise use generic goodbye
             goodbye_text = None
@@ -12170,7 +12172,7 @@ class MediaStreamHandler:
                     loop.run_until_complete(do_goodbye())
                     loop.close()
                 except Exception as e:
-                    print(f"⚠️ [BUILD 303] Error sending goodbye: {e}")
+                    logger.error(f"⚠️ [BUILD 303] Error sending goodbye: {e}")
             
             # Start goodbye thread and schedule hangup after delay
             threading.Thread(target=send_goodbye_thread, daemon=True).start()
@@ -12186,7 +12188,7 @@ class MediaStreamHandler:
         if is_ai_speaking or openai_queue_size > 0 or tx_queue_size > 0:
             # 🔥 BUILD 178: Only log every 5th retry to reduce spam
             if self._hangup_retry_count % 10 == 0:
-                print(f"🛡️ [PROTECTION] Waiting for audio (ai={is_ai_speaking}, oai_q={openai_queue_size}, tx_q={tx_queue_size}) retry #{self._hangup_retry_count}")
+                logger.info(f"🛡️ [PROTECTION] Waiting for audio (ai={is_ai_speaking}, oai_q={openai_queue_size}, tx_q={tx_queue_size}) retry #{self._hangup_retry_count}")
             self._hangup_retry_count += 1
             threading.Timer(0.5, self._trigger_auto_hangup, args=(reason,)).start()
             return
@@ -12196,19 +12198,19 @@ class MediaStreamHandler:
         self.call_state = CallState.ENDED
         
         # 🎯 SMART HANGUP: Detailed logging for debugging
-        print(f"📞 [SMART HANGUP] === CALL ENDING ===")
-        print(f"📞 [SMART HANGUP] Reason: {reason}")
-        print(f"📞 [SMART HANGUP] Lead captured: {self.lead_captured}")
-        print(f"📞 [SMART HANGUP] Goodbye detected: {self.goodbye_detected}")
-        print(f"📞 [SMART HANGUP] Lead state: {getattr(self, 'lead_capture_state', {})}")
-        print(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', [])}")
+        logger.info(f"📞 [SMART HANGUP] === CALL ENDING ===")
+        logger.info(f"📞 [SMART HANGUP] Reason: {reason}")
+        logger.info(f"📞 [SMART HANGUP] Lead captured: {self.lead_captured}")
+        logger.info(f"📞 [SMART HANGUP] Goodbye detected: {self.goodbye_detected}")
+        logger.info(f"📞 [SMART HANGUP] Lead state: {getattr(self, 'lead_capture_state', {})}")
+        logger.info(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', [])}")
         crm = getattr(self, 'crm_context', None)
         if crm:
-            print(f"📞 [SMART HANGUP] CRM: name={crm.customer_name}, phone={crm.customer_phone}")
-        print(f"📞 [SMART HANGUP] ===================")
+            logger.info(f"📞 [SMART HANGUP] CRM: name={crm.customer_name}, phone={crm.customer_phone}")
+        logger.info(f"📞 [SMART HANGUP] ===================")
         
         if not self.call_sid:
-            print(f"❌ [BUILD 163] No call_sid - cannot hang up")
+            logger.error(f"❌ [BUILD 163] No call_sid - cannot hang up")
             return
         
         try:
@@ -12216,7 +12218,7 @@ class MediaStreamHandler:
             from server.services.twilio_call_control import hangup_call
             hangup_call(self.call_sid)
         except Exception as e:
-            force_print(f"[HANGUP] error call_sid={self.call_sid} err={type(e).__name__}:{str(e)[:200]}")
+            logger.error(f"[HANGUP] error call_sid={self.call_sid} err={type(e).__name__}:{str(e)[:200]}")
             logger.exception("[HANGUP] error call_sid=%s", self.call_sid)
     
     # 🔥 MASTER FIX: Greeting SLA validation
@@ -12303,7 +12305,7 @@ class MediaStreamHandler:
             return  # Already running
         
         self._silence_check_task = asyncio.create_task(self._silence_monitor_loop())
-        print(f"🔇 [SILENCE] Monitor started (timeout={self.silence_timeout_sec}s, max_warnings={self.silence_max_warnings})")
+        logger.warning(f"🔇 [SILENCE] Monitor started (timeout={self.silence_timeout_sec}s, max_warnings={self.silence_max_warnings})")
     
     async def _silence_monitor_loop(self):
         """
@@ -12315,7 +12317,7 @@ class MediaStreamHandler:
         try:
             # 🧘 BUILD 345: Wait for post-greeting breathing window before monitoring
             if self._post_greeting_window_open():
-                print(f"🧘 [SILENCE] Waiting {self._post_greeting_breath_window_sec:.1f}s breathing window before monitoring")
+                logger.info(f"🧘 [SILENCE] Waiting {self._post_greeting_breath_window_sec:.1f}s breathing window before monitoring")
             while self._post_greeting_window_open():
                 # If user already completed one speech cycle, end window immediately
                 if self._post_greeting_speech_cycle_complete:
@@ -12336,34 +12338,34 @@ class MediaStreamHandler:
                 # 🔥 CRITICAL: "CALL END = שקט" - Stop ALL periodic loops when call ends
                 # Per user requirement: "כל task/loop שמדפיס מחזורית חייב לבדוק"
                 if self.closed or self.call_state in (CallState.CLOSING, CallState.ENDED):
-                    print(f"🔇 [SILENCE] Monitor exiting - call ended (state={self.call_state.value if hasattr(self, 'call_state') else 'unknown'})")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting - call ended (state={self.call_state.value if hasattr(self, 'call_state') else 'unknown'})")
                     return
                 
                 # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
                 # This prevents AI from speaking during the sleep window after goodbye
                 if self.call_state != CallState.ACTIVE:
-                    print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
                     return
                 if self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                    print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - hangup pending/triggered")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - hangup pending/triggered")
                     return
                 
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
                 # 🔥 BUILD 339 CRITICAL: Check AGAIN after sleep (state may have changed during sleep)
                 if self.closed or self.call_state in (CallState.CLOSING, CallState.ENDED):
-                    print(f"🔇 [SILENCE] Monitor exiting - call ended after sleep")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting - call ended after sleep")
                     return
                 if self.call_state != CallState.ACTIVE:
-                    print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
                     return  # Use return, not break, to completely exit
                 
                 if self.hangup_triggered:
-                    print(f"🔇 [SILENCE] Monitor exiting - hangup_triggered=True")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting - hangup_triggered=True")
                     return
                 
                 if getattr(self, 'pending_hangup', False):
-                    print(f"🔇 [SILENCE] Monitor exiting - pending_hangup=True")
+                    logger.info(f"🔇 [SILENCE] Monitor exiting - pending_hangup=True")
                     return
                 
                 # 🔥 FIX: SILENCE FAILSAFE completely removed - proper idle timeout instead
@@ -12401,7 +12403,7 @@ class MediaStreamHandler:
                         # This gives the customer time to respond after AI finishes
                         self._last_activity_ts = now_ts
                         if _event_loop_rate_limiter.every("watchdog_reset", 3.0):
-                            print(f"⏳ [WATCHDOG] AI speaking (tx={tx_queue_size}, realtime={realtime_queue_size}, event={self.is_ai_speaking_event.is_set()}) - timer RESET")
+                            logger.info(f"⏳ [WATCHDOG] AI speaking (tx={tx_queue_size}, realtime={realtime_queue_size}, event={self.is_ai_speaking_event.is_set()}) - timer RESET")
                     
                     # Now check for timeout only after ensuring AI is not speaking
                     if (now_ts - last_activity) >= hard_timeout:
@@ -12421,8 +12423,8 @@ class MediaStreamHandler:
                             and not self.hangup_triggered
                             and not getattr(self, "pending_hangup", False)
                         ):
-                            print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity detected (last_activity={now_ts - last_activity:.1f}s ago)")
-                            print(f"📞 [AUTO_DISCONNECT] Disconnecting due to prolonged silence - prevents wasted minutes")
+                            logger.info(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity detected (last_activity={now_ts - last_activity:.1f}s ago)")
+                            logger.info(f"📞 [AUTO_DISCONNECT] Disconnecting due to prolonged silence - prevents wasted minutes")
                             # Trigger immediate hangup - don't wait for goodbye
                             await self.request_hangup(
                                 reason="hard_silence_timeout",
@@ -12431,7 +12433,7 @@ class MediaStreamHandler:
                             )
                             return
                 except Exception as watchdog_err:
-                    print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
+                    logger.error(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
 
                 if not self.user_has_spoken:
                     # User hasn't spoken yet - check for idle timeout
@@ -12441,8 +12443,8 @@ class MediaStreamHandler:
                         if time_since_greeting > 30.0:
                             # 30 seconds with no user speech - idle timeout (likely voicemail)
                             if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech detected - likely voicemail")
-                                print(f"📞 [AUTO_DISCONNECT] Disconnecting due to no user response - prevents wasted minutes")
+                                logger.info(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech detected - likely voicemail")
+                                logger.info(f"📞 [AUTO_DISCONNECT] Disconnecting due to no user response - prevents wasted minutes")
                                 # Trigger immediate hangup - don't wait for goodbye
                                 await self.request_hangup(
                                     reason="idle_timeout_no_user_speech",
@@ -12467,14 +12469,14 @@ class MediaStreamHandler:
                 if silence_duration >= self.silence_timeout_sec:
                     # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
                     if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                        print(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
+                        logger.warning(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
                         return
                     
                     if self._silence_warning_count < self.silence_max_warnings:
                         # Send "are you there?" warning
                         self._silence_warning_count += 1
-                        print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
-                        print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
+                        logger.warning(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
+                        logger.info(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
                         
                         # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
                         # This is end-of-utterance - AI must respond
@@ -12487,7 +12489,7 @@ class MediaStreamHandler:
                         # Max warnings exceeded - check if we can hangup
                         # 🔥 BUILD 339: FINAL state check before taking hangup action
                         if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                            print(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
+                            logger.warning(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
                             return
                         
                         # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
@@ -12496,10 +12498,10 @@ class MediaStreamHandler:
                             # Fields captured but not confirmed - give one more chance
                             # But ONLY if call is still active!
                             if self.call_state != CallState.ACTIVE or getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [SILENCE] Can't give final chance - call ending")
+                                logger.info(f"🔇 [SILENCE] Can't give final chance - call ending")
                                 return
                             
-                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
+                            logger.warning(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
                             await self._send_text_to_ai(
                                 "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
@@ -12509,7 +12511,7 @@ class MediaStreamHandler:
                             self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
                             if self._silence_final_chance_given:
                                 # Already gave extra chance, now close without confirmation
-                                print(f"🔇 [SILENCE] Final chance already given - closing anyway")
+                                logger.info(f"🔇 [SILENCE] Final chance already given - closing anyway")
                                 pass  # Fall through to close
                             else:
                                 self._silence_final_chance_given = True
@@ -12518,7 +12520,7 @@ class MediaStreamHandler:
                         # OK to close - either no lead, or lead confirmed, or final chance given
                         # 🔥 BUILD 339: One more state check before initiating hangup
                         if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                            print(f"🔇 [SILENCE] State changed before hangup - exiting")
+                            logger.info(f"🔇 [SILENCE] State changed before hangup - exiting")
                             return
                         
                         # 🔥 CRITICAL FIX: SIMPLE_MODE with disconnect exception
@@ -12528,8 +12530,8 @@ class MediaStreamHandler:
                         if SIMPLE_MODE:
                             # In SIMPLE_MODE: Skip polite closing message, just disconnect immediately
                             # This is a disconnect-only exception that doesn't affect call flow
-                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded, IMMEDIATE DISCONNECT (exception)")
-                            print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
+                            logger.error(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded, IMMEDIATE DISCONNECT (exception)")
+                            logger.warning(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
                             await self.request_hangup(
                                 reason="silence_max_warnings_simple_mode",
                                 source="silence_monitor",
@@ -12537,7 +12539,7 @@ class MediaStreamHandler:
                             )
                             return
                         
-                        print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
+                        logger.warning(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
                         
                         # Send closing message and hangup
@@ -12555,7 +12557,7 @@ class MediaStreamHandler:
                         # 🔇 AUTO-DISCONNECT: Disconnecting after max silence warnings
                         # This prevents wasted minutes on prolonged silence
                         # User requirement: Must disconnect if there are 20 seconds without voice from customer or AI
-                        print(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
+                        logger.warning(f"📞 [AUTO_DISCONNECT] Disconnecting after max silence warnings - prevents wasted minutes")
                         await self.request_hangup(
                             reason="silence_max_warnings",
                             source="silence_monitor",
@@ -12564,9 +12566,9 @@ class MediaStreamHandler:
                         return
                         
         except asyncio.CancelledError:
-            print(f"🔇 [SILENCE] Monitor cancelled")
+            logger.info(f"🔇 [SILENCE] Monitor cancelled")
         except Exception as e:
-            print(f"❌ [SILENCE] Monitor error: {e}")
+            logger.error(f"❌ [SILENCE] Monitor error: {e}")
     
     async def _send_silence_warning(self):
         """
@@ -12576,22 +12578,22 @@ class MediaStreamHandler:
         """
         try:
             if self._post_greeting_window_open():
-                print(f"🔇 [SILENCE] Breathing window active - skipping prompt")
+                logger.info(f"🔇 [SILENCE] Breathing window active - skipping prompt")
                 return
             if getattr(self, '_awaiting_confirmation_reply', False):
-                print(f"🔇 [SILENCE] Awaiting confirmation reply - not sending additional prompt")
+                logger.info(f"🔇 [SILENCE] Awaiting confirmation reply - not sending additional prompt")
                 return
             if self._loop_guard_engaged:
-                print(f"🔇 [SILENCE] Loop guard engaged - suppressing silence prompt")
+                logger.info(f"🔇 [SILENCE] Loop guard engaged - suppressing silence prompt")
                 return
             # 🔥 BUILD 339 CRITICAL: Don't send any warnings if call is ending!
             # This prevents the AI from asking questions AFTER saying goodbye
             if self.call_state == CallState.CLOSING or self.call_state == CallState.ENDED:
-                print(f"🔇 [SILENCE] BLOCKED - call is {self.call_state.value}, not sending warning")
+                logger.warning(f"🔇 [SILENCE] BLOCKED - call is {self.call_state.value}, not sending warning")
                 return
             
             if self.hangup_triggered or getattr(self, 'pending_hangup', False):
-                print(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
+                logger.warning(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
                 return
             
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
@@ -12604,7 +12606,7 @@ class MediaStreamHandler:
                 warning_prompt = "[SYSTEM] Customer is silent. Continue naturally per your instructions."
             await self._send_text_to_ai(warning_prompt)
         except Exception as e:
-            print(f"❌ [SILENCE] Failed to send warning: {e}")
+            logger.error(f"❌ [SILENCE] Failed to send warning: {e}")
     
     def _update_speech_time(self, is_user_speech: bool = False):
         """Call this whenever user or AI speaks to reset silence timer.
@@ -12632,7 +12634,7 @@ class MediaStreamHandler:
         """
         if self.call_state == CallState.WARMUP and not self.hangup_triggered:
             self.call_state = CallState.ACTIVE
-            print(f"📞 [STATE] Safety guard: Forcing WARMUP → ACTIVE (speech detected)")
+            logger.info(f"📞 [STATE] Safety guard: Forcing WARMUP → ACTIVE (speech detected)")
             
             # Start silence monitor if not already running
             if self._silence_check_task is None:
@@ -12640,10 +12642,10 @@ class MediaStreamHandler:
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(self._start_silence_monitor())
-                    print(f"🔇 [SILENCE] Safety guard: Started monitor (was missing)")
+                    logger.info(f"🔇 [SILENCE] Safety guard: Started monitor (was missing)")
                 except RuntimeError:
                     # No running loop - we're in sync context
-                    print(f"🔇 [SILENCE] Cannot start monitor from sync context (will start on next async call)")
+                    logger.info(f"🔇 [SILENCE] Cannot start monitor from sync context (will start on next async call)")
 
     def _post_greeting_window_open(self) -> bool:
         """Return True while the breathing window is still protecting the user."""
@@ -12657,7 +12659,7 @@ class MediaStreamHandler:
             return
         self._post_greeting_window_finished = True
         self._post_greeting_window_active = False
-        print(f"🧘 [GREETING] Breathing window ended ({reason})")
+        logger.info(f"🧘 [GREETING] Breathing window ended ({reason})")
 
     def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
         """
@@ -12681,7 +12683,7 @@ class MediaStreamHandler:
             del self._cancelled_response_timestamps[rid]
         
         if expired_ids:
-            print(f"🧹 [CLEANUP] Removed {len(expired_ids)} expired cancelled response IDs (>{self._cancelled_response_max_age_sec}s old)")
+            logger.info(f"🧹 [CLEANUP] Removed {len(expired_ids)} expired cancelled response IDs (>{self._cancelled_response_max_age_sec}s old)")
         
         # ✅ NEW REQ 4: If at max size, remove oldest entry
         if len(self._cancelled_response_ids) >= self._cancelled_response_max_size:
@@ -12689,13 +12691,13 @@ class MediaStreamHandler:
             oldest_id = min(self._cancelled_response_timestamps.items(), key=lambda x: x[1])[0]
             self._cancelled_response_ids.discard(oldest_id)
             del self._cancelled_response_timestamps[oldest_id]
-            print(f"🧹 [CLEANUP] Removed oldest cancelled response ID (cap={self._cancelled_response_max_size})")
+            logger.info(f"🧹 [CLEANUP] Removed oldest cancelled response ID (cap={self._cancelled_response_max_size})")
         
         # Add new entry
         self._cancelled_response_ids.add(response_id)
         self._cancelled_response_timestamps[response_id] = now
         if source:
-            print(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
+            logger.info(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
     
     def _should_send_cancel(self, response_id: Optional[str]) -> bool:
         """
@@ -12713,13 +12715,13 @@ class MediaStreamHandler:
         
         # Condition 2: Check if we already sent cancel for this response
         if response_id in self._cancel_sent_for_response_ids:
-            print(f"⏭️ [CANCEL_GUARD] Skipping duplicate cancel for response {response_id[:20]}... (already sent)")
+            logger.info(f"⏭️ [CANCEL_GUARD] Skipping duplicate cancel for response {response_id[:20]}... (already sent)")
             return False
         
         # Condition 3: Check if response already done/cancelled (don't cancel completed responses)
         # If response is in _cancelled_response_ids, we already processed its completion
         if response_id in self._cancelled_response_ids:
-            print(f"⏭️ [CANCEL_GUARD] Skipping cancel for completed response {response_id[:20]}... (already done)")
+            logger.info(f"⏭️ [CANCEL_GUARD] Skipping cancel for completed response {response_id[:20]}... (already done)")
             return False
         
         # All 3 conditions met - mark that we're sending cancel for this ID
@@ -12730,7 +12732,7 @@ class MediaStreamHandler:
         # Using 100 threshold (larger than _cancelled_response_max_size to allow for burst scenarios)
         CANCEL_GUARD_MAX_SIZE = 100
         if len(self._cancel_sent_for_response_ids) > CANCEL_GUARD_MAX_SIZE:
-            print(f"🧹 [CANCEL_GUARD] Clearing guard set (size={len(self._cancel_sent_for_response_ids)})")
+            logger.info(f"🧹 [CANCEL_GUARD] Clearing guard set (size={len(self._cancel_sent_for_response_ids)})")
             self._cancel_sent_for_response_ids.clear()
             # Re-add current ID after clear
             self._cancel_sent_for_response_ids.add(response_id)
@@ -12754,18 +12756,18 @@ class MediaStreamHandler:
         if "[SYSTEM]" in text or "[SERVER]" in text:
             # 🔥 REQUIREMENT: Mandatory logging when blocking server events
             logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{text[:100]}'")
-            print(f"🛡️ [PROMPT_FIX] BLOCKED synthetic message from being sent as user input")
-            print(f"   └─ Blocked: {text[:100]}")
+            logger.info(f"🛡️ [PROMPT_FIX] BLOCKED synthetic message from being sent as user input")
+            logger.info(f"   └─ Blocked: {text[:100]}")
             return
         
         # If not a system message, log warning but allow (for backward compatibility)
         logger.warning(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
-        print(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
+        logger.warning(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
         
         try:
             # 🔥 BUILD 200: Use realtime_client instead of openai_ws
             if not self.realtime_client:
-                print(f"⚠️ [AI] No realtime_client - cannot send text")
+                logger.warning(f"⚠️ [AI] No realtime_client - cannot send text")
                 return
             
             # 🔥 REQUIREMENT: Mandatory logging for every AI input
@@ -12788,7 +12790,7 @@ class MediaStreamHandler:
             # 🔥 BUILD 200: Use central trigger_response
             await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
         except Exception as e:
-            print(f"❌ [AI] Failed to send text: {e}")
+            logger.error(f"❌ [AI] Failed to send text: {e}")
 
     async def _inject_verbatim_reply_and_respond(self, client, user_msg: str, reason: str) -> bool:
         """
@@ -13060,7 +13062,7 @@ class MediaStreamHandler:
             return
         
         # All conditions met - execute hangup
-        force_print(f"[POLITE_HANGUP] via={via} resp_id={response_id[:20] if response_id else 'none'}...")
+        logger.info(f"[POLITE_HANGUP] via={via} resp_id={response_id[:20] if response_id else 'none'}...")
         logger.info(f"[POLITE_HANGUP] via={via} resp_id={response_id}")
         
         # Mark as executed BEFORE calling Twilio (prevent race)
@@ -13072,16 +13074,16 @@ class MediaStreamHandler:
         
         call_sid = getattr(self, "call_sid", None)
         if not call_sid:
-            force_print(f"[HANGUP] error missing_call_sid")
+            logger.error(f"[HANGUP] error missing_call_sid")
             return
         
         # Execute Twilio hangup
         try:
             from server.services.twilio_call_control import hangup_call
             await asyncio.to_thread(hangup_call, call_sid)
-            force_print(f"[HANGUP] executed reason={self.pending_hangup_reason} call_sid={call_sid}")
+            logger.error(f"[HANGUP] executed reason={self.pending_hangup_reason} call_sid={call_sid}")
         except Exception as e:
-            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+            logger.error(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
             logger.exception("[HANGUP] error call_sid=%s", call_sid)
 
     async def request_hangup(
@@ -13114,7 +13116,7 @@ class MediaStreamHandler:
         bound_response_id = response_id or getattr(self, "active_response_id", None)
 
         msg_preview = (transcript_text or "").strip().replace("\n", " ")[:120]
-        force_print(
+        logger.info(
             f"[HANGUP_REQUEST] {reason} pending=true response_id={bound_response_id} "
             f"call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'"
         )
@@ -13124,7 +13126,7 @@ class MediaStreamHandler:
         )
 
         if not call_sid:
-            force_print("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
+            logger.error("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
             logger.error("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
             return
 
@@ -13207,11 +13209,11 @@ class MediaStreamHandler:
                         logger.exception("[POLITE_HANGUP] Error in grace period check")
 
                     logger.info("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
-                    print("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
+                    logger.info("[POLITE_HANGUP] fallback timer fired - all audio queues empty")
 
                     call_sid_local = expected_call_sid or getattr(self, "call_sid", None)
                     if not call_sid_local:
-                        force_print("[HANGUP] error missing_call_sid")
+                        logger.error("[HANGUP] error missing_call_sid")
                         return
 
                     # Trigger hangup now (best-effort). We intentionally skip queue-drain here because
@@ -13222,16 +13224,16 @@ class MediaStreamHandler:
                         self.pending_hangup = False
                     except Exception:
                         pass
-                    force_print(
+                    logger.info(
                         f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
                         f"response_id={expected_response_id} call_sid={call_sid_local}"
                     )
                     try:
                         from server.services.twilio_call_control import hangup_call
                         await asyncio.to_thread(hangup_call, call_sid_local)
-                        force_print(f"[HANGUP] success call_sid={call_sid_local}")
+                        logger.error(f"[HANGUP] success call_sid={call_sid_local}")
                     except Exception as e:
-                        force_print(f"[HANGUP] error call_sid={call_sid_local} err={type(e).__name__}:{str(e)[:200]}")
+                        logger.error(f"[HANGUP] error call_sid={call_sid_local} err={type(e).__name__}:{str(e)[:200]}")
                         logger.exception("[HANGUP] error call_sid=%s", call_sid_local)
                 except asyncio.CancelledError:
                     return
@@ -13292,20 +13294,20 @@ class MediaStreamHandler:
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
         for ignore in GOODBYE_IGNORE_PHRASES:
             if ignore in text_lower:
-                print(f"[GOODBYE CHECK] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
+                logger.info(f"[GOODBYE CHECK] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
                 return False
         
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
         for greeting in GOODBYE_GREETING_WORDS:
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
-                print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
+                logger.info(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
         # ✅ CLEAR goodbye words - ONLY these trigger hangup! Use shared constant
         has_clear_goodbye = any(word in text_lower for word in CLEAR_GOODBYE_WORDS)
         
         if has_clear_goodbye:
-            print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
+            logger.info(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
             return True
         
         # ✅ Combined phrases with goodbye words
@@ -13316,11 +13318,11 @@ class MediaStreamHandler:
         
         for phrase in combined_goodbye_phrases:
             if phrase in text_lower:
-                print(f"[GOODBYE CHECK] Combined goodbye phrase: '{phrase}'")
+                logger.info(f"[GOODBYE CHECK] Combined goodbye phrase: '{phrase}'")
                 return True
         
         # 🚫 Everything else is NOT goodbye (including "תודה", "אין צורך", "לא צריך")
-        print(f"[GOODBYE CHECK] No goodbye phrase: '{text_lower[:30]}...'")
+        logger.info(f"[GOODBYE CHECK] No goodbye phrase: '{text_lower[:30]}...'")
         return False
 
     def _check_polite_closing(self, text: str) -> bool:
@@ -13345,13 +13347,13 @@ class MediaStreamHandler:
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
         for ignore in GOODBYE_IGNORE_PHRASES:
             if ignore in text_lower:
-                print(f"[POLITE CLOSING] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
+                logger.info(f"[POLITE CLOSING] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
                 return False
         
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
         for greeting in GOODBYE_GREETING_WORDS:
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
-                print(f"[POLITE CLOSING] Skipping greeting: '{text_lower[:30]}...'")
+                logger.info(f"[POLITE CLOSING] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
         # ✅ EXPLICIT GOODBYE WORDS - The ONLY trigger for disconnection!
@@ -13360,11 +13362,11 @@ class MediaStreamHandler:
         has_explicit_goodbye = any(word in text_lower for word in explicit_goodbye_words)
         
         if has_explicit_goodbye:
-            print(f"[POLITE CLOSING] ✅ EXPLICIT goodbye detected: '{text_lower[:80]}...'")
+            logger.info(f"[POLITE CLOSING] ✅ EXPLICIT goodbye detected: '{text_lower[:80]}...'")
             return True
         
         # 🚫 NO explicit goodbye = NO disconnect (even with "תודה", "יחזרו אליך", etc.)
-        print(f"[POLITE CLOSING] ❌ No explicit goodbye (no ביי/להתראות): '{text_lower[:80]}...'")
+        logger.error(f"[POLITE CLOSING] ❌ No explicit goodbye (no ביי/להתראות): '{text_lower[:80]}...'")
         return False
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -13421,7 +13423,7 @@ class MediaStreamHandler:
             }
         }
         
-        print(f"🔧 [BUILD 313] Tool schema built for fields: {fields_to_capture}")
+        logger.info(f"🔧 [BUILD 313] Tool schema built for fields: {fields_to_capture}")
         return tool
     
     async def _handle_function_call(self, event: dict, client):
@@ -13441,18 +13443,18 @@ class MediaStreamHandler:
         call_id = event.get("call_id", "")
         arguments_str = event.get("arguments", "{}")
         
-        print(f"🔧 [BUILD 313] Function call: {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
+        logger.info(f"🔧 [BUILD 313] Function call: {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
         
         if function_name == "save_lead_info":
             try:
                 args = json.loads(arguments_str)
-                print(f"📝 [BUILD 313] Lead info from AI: {args}")
+                logger.info(f"📝 [BUILD 313] Lead info from AI: {args}")
                 
                 # Update lead_capture_state with each field AI provided
                 for field, value in args.items():
                     if value and str(value).strip():
                         self._update_lead_capture_state(field, str(value).strip())
-                        print(f"✅ [BUILD 313] Saved {field} = '{value}'")
+                        logger.info(f"✅ [BUILD 313] Saved {field} = '{value}'")
                 
                 # Send success response back to AI
                 await client.send_event({
@@ -13467,13 +13469,13 @@ class MediaStreamHandler:
                 # Trigger response to continue conversation - 🔥 USE WRAPPER
                 triggered = await self.trigger_response_from_tool(client, "save_lead_info", force=False)
                 if not triggered:
-                    print(f"⚠️ [TOOL] save_lead_info response blocked by guard")
+                    logger.warning(f"⚠️ [TOOL] save_lead_info response blocked by guard")
                 
                 # Check if all fields are captured
                 self._check_lead_complete()
                 
             except json.JSONDecodeError as e:
-                print(f"❌ [BUILD 313] Failed to parse function arguments: {e}")
+                logger.error(f"❌ [BUILD 313] Failed to parse function arguments: {e}")
                 await client.send_event({
                     "type": "conversation.item.create",
                     "item": {
@@ -13489,12 +13491,12 @@ class MediaStreamHandler:
             # 🔥 CHECK AVAILABILITY: Must be called before offering times
             try:
                 args = json.loads(arguments_str)
-                print(f"📅 [CHECK_AVAIL] Request from AI: {args}")
+                logger.info(f"📅 [CHECK_AVAIL] Request from AI: {args}")
                 logger.info(f"[CHECK_AVAIL] Checking availability: {args}")
                 
                 business_id = getattr(self, 'business_id', None)
                 if not business_id:
-                    print(f"❌ [CHECK_AVAIL] No business_id available")
+                    logger.error(f"❌ [CHECK_AVAIL] No business_id available")
                     logger.error("[CHECK_AVAIL] No business_id in session")
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -13513,7 +13515,7 @@ class MediaStreamHandler:
                 # 🔥 CRITICAL: Verify call_goal is appointment
                 call_goal = getattr(self, 'call_goal', 'lead_only')
                 if call_goal != 'appointment':
-                    print(f"❌ [CHECK_AVAIL] call_goal={call_goal} - appointments not enabled")
+                    logger.error(f"❌ [CHECK_AVAIL] call_goal={call_goal} - appointments not enabled")
                     logger.warning(f"[CHECK_AVAIL] Blocked: call_goal={call_goal} (expected 'appointment')")
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -13535,7 +13537,7 @@ class MediaStreamHandler:
                 service_type = args.get("service_type", "").strip()
                 
                 if not date_str_raw:
-                    print(f"❌ [CHECK_AVAIL] Missing date")
+                    logger.error(f"❌ [CHECK_AVAIL] Missing date")
                     user_msg = "על איזה תאריך מדובר? למשל היום/מחר/יום ראשון."
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -13590,7 +13592,7 @@ class MediaStreamHandler:
                     # Normalize date (accepts "היום/מחר/ראשון" etc.)
                     date_res = resolve_hebrew_date(date_str_raw, business_tz)
                     if not date_res:
-                        print(f"❌ [CHECK_AVAIL] Invalid date input: '{date_str_raw}'")
+                        logger.error(f"❌ [CHECK_AVAIL] Invalid date input: '{date_str_raw}'")
                         user_msg = "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -13634,10 +13636,8 @@ class MediaStreamHandler:
                         business_tz,
                     )
                     if corrected:
-                        print(
-                            f"🔧 [CHECK_AVAIL] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
-                            f"(reason={reason}) raw='{date_str_raw}'"
-                        )
+                        logger.info(f"🔧 [CHECK_AVAIL] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
+                            f"(reason={reason}) raw='{date_str_raw}'")
                         # Re-resolve display/weekday to match corrected date.
                         corrected_res = resolve_hebrew_date(corrected_iso, business_tz)
                         if corrected_res:
@@ -13656,7 +13656,7 @@ class MediaStreamHandler:
                     except Exception:
                         requested_date = None
                     if requested_date and requested_date < today_local:
-                        print(f"⚠️ [CHECK_AVAIL] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{date_str_raw}'")
+                        logger.warning(f"⚠️ [CHECK_AVAIL] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{date_str_raw}'")
                         user_msg = "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -13700,7 +13700,7 @@ class MediaStreamHandler:
                         if time_res and time_res.candidates_hhmm:
                             preferred_time = pick_best_time_candidate(time_res.candidates_hhmm)
                     
-                    print(f"📅 [CHECK_AVAIL] Checking {normalized_date_iso} ({date_display_he}) preferred_time={preferred_time or '-'} duration={duration_min}min")
+                    logger.info(f"📅 [CHECK_AVAIL] Checking {normalized_date_iso} ({date_display_he}) preferred_time={preferred_time or '-'} duration={duration_min}min")
                     logger.info(f"[CHECK_AVAIL] business_id={business_id}, date={normalized_date_iso}, preferred_time={preferred_time}")
                     
                     input_data = FindSlotsInput(
@@ -13718,7 +13718,7 @@ class MediaStreamHandler:
                     # Format response
                     if result.slots and len(result.slots) > 0:
                         slots_display = [slot.start_display for slot in result.slots[:3]]  # Max 3 slots
-                        print(f"✅ [CHECK_AVAIL] CAL_AVAIL_OK - Found {len(result.slots)} slots: {slots_display}")
+                        logger.info(f"✅ [CHECK_AVAIL] CAL_AVAIL_OK - Found {len(result.slots)} slots: {slots_display}")
                         logger.info(f"✅ CAL_AVAIL_OK business_id={business_id} date={normalized_date_iso} slots_found={len(result.slots)} slots={slots_display}")
                         
                         # Persist availability context for later booking enforcement
@@ -13757,7 +13757,7 @@ class MediaStreamHandler:
                             }
                         })
                     else:
-                        print(f"⚠️ [CHECK_AVAIL] No slots available for {normalized_date_iso}")
+                        logger.warning(f"⚠️ [CHECK_AVAIL] No slots available for {normalized_date_iso}")
                         logger.warning(f"[CHECK_AVAIL] No slots found for business_id={business_id} date={normalized_date_iso}")
                         user_msg = "אין זמנים פנויים בתאריך הזה. אפשר תאריך אחר? למשל מחר או שבוע הבא."
                         
@@ -13796,7 +13796,7 @@ class MediaStreamHandler:
                     await self.trigger_response_from_tool(client, "unknown", force=False)
                     
                 except Exception as slots_error:
-                    print(f"❌ [CHECK_AVAIL] Failed to check slots: {slots_error}")
+                    logger.error(f"❌ [CHECK_AVAIL] Failed to check slots: {slots_error}")
                     logger.error(f"[CHECK_AVAIL] Exception: {slots_error}")
                     import traceback
                     traceback.print_exc()
@@ -13833,7 +13833,7 @@ class MediaStreamHandler:
                     await self.trigger_response_from_tool(client, "unknown", force=False)
                     
             except json.JSONDecodeError as e:
-                print(f"❌ [CHECK_AVAIL] Failed to parse arguments: {e}")
+                logger.error(f"❌ [CHECK_AVAIL] Failed to parse arguments: {e}")
                 await client.send_event({
                     "type": "conversation.item.create",
                     "item": {
@@ -13848,12 +13848,12 @@ class MediaStreamHandler:
             # 🔥 APPOINTMENT SCHEDULING: Goal-based with structured errors
             try:
                 args = json.loads(arguments_str)
-                print(f"📅 [APPOINTMENT] Request from AI: {args}")
+                logger.info(f"📅 [APPOINTMENT] Request from AI: {args}")
                 
                 # 🔥 STEP 1: Check call_goal and scheduling enabled
                 business_id = getattr(self, 'business_id', None)
                 if not business_id:
-                    print(f"❌ [APPOINTMENT] No business_id available")
+                    logger.error(f"❌ [APPOINTMENT] No business_id available")
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -13870,7 +13870,7 @@ class MediaStreamHandler:
                 
                 # Check if already created appointment in this session
                 if getattr(self, '_appointment_created_this_session', False):
-                    print(f"⚠️ [APPOINTMENT] Already created appointment in this session - blocking duplicate")
+                    logger.warning(f"⚠️ [APPOINTMENT] Already created appointment in this session - blocking duplicate")
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -13888,7 +13888,7 @@ class MediaStreamHandler:
                 # 🔥 CRITICAL: Check call_goal is appointment
                 call_goal = getattr(self, 'call_goal', 'lead_only')
                 if call_goal != 'appointment':
-                    print(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not enabled")
+                    logger.error(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not enabled")
                     logger.warning(f"[APPOINTMENT] Blocked: call_goal={call_goal} (expected 'appointment')")
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -13916,7 +13916,7 @@ class MediaStreamHandler:
                 customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None) or None
                 
                 if not customer_name:
-                    print(f"❌ [APPOINTMENT] Missing customer_name")
+                    logger.error(f"❌ [APPOINTMENT] Missing customer_name")
                     user_msg = "על איזה שם לרשום את הפגישה?"
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -13949,7 +13949,7 @@ class MediaStreamHandler:
                     return
                 
                 if not appointment_date_raw or not appointment_time_raw:
-                    print(f"❌ [APPOINTMENT] Missing date or time")
+                    logger.error(f"❌ [APPOINTMENT] Missing date or time")
                     user_msg = "כדי לקבוע תור אני צריכה תאריך ושעה. לאיזה יום ובאיזו שעה?"
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -13981,7 +13981,7 @@ class MediaStreamHandler:
                     await self.trigger_response_from_tool(client, "unknown", force=False)
                     return
                 
-                print(f"📅 [APPOINTMENT] Inputs: name={customer_name}, phone={customer_phone}, date='{appointment_date_raw}', time='{appointment_time_raw}'")
+                logger.info(f"📅 [APPOINTMENT] Inputs: name={customer_name}, phone={customer_phone}, date='{appointment_date_raw}', time='{appointment_time_raw}'")
                 
                 # 🔥 STEP 4: Create appointment using unified implementation
                 try:
@@ -14007,7 +14007,7 @@ class MediaStreamHandler:
                     # Normalize date/time (server-side; do not rely on the model)
                     date_res = resolve_hebrew_date(appointment_date_raw, tz)
                     if not date_res:
-                        print(f"❌ [APPOINTMENT] Invalid date input: '{appointment_date_raw}'")
+                        logger.error(f"❌ [APPOINTMENT] Invalid date input: '{appointment_date_raw}'")
                         user_msg = "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -14042,7 +14042,7 @@ class MediaStreamHandler:
                     
                     time_res = resolve_hebrew_time(appointment_time_raw)
                     if not time_res or not time_res.candidates_hhmm:
-                        print(f"❌ [APPOINTMENT] Invalid time input: '{appointment_time_raw}'")
+                        logger.error(f"❌ [APPOINTMENT] Invalid time input: '{appointment_time_raw}'")
                         user_msg = "באיזו שעה? אפשר להגיד למשל 15:00 או ארבע."
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -14085,10 +14085,8 @@ class MediaStreamHandler:
                         tz,
                     )
                     if corrected:
-                        print(
-                            f"🔧 [APPOINTMENT] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
-                            f"(reason={reason}) raw='{appointment_date_raw}'"
-                        )
+                        logger.info(f"🔧 [APPOINTMENT] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
+                            f"(reason={reason}) raw='{appointment_date_raw}'")
                         corrected_res = resolve_hebrew_date(corrected_iso, tz)
                         if corrected_res:
                             normalized_date_iso = corrected_res.date_iso
@@ -14105,7 +14103,7 @@ class MediaStreamHandler:
                     except Exception:
                         requested_date = None
                     if requested_date and requested_date < today_local:
-                        print(f"⚠️ [APPOINTMENT] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{appointment_date_raw}'")
+                        logger.warning(f"⚠️ [APPOINTMENT] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{appointment_date_raw}'")
                         user_msg = "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -14179,9 +14177,9 @@ class MediaStreamHandler:
                                 "ts": time.time(),
                                 "source": "auto_refresh_from_schedule",
                             }
-                            print(f"🔄 [APPOINTMENT] Auto-refreshed availability for {normalized_date_iso}: {refreshed_slots}")
+                            logger.info(f"🔄 [APPOINTMENT] Auto-refreshed availability for {normalized_date_iso}: {refreshed_slots}")
                         except Exception as _refresh_err:
-                            print(f"⚠️ [APPOINTMENT] Availability auto-refresh failed (continuing): {_refresh_err}")
+                            logger.error(f"⚠️ [APPOINTMENT] Availability auto-refresh failed (continuing): {_refresh_err}")
                     
                     # 🔥 HARD RULE: availability check BEFORE creating appointment
                     duration_min = policy.slot_size_min
@@ -14208,7 +14206,7 @@ class MediaStreamHandler:
                                 continue
                     
                     if not chosen_time:
-                        print(f"⚠️ [APPOINTMENT] Slot not available: date={normalized_date_iso} time_candidates={time_res.candidates_hhmm} alternatives={alternatives}")
+                        logger.warning(f"⚠️ [APPOINTMENT] Slot not available: date={normalized_date_iso} time_candidates={time_res.candidates_hhmm} alternatives={alternatives}")
                         crm_context = getattr(self, "crm_context", None)
                         if crm_context:
                             crm_context.pending_slot = {
@@ -14262,7 +14260,7 @@ class MediaStreamHandler:
                     slot_duration = timedelta(minutes=policy.slot_size_min)
                     end_dt = requested_dt + slot_duration
                     
-                    print(f"📅 [APPOINTMENT] Creating: {date_display_he} {chosen_time} ({requested_dt.isoformat()} -> {end_dt.isoformat()})")
+                    logger.info(f"📅 [APPOINTMENT] Creating: {date_display_he} {chosen_time} ({requested_dt.isoformat()} -> {end_dt.isoformat()})")
                     
                     # 🔥 BUILD 144: Generate call summary and transcript
                     call_summary = None
@@ -14298,9 +14296,9 @@ class MediaStreamHandler:
                                     call_sid=call_sid,
                                     business_name=business_name
                                 )
-                                print(f"✅ [APPOINTMENT] Call summary and transcript generated ({len(call_transcript)} chars)")
+                                logger.info(f"✅ [APPOINTMENT] Call summary and transcript generated ({len(call_transcript)} chars)")
                     except Exception as e:
-                        print(f"⚠️ [APPOINTMENT] Failed to generate call summary: {e}")
+                        logger.error(f"⚠️ [APPOINTMENT] Failed to generate call summary: {e}")
                         # Continue without summary - not critical
                     
                     # Build context for _calendar_create_appointment_impl
@@ -14346,7 +14344,7 @@ class MediaStreamHandler:
                     if hasattr(result, 'appointment_id'):
                         # Success - CreateAppointmentOutput
                         appt_id = result.appointment_id
-                        print(f"✅ [APPOINTMENT] CAL_CREATE_OK event_id={appt_id}, status={result.status}")
+                        logger.info(f"✅ [APPOINTMENT] CAL_CREATE_OK event_id={appt_id}, status={result.status}")
                         logger.info(f"✅ CAL_CREATE_OK business_id={business_id} event_id={appt_id} customer={customer_name} date={normalized_date_iso} time={chosen_time} service={service_type}")
                         logger.info(f"APPOINTMENT_CREATED appointment_id={appt_id} business_id={business_id} date={normalized_date_iso} time={chosen_time}")
                         
@@ -14386,7 +14384,7 @@ class MediaStreamHandler:
                         # Dict result (error or legacy format)
                         if result.get("ok") or result.get("success"):
                             appt_id = result.get("appointment_id")
-                            print(f"✅ [APPOINTMENT] SUCCESS (dict)! ID={appt_id}")
+                            logger.info(f"✅ [APPOINTMENT] SUCCESS (dict)! ID={appt_id}")
                             logger.info(f"APPOINTMENT_CREATED appointment_id={appt_id} business_id={business_id} date={normalized_date_iso} time={chosen_time}")
                             
                             # Mark as created
@@ -14419,7 +14417,7 @@ class MediaStreamHandler:
                             # Error in dict
                             error_code = result.get("error", "unknown_error")
                             error_msg = result.get("message", "שגיאה ביצירת פגישה")
-                            print(f"❌ [APPOINTMENT] CAL_CREATE_FAILED: {error_code} - {error_msg}")
+                            logger.error(f"❌ [APPOINTMENT] CAL_CREATE_FAILED: {error_code} - {error_msg}")
                             logger.error(f"❌ CAL_CREATE_FAILED business_id={business_id} error={error_code} message={error_msg} date={normalized_date_iso} time={chosen_time}")
                             user_msg = "יש בעיה לקבוע את התור כרגע. אפשר לנסות שעה אחרת או תאריך אחר?"
                             await client.send_event({
@@ -14458,7 +14456,7 @@ class MediaStreamHandler:
                             await self.trigger_response_from_tool(client, "unknown", force=False)
                     else:
                         # Unexpected format
-                        print(f"❌ [APPOINTMENT] Unexpected result type: {type(result)}")
+                        logger.error(f"❌ [APPOINTMENT] Unexpected result type: {type(result)}")
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -14473,7 +14471,7 @@ class MediaStreamHandler:
                         await self.trigger_response_from_tool(client, "unknown_success", force=False)
                         
                 except (ValueError, AttributeError) as parse_error:
-                    print(f"❌ [APPOINTMENT] Error creating appointment: {parse_error}")
+                    logger.error(f"❌ [APPOINTMENT] Error creating appointment: {parse_error}")
                     import traceback
                     traceback.print_exc()
                     await client.send_event({
@@ -14490,7 +14488,7 @@ class MediaStreamHandler:
                     await self.trigger_response_from_tool(client, "unknown_success", force=False)
                     
             except json.JSONDecodeError as e:
-                print(f"❌ [APPOINTMENT] Failed to parse arguments: {e}")
+                logger.error(f"❌ [APPOINTMENT] Failed to parse arguments: {e}")
                 await client.send_event({
                     "type": "conversation.item.create",
                     "item": {
@@ -14505,7 +14503,7 @@ class MediaStreamHandler:
                 await self.trigger_response_from_tool(client, "unknown_success", force=False)
         
         else:
-            print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
+            logger.warning(f"⚠️ [BUILD 313] Unknown function: {function_name}")
     
     def _check_lead_complete(self):
         """
@@ -14522,11 +14520,11 @@ class MediaStreamHandler:
         
         if not missing:
             self.lead_captured = True
-            print(f"🎯 [BUILD 313] All lead fields captured! {self.lead_capture_state}")
+            logger.info(f"🎯 [BUILD 313] All lead fields captured! {self.lead_capture_state}")
         else:
             # 🚫 DISABLED: City/service logic disabled via ENABLE_LEGACY_CITY_LOGIC flag
             if ENABLE_LEGACY_CITY_LOGIC:
-                print(f"📋 [BUILD 313] Still missing fields: {missing}")
+                logger.info(f"📋 [BUILD 313] Still missing fields: {missing}")
     
     def _check_simple_appointment_keywords(self, ai_text: str):
         """
@@ -14564,15 +14562,15 @@ class MediaStreamHandler:
                 break
         
         if found_keyword:
-            print(f"📅 [BUILD 350] Appointment keyword detected: '{found_keyword}' in AI response")
-            print(f"📅 [BUILD 350] AI said: {ai_text[:100]}...")
+            logger.info(f"📅 [BUILD 350] Appointment keyword detected: '{found_keyword}' in AI response")
+            logger.info(f"📅 [BUILD 350] AI said: {ai_text[:100]}...")
             
             # TODO: Trigger your existing appointment creation logic here
             # For now, just log that we detected it
             # You can call: self.handle_appointment_request(...)
             # or: create_appointment_from_realtime(...)
             
-            print(f"📅 [BUILD 350] Simple appointment detection triggered - integrate with existing appointment logic if needed")
+            logger.info(f"📅 [BUILD 350] Simple appointment detection triggered - integrate with existing appointment logic if needed")
     
     def _extract_city_from_confirmation(self, text: str) -> str:
         """
@@ -14608,7 +14606,7 @@ class MediaStreamHandler:
         state = self.lead_capture_state
         
         # 🔥 BUILD 336: Log what we're building from
-        print(f"📋 [BUILD 336] Building confirmation from STT state: {state}")
+        logger.info(f"📋 [BUILD 336] Building confirmation from STT state: {state}")
         
         # Get service and city - these are the EXACT values from STT
         service = state.get('service_type', '')
@@ -14630,8 +14628,8 @@ class MediaStreamHandler:
         if name:
             confirmation = confirmation.replace("נכון?", f"והשם שלך {name}, נכון?")
         
-        print(f"🎯 [BUILD 336] SERVER CONFIRMATION: '{confirmation}'")
-        print(f"🔒 [BUILD 336] Values from STT: service='{service}', city='{city}', name='{name}'")
+        logger.info(f"🎯 [BUILD 336] SERVER CONFIRMATION: '{confirmation}'")
+        logger.info(f"🔒 [BUILD 336] Values from STT: service='{service}', city='{city}', name='{name}'")
         return confirmation
     
     def _get_city_for_ai_response(self) -> str:
@@ -14682,7 +14680,7 @@ class MediaStreamHandler:
             match = re.search(email_pattern, text)
             if match:
                 self._update_lead_capture_state('email', match.group(0))
-                print(f"📧 [BUILD 313] Email extracted: {match.group(0)}")
+                logger.info(f"📧 [BUILD 313] Email extracted: {match.group(0)}")
         
         # 💰 BUDGET EXTRACTION: Numbers with currency (universal pattern)
         if 'budget' in required_fields and 'budget' not in self.lead_capture_state:
@@ -14695,7 +14693,7 @@ class MediaStreamHandler:
                 if match:
                     budget = match.group(1).replace(',', '')
                     self._update_lead_capture_state('budget', budget)
-                    print(f"💰 [BUILD 313] Budget extracted: {budget}")
+                    logger.info(f"💰 [BUILD 313] Budget extracted: {budget}")
                     break
         
         # ⭐ BUILD 350: CITY/SERVICE LOCK DISABLED - No mid-call extraction!
@@ -14725,7 +14723,7 @@ class MediaStreamHandler:
         
         # Only lock if service is needed and not already locked
         if self._service_locked and 'service_type' in self.lead_capture_state:
-            print(f"🔒 [BUILD 336] Service already locked: '{self.lead_capture_state.get('service_type')}'")
+            logger.info(f"🔒 [BUILD 336] Service already locked: '{self.lead_capture_state.get('service_type')}'")
             return
         
         # 🔥 BUILD 336 FIX: TRY to lock service on EVERY user transcript!
@@ -14777,14 +14775,14 @@ class MediaStreamHandler:
         
         if has_action_verb:
             # Has action verb - this IS a service request, regardless of length
-            print(f"🔧 [BUILD 336] Detected action verb in: '{cleaned}' - treating as service")
+            logger.info(f"🔧 [BUILD 336] Detected action verb in: '{cleaned}' - treating as service")
         else:
             # No action verb - check if it's too short to be a service
             words = cleaned.split()
             if len(words) <= 2:
                 # 🚫 DISABLED: City lock logic disabled via ENABLE_LEGACY_CITY_LOGIC flag
                 # Short phrase without action verb - might be a city (DISABLED)
-                print(f"⏭️ [BUILD 336] Skipping short phrase without verb: '{cleaned}'")
+                logger.info(f"⏭️ [BUILD 336] Skipping short phrase without verb: '{cleaned}'")
                 return
         
         # Clean common prefixes
@@ -14807,7 +14805,7 @@ class MediaStreamHandler:
         self._service_raw_from_stt = service_name
         self._service_locked = True
         self._update_lead_capture_state('service_type', service_name)
-        print(f"🔒 [BUILD 336] SERVICE LOCKED from STT: '{service_name}' (raw: '{text}')")
+        logger.info(f"🔒 [BUILD 336] SERVICE LOCKED from STT: '{service_name}' (raw: '{text}')")
     
     def _try_lock_city_from_utterance(self, text: str):
         """
@@ -14873,10 +14871,10 @@ class MediaStreamHandler:
         
         if is_first_answer:
             if token_count < 3:
-                print(f"⏭️ [CITY LOCK] First utterance too short ({token_count} tokens) - waiting for clearer answer")
+                logger.info(f"⏭️ [CITY LOCK] First utterance too short ({token_count} tokens) - waiting for clearer answer")
                 return
             if stt_confidence is not None and stt_confidence < LOW_CONFIDENCE_THRESHOLD:
-                print(f"⏭️ [CITY LOCK] First utterance low confidence ({stt_confidence:.2f}) - not locking city")
+                logger.info(f"⏭️ [CITY LOCK] First utterance low confidence ({stt_confidence:.2f}) - not locking city")
                 return
         
         hebrew_chars = sum(1 for c in cleaned_no_punct if '\u0590' <= c <= '\u05FF')
@@ -14908,9 +14906,9 @@ class MediaStreamHandler:
         candidate_city = strong_pattern_city or city_name
         if not _is_known_city(candidate_city):
             if is_first_answer:
-                print(f"⏭️ [CITY LOCK] First utterance '{candidate_city}' not in known city list - waiting for clarification")
+                logger.info(f"⏭️ [CITY LOCK] First utterance '{candidate_city}' not in known city list - waiting for clarification")
             else:
-                print(f"⏭️ [CITY LOCK] '{candidate_city}' not recognized as Israeli city - skipping lock")
+                logger.info(f"⏭️ [CITY LOCK] '{candidate_city}' not recognized as Israeli city - skipping lock")
             return
         
         can_override_locked_city = (
@@ -14920,7 +14918,7 @@ class MediaStreamHandler:
         )
         
         if city_already_locked and not can_override_locked_city:
-            print(f"🔒 [CITY LOCK] City already locked as '{self.lead_capture_state.get('city')}' - ignoring '{candidate_city}'")
+            logger.info(f"🔒 [CITY LOCK] City already locked as '{self.lead_capture_state.get('city')}' - ignoring '{candidate_city}'")
             return
         
         if can_override_locked_city:
@@ -14929,14 +14927,14 @@ class MediaStreamHandler:
             self._city_source = 'user_utterance'
             self._city_locked = True
             self._update_lead_capture_state('city', candidate_city, source='user_utterance')
-            print(f"🔁 [CITY UPDATE] Overriding city from '{old_city}' to '{candidate_city}' based on strong pattern")
+            logger.info(f"🔁 [CITY UPDATE] Overriding city from '{old_city}' to '{candidate_city}' based on strong pattern")
             return
         
         self._city_raw_from_stt = candidate_city
         self._city_locked = True
         self._city_source = 'user_utterance'
         self._update_lead_capture_state('city', candidate_city)
-        print(f"🔒 [BUILD 326] CITY LOCKED from STT: '{candidate_city}' (raw: '{text}')")
+        logger.info(f"🔒 [BUILD 326] CITY LOCKED from STT: '{candidate_city}' (raw: '{text}')")
     
     def _unlock_city(self):
         """
@@ -14950,7 +14948,7 @@ class MediaStreamHandler:
             self._city_source = None
             if 'city' in self.lead_capture_state:
                 del self.lead_capture_state['city']
-            print(f"🔓 [BUILD 326] CITY UNLOCKED (was: '{old_city}') - waiting for new city")
+            logger.info(f"🔓 [BUILD 326] CITY UNLOCKED (was: '{old_city}') - waiting for new city")
             
             # 🔥 BUILD 336 FIX: Reset confirmation state on unlock
             self._reset_confirmation_state()
@@ -14965,7 +14963,7 @@ class MediaStreamHandler:
             self._service_raw_from_stt = None
             if 'service_type' in self.lead_capture_state:
                 del self.lead_capture_state['service_type']
-            print(f"🔓 [BUILD 336] SERVICE UNLOCKED (was: '{old_service}') - waiting for new service")
+            logger.info(f"🔓 [BUILD 336] SERVICE UNLOCKED (was: '{old_service}') - waiting for new service")
             
             # 🔥 BUILD 336 FIX: Reset confirmation state on unlock
             self._reset_confirmation_state()
@@ -14981,7 +14979,7 @@ class MediaStreamHandler:
         self._verification_prompt_sent = False
         self._lead_confirmation_received = False
         self._lead_closing_dispatched = False
-        print(f"🔄 [BUILD 336] Confirmation state reset - ready for new flow")
+        logger.info(f"🔄 [BUILD 336] Confirmation state reset - ready for new flow")
     
     def _update_lead_capture_state(self, field: str, value: str, source: str = 'unknown'):
         """
@@ -15011,28 +15009,28 @@ class MediaStreamHandler:
             existing_city = self.lead_capture_state.get('city', '')
             if existing_city and value != existing_city:
                 if not is_stt_source:
-                    print(f"🛡️ [BUILD 336] BLOCKED: Non-STT source '{source}' tried to change locked city '{existing_city}' → '{value}'")
-                    print(f"🛡️ [BUILD 336] City remains: '{existing_city}' (locked from STT)")
+                    logger.info(f"🛡️ [BUILD 336] BLOCKED: Non-STT source '{source}' tried to change locked city '{existing_city}' → '{value}'")
+                    logger.info(f"🛡️ [BUILD 336] City remains: '{existing_city}' (locked from STT)")
                     return
                 else:
                     # STT source wants to update - this means user corrected themselves
-                    print(f"🔓 [BUILD 336] STT source updating locked city '{existing_city}' → '{value}'")
+                    logger.info(f"🔓 [BUILD 336] STT source updating locked city '{existing_city}' → '{value}'")
         
         # SERVICE LOCK - Only STT sources can change locked service
         if field == 'service_type' and self._service_locked:
             existing_service = self.lead_capture_state.get('service_type', '')
             if existing_service and value != existing_service:
                 if not is_stt_source:
-                    print(f"🛡️ [BUILD 336] BLOCKED: Non-STT source '{source}' tried to change locked service '{existing_service}' → '{value}'")
-                    print(f"🛡️ [BUILD 336] Service remains: '{existing_service}' (locked from STT)")
+                    logger.info(f"🛡️ [BUILD 336] BLOCKED: Non-STT source '{source}' tried to change locked service '{existing_service}' → '{value}'")
+                    logger.info(f"🛡️ [BUILD 336] Service remains: '{existing_service}' (locked from STT)")
                     return
                 else:
                     # STT source wants to update - this means user corrected themselves
-                    print(f"🔓 [BUILD 336] STT source updating locked service '{existing_service}' → '{value}'")
+                    logger.info(f"🔓 [BUILD 336] STT source updating locked service '{existing_service}' → '{value}'")
         
         self.lead_capture_state[field] = value
-        print(f"✅ [LEAD STATE] Updated: {field}={value}")
-        print(f"📋 [LEAD STATE] Current state: {self.lead_capture_state}")
+        logger.info(f"✅ [LEAD STATE] Updated: {field}={value}")
+        logger.info(f"📋 [LEAD STATE] Current state: {self.lead_capture_state}")
         
         # Also update CRM context for legacy compatibility (name/phone)
         crm_context = getattr(self, 'crm_context', None)
@@ -15054,12 +15052,12 @@ class MediaStreamHandler:
         """
         # Get required fields from business settings
         required_fields = getattr(self, 'required_lead_fields', None)
-        print(f"🔍 [DEBUG] _check_lead_captured: required_fields from self = {required_fields}")
+        logger.debug(f"🔍 [DEBUG] _check_lead_captured: required_fields from self = {required_fields}")
         
         # 🔥 PROMPT-ONLY MODE: If no required fields configured, never enforce anything
         # The business prompt defines what "enough" means, not the Python code
         if not required_fields:
-            print(f"✅ [PROMPT-ONLY] No required_lead_fields configured - letting prompt handle conversation flow")
+            logger.info(f"✅ [PROMPT-ONLY] No required_lead_fields configured - letting prompt handle conversation flow")
             return False
         
         # Get current capture state
@@ -15098,7 +15096,7 @@ class MediaStreamHandler:
             # 🔥 BUILD 180: Validate that value is not an AI question fragment
             if value and field in ['service_type', 'service_category']:
                 if value.strip() in invalid_values or len(value.strip()) < 4:
-                    print(f"⚠️ [VALIDATION] Rejecting invalid {field} value: '{value}'")
+                    logger.warning(f"⚠️ [VALIDATION] Rejecting invalid {field} value: '{value}'")
                     value = None
             
             if value:
@@ -15107,12 +15105,12 @@ class MediaStreamHandler:
                 missing_fields.append(field)
         
         if not missing_fields:
-            print(f"✅ [SMART HANGUP] All required fields collected: {', '.join(collected_values)}")
+            logger.info(f"✅ [SMART HANGUP] All required fields collected: {', '.join(collected_values)}")
             return True
         
         # 🚫 DISABLED: City/service logic disabled via ENABLE_LEGACY_CITY_LOGIC flag
         if ENABLE_LEGACY_CITY_LOGIC:
-            print(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields} | Collected: {collected_values}")
+            logger.info(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields} | Collected: {collected_values}")
         return False
 
     def _process_dtmf_skip(self):
@@ -15120,18 +15118,18 @@ class MediaStreamHandler:
         🎯 Process DTMF skip (# pressed with empty buffer)
         Customer chose to skip phone number input
         """
-        print(f"⏭️ Processing DTMF skip")
+        logger.info(f"⏭️ Processing DTMF skip")
         
         # Create skip message in Hebrew
         skip_text = "אני מעדיף לא לתת את המספר"
         
         # 🚀 REALTIME API: Send via Realtime if enabled, otherwise use AgentKit
         if USE_REALTIME_API:
-            print(f"🚀 [REALTIME] Sending DTMF skip via Realtime API")
+            logger.info(f"🚀 [REALTIME] Sending DTMF skip via Realtime API")
             # ✅ Queue the user's DTMF skip message (non-blocking, no fallback to AgentKit)
             try:
                 self.realtime_text_input_queue.put_nowait(skip_text)
-                print(f"✅ [REALTIME] DTMF skip queued for Realtime API")
+                logger.info(f"✅ [REALTIME] DTMF skip queued for Realtime API")
                 
                 # Save to conversation history
                 self.conversation_history.append({
@@ -15139,10 +15137,10 @@ class MediaStreamHandler:
                     "bot": "(Realtime API handling)"
                 })
             except queue.Full:
-                print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF skip dropped!")
+                logger.error(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF skip dropped!")
                 # Don't fall back to AgentKit - log the error
             except Exception as e:
-                print(f"❌ [REALTIME] Failed to queue DTMF skip: {e}")
+                logger.error(f"❌ [REALTIME] Failed to queue DTMF skip: {e}")
                 import traceback
                 traceback.print_exc()
                 # Don't fall back to AgentKit - this could cause dual responses
@@ -15160,14 +15158,14 @@ class MediaStreamHandler:
                     "bot": ai_response
                 })
         
-        print(f"✅ DTMF skip processed")
+        logger.info(f"✅ DTMF skip processed")
     
     def _process_dtmf_phone(self, phone_number: str):
         """
         ⚡ BUILD 121: Process phone number collected via DTMF
         Inject as conversation input and generate AI response
         """
-        print(f"📞 Processing DTMF phone: {phone_number}")
+        logger.info(f"📞 Processing DTMF phone: {phone_number}")
         
         # 🔥 CRITICAL FIX: Normalize phone to E.164 format!
         from server.agent_tools.phone_utils import normalize_il_phone
@@ -15183,7 +15181,7 @@ class MediaStreamHandler:
                 normalized_phone = normalize_il_phone(phone_number)
         
         if normalized_phone:
-            print(f"✅ Phone normalized: {phone_number} → {normalized_phone}")
+            logger.info(f"✅ Phone normalized: {phone_number} → {normalized_phone}")
             
             # 🎯 DYNAMIC LEAD STATE: Update lead capture state for smart hangup
             self._update_lead_capture_state('phone', normalized_phone)
@@ -15191,16 +15189,16 @@ class MediaStreamHandler:
             # 🔥 CRITICAL FIX: Store normalized phone in instance variable!
             # Don't use flask.g - WebSocket runs outside request context
             self.customer_phone_dtmf = normalized_phone
-            print(f"✅ Stored customer_phone_dtmf: {normalized_phone}")
+            logger.info(f"✅ Stored customer_phone_dtmf: {normalized_phone}")
             
             # 🔥 CRITICAL FIX: Also update crm_context.customer_phone!
             # This is what the confirm handler checks - if we don't set it, appointment creation fails!
             crm_context = getattr(self, 'crm_context', None)
             if crm_context:
                 crm_context.customer_phone = normalized_phone
-                print(f"✅ Updated crm_context.customer_phone: {normalized_phone}")
+                logger.info(f"✅ Updated crm_context.customer_phone: {normalized_phone}")
             else:
-                print(f"⚠️ No crm_context found - creating one")
+                logger.warning(f"⚠️ No crm_context found - creating one")
                 # Create CRM context if missing
                 from server.media_ws_ai import CallCrmContext
                 self.crm_context = CallCrmContext(
@@ -15210,13 +15208,13 @@ class MediaStreamHandler:
                 # 🔥 HYDRATION: If we have pending customer name, transfer it to context
                 if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                     self.crm_context.customer_name = self.pending_customer_name
-                    print(f"✅ [DTMF] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
+                    logger.info(f"✅ [DTMF] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
                     self.pending_customer_name = None  # Clear cache
-                print(f"✅ Created crm_context with phone: {normalized_phone}")
+                logger.info(f"✅ Created crm_context with phone: {normalized_phone}")
             
             phone_to_show = normalized_phone
         else:
-            print(f"⚠️ Phone normalization failed for: {phone_number}")
+            logger.error(f"⚠️ Phone normalization failed for: {phone_number}")
             phone_to_show = phone_number
         
         # 🔥 BUILD 186: Send DTMF phone as SYSTEM event (not user message)
@@ -15225,7 +15223,7 @@ class MediaStreamHandler:
         
         # 🚀 REALTIME API: Send via system event (not user message!)
         if USE_REALTIME_API:
-            print(f"🚀 [REALTIME] Sending DTMF phone as SYSTEM event: {phone_to_show}")
+            logger.info(f"🚀 [REALTIME] Sending DTMF phone as SYSTEM event: {phone_to_show}")
             # ✅ Send as system event (silent - AI reads but doesn't speak)
             try:
                 import asyncio
@@ -15239,9 +15237,9 @@ class MediaStreamHandler:
                         loop.run_until_complete(self._send_server_event_to_ai(
                             f"📞 Customer entered phone via DTMF: {phone_to_show}"
                         ))
-                        print(f"✅ [REALTIME] DTMF phone sent as system event")
+                        logger.info(f"✅ [REALTIME] DTMF phone sent as system event")
                     except Exception as e:
-                        print(f"❌ [REALTIME] Error sending DTMF phone: {e}")
+                        logger.error(f"❌ [REALTIME] Error sending DTMF phone: {e}")
                         import traceback
                         traceback.print_exc()
                     finally:
@@ -15264,16 +15262,16 @@ class MediaStreamHandler:
                 crm_context = getattr(self, 'crm_context', None)
                 # ⭐ BUILD 350: NLP disabled - no mid-call appointment logic
                 if ENABLE_LEGACY_TOOLS:
-                    print(f"🔄 [LEGACY DTMF] Triggering NLP with phone={crm_context.customer_phone if crm_context else None}")
-                    print(f"🔍 [LEGACY DEBUG] Calling NLP after DTMF - conversation has {len(self.conversation_history)} messages")
+                    logger.info(f"🔄 [LEGACY DTMF] Triggering NLP with phone={crm_context.customer_phone if crm_context else None}")
+                    logger.debug(f"🔍 [LEGACY DEBUG] Calling NLP after DTMF - conversation has {len(self.conversation_history)} messages")
                     # LEGACY: Trigger NLP check (uses existing conversation history WITH DTMF!)
                     self._check_appointment_confirmation("")  # Empty string - uses history
                 
             except queue.Full:
-                print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")
+                logger.error(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")
                 # Don't fall back to AgentKit - log the error
             except Exception as e:
-                print(f"❌ [REALTIME] Failed to queue DTMF phone: {e}")
+                logger.error(f"❌ [REALTIME] Failed to queue DTMF phone: {e}")
                 import traceback
                 traceback.print_exc()
                 # Don't fall back to AgentKit - this could cause dual responses
@@ -15292,7 +15290,7 @@ class MediaStreamHandler:
                     "bot": ai_response
                 })
         
-        print(f"✅ DTMF phone processed: {phone_to_show}")
+        logger.info(f"✅ DTMF phone processed: {phone_to_show}")
     
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using AgentKit - REAL ACTIONS!"""
@@ -15337,7 +15335,7 @@ class MediaStreamHandler:
             business_id = getattr(self, 'business_id', None)
             if not business_id:
                 # ❌ CRITICAL: No fallback! Business must be identified from call
-                print(f"❌ CRITICAL ERROR: No business_id set! Cannot process without business context")
+                logger.error(f"❌ CRITICAL ERROR: No business_id set! Cannot process without business context")
                 raise ValueError("Business ID is required - no fallback allowed")
             
             # Get customer name from conversation if available
@@ -15358,7 +15356,7 @@ class MediaStreamHandler:
             # 🔥 CRITICAL FIX: Add customer_name to context so it reaches the AI!
             if customer_name:
                 context["customer_name"] = customer_name
-                print(f"✅ [AI CONTEXT] Added customer_name to context: '{customer_name}'")
+                logger.info(f"✅ [AI CONTEXT] Added customer_name to context: '{customer_name}'")
             
             # ⚡ CRITICAL: Measure AI response time
             ai_start = time.time()
@@ -15372,9 +15370,9 @@ class MediaStreamHandler:
                 
                 # 🔥 BUILD 118: Use customer_phone (includes DTMF) instead of caller_phone (None)!
                 # customer_phone is set in line 2467 and includes DTMF phone if available
-                print(f"\n📞 DEBUG: customer_phone from context = '{customer_phone}'")
-                print(f"   phone_number (caller) = '{getattr(self, 'phone_number', 'None')}'")
-                print(f"   customer_phone_dtmf = '{getattr(self, 'customer_phone_dtmf', 'None')}'")
+                logger.debug(f"\n📞 DEBUG: customer_phone from context = '{customer_phone}'")
+                logger.info(f"   phone_number (caller) = '{getattr(self, 'phone_number', 'None')}'")
+                logger.info(f"   customer_phone_dtmf = '{getattr(self, 'customer_phone_dtmf', 'None')}'")
                 
                 ai_response = ai_service.generate_response_with_agent(
                     message=hebrew_text,
@@ -15392,7 +15390,7 @@ class MediaStreamHandler:
             # 🔥 BUILD 118: Normalize ai_response to dict (handle both structured and legacy responses)
             if isinstance(ai_response, str):
                 # Legacy string response (FAQ, fallback paths)
-                print(f"⚠️ Got legacy string response: {len(ai_response)} chars")
+                logger.warning(f"⚠️ Got legacy string response: {len(ai_response)} chars")
                 ai_response_dict = {
                     "text": ai_response,
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
@@ -15412,7 +15410,7 @@ class MediaStreamHandler:
                 }
             else:
                 # Defensive: shouldn't happen
-                print(f"❌ Unexpected response type: {type(ai_response).__name__}")
+                logger.error(f"❌ Unexpected response type: {type(ai_response).__name__}")
                 ai_response_dict = {
                     "text": "סליחה, לא הבנתי. אפשר לחזור?",
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
@@ -15429,23 +15427,23 @@ class MediaStreamHandler:
             tts_text = ai_response_dict.get('text', '')
             
             if not tts_text or not tts_text.strip():
-                print(f"❌ EMPTY TTS TEXT - using fallback")
+                logger.error(f"❌ EMPTY TTS TEXT - using fallback")
                 tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
             
-            print(f"✅ Extracted TTS text: {len(tts_text)} chars")
-            print(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
+            logger.info(f"✅ Extracted TTS text: {len(tts_text)} chars")
+            logger.info(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
             
-            print(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
-            if DEBUG: print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
+            logger.info(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
+            if DEBUG: logger.debug(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
             
             # Return TTS text (string) for _speak_simple
             return tts_text
             
         except Exception as e:
-            print(f"❌ AI_SERVICE_ERROR: {type(e).__name__}: {e}")
+            logger.error(f"❌ AI_SERVICE_ERROR: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
-            print(f"⚠️ Using fallback response instead of agent")
+            logger.warning(f"⚠️ Using fallback response instead of agent")
             return self._fallback_response(hebrew_text)
     
     def _fallback_response(self, hebrew_text: str) -> str:
@@ -15615,7 +15613,7 @@ class MediaStreamHandler:
         # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
         self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
+        logger.info(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.state = STATE_SPEAK
@@ -15630,7 +15628,7 @@ class MediaStreamHandler:
             if self.stream_sid and not self.ws_connection_failed:
                 self._tx_enqueue({"type": "clear"})
             elif self.ws_connection_failed:
-                print("💔 SKIPPING TTS clear - WebSocket connection failed")
+                logger.error("💔 SKIPPING TTS clear - WebSocket connection failed")
                 return None
             
             # נסה TTS אמיתי
@@ -15638,19 +15636,19 @@ class MediaStreamHandler:
             try:
                 pcm = self._hebrew_tts(text)
             except Exception as e:
-                print("TTS_ERR:", e)
+                logger.info("TTS_ERR:", e)
                 
             if not pcm or len(pcm) < 400:
-                print("🔊 TTS FAILED - sending beep")
+                logger.error("🔊 TTS FAILED - sending beep")
                 pcm = self._beep_pcm16_8k(300)  # צפצוף 300ms
             else:
-                print(f"🔊 TTS SUCCESS: {len(pcm)} bytes")
+                logger.info(f"🔊 TTS SUCCESS: {len(pcm)} bytes")
             
             # ✅ שלח את האודיו דרך TX Queue (אם החיבור תקין)
             if pcm and self.stream_sid and not self.ws_connection_failed:
                 self._send_pcm16_as_mulaw_frames(pcm)
             elif self.ws_connection_failed:
-                print("💔 SKIPPING audio clear - WebSocket connection failed")
+                logger.error("💔 SKIPPING audio clear - WebSocket connection failed")
                 return
             
             # ✅ Audio already sent by _send_pcm16_as_mulaw_frames() above
@@ -15686,7 +15684,7 @@ class MediaStreamHandler:
                 if any(keyword.lower() in text_lower for keyword in keywords):
                     return area_name
         except Exception as e:
-            print(f"⚠️ [AREA] Error loading dynamic patterns: {e}")
+            logger.error(f"⚠️ [AREA] Error loading dynamic patterns: {e}")
             
         return ""
     
@@ -15725,7 +15723,7 @@ class MediaStreamHandler:
                         # 🔁 IMPORTANT: Load fresh CallLog from DB (not cached)
                         call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         if not call_log:
-                            force_print(f"⚠️ No call_log found for finalization: {self.call_sid}")
+                            logger.warning(f"⚠️ No call_log found for finalization: {self.call_sid}")
                             return
                         
                         # 🔥 TX_STALL FIX: Only save realtime transcript (already in memory)
@@ -15753,7 +15751,7 @@ class MediaStreamHandler:
                         if hasattr(self, '_recording_sid') and self._recording_sid:
                             call_log.recording_sid = self._recording_sid
                             if DEBUG:
-                                force_print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
+                                logger.info(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
                         
                         # 🔥 NEW: Update appointment with transcript and summary
                         try:
@@ -15788,18 +15786,18 @@ class MediaStreamHandler:
                                         if call_log.lead_id and not appointment.lead_id:
                                             appointment.lead_id = call_log.lead_id
                                         
-                                        force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript, summary, and dynamic analysis")
+                                        logger.info(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript, summary, and dynamic analysis")
                                     except Exception as sum_err:
-                                        force_print(f"⚠️ [FINALIZE] Failed to generate summary for appointment: {sum_err}")
+                                        logger.warning(f"⚠️ [FINALIZE] Failed to generate summary for appointment: {sum_err}")
                                         # Continue without summary - transcript is saved
                                 else:
-                                    force_print(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript")
+                                    logger.info(f"✅ [FINALIZE] Appointment #{appointment.id} updated with transcript")
                         except Exception as apt_err:
-                            force_print(f"⚠️ [FINALIZE] Failed to update appointment: {apt_err}")
+                            logger.warning(f"⚠️ [FINALIZE] Failed to update appointment: {apt_err}")
                             # Continue - appointment update is not critical
                         
                         db.session.commit()
-                        force_print(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
+                        logger.info(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
                         
                         # 🔥 NEW: Create lead note with call summary/transcript
                         # This ensures the AI has context from previous interactions in future calls
@@ -15842,11 +15840,11 @@ class MediaStreamHandler:
                                     )
                                     db.session.add(lead_note)
                                     db.session.commit()
-                                    force_print(f"✅ [FINALIZE] Created quick call summary note for lead_id={call_log.lead_id}")
+                                    logger.info(f"✅ [FINALIZE] Created quick call summary note for lead_id={call_log.lead_id}")
                                 else:
-                                    force_print(f"ℹ️ [FINALIZE] Lead note already exists for this call, skipping duplicate")
+                                    logger.info(f"ℹ️ [FINALIZE] Lead note already exists for this call, skipping duplicate")
                             except Exception as note_err:
-                                force_print(f"⚠️ [FINALIZE] Failed to create lead note: {note_err}")
+                                logger.warning(f"⚠️ [FINALIZE] Failed to create lead note: {note_err}")
                                 # Continue - note creation is not critical for call to complete
                                 try:
                                     db.session.rollback()
@@ -15861,10 +15859,10 @@ class MediaStreamHandler:
                         #   4. Extract city/service from summary
                         #   5. Update lead with summary
                         #   6. Send webhook call.completed
-                        force_print(f"✅ [TX_STALL_FIX] Call {self.call_sid} closed - offline worker will handle heavy processing")
+                        logger.info(f"✅ [TX_STALL_FIX] Call {self.call_sid} closed - offline worker will handle heavy processing")
                         
                 except Exception as e:
-                    force_print(f"❌ Failed to finalize call: {e}")
+                    logger.error(f"❌ Failed to finalize call: {e}")
                     import traceback
                     traceback.print_exc()
                     # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
@@ -15879,7 +15877,7 @@ class MediaStreamHandler:
             self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
-            force_print(f"❌ Call finalization setup failed: {e}")
+            logger.error(f"❌ Call finalization setup failed: {e}")
     
     def _start_call_recording(self):
         """✅ התחל הקלטת שיחה דרך Twilio REST API - מבטיח שכל השיחות מוקלטות
@@ -15915,11 +15913,11 @@ class MediaStreamHandler:
                     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
                     
                     if not account_sid or not auth_token:
-                        print(f"⚠️ Missing Twilio credentials - TwiML fallback will handle recording")
+                        logger.warning(f"⚠️ Missing Twilio credentials - TwiML fallback will handle recording")
                         return
                     
                     if not self.call_sid:
-                        print(f"⚠️ No call_sid - cannot start recording")
+                        logger.warning(f"⚠️ No call_sid - cannot start recording")
                         return
                     
                     from twilio.rest import Client
@@ -15934,11 +15932,11 @@ class MediaStreamHandler:
                         if existing_recordings:
                             self._recording_succeeded = True
                             self._recording_sid = existing_recordings[0].sid
-                            print(f"✅ Recording already active for {self.call_sid}: {self._recording_sid}")
+                            logger.info(f"✅ Recording already active for {self.call_sid}: {self._recording_sid}")
                             return
                     except Exception as list_error:
                         # Failed to check existing recordings - try to create anyway
-                        print(f"⚠️ Could not check existing recordings: {list_error}")
+                        logger.error(f"⚠️ Could not check existing recordings: {list_error}")
                     
                     # Start a new recording via REST API
                     try:
@@ -15947,7 +15945,7 @@ class MediaStreamHandler:
                         )
                         self._recording_succeeded = True
                         self._recording_sid = recording.sid
-                        print(f"✅ Recording started for {self.call_sid}: {recording.sid}")
+                        logger.info(f"✅ Recording started for {self.call_sid}: {recording.sid}")
                         
                     except Exception as rec_error:
                         error_msg = str(rec_error).lower()
@@ -15959,17 +15957,17 @@ class MediaStreamHandler:
                             'cannot be modified'
                         ]):
                             self._recording_succeeded = True
-                            print(f"✅ Recording already in progress for {self.call_sid}")
+                            logger.info(f"✅ Recording already in progress for {self.call_sid}")
                         elif 'call is not in-progress' in error_msg:
                             # Call hasn't started yet - TwiML fallback will handle
-                            print(f"⚠️ Call {self.call_sid} not in-progress - TwiML fallback will handle recording")
+                            logger.warning(f"⚠️ Call {self.call_sid} not in-progress - TwiML fallback will handle recording")
                         else:
                             # Transient failure - allow retry
-                            print(f"⚠️ Could not start REST API recording for {self.call_sid}: {rec_error}")
+                            logger.error(f"⚠️ Could not start REST API recording for {self.call_sid}: {rec_error}")
                         
                 except Exception as e:
                     # Transient failure - allow retry, TwiML fallback is active
-                    print(f"⚠️ Recording start failed (TwiML fallback active): {e}")
+                    logger.error(f"⚠️ Recording start failed (TwiML fallback active): {e}")
             
             # Run in background - don't block call handling
             thread = threading.Thread(
@@ -15982,7 +15980,7 @@ class MediaStreamHandler:
             
         except Exception as e:
             # Never crash the call due to recording setup failure
-            print(f"⚠️ Recording setup failed (TwiML fallback active): {e}")
+            logger.error(f"⚠️ Recording setup failed (TwiML fallback active): {e}")
     
     def _create_call_log_on_start(self):
         """✅ יצירת call_log מיד בהתחלת שיחה - למניעת 'Call SID not found' errors"""
@@ -15999,19 +15997,19 @@ class MediaStreamHandler:
                         # ✅ LOG DATABASE CONNECTION (per הנחיות)
                         db_url = os.getenv('DATABASE_URL', 'NOT_SET')
                         db_driver = db_url.split(':')[0] if db_url else 'none'
-                        print(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 'N/A')}, SID={self.call_sid}", flush=True)
+                        logger.info(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 'N/A')}, SID={self.call_sid}", flush=True)
                         
                         # בדוק אם כבר קיים
                         existing = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         if existing:
-                            print(f"✅ Call log already exists for {self.call_sid}")
+                            logger.info(f"✅ Call log already exists for {self.call_sid}")
                             return
                         
                         # צור call_log חדש
                         call_log = CallLog()  # type: ignore[call-arg]
                         business_id = getattr(self, 'business_id', None)
                         if not business_id:
-                            print(f"❌ No business_id set - cannot create call_log")
+                            logger.error(f"❌ No business_id set - cannot create call_log")
                             return
                         call_log.business_id = business_id
                         call_log.call_sid = self.call_sid
@@ -16034,24 +16032,24 @@ class MediaStreamHandler:
                             call_session.business_id = business_id
                             # lead_id will be set later by ensure_lead
                             db.session.add(call_session)
-                            print(f"✅ Created CallSession for {self.call_sid}")
+                            logger.info(f"✅ Created CallSession for {self.call_sid}")
                         else:
-                            print(f"✅ CallSession already exists for {self.call_sid}")
+                            logger.info(f"✅ CallSession already exists for {self.call_sid}")
                         
                         try:
                             db.session.commit()
-                            print(f"✅ Created call_log + CallSession on start: call_sid={self.call_sid}, phone={self.phone_number}")
+                            logger.info(f"✅ Created call_log + CallSession on start: call_sid={self.call_sid}, phone={self.phone_number}")
                         except Exception as commit_error:
                             # Handle duplicate key error (race condition)
                             db.session.rollback()
                             error_msg = str(commit_error).lower()
                             if 'unique' in error_msg or 'duplicate' in error_msg:
-                                print(f"⚠️ Call log already exists (race condition): {self.call_sid}")
+                                logger.warning(f"⚠️ Call log already exists (race condition): {self.call_sid}")
                             else:
                                 raise
                         
                 except Exception as e:
-                    print(f"❌ Failed to create call_log on start: {e}")
+                    logger.error(f"❌ Failed to create call_log on start: {e}")
                     import traceback
                     traceback.print_exc()
             
@@ -16061,7 +16059,7 @@ class MediaStreamHandler:
             self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
-            print(f"❌ Call log creation setup failed: {e}")
+            logger.error(f"❌ Call log creation setup failed: {e}")
     
     def _save_conversation_turn(self, user_text: str, bot_reply: str):
         """✅ שמירת תור שיחה במסד נתונים לזיכרון קבוע"""
@@ -16081,7 +16079,7 @@ class MediaStreamHandler:
                             call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         
                         if not call_log:
-                            print(f"⚠️ Call log not found for {self.call_sid} - conversation turn not saved")
+                            logger.warning(f"⚠️ Call log not found for {self.call_sid} - conversation turn not saved")
                             return
                         
                         # שמור תור משתמש
@@ -16103,10 +16101,10 @@ class MediaStreamHandler:
                         db.session.add(bot_turn)
                         
                         db.session.commit()
-                        print(f"✅ Saved conversation turn to DB: call_log_id={call_log.id}")
+                        logger.info(f"✅ Saved conversation turn to DB: call_log_id={call_log.id}")
                         
                 except Exception as e:
-                    print(f"❌ Failed to save conversation turn: {e}")
+                    logger.error(f"❌ Failed to save conversation turn: {e}")
                     import traceback
                     traceback.print_exc()
             
@@ -16116,7 +16114,7 @@ class MediaStreamHandler:
             self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
-            print(f"❌ Conversation turn save setup failed: {e}")
+            logger.error(f"❌ Conversation turn save setup failed: {e}")
     
     def _process_customer_intelligence(self, user_text: str, bot_reply: str):
         """
@@ -16290,19 +16288,19 @@ class MediaStreamHandler:
             )
             
             # Also print for visibility
-            print(f"📊 [CALL_METRICS] Call {self.call_sid[:16] if hasattr(self, 'call_sid') else 'N/A'}")
-            print(f"   Greeting: {greeting_ms}ms")
-            print(f"   First user utterance: {first_user_utterance_ms}ms")
-            print(f"   Avg AI turn: {avg_ai_turn_ms}ms")
-            print(f"   Avg user turn: {avg_user_turn_ms}ms")
-            print(f"   Barge-in events: {barge_in_events}")
-            print(f"   Silences (10s+): {silences_10s}")
-            print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
-            print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
-            print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
-            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            logger.info(f"📊 [CALL_METRICS] Call {self.call_sid[:16] if hasattr(self, 'call_sid') else 'N/A'}")
+            logger.info(f"   Greeting: {greeting_ms}ms")
+            logger.info(f"   First user utterance: {first_user_utterance_ms}ms")
+            logger.info(f"   Avg AI turn: {avg_ai_turn_ms}ms")
+            logger.info(f"   Avg user turn: {avg_user_turn_ms}ms")
+            logger.info(f"   Barge-in events: {barge_in_events}")
+            logger.info(f"   Silences (10s+): {silences_10s}")
+            logger.info(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
+            logger.info(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
+            logger.info(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
+            logger.info(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
             if SIMPLE_MODE and frames_dropped_total > 0:
-                print(f"   ⚠️ NOTE: SIMPLE_MODE drops detected - {frames_dropped_total} frames (see breakdown above)")
+                logger.warning(f"   ⚠️ NOTE: SIMPLE_MODE drops detected - {frames_dropped_total} frames (see breakdown above)")
             
             # 🔥 VERIFICATION: Mathematical frame accounting validation
             # Ensure frames_in == frames_forwarded + frames_dropped_total
@@ -16317,10 +16315,10 @@ class MediaStreamHandler:
                     f"expected_total={expected_total}, "
                     f"accounting_error={accounting_error}"
                 )
-                print(f"   🚨 FRAME ACCOUNTING ERROR: Missing/extra {accounting_error} frames!")
-                print(f"      frames_in={frames_in_from_twilio} != forwarded({frames_forwarded_to_realtime}) + dropped({frames_dropped_total})")
+                logger.error(f"   🚨 FRAME ACCOUNTING ERROR: Missing/extra {accounting_error} frames!")
+                logger.info(f"      frames_in={frames_in_from_twilio} != forwarded({frames_forwarded_to_realtime}) + dropped({frames_dropped_total})")
             else:
-                print(f"   ✅ Frame accounting OK: {frames_in_from_twilio} = {frames_forwarded_to_realtime} + {frames_dropped_total}")
+                logger.info(f"   ✅ Frame accounting OK: {frames_in_from_twilio} = {frames_forwarded_to_realtime} + {frames_dropped_total}")
             
             # 🔥 VERIFICATION: Validate drop reason sum matches total
             reason_sum = sum(getattr(self, '_frames_dropped_by_reason', {}).values())
@@ -16330,13 +16328,13 @@ class MediaStreamHandler:
                     f"reason_sum={reason_sum}, frames_dropped_total={frames_dropped_total}, "
                     f"difference={frames_dropped_total - reason_sum}"
                 )
-                print(f"   🚨 DROP REASON ERROR: sum of reasons ({reason_sum}) != total dropped ({frames_dropped_total})")
+                logger.error(f"   🚨 DROP REASON ERROR: sum of reasons ({reason_sum}) != total dropped ({frames_dropped_total})")
                 # Print all reason counts for debugging
                 for reason, count in getattr(self, '_frames_dropped_by_reason', {}).items():
                     if count > 0:
-                        print(f"      {reason.value}: {count}")
+                        logger.info(f"      {reason.value}: {count}")
             else:
-                print(f"   ✅ Drop reason accounting OK: sum({reason_sum}) = total({frames_dropped_total})")
+                logger.info(f"   ✅ Drop reason accounting OK: sum({reason_sum}) = total({frames_dropped_total})")
             
             # 🔥 VERIFICATION: Validate greeting_lock counters are consistent
             greeting_lock_from_enum = getattr(self, '_frames_dropped_by_reason', {}).get(FrameDropReason.GREETING_LOCK, 0)
@@ -16346,9 +16344,9 @@ class MediaStreamHandler:
                     f"enum_counter={greeting_lock_from_enum}, aggregate_counter={frames_dropped_by_greeting_lock}, "
                     f"difference={greeting_lock_from_enum - frames_dropped_by_greeting_lock}"
                 )
-                print(f"   🚨 GREETING LOCK ERROR: enum({greeting_lock_from_enum}) != aggregate({frames_dropped_by_greeting_lock})")
+                logger.error(f"   🚨 GREETING LOCK ERROR: enum({greeting_lock_from_enum}) != aggregate({frames_dropped_by_greeting_lock})")
             else:
-                print(f"   ✅ Greeting lock accounting OK: {greeting_lock_from_enum} frames")
+                logger.info(f"   ✅ Greeting lock accounting OK: {greeting_lock_from_enum} frames")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")

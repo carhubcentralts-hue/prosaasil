@@ -7,6 +7,10 @@ from server.models_sql import User, Business, CallLog, WhatsAppMessage, Customer
 from server.authz import auth_required, roles_required
 from server.routes_crm import get_business_id
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 data_api = Blueprint('data_api', __name__)
 
@@ -313,7 +317,7 @@ def whatsapp_send():
         )
         
         # TODO: Actually send via WhatsApp provider
-        print(f"📱 Would send WhatsApp to {thread_id}: {text}")
+        logger.info(f"📱 Would send WhatsApp to {thread_id}: {text}")
         
         return jsonify({'success': True})
         

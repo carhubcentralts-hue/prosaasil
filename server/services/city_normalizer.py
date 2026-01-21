@@ -453,11 +453,11 @@ def normalize_city(raw_city: str, previous_value: Optional[str] = None) -> CityM
     Usage:
         result = normalize_city("בית שמש")
         if result.canonical:
-            print(f"Matched: {result.canonical} (confidence: {result.confidence}%)")
+            logger.info(f"Matched: {result.canonical} (confidence: {result.confidence}%)")
         if result.needs_confirmation:
-            print(f"Please confirm: {result.canonical}")
+            logger.info(f"Please confirm: {result.canonical}")
         if result.big_jump_blocked:
-            print("Big jump correction was blocked")
+            logger.info("Big jump correction was blocked")
     """
     return get_city_normalizer().normalize(raw_city, previous_value)
 

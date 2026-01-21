@@ -8,32 +8,21 @@ from flask import Flask, jsonify, send_from_directory, send_file, current_app, r
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# 🔥 CRITICAL: Block Twilio HTTP client logs BEFORE any imports that might use it
-# This must happen BEFORE app creation, migrations, or any Twilio client instantiation
-# 🔥 FIX: DEBUG="1" means PRODUCTION (minimal logs), DEBUG="0" means DEVELOPMENT (verbose)
-IS_PROD = os.getenv("DEBUG", "1") == "1"
-if IS_PROD:
-    # Production: Silence noisy external libraries completely
-    # 🔥 FIX: Set to ERROR (not WARNING) to completely block Twilio spam
-    for lib_name in ("twilio.http_client", "twilio", "twilio.rest", "urllib3", "httpx", "httpx.client"):
-        lib_logger = logging.getLogger(lib_name)
-        lib_logger.setLevel(logging.ERROR)  # 🔥 ERROR not WARNING!
-        lib_logger.propagate = False  # Critical: prevent root handler from logging these
-    
-    # 🔥 FIX: Also silence uvicorn.access in production (health check spam)
-    uvicorn_access_logger = logging.getLogger("uvicorn.access")
-    uvicorn_access_logger.setLevel(logging.WARNING)
-    uvicorn_access_logger.propagate = False
-
-# Setup async logging BEFORE anything else - SKIP in migration mode
-if os.getenv('MIGRATION_MODE') == '1':
-    # Migration mode - use standard logging to avoid eventlet dependency
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-elif os.getenv("ASYNC_LOG_QUEUE", "1") == "1":
-    from server.logging_async import setup_async_root
-    setup_async_root(level=logging.INFO)
+# 🔥 CRITICAL: Setup centralized logging BEFORE any imports
+# This configures LOG_LEVEL environment variable for production-safe logging
+if os.getenv('MIGRATION_MODE') != '1':
+    try:
+        from server.logging_config import configure_logging
+        configure_logging()
+    except ImportError:
+        # Fallback to basic logging if logging_config is not available
+        logging.basicConfig(
+            level=logging.getLevelName(os.getenv('LOG_LEVEL', 'INFO').upper()),
+            format='[%(asctime)s] %(levelname)-8s [%(name)s] %(message)s'
+        )
 else:
-    logging.basicConfig(level=logging.INFO)
+    # Migration mode - use standard logging to avoid dependencies
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 
 try:
     from flask_seasurf import SeaSurf
@@ -1168,17 +1157,17 @@ def create_app():
                 name="RecordingWorker"
             )
             recording_thread.start()
-            print("✅ [BACKGROUND] Recording worker started")
+            logger.info("✅ [BACKGROUND] Recording worker started")
         except Exception as e:
-            print(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
+            logger.warning(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
         
         # 🔔 Reminder notification scheduler (sends push 30min and 15min before due time)
         try:
             from server.services.notifications.reminder_scheduler import start_reminder_scheduler
             start_reminder_scheduler(app)
-            print("✅ [BACKGROUND] Reminder notification scheduler started")
+            logger.info("✅ [BACKGROUND] Reminder notification scheduler started")
         except Exception as e:
-            print(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
+            logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
     
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton

@@ -19,6 +19,9 @@ from sqlalchemy.exc import OperationalError, DisconnectionError
 # 🔒 Import Lead model at top level for efficient access
 from server.models_sql import CallLog, Business, Lead, BusinessTopic
 
+
+logger = logging.getLogger(__name__)
+
 log = logging.getLogger("tasks.recording")
 
 # 🔥 BUILD 342: Transcript source constants
@@ -151,10 +154,10 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         "type": "full"  # Default: full processing (download + transcribe)
     })
     if retry_count == 0:
-        print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid} (dedup key acquired)")
+        logger.info(f"✅ [OFFLINE_STT] Job enqueued for {call_sid} (dedup key acquired)")
         log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
     else:
-        print(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
+        logger.info(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
         log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
 
 
@@ -192,10 +195,10 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
         "type": "download_only"  # 🔥 NEW: Just download, skip transcription
     })
     if retry_count == 0:
-        print(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid} (dedup key acquired)")
+        logger.info(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid} (dedup key acquired)")
         log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: {call_sid}")
     else:
-        print(f"🔁 [DOWNLOAD_ONLY] Retry {retry_count} enqueued for {call_sid}")
+        logger.info(f"🔁 [DOWNLOAD_ONLY] Retry {retry_count} enqueued for {call_sid}")
         log.info(f"[DOWNLOAD_ONLY] Retry {retry_count} enqueued: {call_sid}")
 
 def enqueue_recording(form_data):
@@ -234,7 +237,7 @@ def start_recording_worker(app):
     - Attempt 4: After 90s delay (final attempt)
     Max 3 retries = 4 total attempts
     """
-    print("✅ [OFFLINE_STT] Recording worker loop started")
+    logger.info("✅ [OFFLINE_STT] Recording worker loop started")
     log.info("[OFFLINE_STT] Recording worker thread initialized")
     
     # Retry backoff delays in seconds (0s, 10s, 30s, 90s)
@@ -258,14 +261,14 @@ def start_recording_worker(app):
                 
                 # 🔥 FIX: Handle download_only jobs (priority for UI)
                 if job_type == "download_only":
-                    print(f"⚡ [DOWNLOAD_ONLY] Processing priority download for {call_sid}")
+                    logger.info(f"⚡ [DOWNLOAD_ONLY] Processing priority download for {call_sid}")
                     log.info(f"[DOWNLOAD_ONLY] Processing priority download: {call_sid}")
                     
                     # Just download the file, don't transcribe
                     success = download_recording_only(call_sid, recording_url)
                     
                     if success:
-                        print(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
+                        logger.info(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
                         log.info(f"[DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
                     else:
                         # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
@@ -274,7 +277,7 @@ def start_recording_worker(app):
                             import threading
                             
                             delay = 5  # Short delay for download retries
-                            print(f"⚠️ [DOWNLOAD_ONLY] Download failed for {call_sid}, retrying in {delay}s")
+                            logger.error(f"⚠️ [DOWNLOAD_ONLY] Download failed for {call_sid}, retrying in {delay}s")
                             log.warning(f"[DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
                             
                             def delayed_retry():
@@ -291,7 +294,7 @@ def start_recording_worker(app):
                             retry_thread = threading.Thread(target=delayed_retry, daemon=True)
                             retry_thread.start()
                         else:
-                            print(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                            logger.error(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                             log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                     
                     # 🔥 FIX: Mark as done and set flag to prevent double task_done()
@@ -300,7 +303,7 @@ def start_recording_worker(app):
                     continue
                 
                 # Normal full processing (download + transcribe)
-                print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
+                logger.info(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
                 log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
                 
                 # Build form_data for legacy processing function
@@ -322,7 +325,7 @@ def start_recording_worker(app):
                     import threading
                     
                     delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
-                    print(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
+                    logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
                     log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
                     
                     # Schedule retry in background thread
@@ -340,17 +343,17 @@ def start_recording_worker(app):
                     retry_thread = threading.Thread(target=delayed_retry, daemon=True)
                     retry_thread.start()
                 elif retry_count >= MAX_RETRIES and not success:
-                    print(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
+                    logger.error(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
                     log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
                 else:
-                    print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
+                    logger.info(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
                     log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
                 
             except (OperationalError, DisconnectionError) as e:
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
                 from server.utils.db_health import log_db_error
                 log_db_error(e, context="recording_worker")
-                print(f"🔴 [OFFLINE_STT] DB error processing {job.get('call_sid', 'unknown')} - skipping")
+                logger.error(f"🔴 [OFFLINE_STT] DB error processing {job.get('call_sid', 'unknown')} - skipping")
                 
                 # Rollback to clean up session
                 try:
@@ -365,7 +368,7 @@ def start_recording_worker(app):
             except Exception as e:
                 # 🔥 DB RESILIENCE: Any other error - log and continue
                 log.error(f"[OFFLINE_STT] Worker error: {e}")
-                print(f"❌ [OFFLINE_STT] Error processing {job.get('call_sid', 'unknown')}: {e}")
+                logger.error(f"❌ [OFFLINE_STT] Error processing {job.get('call_sid', 'unknown')}: {e}")
                 import traceback
                 traceback.print_exc()
                 
@@ -386,7 +389,7 @@ def download_recording_only(call_sid, recording_url):
         bool: True if download succeeded, False otherwise
     """
     try:
-        print(f"⚡ [DOWNLOAD_ONLY] Starting download for {call_sid}")
+        logger.info(f"⚡ [DOWNLOAD_ONLY] Starting download for {call_sid}")
         log.info(f"[DOWNLOAD_ONLY] Starting download for {call_sid}")
         
         # Get CallLog to access recording details
@@ -399,7 +402,7 @@ def download_recording_only(call_sid, recording_url):
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             
             if not call_log:
-                print(f"⚠️ [DOWNLOAD_ONLY] CallLog not found for {call_sid}")
+                logger.warning(f"⚠️ [DOWNLOAD_ONLY] CallLog not found for {call_sid}")
                 log.warning(f"[DOWNLOAD_ONLY] CallLog not found for {call_sid}")
                 return False
             
@@ -408,16 +411,16 @@ def download_recording_only(call_sid, recording_url):
             
             if audio_file and os.path.exists(audio_file):
                 file_size = os.path.getsize(audio_file)
-                print(f"✅ [DOWNLOAD_ONLY] Downloaded {file_size} bytes for {call_sid}")
+                logger.info(f"✅ [DOWNLOAD_ONLY] Downloaded {file_size} bytes for {call_sid}")
                 log.info(f"[DOWNLOAD_ONLY] Downloaded {file_size} bytes for {call_sid}")
                 return True
             else:
-                print(f"❌ [DOWNLOAD_ONLY] Failed to download for {call_sid}")
+                logger.error(f"❌ [DOWNLOAD_ONLY] Failed to download for {call_sid}")
                 log.error(f"[DOWNLOAD_ONLY] Failed to download for {call_sid}")
                 return False
                 
     except Exception as e:
-        print(f"❌ [DOWNLOAD_ONLY] Error downloading {call_sid}: {e}")
+        logger.error(f"❌ [DOWNLOAD_ONLY] Error downloading {call_sid}: {e}")
         log.error(f"[DOWNLOAD_ONLY] Error downloading {call_sid}: {e}")
         import traceback
         traceback.print_exc()
@@ -453,7 +456,7 @@ def process_recording_async(form_data):
         to_number = form_data.get("To", "")
         
         log.info("Starting async processing for CallSid=%s", call_sid)
-        print(f"🎧 [OFFLINE_STT] Starting processing for {call_sid}")
+        logger.info(f"🎧 [OFFLINE_STT] Starting processing for {call_sid}")
         
         # ✅ NEW: Use unified recording service - same source as UI
         from server.services.recording_service import get_recording_file_for_call
@@ -476,7 +479,7 @@ def process_recording_async(form_data):
                         call_log.transcript_source and 
                         call_log.transcript_source != TRANSCRIPT_SOURCE_FAILED):
                         
-                        print(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars, source={call_log.transcript_source}) - skipping reprocessing")
+                        logger.info(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars, source={call_log.transcript_source}) - skipping reprocessing")
                         log.info(f"[OFFLINE_STT] Skipping {call_sid} - already processed with transcript_source={call_log.transcript_source}")
                         return True  # Already processed successfully
                     
@@ -484,10 +487,10 @@ def process_recording_async(form_data):
                     audio_file = get_recording_file_for_call(call_log)
                 else:
                     log.warning(f"[OFFLINE_STT] CallLog not found for {call_sid}, cannot get recording")
-                    print(f"⚠️ [OFFLINE_STT] CallLog not found for {call_sid}")
+                    logger.warning(f"⚠️ [OFFLINE_STT] CallLog not found for {call_sid}")
         except Exception as e:
             log.error(f"[OFFLINE_STT] Error getting recording from service: {e}")
-            print(f"❌ [OFFLINE_STT] Error getting recording: {e}")
+            logger.error(f"❌ [OFFLINE_STT] Error getting recording: {e}")
             # 🔥 CRITICAL FIX: Rollback on DB errors
             try:
                 from server.db import db
@@ -496,7 +499,7 @@ def process_recording_async(form_data):
                 pass
         
         if not audio_file:
-            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - need retry")
+            logger.warning(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - need retry")
             log.warning(f"[OFFLINE_STT] Audio file not available for {call_sid}")
             return False  # Signal that retry is needed
         
@@ -518,7 +521,7 @@ def process_recording_async(form_data):
                 # 🔥 BUILD 342: Get audio file metadata
                 audio_bytes_len = os.path.getsize(audio_file)
                 log.info(f"[OFFLINE_STT] Recording file size: {audio_bytes_len} bytes")
-                print(f"📊 [OFFLINE_STT] Recording file: {audio_bytes_len} bytes")
+                logger.info(f"📊 [OFFLINE_STT] Recording file: {audio_bytes_len} bytes")
                 
                 # Try to get duration from audio file
                 try:
@@ -527,7 +530,7 @@ def process_recording_async(form_data):
                         rate = f.getframerate()
                         audio_duration_sec = frames / float(rate)
                         log.info(f"[OFFLINE_STT] Audio duration: {audio_duration_sec:.2f} seconds")
-                        print(f"⏱️ [OFFLINE_STT] Audio duration: {audio_duration_sec:.2f}s")
+                        logger.info(f"⏱️ [OFFLINE_STT] Audio duration: {audio_duration_sec:.2f}s")
                 except Exception as duration_error:
                     # WAV parsing failed, try alternative method or skip duration
                     log.warning(f"[OFFLINE_STT] Could not determine audio duration: {duration_error}")
@@ -542,13 +545,13 @@ def process_recording_async(form_data):
                 if not DEBUG:
                     log.debug(f"[OFFLINE_STT] Starting Whisper transcription for {call_sid}")
                 log.info(f"[OFFLINE_STT] Starting transcription from recording for {call_sid}")
-                print(f"🎤 [OFFLINE_STT] Transcribing recording for {call_sid}")
+                logger.info(f"🎤 [OFFLINE_STT] Transcribing recording for {call_sid}")
                 
                 final_transcript = transcribe_recording_with_whisper(audio_file, call_sid)
                 
                 # ✅ Check if transcription succeeded
                 if not final_transcript or len(final_transcript.strip()) < 10:
-                    print(f"⚠️ [OFFLINE_STT] Recording transcription empty/failed for {call_sid}")
+                    logger.error(f"⚠️ [OFFLINE_STT] Recording transcription empty/failed for {call_sid}")
                     log.warning(f"[OFFLINE_STT] Recording transcription returned empty/invalid result: {len(final_transcript or '')} chars")
                     final_transcript = None  # Clear invalid result
                     transcript_source = TRANSCRIPT_SOURCE_FAILED  # Mark as failed
@@ -557,14 +560,14 @@ def process_recording_async(form_data):
                     if not DEBUG:
                         log.debug(f"[OFFLINE_STT] ✅ Recording transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Recording transcript obtained: {len(final_transcript)} chars")
-                    print(f"✅ [OFFLINE_STT] Recording transcription complete: {len(final_transcript)} chars")
+                    logger.info(f"✅ [OFFLINE_STT] Recording transcription complete: {len(final_transcript)} chars")
                     transcript_source = TRANSCRIPT_SOURCE_RECORDING  # Mark as recording-based
                     
                     # 🔥 NOTE: City/Service extraction moved to AFTER summary generation
                     # We extract from the summary, not from raw transcript (more accurate!)
                     
             except Exception as e:
-                print(f"❌ [OFFLINE_STT/EXTRACT] Post-call processing failed for {call_sid}: {e}")
+                logger.error(f"❌ [OFFLINE_STT/EXTRACT] Post-call processing failed for {call_sid}: {e}")
                 log.error(f"[OFFLINE_STT/EXTRACT] Post-call processing failed: {e}")
                 import traceback
                 traceback.print_exc()
@@ -575,13 +578,13 @@ def process_recording_async(form_data):
                 extraction_confidence = None
                 transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed
         else:
-            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
+            logger.warning(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
             transcript_source = TRANSCRIPT_SOURCE_FAILED  # No recording file = failed
         
         # 🔥 FALLBACK: If recording transcription failed/empty, try to use realtime transcript
         if not final_transcript or len(final_transcript.strip()) < 10:
-            print(f"🔄 [FALLBACK] Recording transcript empty/failed, checking for realtime transcript")
+            logger.error(f"🔄 [FALLBACK] Recording transcript empty/failed, checking for realtime transcript")
             log.info(f"[FALLBACK] Attempting to use realtime transcript as fallback for {call_sid}")
             
             try:
@@ -590,14 +593,14 @@ def process_recording_async(form_data):
                     realtime_transcript = call_log.transcription
                     final_transcript = realtime_transcript  # Use realtime as fallback
                     transcript_source = TRANSCRIPT_SOURCE_REALTIME
-                    print(f"✅ [FALLBACK] Using realtime transcript: {len(final_transcript)} chars")
+                    logger.info(f"✅ [FALLBACK] Using realtime transcript: {len(final_transcript)} chars")
                     log.info(f"[FALLBACK] Using realtime transcript ({len(final_transcript)} chars) for {call_sid}")
                 else:
-                    print(f"⚠️ [FALLBACK] No realtime transcript available for {call_sid}")
+                    logger.warning(f"⚠️ [FALLBACK] No realtime transcript available for {call_sid}")
                     log.warning(f"[FALLBACK] No realtime transcript available for {call_sid}")
                     transcript_source = TRANSCRIPT_SOURCE_FAILED
             except Exception as e:
-                print(f"❌ [FALLBACK] Error loading realtime transcript: {e}")
+                logger.error(f"❌ [FALLBACK] Error loading realtime transcript: {e}")
                 log.error(f"[FALLBACK] Error loading realtime transcript for {call_sid}: {e}")
                 transcript_source = TRANSCRIPT_SOURCE_FAILED
         
@@ -617,7 +620,7 @@ def process_recording_async(form_data):
             if not DEBUG:
                 log.debug(f"[SUMMARY] Using {source_label} for summary generation ({len(source_text_for_summary)} chars)")
             log.info(f"[SUMMARY] Using {source_label} for summary generation")
-            print(f"📝 [SUMMARY] Generating summary from {len(source_text_for_summary)} chars ({source_label})")
+            logger.info(f"📝 [SUMMARY] Generating summary from {len(source_text_for_summary)} chars ({source_label})")
             
             # Get business context for dynamic summarization (requires app context!)
             business_type = None
@@ -656,12 +659,12 @@ def process_recording_async(form_data):
                     log.debug(f"⚠️ Summary generation returned empty")
             
             if summary and len(summary.strip()) > 0:
-                print(f"✅ [SUMMARY] Generated: {len(summary)} chars")
+                logger.info(f"✅ [SUMMARY] Generated: {len(summary)} chars")
             else:
-                print(f"⚠️ [SUMMARY] Empty summary generated")
+                logger.warning(f"⚠️ [SUMMARY] Empty summary generated")
         else:
             # No valid transcript available (neither recording nor realtime)
-            print(f"⚠️ [SUMMARY] No valid transcript available - skipping summary")
+            logger.warning(f"⚠️ [SUMMARY] No valid transcript available - skipping summary")
             if not DEBUG:
                 log.debug(f"[SUMMARY] No valid transcript available ({len(final_transcript or '')} chars)")
         
@@ -687,7 +690,7 @@ def process_recording_async(form_data):
                             log.debug(f"[OFFLINE_EXTRACT] ⏭️ Extraction already exists - skipping (city='{extracted_city}', service='{extracted_service}')")
                         log.info(f"[OFFLINE_EXTRACT] Extraction already exists for {call_sid} - skipping duplicate processing")
             except Exception as e:
-                print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+                logger.warning(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
                 log.warning(f"[OFFLINE_EXTRACT] Could not check existing extraction: {e}")
                 # 🔥 CRITICAL FIX: Rollback on DB errors
                 try:
@@ -724,7 +727,7 @@ def process_recording_async(form_data):
                     
                         log.debug(f"[OFFLINE_EXTRACT] Using {extraction_source} for city/service extraction ({len(extraction_text)} chars)")
                     log.info(f"[OFFLINE_EXTRACT] Starting extraction from {extraction_source}")
-                    print(f"🔍 [OFFLINE_EXTRACT] Extracting from {extraction_source}")
+                    logger.info(f"🔍 [OFFLINE_EXTRACT] Extracting from {extraction_source}")
                     
                     extraction = extract_city_and_service_from_summary(extraction_text)
                     
@@ -733,13 +736,13 @@ def process_recording_async(form_data):
                         extracted_city = extraction.get("city")
                         if not DEBUG:
                             log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted city from {extraction_source}: '{extracted_city}'")
-                        print(f"✅ [OFFLINE_EXTRACT] City: {extracted_city}")
+                        logger.info(f"✅ [OFFLINE_EXTRACT] City: {extracted_city}")
                     
                     if extraction.get("service_category"):
                         extracted_service = extraction.get("service_category")
                         if not DEBUG:
                             log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted service from {extraction_source}: '{extracted_service}'")
-                        print(f"✅ [OFFLINE_EXTRACT] Service: {extracted_service}")
+                        logger.info(f"✅ [OFFLINE_EXTRACT] Service: {extracted_service}")
                     
                     if extraction.get("confidence") is not None:
                         extraction_confidence = extraction.get("confidence")
@@ -755,7 +758,7 @@ def process_recording_async(form_data):
                             log.debug(f"[OFFLINE_EXTRACT] ⚠️ No city/service found in {extraction_source}")
                         
                 except Exception as e:
-                    print(f"❌ [OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
+                    logger.error(f"❌ [OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
                     log.error(f"[OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
                     import traceback
                     traceback.print_exc()
@@ -767,7 +770,7 @@ def process_recording_async(form_data):
         # 4. שמור לDB עם תמלול + סיכום + 🆕 POST-CALL DATA
         # 🔥 FIX: תמלול רק מההקלטה - transcription=final_transcript (NO realtime!)
         to_number = form_data.get('To', '')
-        print(f"💾 [OFFLINE_STT] Saving to DB: transcript={len(final_transcript or '')} chars, summary={len(summary or '')} chars")
+        logger.info(f"💾 [OFFLINE_STT] Saving to DB: transcript={len(final_transcript or '')} chars, summary={len(summary or '')} chars")
         save_call_to_db(
             call_sid, from_number, recording_url, final_transcript, to_number, summary,
             # 🆕 Pass extracted data
@@ -796,18 +799,18 @@ def process_recording_async(form_data):
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if not call_log:
                     log.warning(f"[WEBHOOK] CallLog not found for {call_sid} - cannot send webhook")
-                    print(f"⚠️ [WEBHOOK] CallLog not found for {call_sid} - skipping webhook")
+                    logger.warning(f"⚠️ [WEBHOOK] CallLog not found for {call_sid} - skipping webhook")
                 else:
                     business = Business.query.filter_by(id=call_log.business_id).first()
                     if not business:
                         log.warning(f"[WEBHOOK] Business not found for call {call_sid} - cannot send webhook")
-                        print(f"⚠️ [WEBHOOK] Business not found - skipping webhook")
+                        logger.warning(f"⚠️ [WEBHOOK] Business not found - skipping webhook")
                     else:
                         # Determine call direction
                         direction = call_log.direction or "inbound"
                         
                         # 🔥 CRITICAL: Always print webhook attempt - helps diagnose "no webhook sent" issues
-                        print(f"📤 [WEBHOOK] Attempting to send webhook for call {call_sid}: direction={direction}, business_id={business.id}")
+                        logger.info(f"📤 [WEBHOOK] Attempting to send webhook for call {call_sid}: direction={direction}, business_id={business.id}")
                         log.info(f"[WEBHOOK] Preparing webhook for call {call_sid}: direction={direction}, business={business.id}")
                         
                         # 🔥 FIX: Fetch canonical service_type from lead (after canonicalization)
@@ -850,15 +853,15 @@ def process_recording_async(form_data):
                         
                         # 🔥 CRITICAL: Always print webhook result
                         if webhook_sent:
-                            print(f"✅ [WEBHOOK] Webhook successfully queued for call {call_sid} (direction={direction})")
+                            logger.info(f"✅ [WEBHOOK] Webhook successfully queued for call {call_sid} (direction={direction})")
                             log.info(f"[WEBHOOK] Webhook queued for call {call_sid} (direction={direction})")
                         else:
-                            print(f"❌ [WEBHOOK] Webhook NOT sent for call {call_sid} (direction={direction}) - check URL configuration")
+                            logger.error(f"❌ [WEBHOOK] Webhook NOT sent for call {call_sid} (direction={direction}) - check URL configuration")
                             log.warning(f"[WEBHOOK] Webhook not sent for call {call_sid} - no URL configured for direction={direction}")
                             
         except Exception as webhook_err:
             # Don't fail the entire pipeline if webhook fails - just log it
-            print(f"❌ [WEBHOOK] Failed to send webhook for {call_sid}: {webhook_err}")
+            logger.error(f"❌ [WEBHOOK] Failed to send webhook for {call_sid}: {webhook_err}")
             log.error(f"[WEBHOOK] Failed to send webhook for {call_sid}: {webhook_err}")
             import traceback
             traceback.print_exc()
@@ -1113,7 +1116,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     
             except Exception as topic_err:
                 # Don't fail the entire pipeline if classification fails
-                print(f"⚠️ [TOPIC_CLASSIFY] Classification failed for {call_sid}: {topic_err}")
+                logger.error(f"⚠️ [TOPIC_CLASSIFY] Classification failed for {call_sid}: {topic_err}")
                 log.error(f"[TOPIC_CLASSIFY] Failed for {call_sid}: {topic_err}")
                 import traceback
                 traceback.print_exc()
@@ -1146,10 +1149,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # ✅ Use the locked lead_id from CallLog (imported at top level)
                 lead = Lead.query.filter_by(id=call_log.lead_id).first()
                 if lead:
-                    print(f"✅ [LEAD_ID_LOCK] Using locked lead_id={lead.id} from CallLog for updates")
+                    logger.info(f"✅ [LEAD_ID_LOCK] Using locked lead_id={lead.id} from CallLog for updates")
                     log.info(f"[LEAD_ID_LOCK] Using locked lead {lead.id} for call {call_sid}")
                 else:
-                    print(f"⚠️ [LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found!")
+                    logger.warning(f"⚠️ [LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found!")
                     log.warning(f"[LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found")
             
             # If no lead_id on CallLog, fall back to creating/finding by phone (legacy behavior)
@@ -1158,7 +1161,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             ci = None  # Will be initialized when needed
             
             if not lead and from_number and call_log and call_log.business_id:
-                print(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
+                logger.warning(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
                 ci = CustomerIntelligence(call_log.business_id)
                 
                 # זיהוי/יצירת לקוח וליד
@@ -1587,7 +1590,7 @@ def _identify_business_for_call(to_number, from_number):
         ).first()
         
         if business:
-            print(f"✅ זיהוי עסק לפי מספר נכנס {to_number}: {business.name}")
+            logger.info(f"✅ זיהוי עסק לפי מספר נכנס {to_number}: {business.name}")
             return business
     
     # שלב 2: אם לא נמצא, חפש לפי מספר היוצא (from_number) - אולי עסק שמתקשר החוצה
@@ -1600,16 +1603,16 @@ def _identify_business_for_call(to_number, from_number):
         ).first()
         
         if business:
-            print(f"✅ זיהוי עסק לפי מספר יוצא {from_number}: {business.name}")
+            logger.info(f"✅ זיהוי עסק לפי מספר יוצא {from_number}: {business.name}")
             return business
     
     # ✅ BUILD 155: fallback לעסק פעיל בלבד (אין fallback לכל עסק)
     business = Business.query.filter(Business.is_active == True).first()
     if business:
-        print(f"⚠️ שימוש בעסק פעיל ברירת מחדל: {business.name}")
+        logger.warning(f"⚠️ שימוש בעסק פעיל ברירת מחדל: {business.name}")
         return business
         
-    print("❌ לא נמצא עסק פעיל במערכת - recording יישמר ללא שיוך עסק")
+    logger.error("❌ לא נמצא עסק פעיל במערכת - recording יישמר ללא שיוך עסק")
     return None
 
 

@@ -278,8 +278,8 @@ def api_admin_businesses():
             logger.error(f"Full traceback: {error_trace}")
         except:
             pass  # logger might not be available
-        print(f"🔥 BUSINESSES API ERROR: {e}")
-        print(f"🔥 TRACEBACK: {error_trace}")
+        logger.error(f"🔥 BUSINESSES API ERROR: {e}")
+        logger.error(f"🔥 TRACEBACK: {error_trace}")
         return jsonify({"error": f"DEBUG: {str(e)}"}), 500
 
 # A2) צפייה/התחזות - לפי ההנחיות המדויקות
@@ -625,7 +625,7 @@ def admin_leads():
         })
         
     except Exception as e:
-        print(f"❌ Error fetching admin leads: {e}")
+        logger.error(f"❌ Error fetching admin leads: {e}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route("/api/admin/leads/stats", methods=["GET"])

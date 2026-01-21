@@ -69,7 +69,7 @@ def get_business_users(business_id):
         })
         
     except Exception as e:
-        print(f"❌ Error fetching business users: {e}")
+        logger.error(f"❌ Error fetching business users: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -146,7 +146,7 @@ def create_business_user(business_id):
         db.session.add(user)
         db.session.commit()
         
-        print(f"✅ Created user: {email} (role={role}) for business {business.name}")
+        logger.info(f"✅ Created user: {email} (role={role}) for business {business.name}")
         
         return jsonify({
             'success': True,
@@ -164,7 +164,7 @@ def create_business_user(business_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error creating user: {e}")
+        logger.error(f"❌ Error creating user: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -251,7 +251,7 @@ def update_business_user(business_id, user_id):
         
         db.session.commit()
         
-        print(f"✅ Updated user: {user.email} (role={user.role})")
+        logger.info(f"✅ Updated user: {user.email} (role={user.role})")
         
         return jsonify({
             'success': True,
@@ -269,7 +269,7 @@ def update_business_user(business_id, user_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error updating user: {e}")
+        logger.error(f"❌ Error updating user: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -315,13 +315,13 @@ def delete_business_user(business_id, user_id):
         db.session.delete(user)
         db.session.commit()
         
-        print(f"✅ Deleted user: {user.email}")
+        logger.info(f"✅ Deleted user: {user.email}")
         
         return jsonify({'success': True, 'message': 'User deleted successfully'})
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error deleting user: {e}")
+        logger.error(f"❌ Error deleting user: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -373,13 +373,13 @@ def change_business_user_password(business_id, user_id):
         user.password_hash = generate_password_hash(new_password)
         db.session.commit()
         
-        print(f"✅ Password changed for user {user.email} (business {business_id}) by {current_user.get('email')}")
+        logger.info(f"✅ Password changed for user {user.email} (business {business_id}) by {current_user.get('email')}")
         
         return jsonify({'success': True, 'message': 'Password changed successfully'})
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error changing password: {e}")
+        logger.error(f"❌ Error changing password: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -423,7 +423,7 @@ def set_business_owner(business_id):
         user.role = 'owner'
         db.session.commit()
         
-        print(f"✅ Set user as owner: {user.email}")
+        logger.info(f"✅ Set user as owner: {user.email}")
         
         return jsonify({
             'success': True,
@@ -437,7 +437,7 @@ def set_business_owner(business_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"❌ Error setting owner: {e}")
+        logger.error(f"❌ Error setting owner: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

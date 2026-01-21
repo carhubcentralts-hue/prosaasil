@@ -16,6 +16,10 @@ import json
 import os
 from typing import Dict, Set
 from functools import lru_cache
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 
 @lru_cache(maxsize=1)
@@ -45,7 +49,7 @@ def _load_dynamic_area_patterns() -> Dict[str, list]:
                             aliases.append(alias)
                     patterns[canonical] = aliases
     except Exception as e:
-        print(f"[APPOINTMENT_PARSER] Warning: Could not load cities: {e}")
+        logger.warning(f"[APPOINTMENT_PARSER] Warning: Could not load cities: {e}")
     
     return patterns
 
@@ -105,8 +109,8 @@ def parse_appointment_info_dynamic(text: str, required_fields: list = None) -> D
     
     # Log for debugging
     if required_fields:
-        print(f"[APPOINTMENT_PARSER] Business requires: {required_fields}")
-        print(f"[APPOINTMENT_PARSER] Extracted area: {area or 'none'}")
-        print(f"[APPOINTMENT_PARSER] Other fields extracted by AI prompt")
+        logger.info(f"[APPOINTMENT_PARSER] Business requires: {required_fields}")
+        logger.info(f"[APPOINTMENT_PARSER] Extracted area: {area or 'none'}")
+        logger.info(f"[APPOINTMENT_PARSER] Other fields extracted by AI prompt")
     
     return result

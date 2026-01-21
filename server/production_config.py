@@ -4,6 +4,10 @@ Production-ready environment setup
 """
 import os
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ProductionConfig:
     """Production configuration settings"""
@@ -60,8 +64,8 @@ def init_production_config(app):
             missing_vars.append(var)
     
     if missing_vars:
-        print(f"⚠️ Warning: Missing environment variables: {', '.join(missing_vars)}")
+        logger.warning(f"⚠️ Warning: Missing environment variables: {', '.join(missing_vars)}")
     else:
-        print("✅ All required environment variables present")
+        logger.info("✅ All required environment variables present")
     
     return app

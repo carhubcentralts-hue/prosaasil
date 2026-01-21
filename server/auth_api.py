@@ -47,7 +47,7 @@ def verify_password(stored_hash, password):
         # ✅ FIX: werkzeug handles scrypt, pbkdf2, and all other formats natively
         return check_password_hash(stored_hash, password)
     except Exception as e:
-        print(f"⚠️ Password verification error: {e}")
+        logger.error(f"⚠️ Password verification error: {e}")
         return False
 
 @auth_api.get("/csrf")
@@ -79,17 +79,17 @@ def login():
         
         data = request.get_json()
         if not data:
-            print("❌ LOGIN: No JSON data received")
+            logger.error("❌ LOGIN: No JSON data received")
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
         
         email = data.get('email')
         password = data.get('password')
         remember_me = data.get('remember_me', False)  # Remember me checkbox
         
-        print(f"🔐 LOGIN ATTEMPT: email={email}, remember_me={remember_me}")
+        logger.info(f"🔐 LOGIN ATTEMPT: email={email}, remember_me={remember_me}")
         
         if not email or not password:
-            print("❌ LOGIN: Missing email or password")
+            logger.error("❌ LOGIN: Missing email or password")
             return jsonify({'success': False, 'error': 'Missing email or password'}), 400
         
         # Find user by email (fix field names to match DB schema)
@@ -102,17 +102,17 @@ def login():
             return jsonify({'success': False, 'error': 'Database error'}), 500
         
         if not user:
-            print(f"❌ LOGIN: User not found for email={email}")
+            logger.error(f"❌ LOGIN: User not found for email={email}")
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
         
-        print(f"✓ Found user: id={user.id}, email={user.email}, role={user.role}")
-        print(f"✓ Password hash: {user.password_hash[:50]}...")
+        logger.info(f"✓ Found user: id={user.id}, email={user.email}, role={user.role}")
+        logger.info(f"✓ Password hash: {user.password_hash[:50]}...")
         
         password_valid = verify_password(user.password_hash, password)
-        print(f"✓ Password verification result: {password_valid}")
+        logger.info(f"✓ Password verification result: {password_valid}")
         
         if not password_valid:
-            print(f"❌ LOGIN: Invalid password for email={email}")
+            logger.error(f"❌ LOGIN: Invalid password for email={email}")
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
         
         # Update last login
@@ -120,7 +120,7 @@ def login():
         try:
             db.session.commit()
         except Exception as commit_error:
-            print(f"⚠️ DB commit warning: {commit_error}")
+            logger.error(f"⚠️ DB commit warning: {commit_error}")
             db.session.rollback()  # Rollback if commit fails
         
         # Generate refresh token
@@ -438,7 +438,7 @@ def get_current_user():
         return jsonify(response_data), 200
     
     except Exception as e:
-        print(f"Error in /api/auth/me: {e}")
+        logger.error(f"Error in /api/auth/me: {e}")
         return jsonify({'error': str(e)}), 500
 
 @auth_api.route('/current', methods=['GET'])
@@ -679,10 +679,10 @@ def create_default_admin():
         admin = User.query.filter_by(email='admin@admin.com').first()
         if admin:
             # Reset password for existing admin
-            print(f"👤 Admin exists (ID={admin.id}), resetting password to 'admin123'")
+            logger.info(f"👤 Admin exists (ID={admin.id}), resetting password to 'admin123'")
             admin.password_hash = generate_password_hash('admin123', method='scrypt')
             db.session.commit()
-            print(f"✅ Admin password reset: admin@admin.com / admin123")
+            logger.info(f"✅ Admin password reset: admin@admin.com / admin123")
         elif not User.query.filter_by(role='system_admin').first():
             # ✅ BUILD 140: Create system_admin with business_id=None (global entity)
             admin = User(
@@ -695,9 +695,9 @@ def create_default_admin():
             )
             db.session.add(admin)
             db.session.commit()
-            print("✅ Created default admin user: admin@admin.com / admin123")
+            logger.info("✅ Created default admin user: admin@admin.com / admin123")
     except Exception as e:
-        print(f"⚠️ Error creating admin user: {e}")
+        logger.error(f"⚠️ Error creating admin user: {e}")
 
 @csrf.exempt
 @auth_api.route('/init-admin', methods=['POST'])
@@ -707,7 +707,7 @@ def init_admin():
         create_default_admin()
         return jsonify({'success': True, 'message': 'Admin initialized'}), 200
     except Exception as e:
-        print(f"❌ Admin init failed: {e}")
+        logger.error(f"❌ Admin init failed: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500

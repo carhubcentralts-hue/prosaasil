@@ -112,6 +112,9 @@ services:
       RUN_MIGRATIONS_ON_START: 0
       PRODUCTION: ${PRODUCTION:-1}
       RQ_QUEUES: high,default,low,receipts,receipts_sync
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -162,6 +165,9 @@ services:
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: api
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -230,6 +236,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: 1
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -243,7 +252,8 @@ services:
     # Reason: stream_registry is in-memory, not Redis
     # Multi-worker = lost call state = crashes
     # To scale: Refactor stream_registry to Redis first
-    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30"]
+    # 🔥 PRODUCTION LOGGING: --log-level info to minimize access logs
+    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30", "--log-level", "info"]
     expose:
       - "5050"
     volumes:

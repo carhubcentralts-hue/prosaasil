@@ -127,7 +127,7 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             agent_start = time.time()
             
             # 🔥 CRITICAL FIX: Load DB prompt if not provided
-            print(f"📋 PROMPT LOADING: business_id={business_id}, channel={channel}, custom_instructions provided={bool(custom_instructions)}", flush=True)
+            logger.info(f"📋 PROMPT LOADING: business_id={business_id}, channel={channel}, custom_instructions provided={bool(custom_instructions)}", flush=True)
             if not custom_instructions or not isinstance(custom_instructions, str) or not custom_instructions.strip():
                 try:
                     from server.models_sql import Business
@@ -145,10 +145,10 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                         if row:
                             settings_row = {"ai_prompt": row[0]}
                     except Exception as sql_err:
-                        print(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}", flush=True)
+                        logger.warning(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}", flush=True)
                     
                     business = Business.query.filter_by(id=business_id).first()
-                    print(f"📋 LOADING PROMPT: business_id={business_id}, business_name={business.name if business else 'N/A'}", flush=True)
+                    logger.info(f"📋 LOADING PROMPT: business_id={business_id}, business_name={business.name if business else 'N/A'}", flush=True)
                     if settings_row and settings_row.get("ai_prompt"):
                         import json
                         try:
@@ -159,24 +159,24 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                                     custom_instructions = prompt_data.get('whatsapp', '')
                                 else:
                                     custom_instructions = prompt_data.get('calls', '')
-                                print(f"✅ Loaded {channel} prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
-                                print(f"📝 PROMPT PREVIEW: {custom_instructions[:100] if custom_instructions else 'EMPTY'}...", flush=True)
+                                logger.info(f"✅ Loaded {channel} prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
+                                logger.info(f"📝 PROMPT PREVIEW: {custom_instructions[:100] if custom_instructions else 'EMPTY'}...", flush=True)
                             else:
                                 # Legacy single prompt
                                 custom_instructions = settings_row["ai_prompt"]
-                                print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
+                                logger.info(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                         except json.JSONDecodeError:
                             # Legacy single prompt
                             custom_instructions = settings_row["ai_prompt"]
-                            print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
+                            logger.info(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                     else:
-                        print(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}", flush=True)
+                        logger.warning(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}", flush=True)
                 except Exception as e:
-                    print(f"⚠️ Could not load DB prompt for business={business_id}: {e}", flush=True)
+                    logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}", flush=True)
                     logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")
                     custom_instructions = None
             
-            print(f"🔨 CALLING create_booking_agent(business_id={business_id}, channel={channel})")
+            logger.info(f"🔨 CALLING create_booking_agent(business_id={business_id}, channel={channel})")
             logger.info(f"🔨 Creating agent for business={business_id}, channel={channel}")
             
             new_agent = create_booking_agent(
@@ -186,11 +186,11 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                 channel=channel
             )
             
-            print(f"✅ create_booking_agent RETURNED: {new_agent is not None}")
+            logger.info(f"✅ create_booking_agent RETURNED: {new_agent is not None}")
             logger.info(f"✅ create_booking_agent returned successfully")
             
             agent_creation_time = (time.time() - agent_start) * 1000
-            print(f"⏱️  AGENT_CREATION_TIME: {agent_creation_time:.0f}ms")
+            logger.info(f"⏱️  AGENT_CREATION_TIME: {agent_creation_time:.0f}ms")
             logger.info(f"⏱️  Agent creation took {agent_creation_time:.0f}ms")
             
             if agent_creation_time > 2000:
@@ -618,10 +618,10 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 import time
                 tool_start = time.time()
                 
-                print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
-                print(f"   📅 date_iso (RAW from Agent)={date_iso}")
-                print(f"   ⏱️  duration_min={duration_min}")
-                print(f"   🏢 business_id={business_id}")
+                logger.info(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
+                logger.info(f"   📅 date_iso (RAW from Agent)={date_iso}")
+                logger.info(f"   ⏱️  duration_min={duration_min}")
+                logger.info(f"   🏢 business_id={business_id}")
                 
                 # 🔥 FIX #1: Auto-correct suspicious ISO year (generic; no hardcoded year).
                 from datetime import datetime
@@ -633,11 +633,11 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     tz = pytz.timezone("Asia/Jerusalem")
                     corrected_date, corrected, reason = auto_correct_iso_year(date_iso, tz, datetime.now(tz))
                     if corrected:
-                        print(f"   🔧 CORRECTED year: {date_iso} → {corrected_date} (reason={reason})")
+                        logger.info(f"   🔧 CORRECTED year: {date_iso} → {corrected_date} (reason={reason})")
                 except Exception:
                     pass
                 
-                print(f"   ✅ date_iso (CORRECTED)={corrected_date}")
+                logger.info(f"   ✅ date_iso (CORRECTED)={corrected_date}")
                 logger.info(f"🔧 TOOL CALLED: calendar_find_slots_wrapped")
                 logger.info(f"   📅 date_iso: {date_iso} → {corrected_date}")
                 logger.info(f"   ⏱️  duration_min={duration_min}")
@@ -655,14 +655,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 # Call internal implementation function directly
                 result = _calendar_find_slots_impl(input_data)
                 
-                print(f"✅ calendar_find_slots_wrapped RESULT: {len(result.slots)} slots found")
+                logger.info(f"✅ calendar_find_slots_wrapped RESULT: {len(result.slots)} slots found")
                 logger.info(f"✅ calendar_find_slots_wrapped RESULT: {len(result.slots)} slots found")
                 if result.slots:
                     slot_times = [s.start_display for s in result.slots[:5]]
-                    print(f"   Available times: {', '.join(slot_times)}{'...' if len(result.slots) > 5 else ''}")
+                    logger.info(f"   Available times: {', '.join(slot_times)}{'...' if len(result.slots) > 5 else ''}")
                     logger.info(f"   Available times: {', '.join(slot_times)}{'...' if len(result.slots) > 5 else ''}")
                 else:
-                    print(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
+                    logger.warning(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
                     logger.warning(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
                 
                 # Convert Pydantic model to dict for Agent SDK
@@ -673,18 +673,18 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 original_count = len(result_dict.get('slots', []))
                 if original_count > 2:
                     result_dict['slots'] = result_dict['slots'][:2]
-                    print(f"🔥 SLOT_LIMIT: Reduced {original_count} slots → 2 (enforced in code)")
+                    logger.info(f"🔥 SLOT_LIMIT: Reduced {original_count} slots → 2 (enforced in code)")
                     logger.info(f"🔥 SLOT_LIMIT: Reduced {original_count} slots → 2 slots")
                 
                 tool_time = (time.time() - tool_start) * 1000
-                print(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
+                logger.info(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
                 logger.info(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
                 
                 if tool_time > 500:
-                    print(f"⚠️  SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms (expected <500ms)")
+                    logger.warning(f"⚠️  SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms (expected <500ms)")
                     logger.warning(f"SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms")
                 
-                print(f"📤 Returning dict with {len(result_dict.get('slots', []))} slots")
+                logger.info(f"📤 Returning dict with {len(result_dict.get('slots', []))} slots")
                 return result_dict
             except Exception as e:
                 # 🔥 DON'T raise - return controlled error for Agent to handle
@@ -730,12 +730,12 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 import time
                 tool_start = time.time()
                 
-                print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_create_appointment_wrapped 🔧 🔧 🔧")
-                print(f"   📅 treatment_type={treatment_type}")
-                print(f"   📅 start_iso={start_iso}, end_iso={end_iso}")
-                print(f"   📞 customer_phone (from Agent)={customer_phone}")
-                print(f"   👤 customer_name (from Agent)={customer_name}")
-                print(f"   🏢 business_id={business_id}")
+                logger.info(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_create_appointment_wrapped 🔧 🔧 🔧")
+                logger.info(f"   📅 treatment_type={treatment_type}")
+                logger.info(f"   📅 start_iso={start_iso}, end_iso={end_iso}")
+                logger.info(f"   📞 customer_phone (from Agent)={customer_phone}")
+                logger.info(f"   👤 customer_name (from Agent)={customer_name}")
+                logger.info(f"   🏢 business_id={business_id}")
                 
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
@@ -814,26 +814,26 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 logger.info(f"🔧 calendar_create_appointment_wrapped: {customer_name}, phone={customer_phone}, business_id={business_id}")
                 
                 # Call internal implementation with context/session
-                print(f"🚀 CALLING _calendar_create_appointment_impl...")
+                logger.info(f"🚀 CALLING _calendar_create_appointment_impl...")
                 result = _calendar_create_appointment_impl(input_data, context=context, session=session)
-                print(f"📥 RESULT from _calendar_create_appointment_impl: {result}")
+                logger.info(f"📥 RESULT from _calendar_create_appointment_impl: {result}")
                 
                 # Check if result is error dict or success object
                 if isinstance(result, dict):
                     # Error response from _calendar_create_appointment_impl
-                    print(f"❌ Got ERROR dict: {result}")
+                    logger.error(f"❌ Got ERROR dict: {result}")
                     logger.warning(f"❌ calendar_create_appointment_wrapped returned error: {result}")
                     return result
                 
-                print(f"✅ SUCCESS! Appointment ID: {result.appointment_id}")
+                logger.info(f"✅ SUCCESS! Appointment ID: {result.appointment_id}")
                 logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
                 
                 tool_time = (time.time() - tool_start) * 1000
-                print(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
+                logger.info(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
                 logger.info(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
                 
                 if tool_time > 1000:
-                    print(f"⚠️  SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms (expected <1000ms)")
+                    logger.warning(f"⚠️  SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms (expected <1000ms)")
                     logger.warning(f"SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms")
                 
                 # Return success response
@@ -843,7 +843,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     "status": result.status,
                     "confirmation_message": result.confirmation_message
                 }
-                print(f"📤 Returning success: {success_response}")
+                logger.info(f"📤 Returning success: {success_response}")
                 return success_response
                 
             except Exception as e:
@@ -883,7 +883,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                         context_phone = g.agent_context.get('customer_phone', '')
                         if context_phone:
                             actual_phone = context_phone
-                            print(f"   ✅ leads_upsert using phone from context: {actual_phone}")
+                            logger.info(f"   ✅ leads_upsert using phone from context: {actual_phone}")
                             logger.info(f"   ✅ leads_upsert using phone from context: {actual_phone}")
                 
                 if not actual_phone:
@@ -1367,10 +1367,10 @@ Customer presses digits + # to end input.
         # 🔥 NEW REQUIREMENT: NO length limits - let business prompts be as long as needed
         # Just ensure system_rules are concise and focused
         instructions = system_rules + custom_instructions
-        print(f"\n✅ Using DB prompt for {business_name} ({len(custom_instructions)} chars)")
-        print(f"   System rules: {len(system_rules)} chars (prepended)")
-        print(f"   DB prompt: {len(custom_instructions)} chars")
-        print(f"   = Total: {len(instructions)} chars")
+        logger.info(f"\n✅ Using DB prompt for {business_name} ({len(custom_instructions)} chars)")
+        logger.info(f"   System rules: {len(system_rules)} chars (prepended)")
+        logger.info(f"   DB prompt: {len(custom_instructions)} chars")
+        logger.info(f"   = Total: {len(instructions)} chars")
         logger.info(f"✅ Using DATABASE prompt for {business_name} (total: {len(instructions)} chars)")
     else:
         # No DB prompt - use minimal fallback
@@ -1391,7 +1391,7 @@ Keep responses short (2-3 sentences).
 Be friendly and professional."""
         
         instructions = system_rules + fallback_prompt
-        print(f"\n⚠️  NO DB prompt - using minimal fallback for {business_name}")
+        logger.warning(f"\n⚠️  NO DB prompt - using minimal fallback for {business_name}")
         logger.warning(f"No DATABASE prompt for {business_name} - using minimal fallback")
 
     # 🎧 CRM Context-Aware Support: Add customer service instructions if enabled
@@ -1540,15 +1540,15 @@ Be friendly and professional."""
 
     try:
         # DEBUG: Print the actual instructions the agent receives
-        print("\n" + "="*80)
-        print("📜 AGENT INSTRUCTIONS (first 500 chars):")
-        print("="*80)
-        print(instructions[:500])
-        print("...")
-        print("="*80)
-        print(f"📅 Today calculated as: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}")
-        print(f"📅 Tomorrow calculated as: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}")
-        print("="*80 + "\n")
+        logger.info("\n" + "="*80)
+        logger.info("📜 AGENT INSTRUCTIONS (first 500 chars):")
+        logger.info("="*80)
+        logger.info(instructions[:500])
+        logger.info("...")
+        logger.info("="*80)
+        logger.info(f"📅 Today calculated as: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}")
+        logger.info(f"📅 Tomorrow calculated as: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}")
+        logger.info("="*80 + "\n")
         
         # 🔥 BUILD 115: Dynamic max_tokens per channel
         # Phone/calls: 60 tokens (15 words) - prevents queue overflow
@@ -1890,7 +1890,7 @@ def warmup_all_agents():
         import time
         
         warmup_start = time.time()
-        print("\n🔥 WARMUP: Pre-creating agents for active businesses...")
+        logger.info("\n🔥 WARMUP: Pre-creating agents for active businesses...")
         logger.info("🔥 Starting agent warmup...")
         
         # 🔥 FIX: Wait for database to be ready with retry logic
@@ -1913,22 +1913,22 @@ def warmup_all_agents():
                 # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
                 db.session.rollback()
                 if attempt < max_retries - 1:
-                    print(f"⏳ Database not ready (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                    logger.info(f"⏳ Database not ready (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
                     logger.warning(f"Database not ready (attempt {attempt + 1}/{max_retries}): {db_error}")
                     time.sleep(retry_delay)
                     retry_delay = min(retry_delay * 2, 5.0)  # Exponential backoff with 5s cap
                 else:
                     # Final attempt failed
-                    print(f"❌ Database connection failed after {max_retries} attempts")
+                    logger.error(f"❌ Database connection failed after {max_retries} attempts")
                     logger.error(f"Database connection failed after {max_retries} attempts: {db_error}")
                     return
         
         if not active_businesses:
-            print("⚠️  No active businesses found for warmup")
+            logger.warning("⚠️  No active businesses found for warmup")
             logger.warning("No active businesses found for warmup")
             return
         
-        print(f"📊 Found {len(active_businesses)} businesses to warm up")
+        logger.info(f"📊 Found {len(active_businesses)} businesses to warm up")
         logger.info(f"Found {len(active_businesses)} businesses to warm up")
         
         warmed_count = 0
@@ -1943,18 +1943,18 @@ def warmup_all_agents():
                     )
                     if agent:
                         warmed_count += 1
-                        print(f"✅ Warmed: {biz.name} ({channel})")
+                        logger.info(f"✅ Warmed: {biz.name} ({channel})")
                         logger.info(f"✅ Agent warmed: business={biz.name}, channel={channel}")
                 except Exception as e:
-                    print(f"⚠️  Failed to warm {biz.name} ({channel}): {e}")
+                    logger.error(f"⚠️  Failed to warm {biz.name} ({channel}): {e}")
                     logger.error(f"Failed to warm agent for {biz.name} ({channel}): {e}")
         
         warmup_time = (time.time() - warmup_start) * 1000
-        print(f"\n🎉 WARMUP COMPLETE: {warmed_count} agents ready in {warmup_time:.0f}ms")
+        logger.info(f"\n🎉 WARMUP COMPLETE: {warmed_count} agents ready in {warmup_time:.0f}ms")
         logger.info(f"🎉 Agent warmup complete: {warmed_count} agents in {warmup_time:.0f}ms")
         
     except Exception as e:
-        print(f"❌ WARMUP FAILED: {e}")
+        logger.error(f"❌ WARMUP FAILED: {e}")
         logger.error(f"Agent warmup failed: {e}")
         import traceback
         traceback.print_exc()
