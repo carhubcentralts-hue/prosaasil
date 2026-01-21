@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, FileText, Upload, Send, Download, Ban, Calendar, User, Clock, CheckCircle, Edit3, Trash2, Eye, Save } from 'lucide-react';
+import { X, FileText, Upload, Send, Download, Ban, Calendar, User, Clock, CheckCircle, Edit3, Trash2, Eye, Save, Edit } from 'lucide-react';
 import { formatDate } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
 import { Button } from '../../shared/components/ui/Button';
+import { SignatureFieldMarker, SignatureField } from '../../components/SignatureFieldMarker';
 
 interface ContractDetailsProps {
   contractId: number;
@@ -209,10 +210,13 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
   const [editSignerName, setEditSignerName] = useState('');
   const [editSignerPhone, setEditSignerPhone] = useState('');
   const [editSignerEmail, setEditSignerEmail] = useState('');
+  const [showSignatureMarker, setShowSignatureMarker] = useState(false);
+  const [signatureFieldCount, setSignatureFieldCount] = useState(0);
 
   useEffect(() => {
     loadContract();
     loadEvents();
+    loadSignatureFieldCount();
   }, [contractId]);
 
   const loadContract = async () => {
@@ -246,6 +250,20 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       setEvents(data.events || []);
     } catch (err) {
       console.error('Error loading events:', err);
+    }
+  };
+
+  const loadSignatureFieldCount = async () => {
+    try {
+      const response = await fetch(`/api/contracts/${contractId}/signature-fields`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSignatureFieldCount(data.fields?.length || 0);
+      }
+    } catch (err) {
+      console.error('Error loading signature field count:', err);
     }
   };
 
@@ -286,6 +304,12 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
   const handleSendForSignature = async () => {
     if (!contract) return;
 
+    // Validate signature fields exist
+    if (signatureFieldCount === 0) {
+      setError('יש לסמן לפחות אזור חתימה אחד לפני שליחה. לחץ על "סמן אזורי חתימה" כדי להוסיף.');
+      return;
+    }
+
     setSending(true);
     setError(null);
     setSignUrl(null);
@@ -312,6 +336,23 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
     } finally {
       setSending(false);
     }
+  };
+
+  const handleSaveSignatureFields = async (fields: SignatureField[]) => {
+    const response = await fetch(`/api/contracts/${contractId}/signature-fields`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ fields }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to save signature fields');
+    }
+
+    await loadSignatureFieldCount();
+    setShowSignatureMarker(false);
   };
 
   const handleCancelContract = async () => {
@@ -583,6 +624,31 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
             )}
           </div>
 
+          {/* Signature Fields Section */}
+          {contract.status === 'draft' && contract.files.length > 0 && (
+            <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900">אזורי חתימה</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {signatureFieldCount === 0 
+                      ? 'לא סומנו אזורי חתימה - יש לסמן לפחות אזור אחד'
+                      : `סומנו ${signatureFieldCount} אזורי חתימה במסמך`
+                    }
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setShowSignatureMarker(true)}
+                  variant="secondary"
+                  className="flex items-center gap-2"
+                >
+                  <Edit className="w-4 h-4" />
+                  {signatureFieldCount === 0 ? 'סמן אזורי חתימה' : 'ערוך אזורים'}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Files Section */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -681,6 +747,20 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
           )}
         </div>
       </div>
+
+      {/* Signature Field Marker Modal */}
+      {showSignatureMarker && contract.files.length > 0 && (
+        <SignatureFieldMarker
+          pdfUrl={
+            contract.files[0].mime_type === 'application/pdf'
+              ? `/api/contracts/${contractId}/files/${contract.files[0].id}/download`
+              : ''
+          }
+          contractId={contractId}
+          onClose={() => setShowSignatureMarker(false)}
+          onSave={handleSaveSignatureFields}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,40 @@
+/* Signature canvas transparent background */
+.signature-canvas-transparent {
+  background: transparent !important;
+}
+
+/* Signature field animations */
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgba(147, 51, 234, 0.5);
+  }
+  50% {
+    border-color: rgba(147, 51, 234, 1);
+  }
+}
+
+.signature-field-marker {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+/* Touch-friendly buttons */
+@media (hover: none) and (pointer: coarse) {
+  button, .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Cursor styles for drawing */
+.cursor-crosshair {
+  cursor: crosshair;
+}
+
+/* Disable text selection while drawing */
+.touch-none {
+  touch-action: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
