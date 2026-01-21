@@ -8,6 +8,7 @@ Sends push notifications for upcoming reminders:
 Uses DB-backed deduplication to work correctly with multiple workers/replicas.
 """
 import logging
+import socket
 import threading
 import time
 from datetime import datetime, timedelta
@@ -23,6 +24,27 @@ CLEANUP_DAYS = 7  # Clean up push log entries older than this
 # Scheduler state
 _scheduler_running = False
 _scheduler_thread: Optional[threading.Thread] = None
+
+
+def _is_dns_error(exc: Exception) -> bool:
+    """
+    Check if an exception is caused by DNS resolution failure.
+    
+    DNS errors can manifest as:
+    - OperationalError with "could not translate host name" message
+    - OperationalError with "Name or service not known" message
+    - socket.gaierror (explicit DNS failure)
+    
+    Args:
+        exc: Exception to check
+        
+    Returns:
+        True if this is a DNS-related error
+    """
+    msg = str(exc).lower()
+    return ("could not translate host name" in msg or 
+            "name or service not known" in msg or
+            "temporary failure in name resolution" in msg)
 
 
 def _try_send_with_dedupe(db, reminder, lead, offset_minutes: int) -> bool:
@@ -133,73 +155,99 @@ def check_and_send_reminder_notifications(app):
     - 5 minutes before
     
     Uses DB-backed deduplication to prevent duplicate sends across workers.
+    Implements retry logic for transient DNS/connection failures.
     
     Args:
         app: Flask application instance for context
     """
     from server.db import db
     from server.models_sql import LeadReminder, Lead
+    from sqlalchemy.exc import OperationalError
     
-    try:
-        with app.app_context():
-            # 🔥 FIX: Use local Israel time instead of UTC
-            # Since reminders are stored as naive datetime in local Israel time,
-            # we must compare against local time, not UTC
-            now = datetime.now()  # Local Israel time (naive datetime)
-            
-            # Time windows for notifications (with tolerance for drift)
-            window_30_start = now + timedelta(minutes=29)
-            window_30_end = now + timedelta(minutes=31)
-            window_15_start = now + timedelta(minutes=14)
-            window_15_end = now + timedelta(minutes=16)
-            window_5_start = now + timedelta(minutes=4)
-            window_5_end = now + timedelta(minutes=6)
-            
-            # Query reminders that are due soon (within next 35 minutes)
-            # and haven't been completed - limited scope for efficiency
-            upcoming_reminders = db.session.query(LeadReminder, Lead).outerjoin(
-                Lead, LeadReminder.lead_id == Lead.id
-            ).filter(
-                LeadReminder.completed_at.is_(None),
-                LeadReminder.due_at > now,
-                LeadReminder.due_at <= now + timedelta(minutes=35)
-            ).all()
-            
-            notifications_sent = 0
-            
-            for reminder, lead in upcoming_reminders:
-                # Skip system notifications - they're sent immediately when created
-                if reminder.reminder_type and reminder.reminder_type.startswith('system_'):
-                    continue
+    # 🔥 DNS RESILIENCE: Retry on transient DNS failures
+    for attempt in range(3):
+        try:
+            with app.app_context():
+                # 🔥 FIX: Use local Israel time instead of UTC
+                # Since reminders are stored as naive datetime in local Israel time,
+                # we must compare against local time, not UTC
+                now = datetime.now()  # Local Israel time (naive datetime)
                 
-                # Check if due in ~30 minutes
-                if window_30_start <= reminder.due_at <= window_30_end:
-                    # DB-backed deduplication with retry on failure
-                    if _try_send_with_dedupe(db, reminder, lead, 30):
-                        notifications_sent += 1
+                # Time windows for notifications (with tolerance for drift)
+                window_30_start = now + timedelta(minutes=29)
+                window_30_end = now + timedelta(minutes=31)
+                window_15_start = now + timedelta(minutes=14)
+                window_15_end = now + timedelta(minutes=16)
+                window_5_start = now + timedelta(minutes=4)
+                window_5_end = now + timedelta(minutes=6)
                 
-                # Check if due in ~15 minutes
-                elif window_15_start <= reminder.due_at <= window_15_end:
-                    # DB-backed deduplication with retry on failure
-                    if _try_send_with_dedupe(db, reminder, lead, 15):
-                        notifications_sent += 1
+                # Query reminders that are due soon (within next 35 minutes)
+                # and haven't been completed - limited scope for efficiency
+                upcoming_reminders = db.session.query(LeadReminder, Lead).outerjoin(
+                    Lead, LeadReminder.lead_id == Lead.id
+                ).filter(
+                    LeadReminder.completed_at.is_(None),
+                    LeadReminder.due_at > now,
+                    LeadReminder.due_at <= now + timedelta(minutes=35)
+                ).all()
                 
-                # Check if due in ~5 minutes
-                elif window_5_start <= reminder.due_at <= window_5_end:
-                    # DB-backed deduplication with retry on failure
-                    if _try_send_with_dedupe(db, reminder, lead, 5):
-                        notifications_sent += 1
+                notifications_sent = 0
+                
+                for reminder, lead in upcoming_reminders:
+                    # Skip system notifications - they're sent immediately when created
+                    if reminder.reminder_type and reminder.reminder_type.startswith('system_'):
+                        continue
+                    
+                    # Check if due in ~30 minutes
+                    if window_30_start <= reminder.due_at <= window_30_end:
+                        # DB-backed deduplication with retry on failure
+                        if _try_send_with_dedupe(db, reminder, lead, 30):
+                            notifications_sent += 1
+                    
+                    # Check if due in ~15 minutes
+                    elif window_15_start <= reminder.due_at <= window_15_end:
+                        # DB-backed deduplication with retry on failure
+                        if _try_send_with_dedupe(db, reminder, lead, 15):
+                            notifications_sent += 1
+                    
+                    # Check if due in ~5 minutes
+                    elif window_5_start <= reminder.due_at <= window_5_end:
+                        # DB-backed deduplication with retry on failure
+                        if _try_send_with_dedupe(db, reminder, lead, 5):
+                            notifications_sent += 1
+                
+                if notifications_sent > 0:
+                    log.info(f"🔔 Sent {notifications_sent} reminder push notification(s)")
+                
+                # Periodic cleanup of old log entries
+                _cleanup_old_push_logs(db)
+                
+                # Success - exit retry loop
+                return
+                
+        except OperationalError as e:
+            # 🔥 DNS RESILIENCE: Handle transient DNS failures gracefully
+            if _is_dns_error(e) and attempt < 2:
+                # Exponential backoff: 0.5s, 1s
+                sleep_time = 0.5 * (2 ** attempt)
+                log.warning(f"[REMINDER_SCHEDULER] DNS error (attempt {attempt + 1}/3), retrying in {sleep_time}s: {e}")
+                time.sleep(sleep_time)
+                continue
+            # Last attempt failed or non-DNS error
+            log.warning(f"[REMINDER_SCHEDULER] DB unavailable (dns/conn). Skipping this cycle. err={e}")
+            return
             
-            if notifications_sent > 0:
-                log.info(f"🔔 Sent {notifications_sent} reminder push notification(s)")
+        except socket.gaierror as e:
+            # 🔥 DNS RESILIENCE: Explicit DNS error sometimes bubbles as gaierror
+            log.warning(f"[REMINDER_SCHEDULER] DNS failure. Skipping this cycle. err={e}")
+            return
             
-            # Periodic cleanup of old log entries
-            _cleanup_old_push_logs(db)
-            
-    except Exception as e:
-        log.error(f"❌ Error in reminder notification scheduler: {e}")
-        import traceback
-        traceback.print_exc()
+        except Exception as e:
+            # Unexpected error - log with full traceback for debugging
+            log.error(f"❌ Error in reminder notification scheduler: {e}")
+            import traceback
+            traceback.print_exc()
+            return
 
 
 def _send_reminder_push(reminder, lead, minutes_before: int):
