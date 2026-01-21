@@ -12,6 +12,9 @@ export interface SignatureField {
   required: boolean;
 }
 
+// Constants
+const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
+
 interface SignatureFieldMarkerProps {
   pdfUrl: string;
   contractId: number;
@@ -145,13 +148,12 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
 
   const handleMouseUp = () => {
     if (isDrawing && currentRect) {
-      const minSize = 0.05; // Minimum 5% width/height
       const width = Math.abs(currentRect.endX - currentRect.startX);
       const height = Math.abs(currentRect.endY - currentRect.startY);
 
-      if (width > minSize && height > minSize) {
+      if (width > MIN_FIELD_SIZE && height > MIN_FIELD_SIZE) {
         const newField: SignatureField = {
-          id: `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           page: currentPage,
           x: Math.min(currentRect.startX, currentRect.endX),
           y: Math.min(currentRect.startY, currentRect.endY),

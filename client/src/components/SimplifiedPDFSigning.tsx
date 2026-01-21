@@ -92,8 +92,17 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     if (!ctx) return;
     
     const rect = canvas.getBoundingClientRect();
-    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    
+    // Safe touch event handling
+    let x: number, y: number;
+    if ('touches' in e) {
+      if (e.touches.length === 0) return;
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
     
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -109,8 +118,17 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     if (!ctx) return;
     
     const rect = canvas.getBoundingClientRect();
-    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    
+    // Safe touch event handling
+    let x: number, y: number;
+    if ('touches' in e) {
+      if (e.touches.length === 0) return;
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
     
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
