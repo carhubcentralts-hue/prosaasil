@@ -29,10 +29,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Check required environment variables
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+REDIS_URL = os.getenv('REDIS_URL')
 if not REDIS_URL:
-    logger.error("REDIS_URL environment variable not set")
+    logger.error("❌ REDIS_URL environment variable not set")
+    logger.error("For production, set: REDIS_URL=redis://redis:6379/0")
+    logger.error("Worker cannot start without Redis")
     sys.exit(1)
+
+# Mask password in Redis URL for logging
+masked_redis_url = REDIS_URL
+if '@' in REDIS_URL:
+    # Format: redis://user:password@host:port/db -> redis://user:***@host:port/db
+    parts = REDIS_URL.split('@')
+    if ':' in parts[0]:
+        user_pass = parts[0].split(':')
+        masked_redis_url = f"{user_pass[0]}:{user_pass[1].split('//')[0]}//***@{parts[1]}"
+
+logger.info(f"REDIS_URL: {masked_redis_url}")
 
 # Initialize Flask app context (needed for DB access)
 from server.app_factory import create_app
@@ -75,7 +88,7 @@ def main():
     logger.info("=" * 60)
     logger.info("ProSaaS Background Worker Starting")
     logger.info("=" * 60)
-    logger.info(f"Redis URL: {REDIS_URL}")
+    logger.info(f"Redis URL: {masked_redis_url}")
     logger.info(f"Service Role: {os.getenv('SERVICE_ROLE', 'worker')}")
     logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
     logger.info("=" * 60)
@@ -86,6 +99,7 @@ def main():
         logger.info("✓ Redis connection successful")
     except Exception as e:
         logger.error(f"✗ Redis connection failed: {e}")
+        logger.error(f"Check that Redis is running and REDIS_URL is correct: {masked_redis_url}")
         sys.exit(1)
     
     # Create worker with Flask app context

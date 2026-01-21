@@ -493,13 +493,13 @@ export default function LeadsPage() {
       {/* Filters */}
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="relative flex-1 sm:max-w-md">
+          <div className="relative flex-1 sm:max-w-md sm:min-w-[280px]">
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none z-10" />
             <Input
               placeholder="חפש לפי שם או טלפון..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pr-10 text-right text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
+              className="pr-10 text-right text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 h-[44px] text-base"
               style={{ paddingRight: '2.5rem' }}
               data-testid="input-search-leads"
             />
