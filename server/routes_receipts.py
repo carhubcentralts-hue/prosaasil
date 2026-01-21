@@ -20,7 +20,7 @@ Security:
 - Rate limiting for Gmail API calls
 """
 
-from flask import Blueprint, jsonify, request, g, redirect, url_for, session
+from flask import Blueprint, jsonify, request, g, redirect, url_for, session, current_app
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun
@@ -1032,7 +1032,6 @@ def sync_receipts():
         logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
         
         # Capture app object before starting thread (current_app proxy only works in request context)
-        from flask import current_app
         app = current_app._get_current_object()
         
         # Start background thread (non-daemon to prevent data loss on server restart)

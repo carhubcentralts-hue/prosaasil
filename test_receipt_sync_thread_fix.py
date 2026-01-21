@@ -8,6 +8,13 @@ import sys
 import os
 import re
 
+# File path constant
+ROUTES_RECEIPTS_PATH = os.path.join(
+    os.path.dirname(__file__), 
+    'server', 
+    'routes_receipts.py'
+)
+
 def test_app_context_capture():
     """
     Test that app object is captured before thread starts (not inside thread)
@@ -17,9 +24,7 @@ def test_app_context_capture():
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_receipts.py'
-        
-        with open(file_path, 'r') as f:
+        with open(ROUTES_RECEIPTS_PATH, 'r') as f:
             content = f.read()
         
         # Find the sync_receipts function that contains the threading code
@@ -37,17 +42,14 @@ def test_app_context_capture():
         
         # Check for the pattern: capture app before thread starts
         # Pattern should be:
-        # 1. from flask import current_app
-        # 2. app = current_app._get_current_object()
-        # 3. def run_sync_in_background():
-        # 4.     with app.app_context():
+        # 1. app = current_app._get_current_object() (current_app imported at top)
+        # 2. def run_sync_in_background():
+        # 3.     with app.app_context():
         
         # Check for capturing app before thread
         has_app_capture = re.search(
-            r'from flask import current_app.*?'
             r'app = current_app\._get_current_object\(\)',
-            function_body,
-            re.DOTALL
+            function_body
         )
         
         if not has_app_capture:
@@ -97,7 +99,7 @@ def test_app_context_capture():
         return True
         
     except FileNotFoundError:
-        print(f"❌ File not found: {file_path}")
+        print(f"❌ File not found: {ROUTES_RECEIPTS_PATH}")
         return False
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
@@ -114,13 +116,11 @@ def test_syntax_validity():
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_receipts.py'
-        
-        with open(file_path, 'r') as f:
+        with open(ROUTES_RECEIPTS_PATH, 'r') as f:
             code = f.read()
         
         # Try to compile the code to check for syntax errors
-        compile(code, file_path, 'exec')
+        compile(code, ROUTES_RECEIPTS_PATH, 'exec')
         print("✅ Python syntax is valid (no syntax errors)")
         
         return True
