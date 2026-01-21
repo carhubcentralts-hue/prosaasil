@@ -18,7 +18,13 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Redis connection
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+REDIS_URL = os.getenv('REDIS_URL')
+if not REDIS_URL:
+    logger.error("REDIS_URL environment variable not set")
+    logger.error("Gmail sync job requires Redis for locking and coordination")
+    raise ValueError("REDIS_URL not configured")
+
+logger.info(f"Gmail sync job using Redis: {REDIS_URL.split('@')[-1] if '@' in REDIS_URL else REDIS_URL}")
 redis_conn = redis.from_url(REDIS_URL)
 
 # Lock configuration
