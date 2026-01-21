@@ -1658,7 +1658,7 @@ class ReceiptSyncRun(db.Model):
     from_date = db.Column(db.Date, nullable=True)  # Start date for date range syncs
     to_date = db.Column(db.Date, nullable=True)  # End date for date range syncs
     months_back = db.Column(db.Integer, nullable=True)  # Months to go back for backfill
-    run_to_completion = db.Column(db.Boolean, default=False)  # If True, ignore time limits
+    run_to_completion = db.Column(db.Boolean, nullable=True)  # If True, ignore time limits (nullable to distinguish unset)
     max_seconds_per_run = db.Column(db.Integer, nullable=True)  # Per-run time limit
     
     # Progress tracking

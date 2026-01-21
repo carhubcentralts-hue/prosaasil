@@ -1414,6 +1414,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
     logger.info(f"🔍 RUN_START: Gmail sync requested - business_id={business_id}, mode={mode}, from_date={from_date}, to_date={to_date}, months_back={months_back}")
     
     # Determine if we should run to completion
+    # Use global env var, or False if not set
     run_to_completion = RUN_TO_COMPLETION  # Global env var
     max_seconds = MAX_SECONDS_PER_RUN if not run_to_completion else None
     
@@ -1429,7 +1430,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         from_date=from_date_obj,
         to_date=to_date_obj,
         months_back=months_back,
-        run_to_completion=run_to_completion,
+        run_to_completion=run_to_completion,  # Explicitly set (not None)
         max_seconds_per_run=max_seconds,
         status='running',
         last_heartbeat_at=now_utc  # Initialize heartbeat
@@ -1565,8 +1566,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     result['messages_scanned'] += 1
                     sync_run.messages_scanned = result['messages_scanned']
                     
-                    # CHECK 1: Max messages limit
-                    if result['messages_scanned'] >= MAX_MESSAGES_PER_RUN:
+                    # CHECK 1: Max messages limit (skip if run_to_completion mode)
+                    if not run_to_completion and result['messages_scanned'] >= MAX_MESSAGES_PER_RUN:
                         logger.info(f"⏸️ Reached MAX_MESSAGES_PER_RUN ({MAX_MESSAGES_PER_RUN}), pausing for resume")
                         sync_run.status = 'paused'
                         sync_run.last_page_token = page_token
@@ -1627,6 +1628,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     
                     if existing:
                         result['skipped'] += 1
+                        # Batch update skipped_count every 50 skips to reduce DB writes
+                        if result['skipped'] % 50 == 0:
+                            sync_run.skipped_count = result['skipped']
                         continue
                     
                     try:
@@ -1793,8 +1797,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         result['messages_scanned'] += 1
                         sync_run.messages_scanned = result['messages_scanned']
                         
-                        # CHECK 1: Max messages limit
-                        if result['messages_scanned'] >= MAX_MESSAGES_PER_RUN:
+                        # CHECK 1: Max messages limit (skip if run_to_completion mode)
+                        if not run_to_completion and result['messages_scanned'] >= MAX_MESSAGES_PER_RUN:
                             logger.info(f"⏸️ Reached MAX_MESSAGES_PER_RUN ({MAX_MESSAGES_PER_RUN}), pausing for resume")
                             sync_run.status = 'paused'
                             sync_run.last_page_token = page_token
@@ -1842,7 +1846,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         
                         if existing:
                             result['skipped'] += 1
-                            sync_run.skipped_count = result['skipped']
+                            # Batch update skipped_count every 50 skips to reduce DB writes
+                            if result['skipped'] % 50 == 0:
+                                sync_run.skipped_count = result['skipped']
                             continue
                         
                         try:
