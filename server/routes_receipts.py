@@ -78,20 +78,41 @@ except Exception as e:
     receipts_queue = None
     RQ_AVAILABLE = False
 
-# Helper function to check if RQ workers are active
-def _has_active_workers(redis_connection) -> bool:
+# Helper function to check if RQ workers are active for specific queue
+def _has_worker_for_queue(redis_connection, queue_name: str = "default") -> bool:
     """
-    Check if any RQ workers are actively listening to queues.
+    Check if any RQ workers are actively listening to the specified queue.
+    
+    CRITICAL: This checks that at least one worker is listening to the specific queue,
+    not just that workers exist in general. A worker listening only to 'high' queue
+    won't process jobs enqueued to 'default' queue.
+    
+    Args:
+        redis_connection: Redis connection instance
+        queue_name: Name of the queue to check (default: "default")
     
     Returns:
-        True if at least one worker is active, False otherwise
+        True if at least one worker is listening to the specified queue, False otherwise
     """
     try:
         from rq import Worker
         workers = Worker.all(connection=redis_connection)
-        return len(workers) > 0
+        
+        # Check if any worker is listening to the specified queue
+        for worker in workers:
+            # worker.queue_names() returns list of queue names this worker listens to
+            if queue_name in [q.name for q in worker.queues]:
+                logger.debug(f"✓ Found worker '{worker.name}' listening to queue '{queue_name}'")
+                return True
+        
+        logger.warning(f"✗ No workers found listening to queue '{queue_name}' (found {len(workers)} total workers)")
+        return False
+        
+    except ImportError as e:
+        logger.error(f"Error importing RQ Worker: {e}")
+        return False
     except Exception as e:
-        logger.error(f"Error checking for active workers: {e}")
+        logger.error(f"Error checking for workers on queue '{queue_name}': {e}")
         return False
 
 # Gmail OAuth Configuration
@@ -945,17 +966,18 @@ def sync_receipts():
             redis_conn.ping()
             logger.info(f"✓ Redis connection verified")
             
-            # CRITICAL: Check if any workers are actually running
-            if not _has_active_workers(redis_conn):
-                logger.error("✗ No RQ workers detected - jobs will remain QUEUED")
+            # CRITICAL: Check if any workers are listening to the 'default' queue
+            # Not just any worker, but one that will actually process our jobs
+            if not _has_worker_for_queue(redis_conn, queue_name="default"):
+                logger.error("✗ No RQ workers listening to 'default' queue - jobs will remain QUEUED")
                 return jsonify({
                     "success": False,
                     "error": "Worker not running - receipts sync cannot start (jobs will stay queued).",
-                    "action": "Deploy prosaas-worker service in production.",
-                    "technical_details": "No active RQ workers found listening to queues"
+                    "action": "Deploy prosaas-worker service in production that listens to 'default' queue.",
+                    "technical_details": "No active RQ workers found listening to 'default' queue"
                 }), 503
             
-            logger.info(f"✓ Active RQ workers detected")
+            logger.info(f"✓ Active RQ workers listening to 'default' queue detected")
             
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logger.error(f"✗ Redis not available: {e}")

@@ -7,41 +7,44 @@ Verifies that the worker availability check function works correctly
 import sys
 import os
 
+# Paths to test files
+ROUTES_RECEIPTS_PATH = '/home/runner/work/prosaasil/prosaasil/server/routes_receipts.py'
+GMAIL_SYNC_SERVICE_PATH = '/home/runner/work/prosaasil/prosaasil/server/services/gmail_sync_service.py'
+
+
 def test_worker_check_function_exists():
     """
-    Test that the _has_active_workers function exists in routes_receipts.py
+    Test that the _has_worker_for_queue function exists in routes_receipts.py
     """
     print("=" * 80)
     print("TEST: Worker availability check function exists")
     print("=" * 80)
     
     try:
-        file_path = '/home/runner/work/prosaasil/prosaasil/server/routes_receipts.py'
-        
-        with open(file_path, 'r') as f:
+        with open(ROUTES_RECEIPTS_PATH, 'r') as f:
             content = f.read()
         
         # Check for function definition
-        if 'def _has_active_workers' in content:
-            print("✅ PASS: _has_active_workers function found in routes_receipts.py")
+        if 'def _has_worker_for_queue' in content:
+            print("✅ PASS: _has_worker_for_queue function found in routes_receipts.py")
             
-            # Check it uses Worker.all()
-            if 'Worker.all(connection=' in content:
-                print("✅ PASS: Function uses Worker.all() to check for active workers")
+            # Check it uses Worker.all() and checks specific queue
+            if 'Worker.all(connection=' in content and 'queue_name in' in content:
+                print("✅ PASS: Function checks for workers on specific queue")
             else:
-                print("❌ FAIL: Function doesn't use Worker.all() properly")
+                print("❌ FAIL: Function doesn't check for queue-specific workers")
                 return False
                 
             # Check it returns boolean
-            if 'return len(workers) > 0' in content:
-                print("✅ PASS: Function returns boolean based on worker count")
+            if 'return True' in content and 'return False' in content:
+                print("✅ PASS: Function returns boolean based on worker availability")
             else:
                 print("❌ FAIL: Function doesn't return proper boolean")
                 return False
                 
             return True
         else:
-            print("❌ FAIL: _has_active_workers function not found")
+            print("❌ FAIL: _has_worker_for_queue function not found")
             return False
             
     except Exception as e:
@@ -81,10 +84,10 @@ def test_worker_check_in_sync_endpoint():
                     break
                 
                 # Check for worker availability check
-                if '_has_active_workers' in line:
+                if '_has_worker_for_queue' in line:
                     found_worker_check = True
                     worker_check_line = i
-                    print(f"✅ PASS: Worker availability check found at line {i}")
+                    print(f"✅ PASS: Queue-specific worker availability check found at line {i}")
                 
                 # Check for 503 error response when no workers
                 if found_worker_check and ', 503' in line:
