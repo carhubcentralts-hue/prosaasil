@@ -718,9 +718,11 @@ export function ReceiptsPage() {
         syncParams.to_date = syncToDate;
       }
 
+      console.log('🔔 Starting sync with params:', syncParams);
       const response = await axios.post('/api/receipts/sync', syncParams, {
         headers: { Authorization: `Bearer ${user?.token}` }
       });
+      console.log('🔔 Sync response:', response.status, response.data);
 
       // Backend now returns 202 Accepted immediately
       if (response.status === 202) {
@@ -750,7 +752,7 @@ export function ReceiptsPage() {
     } finally {
       setSyncing(false);
     }
-  }, [syncFromDate, syncToDate, user?.token, syncInProgress, pollSyncStatus]);
+  }, [syncFromDate, syncToDate, user?.token, pollSyncStatus]);
   
   // Handle cancel sync
   const handleCancelSync = useCallback(async () => {
@@ -1126,6 +1128,21 @@ export function ReceiptsPage() {
                   ⚠️ סנכרון עם טווח תאריכים יכול לקחת מספר דקות. המערכת תעבוד על כל ההודעות בטווח שבחרת.
                 </div>
               )}
+              
+              {/* Sync button with selected dates */}
+              <div className="mt-4 pt-3 border-t border-blue-200">
+                <button
+                  onClick={() => {
+                    console.log('🔔 Sync button clicked with dates:', { syncFromDate, syncToDate });
+                    handleSync();
+                  }}
+                  disabled={syncing || syncInProgress}
+                  className="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium text-sm"
+                >
+                  <RefreshCw className={`w-4 h-4 ml-2 ${(syncing || syncInProgress) ? 'animate-spin' : ''}`} />
+                  {syncInProgress ? 'רץ...' : syncing ? 'מסנכרן...' : (syncFromDate || syncToDate) ? 'סנכרן עם התאריכים שנבחרו' : 'סנכרן'}
+                </button>
+              </div>
             </div>
           )}
           
