@@ -39,12 +39,42 @@ logger = logging.getLogger(__name__)
 try:
     import redis
     from rq import Queue
-    REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    redis_conn = redis.from_url(REDIS_URL)
-    receipts_queue = Queue('default', connection=redis_conn)
-    RQ_AVAILABLE = True
+    REDIS_URL = os.getenv('REDIS_URL')
+    
+    if not REDIS_URL:
+        logger.warning("REDIS_URL not set - receipts sync will use threading fallback")
+        logger.warning("For production, set REDIS_URL environment variable (e.g., redis://redis:6379/0)")
+        redis_conn = None
+        receipts_queue = None
+        RQ_AVAILABLE = False
+    else:
+        # Log Redis URL (mask password if present)
+        masked_url = REDIS_URL
+        if '@' in REDIS_URL:
+            # Format: redis://user:password@host:port/db -> redis://user:***@host:port/db
+            parts = REDIS_URL.split('@')
+            if ':' in parts[0]:
+                user_pass = parts[0].split(':')
+                masked_url = f"{user_pass[0]}:{user_pass[1].split('//')[0]}//***@{parts[1]}"
+        
+        logger.info(f"REDIS_URL configured: {masked_url}")
+        
+        try:
+            redis_conn = redis.from_url(REDIS_URL)
+            # Test connection
+            redis_conn.ping()
+            receipts_queue = Queue('default', connection=redis_conn)
+            RQ_AVAILABLE = True
+            logger.info("✓ Redis connection successful - RQ available")
+        except redis.exceptions.ConnectionError as e:
+            logger.error(f"✗ Redis connection failed: {e}")
+            logger.error("Receipts sync will use threading fallback")
+            redis_conn = None
+            receipts_queue = None
+            RQ_AVAILABLE = False
 except Exception as e:
     logger.warning(f"RQ not available: {e}. Falling back to threading.")
+    redis_conn = None
     receipts_queue = None
     RQ_AVAILABLE = False
 

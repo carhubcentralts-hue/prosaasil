@@ -33,6 +33,24 @@ services:
       - prosaas-network
 
   # ===========================================
+  # Redis - Queue Management for Background Jobs
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: prosaas-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"  # Expose for local development
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - prosaas-network
+
+  # ===========================================
   # Backend API Service
   # No external port exposure
   # ===========================================
@@ -61,10 +79,14 @@ services:
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
       R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
     expose:
       - "5000"
     volumes:
       - recordings_data:/app/server/recordings
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s
@@ -94,6 +116,41 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+    networks:
+      - prosaas-network
+
+  # ===========================================
+  # Worker Service (Heavy background tasks)
+  # Handles: Gmail receipts sync, Playwright, PDF thumbnails, OCR
+  # Uses: Redis queue (RQ)
+  # ===========================================
+  worker:
+    container_name: prosaas-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: worker
+    command: ["python", "-m", "server.worker"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     networks:
       - prosaas-network
 
