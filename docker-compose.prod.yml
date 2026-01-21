@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: Dockerfile.nginx
       args:
-        # Override upstream service names and ports for production split architecture
+        # Production split architecture: separate API and Calls services
         API_UPSTREAM: prosaas-api:5000
         CALLS_UPSTREAM: prosaas-calls:5050
         FRONTEND_UPSTREAM: frontend
@@ -94,12 +94,12 @@ services:
       - local-db-only  # Won't start unless explicitly requested
 
   # ===========================================
-  # Backend API Service - Use profiles to control dev vs prod
-  # Dev: backend service (single monolith)
-  # Prod: prosaas-api + prosaas-calls (split services)
+  # Backend Service - DISABLED in production
+  # Use prosaas-api and prosaas-calls instead (split architecture)
   # ===========================================
-  # Note: backend is defined in base with profile "dev"
-  # In production, don't use --profile dev, use prosaas-api/prosaas-calls instead
+  backend:
+    profiles:
+      - legacy  # Don't start in production - use prosaas-api/prosaas-calls instead
 
   # ===========================================
   # Worker Service - Production Overrides

@@ -255,10 +255,14 @@ def check_and_send_reminder_notifications(app):
             return
             
         except Exception as e:
-            # Unexpected error - log with full traceback for debugging
-            log.error(f"❌ Error in reminder notification scheduler: {e}")
-            import traceback
-            traceback.print_exc()
+            # Unexpected error - check if it's DNS-related before logging full traceback
+            if _is_dns_error(e):
+                log.warning(f"[REMINDER_SCHEDULER] DB connection issue (likely DNS). Skipping this cycle. err={e}")
+            else:
+                # Truly unexpected error - log with traceback for debugging
+                log.error(f"❌ Error in reminder notification scheduler: {e}")
+                import traceback
+                traceback.print_exc()
             return
 
 

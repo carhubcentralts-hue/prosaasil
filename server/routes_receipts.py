@@ -986,30 +986,20 @@ def sync_receipts():
     logger.info(f"🔔 SYNC REQUEST: business_id={business_id}")
     
     # Fail-fast: Check Redis availability (required for RQ worker queue)
+    # 🔥 PRODUCTION FIX: Always enqueue job, don't check worker availability
+    # Workers may restart briefly, but jobs remain in queue and will be processed
     if RQ_AVAILABLE and redis_conn:
         try:
             redis_conn.ping()
             logger.info(f"✓ Redis connection verified")
             
-            # CRITICAL: Check if any workers are listening to the 'default' queue
-            # Not just any worker, but one that will actually process our jobs
+            # Log worker availability for diagnostics, but don't fail
             if not _has_worker_for_queue(redis_conn, queue_name="default"):
-                logger.error("✗ No RQ workers listening to 'default' queue - jobs will remain QUEUED")
-                # Log technical details for debugging
-                logger.error(f"[RQ_DIAG] Redis URL: {masked_url}")
-                logger.error(f"[RQ_DIAG] Queue checked: default")
-                
-                return jsonify({
-                    "success": False,
-                    "error": "Receipt sync worker is not online. Please try again later.",
-                    "technical_details": {
-                        "redis_url": masked_url,
-                        "queue": "default",
-                        "message": "No active RQ workers found listening to 'default' queue"
-                    }
-                }), 503
-            
-            logger.info(f"✓ Active RQ workers listening to 'default' queue detected")
+                logger.warning("⚠️ No RQ workers currently listening to 'default' queue - job will queue until worker starts")
+                logger.info(f"[RQ_DIAG] Redis URL: {masked_url}")
+                logger.info(f"[RQ_DIAG] Queue checked: default")
+            else:
+                logger.info(f"✓ Active RQ workers listening to 'default' queue detected")
             
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logger.error(f"✗ Redis not available: {e}")
