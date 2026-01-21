@@ -825,10 +825,14 @@ def sync_receipts():
     """
     business_id = get_current_business_id()
     
+    # Log sync request
+    logger.info(f"🔔 SYNC REQUEST: business_id={business_id}")
+    
     # Check Gmail connection
     connection = GmailConnection.query.filter_by(business_id=business_id).first()
     
     if not connection or connection.status != 'connected':
+        logger.warning(f"🔔 SYNC FAILED: Gmail not connected for business_id={business_id}")
         return jsonify({
             "success": False,
             "error": "Gmail not connected. Please connect your Gmail account first."
@@ -839,6 +843,8 @@ def sync_receipts():
         data = request.get_json(silent=True) or {}
     except Exception:
         data = {}
+    
+    logger.info(f"🔔 SYNC PARAMS: {data}")
     
     mode = data.get('mode', 'incremental')
     max_messages = data.get('max_messages', None)
@@ -886,12 +892,15 @@ def sync_receipts():
         ).first()
         
         if existing_run:
+            logger.info(f"🔔 SYNC ALREADY RUNNING: run_id={existing_run.id}")
             return jsonify({
                 "success": True,
                 "message": "Sync already in progress",
                 "sync_run_id": existing_run.id,
                 "status": "running"
             }), 409  # Conflict
+        
+        logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
         
         # Start background thread (non-daemon to prevent data loss on server restart)
         def run_sync_in_background():
@@ -900,6 +909,7 @@ def sync_receipts():
             from flask import current_app
             with current_app.app_context():
                 try:
+                    logger.info(f"🔔 BACKGROUND SYNC STARTED: business_id={business_id}")
                     sync_gmail_receipts(
                         business_id=business_id,
                         mode=mode,
@@ -908,11 +918,14 @@ def sync_receipts():
                         to_date=to_date,
                         months_back=months_back
                     )
+                    logger.info(f"🔔 BACKGROUND SYNC COMPLETED: business_id={business_id}")
                 except Exception as e:
-                    logger.error(f"Background sync failed: {e}", exc_info=True)
+                    logger.error(f"🔔 BACKGROUND SYNC FAILED: {e}", exc_info=True)
 
         thread = threading.Thread(target=run_sync_in_background, daemon=False)
         thread.start()
+        
+        logger.info(f"🔔 SYNC THREAD STARTED: business_id={business_id}")
         
         # Return immediately with 202 Accepted
         return jsonify({
