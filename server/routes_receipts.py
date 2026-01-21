@@ -923,6 +923,21 @@ def sync_receipts():
     # Log sync request
     logger.info(f"🔔 SYNC REQUEST: business_id={business_id}")
     
+    # Fail-fast: Check Redis availability (required for RQ worker queue)
+    if RQ_AVAILABLE and redis_conn:
+        try:
+            redis_conn.ping()
+            logger.info(f"✓ Redis connection verified")
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+            logger.error(f"✗ Redis not available: {e}")
+            return jsonify({
+                "success": False,
+                "error": "Redis not available - worker queue disabled. Please contact support.",
+                "technical_details": str(e)
+            }), 503
+    elif not RQ_AVAILABLE:
+        logger.warning(f"⚠️ RQ not available - falling back to threading mode")
+    
     # Check Gmail connection
     connection = GmailConnection.query.filter_by(business_id=business_id).first()
     
