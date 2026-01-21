@@ -75,6 +75,9 @@ def _warmup_flask():
     Will not create multiple app instances
     """
     import time
+    import asyncio
+    # Note: This runs in a thread, so time.sleep is acceptable here
+    # Only async code should use await asyncio.sleep()
     time.sleep(0.5)
     try:
         _ = get_flask_app()

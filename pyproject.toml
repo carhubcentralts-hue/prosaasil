@@ -53,6 +53,8 @@ dependencies = [
     "twilio>=9.8.3",
     "uvicorn[standard]>=0.37.0",
     "websockets>=13.0",
+    "redis>=5.0.0",  # Redis client for queue management
+    "rq>=2.0.0",  # Redis Queue for background jobs
 ]
 
 [tool.setuptools]
