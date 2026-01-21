@@ -112,22 +112,19 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             age_minutes = (now - cached_time).total_seconds() / 60
             
             if age_minutes < _CACHE_TTL_MINUTES:
-                logger.info(f"✅ Using cached agent for business={business_id}, channel={channel} (age={age_minutes:.1f}min)")
+                # Using cached agent silently
                 return cached_agent
             else:
-                logger.info(f"🔄 Agent cache expired for business={business_id}, channel={channel} (age={age_minutes:.1f}min > {_CACHE_TTL_MINUTES}min)")
-                # Remove expired entry
+                # Cache expired, remove it
                 del _AGENT_CACHE[cache_key]
         
         # No valid cache - create new agent
-        logger.info(f"🆕 Creating NEW agent for business={business_id}, channel={channel}")
         
         try:
             import time
             agent_start = time.time()
             
             # 🔥 CRITICAL FIX: Load DB prompt if not provided
-            logger.info(f"📋 PROMPT LOADING: business_id={business_id}, channel={channel}, custom_instructions provided={bool(custom_instructions)}", flush=True)
             if not custom_instructions or not isinstance(custom_instructions, str) or not custom_instructions.strip():
                 try:
                     from server.models_sql import Business
@@ -145,10 +142,9 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                         if row:
                             settings_row = {"ai_prompt": row[0]}
                     except Exception as sql_err:
-                        logger.warning(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}", flush=True)
+                        logger.warning(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}")
                     
                     business = Business.query.filter_by(id=business_id).first()
-                    logger.info(f"📋 LOADING PROMPT: business_id={business_id}, business_name={business.name if business else 'N/A'}", flush=True)
                     if settings_row and settings_row.get("ai_prompt"):
                         import json
                         try:
@@ -159,25 +155,17 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                                     custom_instructions = prompt_data.get('whatsapp', '')
                                 else:
                                     custom_instructions = prompt_data.get('calls', '')
-                                logger.info(f"✅ Loaded {channel} prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
-                                logger.info(f"📝 PROMPT PREVIEW: {custom_instructions[:100] if custom_instructions else 'EMPTY'}...", flush=True)
                             else:
                                 # Legacy single prompt
                                 custom_instructions = settings_row["ai_prompt"]
-                                logger.info(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                         except json.JSONDecodeError:
                             # Legacy single prompt
                             custom_instructions = settings_row["ai_prompt"]
-                            logger.info(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                     else:
-                        logger.warning(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}", flush=True)
+                        logger.warning(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}")
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}", flush=True)
                     logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")
                     custom_instructions = None
-            
-            logger.info(f"🔨 CALLING create_booking_agent(business_id={business_id}, channel={channel})")
-            logger.info(f"🔨 Creating agent for business={business_id}, channel={channel}")
             
             new_agent = create_booking_agent(
                 business_name=business_name,
@@ -186,12 +174,7 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                 channel=channel
             )
             
-            logger.info(f"✅ create_booking_agent RETURNED: {new_agent is not None}")
-            logger.info(f"✅ create_booking_agent returned successfully")
-            
             agent_creation_time = (time.time() - agent_start) * 1000
-            logger.info(f"⏱️  AGENT_CREATION_TIME: {agent_creation_time:.0f}ms")
-            logger.info(f"⏱️  Agent creation took {agent_creation_time:.0f}ms")
             
             if agent_creation_time > 2000:
                 logger.warning(f"⚠️  SLOW AGENT CREATION: {agent_creation_time:.0f}ms > 2000ms!")
@@ -199,7 +182,6 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             if new_agent:
                 # Cache the new agent
                 _AGENT_CACHE[cache_key] = (new_agent, now)
-                logger.info(f"✅ Agent created and cached for business={business_id}, channel={channel}")
             
             return new_agent
             

@@ -36,7 +36,7 @@ PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "t
 MODEL = "default"  # HARD-CODED - phone_call crashes for Hebrew!
 USE_ENHANCED = True  # גוגל מתעלמת אם לא נתמך; לא קורס
 
-logger.info(f"🎯 STT Configuration: model={MODEL} (FORCED - phone_call not supported for he-IL), enhanced={USE_ENHANCED}, language={LANG}", flush=True)
+logger.info(f"🎯 STT Configuration: model={MODEL} (FORCED - phone_call not supported for he-IL), enhanced={USE_ENHANCED}, language={LANG}")
 
 
 class StreamingSTTSession:

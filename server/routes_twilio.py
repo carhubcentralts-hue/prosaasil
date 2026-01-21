@@ -872,7 +872,7 @@ def stream_ended():
     except Exception as e:
         # 🔥 CRITICAL: Always return 200 even on error to prevent Twilio "application error"
         current_app.logger.exception(f"[STREAM_ENDED] Error processing webhook: {e}")
-        logger.error(f"⚠️ [STREAM_ENDED] Exception in webhook handler: {e}", flush=True)
+        logger.error(f"⚠️ [STREAM_ENDED] Exception in webhook handler: {e}")
         resp = make_response("", 200)
         resp.headers["Cache-Control"] = "no-store"
         return resp
