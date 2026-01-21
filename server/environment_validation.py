@@ -235,7 +235,8 @@ This will cause PostgreSQL errors throughout the system, affecting:
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
         logger.critical(error_msg)
-        logger.error(error_msg, file=sys.stderr)
+        # Print to stderr directly instead of using logger with file argument
+        print(error_msg, file=sys.stderr, flush=True)
         sys.exit(1)
     
     logger.info("✅ Database schema validation passed - all critical columns exist")
