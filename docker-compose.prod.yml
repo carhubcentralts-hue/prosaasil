@@ -97,7 +97,6 @@ services:
   # Use the single backend service (monolith), not split services
   # ===========================================
   backend:
-    profiles: []  # Remove dev profile restriction for production
     environment:
       FLASK_ENV: production
       PRODUCTION: ${PRODUCTION:-1}

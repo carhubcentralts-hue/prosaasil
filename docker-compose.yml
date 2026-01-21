@@ -65,8 +65,8 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     restart: unless-stopped
-    profiles:
-      - dev  # Only start in dev profile
+    # Note: No profiles defined - backend runs in both dev and prod
+    # Production settings are in docker-compose.prod.yml
     env_file:
       - .env
     environment:
