@@ -107,8 +107,16 @@ def _has_worker_for_queue(redis_connection, queue_name: str = "default") -> bool
         from rq import Worker
         workers = Worker.all(connection=redis_connection)
         
-        # CRITICAL: Log Redis URL and connection details for debugging
-        logger.info(f"[RQ_DIAG] Checking workers - redis_url={REDIS_URL}")
+        # CRITICAL: Log Redis URL and connection details for debugging (masked)
+        masked_url = REDIS_URL
+        if REDIS_URL and '@' in REDIS_URL:
+            parts = REDIS_URL.split('@')
+            if ':' in parts[0]:
+                user_pass = parts[0].split('://')
+                if len(user_pass) > 1:
+                    masked_url = f"{user_pass[0]}://***@{parts[1]}"
+        
+        logger.info(f"[RQ_DIAG] Checking workers - redis_url={masked_url}")
         logger.info(f"[RQ_DIAG] Total workers found: {len(workers)}")
         
         # Check if any worker is listening to the specified queue
