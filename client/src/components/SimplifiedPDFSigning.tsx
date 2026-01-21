@@ -103,15 +103,6 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     };
   }, [file.download_url]);
   
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (pdfObjectUrl) {
-        URL.revokeObjectURL(pdfObjectUrl);
-      }
-    };
-  }, [pdfObjectUrl]);
-
   const loadSignatureFields = async () => {
     try {
       const response = await fetch(`/api/contracts/sign/${token}/signature-fields`);

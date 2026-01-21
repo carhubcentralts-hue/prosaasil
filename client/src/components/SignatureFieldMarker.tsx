@@ -132,15 +132,6 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     };
   }, [pdfUrl]); // Only run when pdfUrl changes
   
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (pdfObjectUrl) {
-        URL.revokeObjectURL(pdfObjectUrl);
-      }
-    };
-  }, [pdfObjectUrl]);
-
   const loadSignatureFields = async () => {
     try {
       const response = await fetch(`/api/contracts/${contractId}/signature-fields`, {

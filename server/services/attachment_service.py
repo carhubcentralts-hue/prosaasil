@@ -262,8 +262,8 @@ class AttachmentService:
         """
         ttl_seconds = ttl_minutes * 60
         
-        # For R2 storage, pass response headers to ensure proper Content-Type
-        if hasattr(self.storage, 'generate_signed_url'):
+        # Try to use enhanced signature with headers (R2 provider supports this)
+        try:
             # Build optional parameters
             kwargs = {'ttl_seconds': ttl_seconds}
             
@@ -278,8 +278,10 @@ class AttachmentService:
                 kwargs['content_disposition'] = f'{disposition}; filename="{filename}"'
             
             return self.storage.generate_signed_url(storage_key, **kwargs)
-        
-        return self.storage.generate_signed_url(storage_key, ttl_seconds)
+        except TypeError:
+            # Fallback for storage providers that don't support the new signature
+            logger.warning(f"[ATTACHMENT_SERVICE] Storage provider doesn't support header parameters, using basic signature")
+            return self.storage.generate_signed_url(storage_key, ttl_seconds)
     
     def open_file(self, storage_key: str, filename: str = None, mime_type: str = None) -> Tuple[str, str, bytes]:
         """
