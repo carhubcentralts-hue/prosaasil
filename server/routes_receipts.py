@@ -23,13 +23,14 @@ Security:
 from flask import Blueprint, jsonify, request, g, redirect, url_for, session
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
-from server.models_sql import GmailConnection, Receipt, Attachment, User
+from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun
 from server.db import db
 from datetime import datetime, timezone
 import logging
 import os
 import json
 import secrets
+import threading
 from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
@@ -687,6 +688,118 @@ def delete_receipt(receipt_id):
     })
 
 
+@receipts_bp.route('/purge', methods=['DELETE'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def purge_all_receipts():
+    """
+    Delete ALL receipts for the current business (admin/owner only)
+    
+    Requires double confirmation:
+    - Body must include: {"confirm": true, "typed": "DELETE"}
+    
+    Optionally deletes attachments from storage if delete_attachments=true
+    
+    Returns:
+    - deleted_receipts_count: Number of receipts deleted
+    - deleted_attachments_count: Number of attachments deleted (if requested)
+    """
+    business_id = get_current_business_id()
+    
+    # Check admin/owner permission
+    role = get_current_user_role()
+    if role not in ['system_admin', 'owner', 'admin']:
+        return jsonify({
+            "success": False,
+            "error": "Owner or admin permission required"
+        }), 403
+    
+    # Get confirmation
+    data = request.get_json() or {}
+    confirm = data.get('confirm', False)
+    typed = data.get('typed', '')
+    delete_attachments = data.get('delete_attachments', False)
+    
+    # Require double confirmation
+    if not confirm or typed != 'DELETE':
+        return jsonify({
+            "success": False,
+            "error": "Confirmation required. Send: {\"confirm\": true, \"typed\": \"DELETE\"}"
+        }), 400
+    
+    try:
+        # Find all receipts for this business
+        receipts = Receipt.query.filter_by(
+            business_id=business_id,
+            is_deleted=False
+        ).all()
+        
+        deleted_count = len(receipts)
+        deleted_attachments_count = 0
+        
+        # Collect attachment IDs if we need to delete them
+        attachment_ids_to_delete = set()
+        if delete_attachments:
+            for receipt in receipts:
+                if receipt.attachment_id:
+                    attachment_ids_to_delete.add(receipt.attachment_id)
+                if receipt.preview_attachment_id:
+                    attachment_ids_to_delete.add(receipt.preview_attachment_id)
+        
+        # Soft delete all receipts
+        for receipt in receipts:
+            receipt.is_deleted = True
+            receipt.deleted_at = datetime.utcnow()
+            receipt.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        # Delete attachments if requested
+        if delete_attachments and attachment_ids_to_delete:
+            from server.services.attachment_service import get_attachment_service
+            attachment_service = get_attachment_service()
+            
+            for att_id in attachment_ids_to_delete:
+                try:
+                    attachment = Attachment.query.get(att_id)
+                    if attachment and attachment.purpose in ('receipt_source', 'receipt_preview'):
+                        # Delete from storage (R2)
+                        try:
+                            attachment_service.delete_file(
+                                storage_key=attachment.storage_path
+                            )
+                        except Exception as storage_err:
+                            logger.warning(f"Failed to delete attachment {att_id} from storage: {storage_err}")
+                        
+                        # Delete from database
+                        db.session.delete(attachment)
+                        deleted_attachments_count += 1
+                except Exception as att_err:
+                    logger.error(f"Failed to delete attachment {att_id}: {att_err}")
+            
+            db.session.commit()
+        
+        log_audit('purge', 'receipts', business_id, {
+            'deleted_receipts': deleted_count,
+            'deleted_attachments': deleted_attachments_count
+        })
+        
+        return jsonify({
+            "success": True,
+            "message": f"Purged {deleted_count} receipts",
+            "deleted_receipts_count": deleted_count,
+            "deleted_attachments_count": deleted_attachments_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Receipt purge failed: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": f"Purge failed: {str(e)}"
+        }), 500
+
+
 @receipts_bp.route('/sync', methods=['POST'])
 @require_api_auth()
 @require_page_access('gmail_receipts')
@@ -766,62 +879,48 @@ def sync_receipts():
     try:
         from server.services.gmail_sync_service import sync_gmail_receipts
         
-        # Run sync synchronously with date parameters and months_back
-        result = sync_gmail_receipts(
-            business_id, 
-            mode=mode, 
-            max_messages=max_messages,
-            from_date=from_date,
-            to_date=to_date,
-            months_back=months_back
-        )
+        # Check for existing running sync (prevent double-click)
+        existing_run = ReceiptSyncRun.query.filter_by(
+            business_id=business_id,
+            status='running'
+        ).first()
         
-        log_audit('sync', 'gmail_receipts', details={
-            'mode': mode,
-            'from_date': from_date,
-            'to_date': to_date,
-            'months_back': months_back,
-            'new_receipts': result.get('new_count', 0),
-            'pages_scanned': result.get('pages_scanned', 0),
-            'messages_scanned': result.get('messages_scanned', 0),
-            'months_processed': result.get('months_processed', 0),
-            'total_months': result.get('total_months', 0),
-            'errors': result.get('errors', 0)
-        })
+        if existing_run:
+            return jsonify({
+                "success": True,
+                "message": "Sync already in progress",
+                "sync_run_id": existing_run.id,
+                "status": "running"
+            }), 409  # Conflict
         
-        # Determine success message based on error count
-        error_count = result.get('errors', 0)
-        saved_count = result.get('new_count', 0)
+        # Start background thread (non-daemon to prevent data loss on server restart)
+        def run_sync_in_background():
+            from server.db import db
+            # Need app context for background thread
+            from flask import current_app
+            with current_app.app_context():
+                try:
+                    sync_gmail_receipts(
+                        business_id=business_id,
+                        mode=mode,
+                        max_messages=max_messages,
+                        from_date=from_date,
+                        to_date=to_date,
+                        months_back=months_back
+                    )
+                except Exception as e:
+                    logger.error(f"Background sync failed: {e}", exc_info=True)
+
+        thread = threading.Thread(target=run_sync_in_background, daemon=False)
+        thread.start()
         
-        if error_count > 0 and saved_count > 0:
-            message = f"Sync completed with {saved_count} receipts saved and {error_count} errors"
-        elif error_count > 0:
-            message = f"Sync completed with {error_count} errors, no new receipts"
-        elif saved_count > 0:
-            message = f"Sync completed successfully, {saved_count} receipts saved"
-        else:
-            message = "Sync completed, no new receipts found"
-        
+        # Return immediately with 202 Accepted
         return jsonify({
-            "ok": True,
-            "data": {
-                "message": message,
-                "mode": mode,
-                "from_date": from_date,
-                "to_date": to_date,
-                "months_back": months_back,
-                "sync_run_id": result.get('sync_run_id'),
-                "new_receipts": result.get('new_count', 0),
-                "processed": result.get('processed', 0),
-                "skipped": result.get('skipped', 0),
-                "pages_scanned": result.get('pages_scanned', 0),
-                "messages_scanned": result.get('messages_scanned', 0),
-                "months_processed": result.get('months_processed', 0),
-                "total_months": result.get('total_months', 0),
-                "errors_count": result.get('errors', 0),
-                "has_errors": result.get('errors', 0) > 0
-            }
-        })
+            "success": True,
+            "message": "Sync started in background",
+            "sync_run_id": None,  # Will be created by sync function
+            "status": "starting"
+        }), 202
         
     except ImportError:
         logger.warning("Gmail sync service not yet implemented")
@@ -985,6 +1084,14 @@ def get_sync_status():
         delta = sync_run.finished_at - sync_run.started_at
         duration_seconds = int(delta.total_seconds())
     
+    # Calculate progress percentage
+    progress_pct = 0
+    if sync_run.status == 'completed':
+        progress_pct = 100
+    elif sync_run.messages_scanned > 0:
+        # Rough estimate based on saved receipts vs scanned messages
+        progress_pct = min(95, (sync_run.saved_receipts / max(1, sync_run.messages_scanned)) * 100)
+    
     return jsonify({
         "success": True,
         "sync_run": {
@@ -994,6 +1101,7 @@ def get_sync_status():
             "started_at": sync_run.started_at.isoformat(),
             "finished_at": sync_run.finished_at.isoformat() if sync_run.finished_at else None,
             "duration_seconds": duration_seconds,
+            "progress_percentage": progress_pct,
             "progress": {
                 "pages_scanned": sync_run.pages_scanned,
                 "messages_scanned": sync_run.messages_scanned,
