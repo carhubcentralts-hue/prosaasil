@@ -171,17 +171,19 @@ services:
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
-    # Use Uvicorn with multiple workers for WS concurrency
-    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5000", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30", "--workers", "4"]
+      PORT: 5050
+    # Use Uvicorn with single worker initially (multi-worker causes state issues)
+    # State (call registry, sessions) is in Redis, not in-memory
+    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30"]
     expose:
-      - "5000"
+      - "5050"
     volumes:
       - recordings_data:/app/server/recordings
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
       interval: 30s
       timeout: 10s
       retries: 3

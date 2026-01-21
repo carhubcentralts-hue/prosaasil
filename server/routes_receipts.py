@@ -25,11 +25,12 @@ from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun
 from server.db import db
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import os
 import json
 import secrets
+import threading
 from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
@@ -1085,12 +1086,13 @@ def sync_receipts():
             
             # Start background thread (non-daemon to prevent data loss on server restart)
             def run_sync_in_background():
-                import threading
                 from server.db import db
                 # Need app context for background thread
                 with app.app_context():
                     try:
                         logger.info(f"🔔 BACKGROUND SYNC STARTED: business_id={business_id}")
+                        # Note: heartbeat_callback not supported in threading fallback
+                        # Only used in RQ worker mode
                         sync_gmail_receipts(
                             business_id=business_id,
                             mode=mode,

@@ -97,16 +97,29 @@ def sync_gmail_receipts_job(
                 except Exception as e:
                     logger.error(f"Failed to update heartbeat: {e}")
         
-        # Call the actual sync service with heartbeat callback
-        result = sync_gmail_receipts(
-            business_id=business_id,
-            mode=mode,
-            max_messages=max_messages,
-            from_date=from_date,
-            to_date=to_date,
-            months_back=months_back,
-            heartbeat_callback=update_heartbeat
-        )
+        # Call the actual sync service with heartbeat callback (if supported)
+        # Note: heartbeat_callback is optional - only used if sync service supports it
+        try:
+            result = sync_gmail_receipts(
+                business_id=business_id,
+                mode=mode,
+                max_messages=max_messages,
+                from_date=from_date,
+                to_date=to_date,
+                months_back=months_back,
+                heartbeat_callback=update_heartbeat
+            )
+        except TypeError:
+            # Fallback if heartbeat_callback not supported
+            logger.warning("sync_gmail_receipts doesn't support heartbeat_callback, using without it")
+            result = sync_gmail_receipts(
+                business_id=business_id,
+                mode=mode,
+                max_messages=max_messages,
+                from_date=from_date,
+                to_date=to_date,
+                months_back=months_back
+            )
         
         # Update sync run with results
         sync_run.status = 'completed'

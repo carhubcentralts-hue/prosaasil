@@ -820,6 +820,7 @@ def baileys_webhook():
         
         # ✅ BUILD 92: Process messages IMMEDIATELY (no threading) - זריזות מקסימלית!
         import time
+        from datetime import datetime, timedelta
         overall_start = time.time()
         
         wa_service = get_whatsapp_service(tenant_id=tenant_id)  # MULTI-TENANT: Pass tenant_id for correct WhatsApp session
@@ -1027,7 +1028,6 @@ def baileys_webhook():
                 # Second check: jid + timestamp (for messages without message_id)
                 if not existing_msg and jid and timestamp_ms:
                     # Allow 1-second tolerance for timestamp matching
-                    from datetime import datetime, timedelta
                     timestamp_dt = datetime.utcfromtimestamp(timestamp_ms)
                     time_tolerance = timedelta(seconds=1)
                     
@@ -1054,12 +1054,12 @@ def baileys_webhook():
                     
                     # Skip if same message was received in last 10 seconds (webhook retry)
                     if existing_msg:
-                        from datetime import datetime, timedelta
                         if (datetime.utcnow() - existing_msg.created_at) < timedelta(seconds=10):
                             log.warning(f"⚠️ Duplicate by content within 10s: {message_text[:50]}...")
                             continue
                 
                 # Save incoming message to DB with message_id for deduplication
+                # Use ON CONFLICT DO NOTHING pattern for race condition protection
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
                 wa_msg.to_number = from_number_e164  # E.164 format for database consistency
@@ -1069,8 +1069,19 @@ def baileys_webhook():
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
                 wa_msg.provider_message_id = baileys_message_id if baileys_message_id else None
-                db.session.add(wa_msg)
-                db.session.commit()
+                
+                try:
+                    db.session.add(wa_msg)
+                    db.session.commit()
+                except Exception as integrity_err:
+                    # Handle race condition: another thread/instance inserted same message_id
+                    db.session.rollback()
+                    if baileys_message_id and 'unique' in str(integrity_err).lower():
+                        log.info(f"⚠️ Message already saved by another process: {baileys_message_id}")
+                        continue
+                    else:
+                        # Unexpected error - re-raise
+                        raise
                 
                 # ✅ BUILD 162: Track session for auto-summary generation
                 try:
