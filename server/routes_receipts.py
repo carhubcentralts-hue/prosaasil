@@ -66,6 +66,15 @@ try:
             receipts_queue = Queue('default', connection=redis_conn)
             RQ_AVAILABLE = True
             logger.info("✓ Redis connection successful - RQ available")
+            
+            # CRITICAL: Log Redis signature for debugging connection mismatches
+            try:
+                redis_info = redis_conn.info('server')
+                redis_id = f"{redis_info.get('redis_version', 'unknown')}@{redis_info.get('tcp_port', 'unknown')}"
+                logger.info(f"📍 REDIS SIGNATURE (API): {masked_url} | Redis: {redis_id} | Queue: 'default'")
+            except Exception as info_error:
+                logger.warning(f"Could not get Redis info: {info_error}")
+                logger.info(f"📍 REDIS SIGNATURE (API): {masked_url} | Queue: 'default'")
         except redis.exceptions.ConnectionError as e:
             logger.error(f"✗ Redis connection failed: {e}")
             logger.error("Receipts sync will use threading fallback")
@@ -1180,6 +1189,11 @@ def sync_receipts():
                 failure_ttl=86400,  # Keep failure info for 24 hours
             )
             
+            # Store metadata for stuck job detection
+            job.meta['business_id'] = business_id
+            job.meta['enqueued_at'] = datetime.now(timezone.utc).isoformat()
+            job.save_meta()
+            
             logger.info(f"🔔 JOB ENQUEUED SUCCESSFULLY:")
             logger.info(f"  → job_id: {job.id}")
             logger.info(f"  → business_id: {business_id}")
@@ -1396,20 +1410,59 @@ def get_sync_status():
             from rq.job import Job
             job = Job.fetch(job_id, connection=redis_conn)
             
+            job_status = job.get_status()
+            
+            # CRITICAL: Detect stuck queued jobs
+            stuck_warning = None
+            if job_status == 'queued':
+                # Check how long job has been queued
+                enqueued_at_str = job.meta.get('enqueued_at')
+                if enqueued_at_str:
+                    try:
+                        enqueued_at = datetime.fromisoformat(enqueued_at_str)
+                        if enqueued_at.tzinfo is None:
+                            enqueued_at = enqueued_at.replace(tzinfo=timezone.utc)
+                        
+                        now = datetime.now(timezone.utc)
+                        minutes_queued = (now - enqueued_at).total_seconds() / 60
+                        
+                        # Warn if queued for more than 5 minutes
+                        if minutes_queued > 5:
+                            stuck_warning = f"Job stuck in QUEUED for {int(minutes_queued)} minutes. Worker may not be processing jobs. Check worker logs and Redis connectivity."
+                            logger.warning(f"⚠️  STUCK JOB DETECTED: job_id={job_id}, queued_for={int(minutes_queued)}min")
+                    except Exception as parse_error:
+                        logger.error(f"Error parsing enqueued_at: {parse_error}")
+            
             # Return RQ job status
-            return jsonify({
+            response_data = {
                 "success": True,
                 "job_id": job.id,
-                "status": job.get_status(),  # queued, started, finished, failed
+                "status": job_status,
                 "result": job.result if job.is_finished else None,
                 "exc_info": job.exc_info if job.is_failed else None,
                 "meta": job.meta,
                 "enqueued_at": job.enqueued_at.isoformat() if job.enqueued_at else None,
                 "started_at": job.started_at.isoformat() if job.started_at else None,
                 "ended_at": job.ended_at.isoformat() if job.ended_at else None,
-            }), 200
+            }
+            
+            if stuck_warning:
+                response_data["warning"] = stuck_warning
+                response_data["stuck"] = True
+            
+            return jsonify(response_data), 200
         except Exception as e:
             logger.error(f"Failed to fetch RQ job {job_id}: {e}")
+            
+            # Check if job doesn't exist in Redis at all
+            error_msg = str(e).lower()
+            if 'no such job' in error_msg or 'not found' in error_msg:
+                return jsonify({
+                    "success": False,
+                    "error": f"Job not found in Redis. Worker may have crashed or Redis was restarted. Job ID: {job_id}",
+                    "missing_job": True
+                }), 404
+            
             return jsonify({
                 "success": False,
                 "error": f"Job not found or error fetching job status: {str(e)}"

@@ -98,11 +98,23 @@ def main():
         redis_conn.ping()
         logger.info("✓ Redis connection successful")
         
+        # CRITICAL: Log Redis signature for debugging connection mismatches
+        try:
+            redis_info = redis_conn.info('server')
+            redis_id = f"{redis_info.get('redis_version', 'unknown')}@{redis_info.get('tcp_port', 'unknown')}"
+            logger.info(f"📍 REDIS SIGNATURE (WORKER): {masked_redis_url} | Redis: {redis_id}")
+        except Exception as info_error:
+            logger.warning(f"Could not get Redis info: {info_error}")
+            logger.info(f"📍 REDIS SIGNATURE (WORKER): {masked_redis_url}")
+        
         # Check queue stats
         for queue_name in ['high', 'default', 'low']:
             queue = Queue(queue_name, connection=redis_conn)
             count = len(queue)
             logger.info(f"  → Queue '{queue_name}': {count} job(s) pending")
+        
+        # Log which queues this worker will listen to (CRITICAL for debugging)
+        logger.info(f"📍 WORKER QUEUES: This worker will listen to: ['high', 'default', 'low']")
     except Exception as e:
         logger.error(f"✗ Redis connection failed: {e}")
         logger.error(f"Check that Redis is running and REDIS_URL is correct: {masked_redis_url}")
