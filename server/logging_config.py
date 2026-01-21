@@ -49,7 +49,15 @@ def configure_logging():
         'CRITICAL': logging.CRITICAL
     }
     
-    log_level = log_level_map.get(log_level_str, logging.INFO)
+    log_level = log_level_map.get(log_level_str, None)
+    
+    # Validate and warn if invalid level provided
+    if log_level is None:
+        # Use a direct print here since logging isn't configured yet
+        print(f"⚠️ WARNING: Invalid LOG_LEVEL '{log_level_str}', defaulting to INFO", file=sys.stderr)
+        log_level = logging.INFO
+        log_level_str = 'INFO'
+    
     is_production = log_level >= logging.INFO
     
     # Configure root logger
@@ -174,8 +182,14 @@ def configure_logging():
     # ========================================================================
     # LOG CONFIGURATION SUMMARY
     # ========================================================================
-    # Only log this in development mode to avoid spam
-    if not is_production:
+    # Always log configuration at startup (helps troubleshoot config issues)
+    if is_production:
+        # In production, use root logger directly (already configured) to ensure visibility
+        root_logger.info('=' * 70)
+        root_logger.info(f'LOGGING CONFIGURED: level={log_level_str}, json={use_json}, production={is_production}')
+        root_logger.info('=' * 70)
+    else:
+        # In development, can be more verbose
         root_logger.info('=' * 70)
         root_logger.info(f'LOGGING CONFIGURED: level={log_level_str}, json={use_json}')
         root_logger.info(f'Production mode: {is_production}')

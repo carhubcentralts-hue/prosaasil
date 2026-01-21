@@ -50,6 +50,13 @@ def log_every_n(logger: logging.Logger, key: str, n: int = 100, level: str = "in
         # Automatic logging
         log_every_n(logger, "frames", 100, "info", f"Processed {count} frames")
     """
+    # Validate log level
+    level_lower = level.lower()
+    valid_levels = {'debug', 'info', 'warning', 'error', 'critical'}
+    if level_lower not in valid_levels:
+        logger.warning(f"Invalid log level '{level}', defaulting to 'info'")
+        level_lower = 'info'
+    
     with _counter_lock:
         count = _counter_cache.get(key, 0) + 1
         _counter_cache[key] = count
@@ -57,7 +64,7 @@ def log_every_n(logger: logging.Logger, key: str, n: int = 100, level: str = "in
         should_log = (count % n == 0)
     
     if should_log and msg:
-        log_func = getattr(logger, level.lower(), logger.info)
+        log_func = getattr(logger, level_lower, logger.info)
         log_func(msg)
     
     return should_log
@@ -87,6 +94,13 @@ def log_throttle(logger: logging.Logger, key: str, seconds: float = 60, level: s
         # Automatic logging
         log_throttle(logger, "health", 30, "info", f"Health: {status}")
     """
+    # Validate log level
+    level_lower = level.lower()
+    valid_levels = {'debug', 'info', 'warning', 'error', 'critical'}
+    if level_lower not in valid_levels:
+        logger.warning(f"Invalid log level '{level}', defaulting to 'info'")
+        level_lower = 'info'
+    
     now = time.time()
     
     with _throttle_lock:
@@ -97,7 +111,7 @@ def log_throttle(logger: logging.Logger, key: str, seconds: float = 60, level: s
             _throttle_cache[key] = now
     
     if should_log and msg:
-        log_func = getattr(logger, level.lower(), logger.info)
+        log_func = getattr(logger, level_lower, logger.info)
         log_func(msg)
     
     return should_log
