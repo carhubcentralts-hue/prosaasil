@@ -1443,7 +1443,7 @@ def get_latest_sync():
         progress_pct = 0
     elif latest_run.messages_scanned > 0:
         # Show progress based on messages scanned
-        progress_pct = min(95, int((latest_run.messages_scanned / PROGRESS_MESSAGES_PER_10_PERCENT) * 10))
+        progress_pct = min(PROGRESS_MAX_PERCENTAGE, int((latest_run.messages_scanned / PROGRESS_MESSAGES_PER_10_PERCENT) * 10))
     
     # Determine overall status
     overall_status = latest_run.status

@@ -30,6 +30,7 @@ redis_conn = redis.from_url(REDIS_URL)
 # Lock configuration
 LOCK_TTL = 3600  # 1 hour - max sync duration
 HEARTBEAT_INTERVAL = 30  # Update heartbeat every 30 seconds
+MAX_ERROR_LOG_LENGTH = 200  # Maximum length for error messages in logs
 
 def sync_gmail_receipts_job(
     business_id: int,
@@ -61,6 +62,7 @@ def sync_gmail_receipts_job(
     from server.services.gmail_sync_service import sync_gmail_receipts
     
     lock_key = f"receipt_sync_lock:{business_id}"
+    run_id = None  # Initialize to avoid reference errors in exception handler
     
     # Try to acquire lock
     lock_acquired = redis_conn.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
@@ -169,8 +171,8 @@ def sync_gmail_receipts_job(
         logger.error("=" * 60)
         logger.error(f"🔔 JOB FAIL: Gmail sync failed")
         logger.error(f"  → business_id: {business_id}")
-        logger.error(f"  → run_id: {run_id if 'run_id' in locals() else 'N/A'}")
-        logger.error(f"  → error: {str(e)[:200]}")
+        logger.error(f"  → run_id: {run_id if run_id is not None else 'N/A'}")
+        logger.error(f"  → error: {str(e)[:MAX_ERROR_LOG_LENGTH]}")
         logger.error("=" * 60)
         logger.error(f"Stack trace:", exc_info=True)
         
