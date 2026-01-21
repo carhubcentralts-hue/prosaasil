@@ -812,7 +812,10 @@ export function ReceiptsPage() {
     messages_scanned: number;
     saved_receipts: number;
     pages_scanned: number;
+    candidate_receipts?: number;
+    errors_count?: number;
   } | null>(null);
+  const [syncProgressPercentage, setSyncProgressPercentage] = useState<number>(0);
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -967,12 +970,14 @@ export function ReceiptsPage() {
         if (res.data.success && res.data.sync_run) {
           const run = res.data.sync_run;
           setSyncProgress(run.progress);
+          setSyncProgressPercentage(run.progress_percentage || 0);
           
           // If sync completed, cancelled, or failed, stop polling
           if (run.status !== 'running') {
             setActiveSyncRunId(null);
             setSyncing(false);
             setSyncProgress(null);
+            setSyncProgressPercentage(0);
             
             // Refresh data - trigger via state change
             setPage(p => p); // This triggers a re-fetch via the effect
@@ -1510,20 +1515,21 @@ export function ReceiptsPage() {
                 </button>
               </div>
               
-              {/* Progress bar - indeterminate animation */}
+              {/* Progress bar - showing actual progress percentage */}
               <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400 animate-shimmer" style={{ width: '200%', animation: 'shimmer 2s infinite' }}></div>
+                <div 
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-500 transition-all duration-300 ease-out"
+                  style={{ width: `${syncProgressPercentage}%` }}
+                ></div>
               </div>
               
-              <style>{`
-                @keyframes shimmer {
-                  0% { transform: translateX(-50%); }
-                  100% { transform: translateX(0%); }
-                }
-              `}</style>
-              
-              <p className="text-xs text-gray-500 mt-2 text-center">
-                תהליך זה עשוי לקחת מספר דקות עבור סנכרון של תקופה ארוכה
+              <p className="text-xs text-gray-500 mt-2 flex items-center justify-between">
+                <span>{syncProgressPercentage}% הושלם</span>
+                <span>
+                  {syncProgress.pages_scanned} עמודים · 
+                  {syncProgress.candidate_receipts ? ` ${syncProgress.candidate_receipts} מועמדים · ` : ' '}
+                  {syncProgress.errors_count ? ` ${syncProgress.errors_count} שגיאות` : ''}
+                </span>
               </p>
             </div>
           )}
