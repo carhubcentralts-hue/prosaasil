@@ -48,6 +48,12 @@ GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'https://prosaas.pro/api/
 # OAuth scopes - minimal required for reading emails and attachments
 GMAIL_SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
+
+# Progress calculation constants
+PROGRESS_ESTIMATED_MESSAGES_PER_DAY = 2  # Estimate 2-3 messages per day for date range
+PROGRESS_MIN_ESTIMATED_TOTAL = 100  # Minimum estimate for progress calculation
+PROGRESS_MAX_PERCENTAGE = 95  # Cap at 95% until completed
+PROGRESS_MESSAGES_PER_10_PERCENT = 100  # 10% progress per 100 messages scanned
     'https://www.googleapis.com/auth/userinfo.email',
 ]
 
@@ -1256,18 +1262,16 @@ def get_sync_status():
         # FIXED: Better progress calculation
         # Show progress based on messages scanned, not saved receipts
         # This provides real-time feedback to users even when no receipts are saved
-        # Estimate: assume ~500-1000 messages per year of email
-        # If we're scanning custom date range, estimate based on date range
         if sync_run.mode == 'incremental' and hasattr(sync_run, 'from_date') and hasattr(sync_run, 'to_date'):
             # For custom date range, show progress linearly
             # Assume ~2-3 messages per day on average
             days_in_range = (sync_run.to_date - sync_run.from_date).days if sync_run.to_date and sync_run.from_date else 365
-            estimated_total = max(days_in_range * 2, 100)  # At least 100
-            progress_pct = min(95, int((sync_run.messages_scanned / estimated_total) * 100))
+            estimated_total = max(days_in_range * PROGRESS_ESTIMATED_MESSAGES_PER_DAY, PROGRESS_MIN_ESTIMATED_TOTAL)
+            progress_pct = min(PROGRESS_MAX_PERCENTAGE, int((sync_run.messages_scanned / estimated_total) * 100))
         else:
             # For standard sync, show progress based on what we've scanned
             # Cap at 95% until completed
-            progress_pct = min(95, int((sync_run.messages_scanned / 100) * 10))  # 10% per 100 messages
+            progress_pct = min(PROGRESS_MAX_PERCENTAGE, int((sync_run.messages_scanned / PROGRESS_MESSAGES_PER_10_PERCENT) * 10))
     
     # Calculate time since last heartbeat (for monitoring stale runs)
     seconds_since_heartbeat = None

@@ -123,6 +123,7 @@ PDF_RECEIPT_INDICATORS = [
 # Minimum confidence to save as receipt (lowered to catch more receipts)
 MIN_CONFIDENCE = 10  # Very low threshold - prefer false positives over false negatives
 REVIEW_THRESHOLD = 40  # Below this goes to pending_review (lowered to catch more)
+ATTACHMENT_CONFIDENCE_BOOST = 5  # Extra points to ensure attachments pass threshold
 
 # Error message truncation (to fit in DB error_message column)
 ERROR_MESSAGE_MAX_LENGTH = 450  # Leave room for message_id prefix
@@ -464,7 +465,7 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     if has_pdf or has_image:
         # Ensure minimum confidence for emails with attachments
         if confidence < MIN_CONFIDENCE:
-            confidence = MIN_CONFIDENCE + 5  # Give small boost above threshold
+            confidence = MIN_CONFIDENCE + ATTACHMENT_CONFIDENCE_BOOST  # Give small boost above threshold
     
     # Also give benefit of doubt if we have keywords
     if matched_keywords and confidence < MIN_CONFIDENCE:

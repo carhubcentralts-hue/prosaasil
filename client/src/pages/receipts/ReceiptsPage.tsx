@@ -1526,9 +1526,11 @@ export function ReceiptsPage() {
               <p className="text-xs text-gray-500 mt-2 flex items-center justify-between">
                 <span>{syncProgressPercentage}% הושלם</span>
                 <span>
-                  {syncProgress.pages_scanned} עמודים · 
-                  {syncProgress.candidate_receipts ? ` ${syncProgress.candidate_receipts} מועמדים · ` : ' '}
-                  {syncProgress.errors_count ? ` ${syncProgress.errors_count} שגיאות` : ''}
+                  {[
+                    `${syncProgress.pages_scanned} עמודים`,
+                    syncProgress.candidate_receipts ? `${syncProgress.candidate_receipts} מועמדים` : null,
+                    syncProgress.errors_count ? `${syncProgress.errors_count} שגיאות` : null
+                  ].filter(Boolean).join(' · ')}
                 </span>
               </p>
             </div>
