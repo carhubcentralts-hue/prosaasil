@@ -74,22 +74,15 @@ def sync_gmail_receipts_job(
     lock_key = f"receipt_sync_lock:{business_id}"
     run_id = None  # Initialize to avoid reference errors in exception handler
     
-    # IMPORTANT: Lock should already exist from API endpoint
-    # But we check anyway in case of direct job submission
-    lock_value = redis_conn.get(lock_key)
+    # Try to acquire lock
+    lock_acquired = redis_conn.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
     
-    if not lock_value:
-        # Lock doesn't exist - this shouldn't happen if API endpoint is used correctly
-        logger.warning(f"🔔 JOB WARNING: Lock doesn't exist for business {business_id}, creating one")
-        lock_acquired = redis_conn.set(lock_key, "locked", nx=True, ex=LOCK_TTL)
-        if not lock_acquired:
-            logger.error(f"🔔 JOB BLOCKED: Could not acquire lock for business {business_id}")
-            return {
-                "success": False,
-                "error": "Sync already in progress for this business"
-            }
-    else:
-        logger.info(f"🔔 JOB INFO: Lock exists for business {business_id}, proceeding with sync")
+    if not lock_acquired:
+        logger.warning(f"🔔 JOB BLOCKED: Could not acquire lock for business {business_id} - sync already running")
+        return {
+            "success": False,
+            "error": "Sync already in progress for this business"
+        }
     
     try:
         # Enhanced logging with all parameters for debugging
@@ -170,7 +163,8 @@ def sync_gmail_receipts_job(
         
         duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
         logger.info("=" * 60)
-        logger.info(f"🔔 JOB DONE: Gmail sync completed")
+        logger.info(f"🔔 JOB_DONE: Gmail sync completed successfully")
+        logger.info(f"  → job_id: {job_id or 'N/A'}")
         logger.info(f"  → business_id: {business_id}")
         logger.info(f"  → run_id: {run_id}")
         logger.info(f"  → duration: {duration:.1f}s")
@@ -188,10 +182,12 @@ def sync_gmail_receipts_job(
         
     except Exception as e:
         logger.error("=" * 60)
-        logger.error(f"🔔 JOB FAIL: Gmail sync failed")
+        logger.error(f"🔔 JOB_FAIL: Gmail sync failed")
+        logger.error(f"  → job_id: {job_id or 'N/A'}")
         logger.error(f"  → business_id: {business_id}")
         logger.error(f"  → run_id: {run_id if run_id is not None else 'N/A'}")
         logger.error(f"  → error: {str(e)[:MAX_ERROR_LOG_LENGTH]}")
+        logger.error(f"  → error_type: {type(e).__name__}")
         logger.error("=" * 60)
         logger.error(f"Stack trace:", exc_info=True)
         

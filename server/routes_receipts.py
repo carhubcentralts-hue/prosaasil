@@ -1082,66 +1082,37 @@ def sync_receipts():
         
         # Use Redis Queue if available, otherwise fall back to threading
         if RQ_AVAILABLE and receipts_queue:
-            # CRITICAL FIX: Check Redis lock BEFORE enqueue to prevent duplicate jobs
-            # This prevents race condition where multiple requests create multiple jobs
-            lock_key = f"receipt_sync_lock:{business_id}"
-            
-            # Check if lock already exists
-            if redis_conn.get(lock_key):
-                logger.warning(f"🔔 SYNC BLOCKED: Redis lock exists for business_id={business_id}")
-                return jsonify({
-                    "success": False,
-                    "error": "Sync already in progress (Redis lock exists)",
-                    "status": "locked"
-                }), 409
-            
-            # Try to acquire lock BEFORE enqueueing
-            # Use NX (only set if not exists) and EX (expiry) atomically
-            LOCK_TTL = 3600  # 1 hour - same as job timeout
-            lock_acquired = redis_conn.set(lock_key, "enqueueing", nx=True, ex=LOCK_TTL)
-            
-            if not lock_acquired:
-                # Another request acquired the lock between our check and set
-                logger.warning(f"🔔 SYNC BLOCKED: Failed to acquire Redis lock for business_id={business_id}")
-                return jsonify({
-                    "success": False,
-                    "error": "Sync already in progress (lock race)",
-                    "status": "locked"
-                }), 409
-            
-            logger.info(f"🔔 REDIS LOCK ACQUIRED: lock_key={lock_key}, ttl={LOCK_TTL}s")
-            
             # Enqueue job to Redis queue for worker processing
             from server.jobs.gmail_sync_job import sync_gmail_receipts_job
             
-            try:
-                job = receipts_queue.enqueue(
-                    sync_gmail_receipts_job,
-                    business_id=business_id,
-                    mode=mode,
-                    max_messages=max_messages,
-                    from_date=from_date,
-                    to_date=to_date,
-                    months_back=months_back,
-                    job_timeout='1h',  # Max 1 hour for sync
-                    result_ttl=3600,  # Keep result for 1 hour
-                    failure_ttl=86400,  # Keep failure info for 24 hours
-                )
-                
-                logger.info(f"🔔 JOB ENQUEUED: job_id={job.id}, business_id={business_id}, lock_key={lock_key}")
-                
-                # Return immediately with 202 Accepted
-                return jsonify({
-                    "success": True,
-                    "message": "Sync job queued for processing",
-                    "job_id": job.id,
-                    "status": "queued"
-                }), 202
-            except Exception as enqueue_error:
-                # If enqueue fails, release the lock immediately
-                logger.error(f"🔔 ENQUEUE FAILED: Releasing lock for business_id={business_id}")
-                redis_conn.delete(lock_key)
-                raise
+            logger.info(f"🔔 ENQUEUEING JOB: Importing sync_gmail_receipts_job and preparing to enqueue...")
+            
+            job = receipts_queue.enqueue(
+                sync_gmail_receipts_job,
+                business_id=business_id,
+                mode=mode,
+                max_messages=max_messages,
+                from_date=from_date,
+                to_date=to_date,
+                months_back=months_back,
+                job_timeout='1h',  # Max 1 hour for sync
+                result_ttl=3600,  # Keep result for 1 hour
+                failure_ttl=86400,  # Keep failure info for 24 hours
+            )
+            
+            logger.info(f"🔔 JOB ENQUEUED SUCCESSFULLY:")
+            logger.info(f"  → job_id: {job.id}")
+            logger.info(f"  → business_id: {business_id}")
+            logger.info(f"  → queue: default")
+            logger.info(f"  → status: {job.get_status()}")
+            
+            # Return immediately with 202 Accepted
+            return jsonify({
+                "success": True,
+                "message": "Sync job queued for processing",
+                "job_id": job.id,
+                "status": "queued"
+            }), 202
         else:
             # Fallback to threading (for development or if RQ not available)
             logger.warning("RQ not available, using threading fallback")
