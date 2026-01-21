@@ -84,6 +84,26 @@ def check_index_exists(index_name):
         log.warning(f"Error checking if index {index_name} exists: {e}")
         return False
 
+def exec_ddl(engine, sql: str):
+    """
+    Execute a single DDL statement in its own transaction.
+    
+    This is critical for Postgres: if a DDL statement fails within a transaction,
+    the entire transaction enters FAILED state and all previous work is rolled back.
+    
+    By executing each DDL statement in its own transaction, we ensure that:
+    1. Successful column additions are committed even if later statements fail
+    2. Failed statements don't pollute the transaction state
+    3. We can continue with other operations after a failure
+    
+    Args:
+        engine: SQLAlchemy engine
+        sql: DDL statement to execute
+    """
+    from sqlalchemy import text
+    with engine.begin() as conn:  # begin() = auto commit/rollback
+        conn.execute(text(sql))
+
 def apply_migrations():
     """
     Apply all pending migrations
@@ -3990,97 +4010,113 @@ def apply_migrations():
         # 2. Persistent progress tracking (from_date, to_date, months_back)
         # 3. Better checkpoint state (paused status)
         # 4. Improved progress tracking (skipped_count)
+        #
+        # 🔒 CRITICAL: Each ALTER TABLE runs in its own transaction to prevent
+        # Postgres transaction rollback from affecting successful column additions.
         checkpoint("Migration 89: Gmail Sync Run-to-Completion Enhancements")
         
         if check_table_exists('receipt_sync_runs'):
             fields_to_add = []
             
-            # Add from_date field
+            # Add from_date field - separate transaction
             if not check_column_exists('receipt_sync_runs', 'from_date'):
                 checkpoint("  → Adding from_date column...")
                 try:
-                    db.session.execute(text("""
+                    exec_ddl(db.engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS from_date DATE NULL
-                    """))
+                    """)
                     fields_to_add.append('from_date')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add from_date: {e}")
             
-            # Add to_date field
+            # Add to_date field - separate transaction
             if not check_column_exists('receipt_sync_runs', 'to_date'):
                 checkpoint("  → Adding to_date column...")
                 try:
-                    db.session.execute(text("""
+                    exec_ddl(db.engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS to_date DATE NULL
-                    """))
+                    """)
                     fields_to_add.append('to_date')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add to_date: {e}")
             
-            # Add months_back field
+            # Add months_back field - separate transaction
             if not check_column_exists('receipt_sync_runs', 'months_back'):
                 checkpoint("  → Adding months_back column...")
                 try:
-                    db.session.execute(text("""
+                    exec_ddl(db.engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS months_back INTEGER NULL
-                    """))
+                    """)
                     fields_to_add.append('months_back')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add months_back: {e}")
             
-            # Add run_to_completion field (nullable to distinguish unset - matches ORM)
+            # Add run_to_completion field - separate transaction
             if not check_column_exists('receipt_sync_runs', 'run_to_completion'):
                 checkpoint("  → Adding run_to_completion column...")
                 try:
-                    db.session.execute(text("""
+                    exec_ddl(db.engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS run_to_completion BOOLEAN NULL
-                    """))
+                    """)
                     fields_to_add.append('run_to_completion')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add run_to_completion: {e}")
             
-            # Add max_seconds_per_run field
+            # Add max_seconds_per_run field - separate transaction
             if not check_column_exists('receipt_sync_runs', 'max_seconds_per_run'):
                 checkpoint("  → Adding max_seconds_per_run column...")
                 try:
-                    db.session.execute(text("""
+                    exec_ddl(db.engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS max_seconds_per_run INTEGER NULL
-                    """))
+                    """)
                     fields_to_add.append('max_seconds_per_run')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add max_seconds_per_run: {e}")
             
-            # Add skipped_count field (NOT NULL with DEFAULT - matches ORM)
+            # Add skipped_count field - separate transaction
             if not check_column_exists('receipt_sync_runs', 'skipped_count'):
                 checkpoint("  → Adding skipped_count column...")
                 try:
-                    db.session.execute(text("""
+                    exec_ddl(db.engine, """
                         ALTER TABLE receipt_sync_runs 
                         ADD COLUMN IF NOT EXISTS skipped_count INTEGER NOT NULL DEFAULT 0
-                    """))
+                    """)
                     fields_to_add.append('skipped_count')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add skipped_count: {e}")
             
-            # Update status constraint to include 'paused'
+            # Clean up invalid status values before adding constraint - separate transaction
+            checkpoint("  → Cleaning up invalid status values...")
+            try:
+                exec_ddl(db.engine, """
+                    UPDATE receipt_sync_runs
+                    SET status = 'failed'
+                    WHERE status IS NOT NULL
+                      AND status NOT IN ('running', 'paused', 'completed', 'failed', 'cancelled')
+                """)
+                checkpoint("  ✅ Invalid status values cleaned up")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Failed to clean up invalid status values: {e}")
+            
+            # Update status constraint to include 'paused' - separate transaction
             checkpoint("  → Updating status constraint to include 'paused'...")
             try:
                 # Drop old constraint if it exists
-                db.session.execute(text("""
+                exec_ddl(db.engine, """
                     ALTER TABLE receipt_sync_runs 
                     DROP CONSTRAINT IF EXISTS chk_receipt_sync_status
-                """))
+                """)
                 # Add new constraint with 'paused' status
-                db.session.execute(text("""
+                exec_ddl(db.engine, """
                     ALTER TABLE receipt_sync_runs 
                     ADD CONSTRAINT chk_receipt_sync_status 
                     CHECK (status IN ('running', 'paused', 'completed', 'failed', 'cancelled'))
-                """))
+                """)
                 checkpoint("  ✅ Status constraint updated with 'paused'")
             except Exception as e:
                 checkpoint(f"  ⚠️ Failed to update status constraint: {e}")
@@ -4101,7 +4137,6 @@ def apply_migrations():
             if missing_columns:
                 error_msg = f"❌ MIGRATION 89 VALIDATION FAILED: Missing columns in receipt_sync_runs: {', '.join(missing_columns)}"
                 checkpoint(error_msg)
-                db.session.rollback()
                 raise RuntimeError(error_msg)
             else:
                 checkpoint("  ✅ Schema validation passed - all required columns exist")

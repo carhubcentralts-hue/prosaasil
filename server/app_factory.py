@@ -986,11 +986,13 @@ def create_app():
                         except Exception:
                             pass
                 except Exception as e:
-                    # 🔥 CRITICAL FIX: Even on migration failure, signal complete
-                    # This prevents warmup from hanging forever
-                    logger.error(f"Migration failed: {e}")
+                    # 🔥 CRITICAL: DO NOT proceed if migrations fail
+                    # This prevents workers from starting with invalid schema
+                    logger.error(f"❌ MIGRATION FAILED: {e}")
+                    logger.error("System cannot start with failed migrations")
+                    # Signal migrations complete but re-raise to stop startup
                     _migrations_complete.set()
-                    pass
+                    raise RuntimeError(f"Migration failed - cannot proceed: {e}") from e
             else:
                 # Development mode - quick table creation
                 try:
@@ -1110,7 +1112,9 @@ def create_app():
                 migrations_ready = _migrations_complete.wait(timeout=60.0)
                 
                 if not migrations_ready:
-                    logger.warning("⚠️ Warmup timeout waiting for migrations - proceeding anyway")
+                    error_msg = "❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
                 else:
                     logger.info("✅ Migrations complete - starting warmup")
                 
