@@ -17,6 +17,12 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+# Migration 89 required columns for receipt_sync_runs
+MIGRATION_89_REQUIRED_COLUMNS = [
+    'from_date', 'to_date', 'months_back',
+    'run_to_completion', 'max_seconds_per_run', 'skipped_count'
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -3995,7 +4001,7 @@ def apply_migrations():
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN IF NOT EXISTS from_date DATE
+                        ADD COLUMN IF NOT EXISTS from_date DATE NULL
                     """))
                     fields_to_add.append('from_date')
                 except Exception as e:
@@ -4007,7 +4013,7 @@ def apply_migrations():
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN IF NOT EXISTS to_date DATE
+                        ADD COLUMN IF NOT EXISTS to_date DATE NULL
                     """))
                     fields_to_add.append('to_date')
                 except Exception as e:
@@ -4019,19 +4025,19 @@ def apply_migrations():
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN IF NOT EXISTS months_back INTEGER
+                        ADD COLUMN IF NOT EXISTS months_back INTEGER NULL
                     """))
                     fields_to_add.append('months_back')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add months_back: {e}")
             
-            # Add run_to_completion field
+            # Add run_to_completion field (nullable to distinguish unset - matches ORM)
             if not check_column_exists('receipt_sync_runs', 'run_to_completion'):
                 checkpoint("  → Adding run_to_completion column...")
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN IF NOT EXISTS run_to_completion BOOLEAN DEFAULT FALSE
+                        ADD COLUMN IF NOT EXISTS run_to_completion BOOLEAN NULL
                     """))
                     fields_to_add.append('run_to_completion')
                 except Exception as e:
@@ -4043,19 +4049,19 @@ def apply_migrations():
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN IF NOT EXISTS max_seconds_per_run INTEGER
+                        ADD COLUMN IF NOT EXISTS max_seconds_per_run INTEGER NULL
                     """))
                     fields_to_add.append('max_seconds_per_run')
                 except Exception as e:
                     checkpoint(f"  ⚠️ Failed to add max_seconds_per_run: {e}")
             
-            # Add skipped_count field
+            # Add skipped_count field (NOT NULL with DEFAULT - matches ORM)
             if not check_column_exists('receipt_sync_runs', 'skipped_count'):
                 checkpoint("  → Adding skipped_count column...")
                 try:
                     db.session.execute(text("""
                         ALTER TABLE receipt_sync_runs 
-                        ADD COLUMN IF NOT EXISTS skipped_count INTEGER DEFAULT 0
+                        ADD COLUMN IF NOT EXISTS skipped_count INTEGER NOT NULL DEFAULT 0
                     """))
                     fields_to_add.append('skipped_count')
                 except Exception as e:
@@ -4087,12 +4093,8 @@ def apply_migrations():
             
             # 🔒 VALIDATION: Verify all required columns exist - FAIL if any are missing
             checkpoint("  → Validating receipt_sync_runs schema...")
-            required_columns = [
-                'from_date', 'to_date', 'months_back', 
-                'run_to_completion', 'max_seconds_per_run', 'skipped_count'
-            ]
             missing_columns = []
-            for col in required_columns:
+            for col in MIGRATION_89_REQUIRED_COLUMNS:
                 if not check_column_exists('receipt_sync_runs', col):
                     missing_columns.append(col)
             
