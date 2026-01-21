@@ -112,16 +112,30 @@ fi
 # Optional: Validate nginx config generation with envsubst
 if [ "$SKIP_NGINX_BUILD" = false ]; then
     echo ""
-    echo "📝 Validating nginx config with envsubst (optional)..."
+    echo "🧪 Testing nginx image build and config validation..."
     echo -e "${BLUE}Note: Use --skip-nginx-build to skip this step${NC}"
     
-    # Check if nginx templates directory exists
-    if [ ! -d "docker/nginx/conf.d" ]; then
-        echo -e "${YELLOW}⚠️  Nginx templates directory not found, skipping nginx validation${NC}"
+    # Build nginx image for testing
+    echo "Building nginx test image..."
+    if docker build -q -t prosaasil-nginx-test -f Dockerfile.nginx . >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Nginx image built successfully${NC}"
+        
+        # Test nginx config inside the built image
+        echo "Testing nginx configuration..."
+        if docker run --rm prosaasil-nginx-test nginx -t 2>&1 | grep -q "successful"; then
+            echo -e "${GREEN}✅ nginx config valid${NC}"
+        else
+            echo -e "${RED}❌ nginx config invalid${NC}"
+            docker run --rm prosaasil-nginx-test nginx -t
+            exit 1
+        fi
+        
+        # Clean up test image
+        docker rmi -f prosaasil-nginx-test >/dev/null 2>&1 || true
     else
-        echo -e "${GREEN}✅ Nginx templates directory exists${NC}"
-        echo -e "${BLUE}ℹ️  For full nginx validation, run: docker build -f Dockerfile.nginx -t prosaas-nginx-test .${NC}"
-        echo -e "${BLUE}   Then test with: docker run --rm -e API_UPSTREAM=prosaas-api prosaas-nginx-test nginx -t${NC}"
+        echo -e "${RED}❌ Nginx image build failed${NC}"
+        docker build -t prosaasil-nginx-test -f Dockerfile.nginx . 2>&1 | tail -20
+        exit 1
     fi
 fi
 

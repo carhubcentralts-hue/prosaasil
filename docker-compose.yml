@@ -3,26 +3,26 @@ services:
   # ===========================================
   # Nginx Reverse Proxy
   # Single entry point for all external traffic
+  # Note: Config templating happens at BUILD time, not runtime
   # ===========================================
   nginx:
     container_name: prosaas-nginx
     build:
       context: .
       dockerfile: Dockerfile.nginx
+      args:
+        # Build-time arguments for template substitution
+        API_UPSTREAM: backend
+        API_PORT: "5000"
+        CALLS_UPSTREAM: backend
+        CALLS_PORT: "5000"
+        FRONTEND_UPSTREAM: frontend
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      # Upstream service names and ports - can be overridden in prod
-      API_UPSTREAM: backend
-      API_PORT: "5000"
-      CALLS_UPSTREAM: backend
-      CALLS_PORT: "5000"
-      FRONTEND_UPSTREAM: frontend
     volumes:
-      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Only mount SSL certificates (read-only)
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
     # Note: depends_on backend removed - will be added by dev profile or prod override
     depends_on:
@@ -31,7 +31,7 @@ services:
       n8n:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost/health | grep -q OK"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 10

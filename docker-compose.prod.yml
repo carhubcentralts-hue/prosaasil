@@ -26,18 +26,23 @@ version: '3.8'
 services:
   # ===========================================
   # Nginx Reverse Proxy - Production SSL + Separate Services
+  # Note: Config templating happens at BUILD time, not runtime
   # ===========================================
   nginx:
-    environment:
-      # Override upstream service names and ports for production split architecture
-      API_UPSTREAM: prosaas-api
-      API_PORT: "5000"
-      CALLS_UPSTREAM: prosaas-calls
-      CALLS_PORT: "5050"
-      FRONTEND_UPSTREAM: frontend
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+      args:
+        # Override upstream service names and ports for production split architecture
+        API_UPSTREAM: prosaas-api
+        API_PORT: "5000"
+        CALLS_UPSTREAM: prosaas-calls
+        CALLS_PORT: "5050"
+        FRONTEND_UPSTREAM: frontend
+        USE_SSL: "true"
     volumes:
-      # Override with SSL configuration
-      - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
+      # Only mount SSL certificates (read-only)
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
     # Add production service dependencies
     depends_on:
       prosaas-api:
@@ -49,7 +54,7 @@ services:
       n8n:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost/health | grep -q OK"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 10
