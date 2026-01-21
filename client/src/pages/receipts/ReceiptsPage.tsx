@@ -143,10 +143,15 @@ const MobileDatePickerModal: React.FC<MobileDatePickerModalProps> = ({
   
   if (!isOpen) return null;
   
+  const modalTitleId = 'date-picker-modal-title';
+  
   // Render using Portal for proper z-index handling
   return ReactDOM.createPortal(
     <div 
       className="fixed inset-0 z-[9999] flex items-end justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={modalTitleId}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -154,7 +159,11 @@ const MobileDatePickerModal: React.FC<MobileDatePickerModalProps> = ({
       }}
     >
       {/* Overlay */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div 
+        className="absolute inset-0 bg-black/50" 
+        onClick={onClose}
+        aria-hidden="true"
+      />
       
       {/* Modal Content - Bottom Sheet Style */}
       <div 
@@ -166,16 +175,17 @@ const MobileDatePickerModal: React.FC<MobileDatePickerModalProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Handle bar for mobile */}
-        <div className="flex justify-center pt-3 pb-2">
+        {/* Handle bar for mobile - decorative only */}
+        <div className="flex justify-center pt-3 pb-2" aria-hidden="true">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
         </div>
         
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">סינון לפי תאריך</h2>
+          <h2 id={modalTitleId} className="text-lg font-semibold text-gray-900">סינון לפי תאריך</h2>
           <button
             onClick={onClose}
+            aria-label="סגור חלון סינון תאריכים"
             className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <X className="w-5 h-5" />
@@ -288,6 +298,7 @@ const MobileDatePickerModal: React.FC<MobileDatePickerModalProps> = ({
               onClear();
               setSelectedMonth('');
             }}
+            aria-label="נקה את בחירת התאריכים"
             className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-50 transition-colors min-h-[44px]"
           >
             נקה
@@ -297,6 +308,7 @@ const MobileDatePickerModal: React.FC<MobileDatePickerModalProps> = ({
               onApply();
               onClose();
             }}
+            aria-label="החל סינון לפי התאריכים שנבחרו"
             className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors min-h-[44px]"
           >
             החל סינון
@@ -818,6 +830,9 @@ export function ReceiptsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   
+  // Refresh trigger - increment to force a re-fetch of receipts
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
   // AbortController for canceling pending fetch requests
   const abortControllerRef = useRef<AbortController | null>(null);
   
@@ -908,7 +923,7 @@ export function ReceiptsPage() {
       }
       controller.abort();
     };
-  }, [page, statusFilter, searchQuery, fromDate, toDate]);
+  }, [page, statusFilter, searchQuery, fromDate, toDate, refreshTrigger]);
   
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -940,8 +955,8 @@ export function ReceiptsPage() {
         // Stop polling if sync is done
         if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
           setSyncInProgress(false);
-          // Reload receipts - trigger via state change which will be caught by the debounced effect
-          setPage(p => p); // This triggers a re-fetch via the effect
+          // Reload receipts - trigger refresh via incrementing refreshTrigger
+          setRefreshTrigger(prev => prev + 1);
           await fetchStats();
         }
       }
@@ -974,8 +989,8 @@ export function ReceiptsPage() {
             setSyncing(false);
             setSyncProgress(null);
             
-            // Refresh data - trigger via state change
-            setPage(p => p); // This triggers a re-fetch via the effect
+            // Refresh data - trigger refresh via incrementing refreshTrigger
+            setRefreshTrigger(prev => prev + 1);
             await fetchStats();
             await fetchGmailStatus();
             
