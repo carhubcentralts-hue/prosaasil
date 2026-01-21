@@ -1661,6 +1661,7 @@ class ReceiptSyncRun(db.Model):
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     finished_at = db.Column(db.DateTime, nullable=True)
     cancelled_at = db.Column(db.DateTime, nullable=True)  # When cancellation was requested
+    last_heartbeat_at = db.Column(db.DateTime, nullable=True, index=True)  # Last activity timestamp for stale run detection
     
     # Counters
     pages_scanned = db.Column(db.Integer, default=0)

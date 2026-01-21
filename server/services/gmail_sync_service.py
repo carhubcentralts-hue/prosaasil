@@ -1383,16 +1383,20 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
     start_time = time.time()
     
     # Log what we received from the API
-    logger.info(f"🔍 Gmail sync requested: business_id={business_id}, mode={mode}, from_date={from_date}, to_date={to_date}, months_back={months_back}")
+    logger.info(f"🔍 RUN_START: Gmail sync requested - business_id={business_id}, mode={mode}, from_date={from_date}, to_date={to_date}, months_back={months_back}")
     
-    # Create sync run record
+    # Create sync run record with initial heartbeat
+    now_utc = datetime.now(timezone.utc)
     sync_run = ReceiptSyncRun(
         business_id=business_id,
         mode=mode,
-        status='running'
+        status='running',
+        last_heartbeat_at=now_utc  # Initialize heartbeat
     )
     db.session.add(sync_run)
     db.session.commit()
+    
+    logger.info(f"🔍 RUN_START: run_id={sync_run.id}, started_at={now_utc.isoformat()}")
     
     result = {
         'sync_run_id': sync_run.id,
@@ -1492,7 +1496,13 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                 messages = page_result.get('messages', [])
                 page_token = page_result.get('nextPageToken')
                 
-                logger.info(f"📄 Page {result['pages_scanned']}: {len(messages)} messages, has_next={bool(page_token)}")
+                logger.info(f"📄 PAGE_FETCH: page={result['pages_scanned']}, messages={len(messages)}, has_next={bool(page_token)}")
+                
+                # Update heartbeat at page boundary
+                sync_run.last_heartbeat_at = datetime.now(timezone.utc)
+                sync_run.pages_scanned = result['pages_scanned']
+                sync_run.updated_at = datetime.now(timezone.utc)
+                db.session.commit()
                 
                 if not messages:
                     break
@@ -1529,14 +1539,30 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         page_token = None
                         break
                     
-                    # Check for cancellation every 10 messages
+                    # Check for cancellation and update heartbeat every 20 messages
                     if result['messages_scanned'] % 20 == 0:
+                        # Update heartbeat for stale run detection
+                        sync_run.last_heartbeat_at = datetime.now(timezone.utc)
+                        sync_run.updated_at = datetime.now(timezone.utc)
+                        db.session.commit()
+                        
+                        # Check for cancellation
                         db.session.refresh(sync_run)
                         if sync_run.status == 'cancelled':
                             logger.info(f"⛔ Sync {sync_run.id} cancelled")
                             result['cancelled'] = True
                             page_token = None
                             break
+                        
+                        # Log progress every 50 messages
+                        if result['messages_scanned'] % 50 == 0:
+                            logger.info(
+                                f"📊 RUN_PROGRESS: run_id={sync_run.id}, "
+                                f"messages_scanned={result['messages_scanned']}, "
+                                f"saved={result['saved_receipts']}, "
+                                f"skipped={result['skipped']}, "
+                                f"errors={result['errors']}"
+                            )
                     
                     # Check if already exists (with no_autoflush to prevent SQLAlchemy warnings)
                     with db.session.no_autoflush:
@@ -2034,17 +2060,34 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         if sync_run.status != 'partial' and sync_run.status != 'cancelled':
             sync_run.status = 'completed'
         sync_run.finished_at = datetime.now(timezone.utc)
+        sync_run.pages_scanned = result['pages_scanned']
+        sync_run.messages_scanned = result['messages_scanned']
+        sync_run.candidate_receipts = result.get('candidate_receipts', 0)
+        sync_run.saved_receipts = result['saved_receipts']
+        sync_run.errors_count = result['errors']
+        sync_run.last_heartbeat_at = datetime.now(timezone.utc)  # Final heartbeat
+        sync_run.updated_at = datetime.now(timezone.utc)
         db.session.commit()
         
+        duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
+        
         if result['errors'] > 0:
-            logger.warning(f"Gmail sync completed with {result['errors']} errors: {result}")
+            logger.warning(
+                f"🏁 RUN_DONE: run_id={sync_run.id}, status=completed_with_errors, "
+                f"duration={duration:.1f}s, saved={result['saved_receipts']}, "
+                f"errors={result['errors']}"
+            )
         else:
-            logger.info(f"Gmail sync completed successfully: {result}")
+            logger.info(
+                f"🏁 RUN_DONE: run_id={sync_run.id}, status=completed, "
+                f"duration={duration:.1f}s, saved={result['saved_receipts']}, "
+                f"messages={result['messages_scanned']}, pages={result['pages_scanned']}"
+            )
         
         return result
         
     except Exception as e:
-        logger.error(f"Gmail sync failed: {e}", exc_info=True)
+        logger.error(f"❌ RUN_FAIL: Gmail sync failed with exception: {e}", exc_info=True)
         
         # Mark sync run as failed
         try:
@@ -2052,8 +2095,15 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
             sync_run.status = 'failed'
             sync_run.error_message = str(e)[:500]
             sync_run.finished_at = datetime.now(timezone.utc)
-            sync_run.errors_count = result['errors'] + 1
+            sync_run.errors_count = result.get('errors', 0) + 1
+            sync_run.last_heartbeat_at = datetime.now(timezone.utc)  # Mark failure time
+            sync_run.updated_at = datetime.now(timezone.utc)
             db.session.commit()
+            
+            logger.error(
+                f"❌ RUN_FAIL: run_id={sync_run.id}, status=failed, "
+                f"error={sync_run.error_message}"
+            )
         except Exception as commit_error:
             logger.error(f"Failed to update sync_run status: {commit_error}")
         
