@@ -1111,12 +1111,13 @@ def sync_receipts():
         # Use Redis Queue if available, otherwise fall back to threading
         if RQ_AVAILABLE and receipts_queue:
             # Enqueue job to Redis queue for worker processing
-            from server.jobs.gmail_sync_job import sync_gmail_receipts_job
+            # CRITICAL: Use string reference to ensure worker can resolve the function
+            # This prevents import path mismatches between API and Worker
             
             logger.info(f"🔔 ENQUEUEING JOB: Preparing to enqueue sync job to 'default' queue...")
             
             job = receipts_queue.enqueue(
-                sync_gmail_receipts_job,
+                'server.jobs.gmail_sync_job.sync_gmail_receipts_job',  # String reference for RQ
                 business_id=business_id,
                 mode=mode,
                 max_messages=max_messages,
