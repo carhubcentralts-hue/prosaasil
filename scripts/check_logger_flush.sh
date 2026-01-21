@@ -2,15 +2,15 @@
 # Check for logger.* calls with flush=True or file= parameters
 # These parameters are not supported by Python's logging module
 
-set -e
+set -euo pipefail
 
 echo "🔍 Checking for invalid logger parameters..."
 
 # Search for logger.* with flush=True in Python files
-FOUND_FLUSH=$(grep -rn "logger\." --include="*.py" | grep "flush=True" || true)
+FOUND_FLUSH=$(grep -rn "logger\." . --include="*.py" | grep "flush=True" || true)
 
 # Search for logger.* with file= in Python files  
-FOUND_FILE=$(grep -rn "logger\." --include="*.py" | grep "file=" || true)
+FOUND_FILE=$(grep -rn "logger\." . --include="*.py" | grep "file=" || true)
 
 ERRORS=0
 
