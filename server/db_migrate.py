@@ -3976,6 +3976,117 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ contract_signature_fields table already exists - skipping")
         
+        # ============================================================================
+        # Migration 89: Gmail Sync Run-to-Completion Enhancements
+        # ============================================================================
+        # Adds fields to support:
+        # 1. Run-to-completion mode (ignore time limits when RUN_TO_COMPLETION=true)
+        # 2. Persistent progress tracking (from_date, to_date, months_back)
+        # 3. Better checkpoint state (paused status)
+        # 4. Improved progress tracking (skipped_count)
+        checkpoint("Migration 89: Gmail Sync Run-to-Completion Enhancements")
+        
+        if check_table_exists('receipt_sync_runs'):
+            fields_to_add = []
+            
+            # Add from_date field
+            if not check_column_exists('receipt_sync_runs', 'from_date'):
+                checkpoint("  → Adding from_date column...")
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN from_date DATE
+                    """))
+                    fields_to_add.append('from_date')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Failed to add from_date: {e}")
+            
+            # Add to_date field
+            if not check_column_exists('receipt_sync_runs', 'to_date'):
+                checkpoint("  → Adding to_date column...")
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN to_date DATE
+                    """))
+                    fields_to_add.append('to_date')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Failed to add to_date: {e}")
+            
+            # Add months_back field
+            if not check_column_exists('receipt_sync_runs', 'months_back'):
+                checkpoint("  → Adding months_back column...")
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN months_back INTEGER
+                    """))
+                    fields_to_add.append('months_back')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Failed to add months_back: {e}")
+            
+            # Add run_to_completion field
+            if not check_column_exists('receipt_sync_runs', 'run_to_completion'):
+                checkpoint("  → Adding run_to_completion column...")
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN run_to_completion BOOLEAN
+                    """))
+                    fields_to_add.append('run_to_completion')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Failed to add run_to_completion: {e}")
+            
+            # Add max_seconds_per_run field
+            if not check_column_exists('receipt_sync_runs', 'max_seconds_per_run'):
+                checkpoint("  → Adding max_seconds_per_run column...")
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN max_seconds_per_run INTEGER
+                    """))
+                    fields_to_add.append('max_seconds_per_run')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Failed to add max_seconds_per_run: {e}")
+            
+            # Add skipped_count field
+            if not check_column_exists('receipt_sync_runs', 'skipped_count'):
+                checkpoint("  → Adding skipped_count column...")
+                try:
+                    db.session.execute(text("""
+                        ALTER TABLE receipt_sync_runs 
+                        ADD COLUMN skipped_count INTEGER DEFAULT 0
+                    """))
+                    fields_to_add.append('skipped_count')
+                except Exception as e:
+                    checkpoint(f"  ⚠️ Failed to add skipped_count: {e}")
+            
+            # Update status constraint to include 'paused'
+            checkpoint("  → Updating status constraint to include 'paused'...")
+            try:
+                # Drop old constraint if it exists
+                db.session.execute(text("""
+                    ALTER TABLE receipt_sync_runs 
+                    DROP CONSTRAINT IF EXISTS chk_receipt_sync_status
+                """))
+                # Add new constraint with 'paused' status
+                db.session.execute(text("""
+                    ALTER TABLE receipt_sync_runs 
+                    ADD CONSTRAINT chk_receipt_sync_status 
+                    CHECK (status IN ('running', 'paused', 'completed', 'failed', 'cancelled'))
+                """))
+                checkpoint("  ✅ Status constraint updated with 'paused'")
+            except Exception as e:
+                checkpoint(f"  ⚠️ Failed to update status constraint: {e}")
+            
+            if fields_to_add:
+                migrations_applied.append("add_gmail_sync_run_to_completion_fields")
+                checkpoint(f"✅ Migration 89 complete: {', '.join(fields_to_add)} added + status constraint updated")
+            else:
+                checkpoint("  ℹ️ All fields already exist - skipping")
+        else:
+            checkpoint("  ℹ️ receipt_sync_runs table doesn't exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
