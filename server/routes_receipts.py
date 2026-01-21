@@ -425,11 +425,11 @@ def list_receipts():
     status_param = request.args.get('status')
     logger.info(f"[list_receipts] Filtering - business_id={business_id}, from_date={from_date_param}, to_date={to_date_param}, status={status_param}")
     
-    # Build query with distinct to prevent duplicates
+    # Build base query
     query = Receipt.query.filter_by(
         business_id=business_id,
         is_deleted=False
-    ).distinct(Receipt.id)
+    )
     
     # Apply filters
     status = request.args.get('status')
