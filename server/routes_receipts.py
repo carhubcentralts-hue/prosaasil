@@ -995,16 +995,16 @@ def sync_receipts():
             # Not just any worker, but one that will actually process our jobs
             if not _has_worker_for_queue(redis_conn, queue_name="default"):
                 logger.error("✗ No RQ workers listening to 'default' queue - jobs will remain QUEUED")
+                # Log technical details for debugging
                 logger.error(f"[RQ_DIAG] Redis URL: {masked_url}")
                 logger.error(f"[RQ_DIAG] Queue checked: default")
-                logger.error(f"[RQ_DIAG] Total workers found: 0")
+                
                 return jsonify({
                     "success": False,
                     "error": "Receipt sync worker is not online. Please try again later.",
                     "technical_details": {
                         "redis_url": masked_url,
                         "queue": "default",
-                        "total_workers": 0,
                         "message": "No active RQ workers found listening to 'default' queue"
                     }
                 }), 503

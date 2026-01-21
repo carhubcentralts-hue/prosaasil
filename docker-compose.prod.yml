@@ -25,16 +25,20 @@ version: '3.8'
 
 services:
   # ===========================================
-  # Nginx Reverse Proxy - Production SSL + WebSocket
-  # Override dependencies to use prosaas-api and prosaas-calls instead of backend
+  # Nginx Reverse Proxy - Production SSL + Separate Services
   # ===========================================
   nginx:
+    environment:
+      # Override upstream service names and ports for production split architecture
+      API_UPSTREAM: prosaas-api
+      API_PORT: "5000"
+      CALLS_UPSTREAM: prosaas-calls
+      CALLS_PORT: "5050"
+      FRONTEND_UPSTREAM: frontend
     volumes:
       # Override with SSL configuration
       - ./docker/nginx/conf.d/prosaas-ssl.conf:/etc/nginx/conf.d/prosaas.conf:ro
     depends_on:
-      redis:
-        condition: service_healthy
       prosaas-api:
         condition: service_healthy
       prosaas-calls:
@@ -86,22 +90,15 @@ services:
       - local-db-only  # Won't start unless explicitly requested
 
   # ===========================================
-  # Backend API Service - Replaced by prosaas-api and prosaas-calls in production
-  # Keep minimal definition for dependency resolution
+  # Backend API Service - Disabled in production
+  # In production, use prosaas-api and prosaas-calls instead
   # ===========================================
   backend:
-    # Keep backend service definition for dependency resolution
-    # In production, prosaas-api and prosaas-calls handle the actual work
-    # This service won't start but allows other services to reference it
-    container_name: prosaas-backend-placeholder
-    image: alpine:latest
-    command: ["sh", "-c", "echo 'Backend disabled in production - using prosaas-api and prosaas-calls instead'; sleep infinity"]
-    restart: "no"
-    networks:
-      - prosaas-network
+    deploy:
+      replicas: 0  # Don't start this service in production
 
   # ===========================================
-  # Worker Service - Production Resource Overrides
+  # Worker Service - Production Overrides
   # Worker is defined in base docker-compose.yml
   # This overrides dependencies and resource limits for production
   # ===========================================
@@ -257,7 +254,7 @@ services:
 
   # ===========================================
   # Frontend - Production settings
-  # Override to remove backend dependency (frontend is static files)
+  # Remove backend dependency since frontend is static files
   # ===========================================
   frontend:
     depends_on: []
