@@ -33,7 +33,9 @@ COPY docker/nginx/templates /templates
 
 # Create conf.d at BUILD TIME
 RUN mkdir -p /etc/nginx/conf.d && \
+    # Copy health check config directly (no variables to substitute)
     cp /templates/00-health.conf.template /etc/nginx/conf.d/00-health.conf && \
+    # Generate main config based on SSL flag
     if [ "$USE_SSL" = "true" ]; then \
       envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' < /templates/prosaas-ssl.conf.template > /etc/nginx/conf.d/prosaas.conf ; \
     else \
@@ -43,9 +45,9 @@ RUN mkdir -p /etc/nginx/conf.d && \
 # CRITICAL: Fail-fast checks
 # Note: nginx -t will fail if upstreams don't exist at build time, which is expected
 # We verify syntax by checking the generated config has valid structure
-RUN grep -q "proxy_pass http" /etc/nginx/conf.d/prosaas.conf && \
+RUN grep -qE "proxy_pass http://[a-zA-Z0-9:.-]+/" /etc/nginx/conf.d/prosaas.conf && \
     ! grep -q "\${" /etc/nginx/conf.d/prosaas.conf && \
-    echo "✅ Config validation passed: proxy_pass directives present, no unsubstituted variables"
+    echo "✅ Config validation passed: valid proxy_pass URLs present, no unsubstituted variables"
 
 # Clean up
 RUN rm -rf /templates
