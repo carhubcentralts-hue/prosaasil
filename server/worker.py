@@ -84,7 +84,7 @@ except Exception as e:
 # Import Redis and job processing modules
 try:
     import redis
-    from rq import Worker, Queue, Connection
+    from rq import Worker, Queue
     from rq.job import Job
     logger.info("✓ Redis and RQ modules imported successfully")
 except Exception as e:
