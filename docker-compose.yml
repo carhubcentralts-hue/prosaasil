@@ -87,6 +87,9 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
+      # 🔥 LOGGING - Development mode (full logs)
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      PYTHONUNBUFFERED: 1
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -161,6 +164,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       RQ_QUEUES: high,default,low,receipts,receipts_sync
       SERVICE_ROLE: worker
+      # 🔥 LOGGING - Development mode (full logs)
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      PYTHONUNBUFFERED: 1
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -204,6 +210,8 @@ services:
       BAILEYS_PORT: 3300
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       TZ: UTC
+      # 🔥 LOGGING - Development mode
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
     # 🔥 ANDROID FIX: Volume for WhatsApp auth persistence
     # Without this, auth files are lost on container restart -> Android connection fails
     volumes:
