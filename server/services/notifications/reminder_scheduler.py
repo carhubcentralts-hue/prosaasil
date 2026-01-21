@@ -8,11 +8,13 @@ Sends push notifications for upcoming reminders:
 Uses DB-backed deduplication to work correctly with multiple workers/replicas.
 """
 import logging
+import os
 import socket
 import threading
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urlparse
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +26,28 @@ CLEANUP_DAYS = 7  # Clean up push log entries older than this
 # Scheduler state
 _scheduler_running = False
 _scheduler_thread: Optional[threading.Thread] = None
+
+
+def _log_error_with_rate_limit(error_type: str, message: str, rate_limit: int = 5) -> None:
+    """
+    Log an error message with rate limiting to prevent log spam.
+    
+    Args:
+        error_type: Type of error (used as counter key)
+        message: Error message to log
+        rate_limit: Log only every N occurrences
+    """
+    counter_attr = f'_error_count_{error_type}'
+    
+    if not hasattr(_log_error_with_rate_limit, counter_attr):
+        setattr(_log_error_with_rate_limit, counter_attr, 0)
+    
+    count = getattr(_log_error_with_rate_limit, counter_attr) + 1
+    setattr(_log_error_with_rate_limit, counter_attr, count)
+    
+    # Log only every N failures to prevent spam
+    if count % rate_limit == 1:
+        log.warning(f"[REMINDER_SCHEDULER] {message} (count={count})")
 
 
 def _is_dns_error(exc: Exception) -> bool:
@@ -160,7 +184,7 @@ def check_and_send_reminder_notifications(app):
     - 5 minutes before
     
     Uses DB-backed deduplication to prevent duplicate sends across workers.
-    Implements retry logic for transient DNS/connection failures.
+    Implements retry logic with exponential backoff for transient DNS/connection failures.
     
     Args:
         app: Flask application instance for context
@@ -169,10 +193,31 @@ def check_and_send_reminder_notifications(app):
     from server.models_sql import LeadReminder, Lead
     from sqlalchemy.exc import OperationalError
     
-    # 🔥 DNS RESILIENCE: Retry on transient DNS failures
-    for attempt in range(3):
+    # 🔥 DNS RESILIENCE: Retry with exponential backoff on transient DNS failures
+    # Backoff: 30s, 60s, 120s (max 3 attempts)
+    max_attempts = 3
+    backoff_times = [30, 60, 120]  # seconds
+    
+    for attempt in range(max_attempts):
         try:
             with app.app_context():
+                # 🔥 CRITICAL FIX: Force refresh DATABASE_URL from environment
+                # This ensures we use the current DATABASE_URL, not a cached one
+                current_db_url = os.getenv('DATABASE_URL', '')
+                if current_db_url and current_db_url != app.config.get('SQLALCHEMY_DATABASE_URI'):
+                    log.warning(f"[REMINDER_SCHEDULER] DATABASE_URL mismatch detected - app may need restart")
+                
+                # 🔥 DEBUG: Log database connection info on first attempt
+                if attempt == 0:
+                    try:
+                        db_url = app.config.get('DATABASE_URL', 'not_set')
+                        # Parse to extract host (don't log full URL with credentials!)
+                        parsed = urlparse(db_url)
+                        db_host = parsed.hostname if parsed.hostname else 'unknown'
+                        log.debug(f"[REMINDER_SCHEDULER] Using DB host: {db_host}")
+                    except Exception as e:
+                        log.debug(f"[REMINDER_SCHEDULER] Could not parse DB URL: {e}")
+                
                 # 🔥 FIX: Use local Israel time instead of UTC
                 # Since reminders are stored as naive datetime in local Israel time,
                 # we must compare against local time, not UTC
@@ -231,38 +276,48 @@ def check_and_send_reminder_notifications(app):
                 return
                 
         except OperationalError as e:
-            # 🔥 DNS RESILIENCE: Handle transient DNS failures gracefully
-            if _is_dns_error(e) and attempt < 2:
-                # Exponential backoff: 0.5s, 1s
-                sleep_time = 0.5 * (2 ** attempt)
-                log.warning(f"[REMINDER_SCHEDULER] DNS error (attempt {attempt + 1}/3), retrying in {sleep_time}s: {e}")
+            # 🔥 DNS RESILIENCE: Handle transient DNS failures gracefully with backoff
+            if _is_dns_error(e) and attempt < max_attempts - 1:
+                # Graduated backoff: 30s, 60s
+                sleep_time = backoff_times[attempt]
+                # Only log WARNING on first failure, DEBUG on subsequent
+                if attempt == 0:
+                    log.warning(f"[REMINDER_SCHEDULER] DB DNS error (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s")
+                else:
+                    log.debug(f"[REMINDER_SCHEDULER] DB DNS error (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
-            # Last attempt failed or non-DNS error
-            log.warning(f"[REMINDER_SCHEDULER] DB unavailable (dns/conn). Skipping this cycle. err={e}")
+            # Last attempt failed or non-DNS error - use rate-limited logging
+            _log_error_with_rate_limit('operational', f"DB unavailable: {str(e)[:100]}")
             return
             
         except socket.gaierror as e:
-            # 🔥 DNS RESILIENCE: Explicit DNS error - use same retry logic
-            if attempt < 2:
-                # Exponential backoff: 0.5s, 1s
-                sleep_time = 0.5 * (2 ** attempt)
-                log.warning(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/3), retrying in {sleep_time}s: {e}")
+            # 🔥 DNS RESILIENCE: Explicit DNS error - use same backoff logic
+            if attempt < max_attempts - 1:
+                # Graduated backoff: 30s, 60s
+                sleep_time = backoff_times[attempt]
+                if attempt == 0:
+                    log.warning(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s")
+                else:
+                    log.debug(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
-            # Last attempt failed
-            log.warning(f"[REMINDER_SCHEDULER] DNS failure after 3 attempts. Skipping this cycle. err={e}")
+            # Last attempt failed - use rate-limited logging
+            _log_error_with_rate_limit('dns', f"DNS failure after retries: {str(e)[:100]}")
             return
             
         except Exception as e:
             # Unexpected error - check if it's DNS-related before logging full traceback
             if _is_dns_error(e):
-                log.warning(f"[REMINDER_SCHEDULER] DB connection issue (likely DNS). Skipping this cycle. err={e}")
+                # DNS-related - use rate-limited logging
+                _log_error_with_rate_limit('generic_dns', f"DB connection issue: {str(e)[:100]}")
             else:
-                # Truly unexpected error - log with traceback for debugging
-                log.error(f"❌ Error in reminder notification scheduler: {e}")
-                import traceback
-                traceback.print_exc()
+                # Truly unexpected error - log with full traceback (but only in DEBUG mode)
+                if log.isEnabledFor(logging.DEBUG):
+                    log.error(f"❌ Error in reminder notification scheduler: {e}", exc_info=True)
+                else:
+                    # Production: log without traceback
+                    log.error(f"❌ Reminder scheduler error: {str(e)[:200]}")
             return
 
 

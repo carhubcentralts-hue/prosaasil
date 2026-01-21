@@ -550,15 +550,13 @@ def _session_processor_loop():
                 
                 if stale_count > 0:
                     logger.info(f"[WHATSAPP_SESSION] 📱 Check #{iteration}: Found {stale_count} stale sessions to process")
-                    logger.info(f"[WHATSAPP_SESSION] Check #{iteration}: Found {stale_count} stale sessions")
                     
                     processed = process_stale_sessions()
                     if processed > 0:
                         logger.info(f"[WHATSAPP_SESSION] ✅ Processed {processed} stale sessions with AI summaries")
-                        logger.info(f"[WHATSAPP_SESSION] Background job: processed {processed} sessions")
                 else:
-                    # Only log once every 30 minutes (every 6 iterations) in debug mode to confirm service is running
-                    if iteration % 6 == 0:
+                    # 🔥 LOG SPAM FIX: Only log once per hour (12 iterations @ 5min each), and only in DEBUG mode
+                    if iteration % 12 == 0:
                         logger.debug(f"[WHATSAPP_SESSION] Check #{iteration}: No stale sessions (service healthy)")
                 
                 # Reset error counter on success

@@ -7366,8 +7366,8 @@ class MediaStreamHandler:
                             filter_reason = "pure_english_hallucination"
                         
                         if should_filter:
-                            logger.error(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
-                            logger.error(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                            logger.debug(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
+                            logger.debug(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                             # 🔥 BUILD 182: STILL record filtered transcripts for webhook/transcript purposes!
                             # Only skip AI processing, not conversation history
                             if len(text) >= 2 and filter_reason not in ["gibberish", "too_short_or_punctuation"]:
@@ -7969,7 +7969,7 @@ class MediaStreamHandler:
                                     self._speak_exact_resend_count = 0
                     
                     # ✅ COST SAFETY: Transcription completed successfully
-                    logger.error(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                    logger.debug(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                 
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")
@@ -9287,10 +9287,10 @@ class MediaStreamHandler:
                         _orig_print(f"   ✅ WebSocket closed", flush=True)
             except Exception as e:
                 error_msg = str(e).lower()
-                # 🔥 FIX: These are expected conditions when client already disconnected - log as DEBUG only
-                if 'websocket.close' in error_msg or 'asgi' in error_msg or 'already' in error_msg:
-                    if DEBUG:
-                        _orig_print(f"   [DEBUG] WebSocket already closed: {e}", flush=True)
+                # 🔥 FIX: Expected conditions when client disconnects - log as DEBUG only
+                # Be specific: check for exact ASGI message patterns, not just "closed"
+                if 'websocket.close' in error_msg or 'asgi message' in error_msg or 'already closed' in error_msg:
+                    logger.debug(f"   [DEBUG] WebSocket already closed: {e}")
                 else:
                     _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
         
