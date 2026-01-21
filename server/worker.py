@@ -60,9 +60,6 @@ except ImportError:
     logger.error("rq package not installed. Install with: pip install rq")
     sys.exit(1)
 
-# Import job handlers
-from server.jobs.gmail_sync_job import sync_gmail_receipts_job
-
 # Connect to Redis
 redis_conn = redis.from_url(REDIS_URL)
 

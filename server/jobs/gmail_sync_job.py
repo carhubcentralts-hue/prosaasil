@@ -15,6 +15,14 @@ import redis
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+# Try to import RQ for job context (optional - only when running in worker)
+try:
+    from rq import get_current_job
+    RQ_AVAILABLE = True
+except (ImportError, RuntimeError):
+    RQ_AVAILABLE = False
+    get_current_job = None
+
 logger = logging.getLogger(__name__)
 
 # Redis connection
@@ -63,14 +71,14 @@ def sync_gmail_receipts_job(
     
     # Get job_id from RQ context if available
     job_id = None
-    try:
-        from rq import get_current_job
-        current_job = get_current_job()
-        if current_job:
-            job_id = current_job.id
-    except (ImportError, RuntimeError):
-        # Not in RQ context or RQ not available
-        pass
+    if RQ_AVAILABLE and get_current_job:
+        try:
+            current_job = get_current_job()
+            if current_job:
+                job_id = current_job.id
+        except (ImportError, RuntimeError):
+            # Not in RQ context
+            pass
     
     lock_key = f"receipt_sync_lock:{business_id}"
     run_id = None  # Initialize to avoid reference errors in exception handler
