@@ -78,6 +78,22 @@ except Exception as e:
     receipts_queue = None
     RQ_AVAILABLE = False
 
+# Helper function to check if RQ workers are active
+def _has_active_workers(redis_connection) -> bool:
+    """
+    Check if any RQ workers are actively listening to queues.
+    
+    Returns:
+        True if at least one worker is active, False otherwise
+    """
+    try:
+        from rq import Worker
+        workers = Worker.all(connection=redis_connection)
+        return len(workers) > 0
+    except Exception as e:
+        logger.error(f"Error checking for active workers: {e}")
+        return False
+
 # Gmail OAuth Configuration
 # IMPORTANT: Set these environment variables in production:
 # - GOOGLE_CLIENT_ID: Your Google OAuth Client ID
@@ -928,6 +944,19 @@ def sync_receipts():
         try:
             redis_conn.ping()
             logger.info(f"✓ Redis connection verified")
+            
+            # CRITICAL: Check if any workers are actually running
+            if not _has_active_workers(redis_conn):
+                logger.error("✗ No RQ workers detected - jobs will remain QUEUED")
+                return jsonify({
+                    "success": False,
+                    "error": "Worker not running - receipts sync cannot start (jobs will stay queued).",
+                    "action": "Deploy prosaas-worker service in production.",
+                    "technical_details": "No active RQ workers found listening to queues"
+                }), 503
+            
+            logger.info(f"✓ Active RQ workers detected")
+            
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logger.error(f"✗ Redis not available: {e}")
             return jsonify({
