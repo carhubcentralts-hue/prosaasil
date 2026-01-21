@@ -398,6 +398,8 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     # Use recursive attachment extraction
     attachments_list = extract_all_attachments(message)
     attachments = []
+    has_pdf = False
+    has_image = False
     for att in attachments_list:
         if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
             attachments.append(att)
