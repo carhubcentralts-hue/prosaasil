@@ -928,7 +928,7 @@ def sync_receipts():
         try:
             redis_conn.ping()
             logger.info(f"✓ Redis connection verified")
-        except Exception as e:
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logger.error(f"✗ Redis not available: {e}")
             return jsonify({
                 "success": False,
