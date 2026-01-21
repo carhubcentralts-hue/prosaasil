@@ -36,6 +36,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   const [signing, setSigning] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -45,7 +46,63 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     loadSignatureFields();
     loadPdfInfo();
   }, [token, file.id]);
+  
+  // Load PDF properly as blob and create ObjectURL
+  useEffect(() => {
+    if (!file.download_url) {
+      setLoading(false);
+      return;
+    }
 
+    const loadPdf = async () => {
+      setLoading(true);
+      try {
+        console.log('[PDF_LOAD] Fetching PDF from:', file.download_url);
+        
+        // Fetch the actual PDF as a blob
+        const pdfResponse = await fetch(file.download_url, {
+          credentials: 'include',
+        });
+        
+        if (!pdfResponse.ok) {
+          throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
+        }
+        
+        const contentType = pdfResponse.headers.get('content-type');
+        console.log('[PDF_LOAD] PDF Content-Type:', contentType);
+        
+        const blob = await pdfResponse.blob();
+        
+        // Validate it's actually a PDF
+        if (!blob.type.includes('pdf') && !contentType?.includes('pdf')) {
+          console.error('[PDF_LOAD] Not a PDF! Blob type:', blob.type, 'Content-Type:', contentType);
+          throw new Error(`Expected PDF but got ${blob.type || contentType || 'unknown type'}`);
+        }
+        
+        console.log('[PDF_LOAD] PDF blob loaded, size:', blob.size);
+        
+        // Create ObjectURL from blob
+        const objectUrl = URL.createObjectURL(blob);
+        setPdfObjectUrl(objectUrl);
+        
+        console.log('[PDF_LOAD] PDF loaded successfully');
+      } catch (err) {
+        console.error('[PDF_LOAD] Error loading PDF:', err);
+        onError(err instanceof Error ? err.message : 'שגיאה בטעינת PDF');
+      }
+    };
+    
+    loadPdf();
+    
+    // Cleanup: revoke ObjectURL when component unmounts
+    return () => {
+      if (pdfObjectUrl) {
+        console.log('[PDF_LOAD] Revoking ObjectURL');
+        URL.revokeObjectURL(pdfObjectUrl);
+      }
+    };
+  }, [file.download_url]);
+  
   const loadSignatureFields = async () => {
     try {
       const response = await fetch(`/api/contracts/sign/${token}/signature-fields`);
@@ -277,33 +334,49 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
         {/* PDF with Signature Field Overlays */}
         <div className="relative border-2 border-gray-300 rounded-lg bg-white overflow-hidden">
-          <iframe
-            ref={iframeRef}
-            src={`${file.download_url}#page=${currentPage}&view=FitH`}
-            className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
-            title={file.filename}
-            style={{ border: 'none', display: 'block' }}
-          />
-          
-          {/* Overlay showing where signatures will be placed */}
-          <div className="absolute inset-0 pointer-events-none">
-            {getCurrentPageFields().map((field, index) => (
-              <div
-                key={field.id}
-                className="absolute border-2 border-dashed border-purple-500 bg-purple-100 bg-opacity-30 flex items-center justify-center"
-                style={{
-                  left: `${field.x * 100}%`,
-                  top: `${field.y * 100}%`,
-                  width: `${field.w * 100}%`,
-                  height: `${field.h * 100}%`,
-                }}
-              >
-                <div className="bg-purple-600 text-white text-xs px-2 py-1 rounded">
-                  חתימה {signatureFields.indexOf(field) + 1}
-                </div>
+          {loading ? (
+            <div className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px] flex items-center justify-center bg-gray-50">
+              <div className="text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                <p className="text-gray-600">טוען PDF...</p>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : pdfObjectUrl ? (
+            <iframe
+              ref={iframeRef}
+              key={`${pdfObjectUrl}-${currentPage}`}
+              src={`${pdfObjectUrl}#page=${currentPage}&view=FitH`}
+              className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
+              title={file.filename}
+              style={{ border: 'none', display: 'block' }}
+            />
+          ) : (
+            <div className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px] flex items-center justify-center bg-gray-50">
+              <p className="text-red-600">לא ניתן לטעון PDF</p>
+            </div>
+          )}
+          
+          {/* Overlay showing where signatures will be placed - only show when PDF is loaded */}
+          {pdfObjectUrl && !loading && (
+            <div className="absolute inset-0 pointer-events-none">
+              {getCurrentPageFields().map((field, index) => (
+                <div
+                  key={field.id}
+                  className="absolute border-2 border-dashed border-purple-500 bg-purple-100 bg-opacity-30 flex items-center justify-center"
+                  style={{
+                    left: `${field.x * 100}%`,
+                    top: `${field.y * 100}%`,
+                    width: `${field.w * 100}%`,
+                    height: `${field.h * 100}%`,
+                  }}
+                >
+                  <div className="bg-purple-600 text-white text-xs px-2 py-1 rounded">
+                    חתימה {signatureFields.indexOf(field) + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Info about signature fields */}

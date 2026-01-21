@@ -787,7 +787,9 @@ def download_contract_file(contract_id, file_id):
         signed_url = attachment_service.generate_signed_url(
             attachment.id,
             attachment.storage_path,
-            ttl_minutes=ttl_seconds // 60
+            ttl_minutes=ttl_seconds // 60,
+            mime_type=attachment.mime_type,
+            filename=attachment.filename_original
         )
         
         if not signed_url:

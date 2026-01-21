@@ -77,11 +77,15 @@ class LocalStorageProvider(AttachmentStorageProvider):
             logger.error(f"[LOCAL_STORAGE] Error deleting {storage_key}: {e}")
             return False
     
-    def generate_signed_url(self, storage_key: str, ttl_seconds: int = 900) -> str:
+    def generate_signed_url(self, storage_key: str, ttl_seconds: int = 900, 
+                           content_type: str = None, content_disposition: str = None) -> str:
         """
         Generate signed internal URL for local file access
         
         Format: /api/attachments/{id}/download?expires={ts}&sig={signature}
+        
+        Note: content_type and content_disposition are ignored for local storage
+        as headers are set by the download endpoint based on attachment metadata.
         """
         # Extract attachment_id from storage_key
         # Format: attachments/{business_id}/{yyyy}/{mm}/{attachment_id}.ext

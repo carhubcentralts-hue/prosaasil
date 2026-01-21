@@ -153,24 +153,35 @@ class R2StorageProvider(AttachmentStorageProvider):
             logger.error(f"[R2_STORAGE] Delete failed for {storage_key}: {e}")
             return False
     
-    def generate_signed_url(self, storage_key: str, ttl_seconds: int = 900) -> str:
+    def generate_signed_url(self, storage_key: str, ttl_seconds: int = 900, 
+                           content_type: str = None, content_disposition: str = None) -> str:
         """
-        Generate presigned URL for R2 file access
+        Generate presigned URL for R2 file access with optional response headers
         
         Args:
             storage_key: Storage key of the file
             ttl_seconds: Time-to-live in seconds (default: 15 minutes)
+            content_type: Optional Content-Type to force in response (e.g., 'application/pdf')
+            content_disposition: Optional Content-Disposition to force in response (e.g., 'inline; filename="doc.pdf"')
             
         Returns:
             Presigned URL
         """
         try:
+            params = {
+                'Bucket': self.bucket_name,
+                'Key': storage_key
+            }
+            
+            # Add response headers if specified (forces headers even if not set during upload)
+            if content_type:
+                params['ResponseContentType'] = content_type
+            if content_disposition:
+                params['ResponseContentDisposition'] = content_disposition
+            
             url = self.s3_client.generate_presigned_url(
                 'get_object',
-                Params={
-                    'Bucket': self.bucket_name,
-                    'Key': storage_key
-                },
+                Params=params,
                 ExpiresIn=ttl_seconds
             )
             
