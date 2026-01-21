@@ -1460,15 +1460,17 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                 start_dt = datetime.strptime(from_date, '%Y-%m-%d')
                 end_dt = datetime.now()
                 logger.info(f"📅 From {from_date} to now")
-            # Case 3: Only to_date - go back 1 year (configurable via months_back param)
+            # Case 3: Only to_date - go back based on months_back parameter
             else:  # only to_date
                 end_dt = datetime.strptime(to_date, '%Y-%m-%d')
-                # Default: go back 12 months from to_date
-                # Note: When only to_date is specified, we default to 1 year of history
+                # Use months_back parameter to determine how far back to go
+                # Default: 12 months if not specified
+                # Note: When only to_date is specified, we use months_back to determine start
                 # to avoid accidentally syncing the entire Gmail history. 
-                # Use from_date=None, to_date=X, mode='full_backfill', months_back=N for custom depth.
-                start_dt = end_dt - relativedelta(months=12)
-                logger.info(f"📅 Last year up to {to_date} (only to_date specified, defaulting to 12 months back)")
+                # For full control, specify both from_date and to_date explicitly.
+                months_to_go_back = months_back if months_back else 12
+                start_dt = end_dt - relativedelta(months=months_to_go_back)
+                logger.info(f"📅 Last {months_to_go_back} months up to {to_date} (only to_date specified, using months_back={months_to_go_back})")
             
             # Build Gmail query with custom dates
             query_parts = []

@@ -66,6 +66,15 @@ try:
             receipts_queue = Queue('default', connection=redis_conn)
             RQ_AVAILABLE = True
             logger.info("✓ Redis connection successful - RQ available")
+            
+            # CRITICAL: Log Redis signature for debugging connection mismatches
+            try:
+                redis_info = redis_conn.info('server')
+                redis_id = f"{redis_info.get('redis_version', 'unknown')}@{redis_info.get('tcp_port', 'unknown')}"
+                logger.info(f"📍 REDIS SIGNATURE (API): {masked_url} | Redis: {redis_id} | Queue: 'default'")
+            except Exception as info_error:
+                logger.warning(f"Could not get Redis info: {info_error}")
+                logger.info(f"📍 REDIS SIGNATURE (API): {masked_url} | Queue: 'default'")
         except redis.exceptions.ConnectionError as e:
             logger.error(f"✗ Redis connection failed: {e}")
             logger.error("Receipts sync will use threading fallback")
@@ -77,6 +86,43 @@ except Exception as e:
     redis_conn = None
     receipts_queue = None
     RQ_AVAILABLE = False
+
+# Helper function to check if RQ workers are active for specific queue
+def _has_worker_for_queue(redis_connection, queue_name: str = "default") -> bool:
+    """
+    Check if any RQ workers are actively listening to the specified queue.
+    
+    CRITICAL: This checks that at least one worker is listening to the specific queue,
+    not just that workers exist in general. A worker listening only to 'high' queue
+    won't process jobs enqueued to 'default' queue.
+    
+    Args:
+        redis_connection: Redis connection instance
+        queue_name: Name of the queue to check (default: "default")
+    
+    Returns:
+        True if at least one worker is listening to the specified queue, False otherwise
+    """
+    try:
+        from rq import Worker
+        workers = Worker.all(connection=redis_connection)
+        
+        # Check if any worker is listening to the specified queue
+        for worker in workers:
+            # worker.queue_names() returns list of queue names this worker listens to
+            if queue_name in [q.name for q in worker.queues]:
+                logger.debug(f"✓ Found worker '{worker.name}' listening to queue '{queue_name}'")
+                return True
+        
+        logger.warning(f"✗ No workers found listening to queue '{queue_name}' (found {len(workers)} total workers)")
+        return False
+        
+    except ImportError as e:
+        logger.error(f"Error importing RQ Worker: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error checking for workers on queue '{queue_name}': {e}")
+        return False
 
 # Gmail OAuth Configuration
 # IMPORTANT: Set these environment variables in production:
@@ -928,6 +974,20 @@ def sync_receipts():
         try:
             redis_conn.ping()
             logger.info(f"✓ Redis connection verified")
+            
+            # CRITICAL: Check if any workers are listening to the 'default' queue
+            # Not just any worker, but one that will actually process our jobs
+            if not _has_worker_for_queue(redis_conn, queue_name="default"):
+                logger.error("✗ No RQ workers listening to 'default' queue - jobs will remain QUEUED")
+                return jsonify({
+                    "success": False,
+                    "error": "Worker not running - receipts sync cannot start (jobs will stay queued).",
+                    "action": "Deploy prosaas-worker service in production that listens to 'default' queue.",
+                    "technical_details": "No active RQ workers found listening to 'default' queue"
+                }), 503
+            
+            logger.info(f"✓ Active RQ workers listening to 'default' queue detected")
+            
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logger.error(f"✗ Redis not available: {e}")
             return jsonify({
@@ -1128,6 +1188,11 @@ def sync_receipts():
                 result_ttl=3600,  # Keep result for 1 hour
                 failure_ttl=86400,  # Keep failure info for 24 hours
             )
+            
+            # Store metadata for stuck job detection
+            job.meta['business_id'] = business_id
+            job.meta['enqueued_at'] = datetime.now(timezone.utc).isoformat()
+            job.save_meta()
             
             logger.info(f"🔔 JOB ENQUEUED SUCCESSFULLY:")
             logger.info(f"  → job_id: {job.id}")
@@ -1333,9 +1398,75 @@ def get_sync_status():
     
     Query params:
     - run_id: Specific sync run ID (optional, defaults to most recent)
+    - job_id: RQ job ID (optional, for checking job status in queue)
     """
     business_id = get_current_business_id()
     from server.models_sql import ReceiptSyncRun
+    
+    # Check if job_id is provided (for RQ job status)
+    job_id = request.args.get('job_id', type=str)
+    if job_id and RQ_AVAILABLE and redis_conn:
+        try:
+            from rq.job import Job
+            job = Job.fetch(job_id, connection=redis_conn)
+            
+            job_status = job.get_status()
+            
+            # CRITICAL: Detect stuck queued jobs
+            stuck_warning = None
+            if job_status == 'queued':
+                # Check how long job has been queued
+                enqueued_at_str = job.meta.get('enqueued_at')
+                if enqueued_at_str:
+                    try:
+                        enqueued_at = datetime.fromisoformat(enqueued_at_str)
+                        if enqueued_at.tzinfo is None:
+                            enqueued_at = enqueued_at.replace(tzinfo=timezone.utc)
+                        
+                        now = datetime.now(timezone.utc)
+                        minutes_queued = (now - enqueued_at).total_seconds() / 60
+                        
+                        # Warn if queued for more than 5 minutes
+                        if minutes_queued > 5:
+                            stuck_warning = f"Job stuck in QUEUED for {int(minutes_queued)} minutes. Worker may not be processing jobs. Check worker logs and Redis connectivity."
+                            logger.warning(f"⚠️  STUCK JOB DETECTED: job_id={job_id}, queued_for={int(minutes_queued)}min")
+                    except Exception as parse_error:
+                        logger.error(f"Error parsing enqueued_at: {parse_error}")
+            
+            # Return RQ job status
+            response_data = {
+                "success": True,
+                "job_id": job.id,
+                "status": job_status,
+                "result": job.result if job.is_finished else None,
+                "exc_info": job.exc_info if job.is_failed else None,
+                "meta": job.meta,
+                "enqueued_at": job.enqueued_at.isoformat() if job.enqueued_at else None,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "ended_at": job.ended_at.isoformat() if job.ended_at else None,
+            }
+            
+            if stuck_warning:
+                response_data["warning"] = stuck_warning
+                response_data["stuck"] = True
+            
+            return jsonify(response_data), 200
+        except Exception as e:
+            logger.error(f"Failed to fetch RQ job {job_id}: {e}")
+            
+            # Check if job doesn't exist in Redis at all
+            error_msg = str(e).lower()
+            if 'no such job' in error_msg or 'not found' in error_msg:
+                return jsonify({
+                    "success": False,
+                    "error": f"Job not found in Redis. Worker may have crashed or Redis was restarted. Job ID: {job_id}",
+                    "missing_job": True
+                }), 404
+            
+            return jsonify({
+                "success": False,
+                "error": f"Job not found or error fetching job status: {str(e)}"
+            }), 404
     
     # Get sync run
     run_id = request.args.get('run_id', type=int)
@@ -1564,3 +1695,139 @@ def cancel_sync(run_id):
             "cancelled_at": sync_run.cancelled_at.isoformat() if sync_run.cancelled_at else None
         }
     })
+
+
+@receipts_bp.route('/queue/diagnostics', methods=['GET'])
+@require_api_auth()
+def get_queue_diagnostics():
+    """
+    Get diagnostics for Redis Queue and worker status
+    
+    🔒 SECURITY: This endpoint exposes infrastructure details
+    - Protected by API auth + additional checks
+    - Only accessible to system admins or with diagnostic key
+    - Do NOT expose to regular users
+    
+    CRITICAL: This endpoint helps diagnose worker issues:
+    - Shows if Redis is accessible
+    - Lists all active workers
+    - Shows queue lengths
+    - Shows which queues each worker is listening to
+    
+    Returns 503 if Redis is unavailable
+    Returns 200 with diagnostic info otherwise
+    
+    USE THIS TO DEBUG:
+    - "Why are my jobs staying QUEUED?"
+    - "Is the worker running?"
+    - "Is the worker listening to the right queue?"
+    """
+    # SECURITY: Additional authorization check
+    # Method 1: Check for diagnostic key in header
+    diagnostic_key = request.headers.get('X-Diagnostic-Key')
+    expected_key = os.getenv('DIAGNOSTICS_KEY', '')
+    
+    # Method 2: Check if user is system_admin
+    user_role = None
+    if hasattr(g, 'user') and g.user:
+        user_role = g.user.get('role') if isinstance(g.user, dict) else getattr(g.user, 'role', None)
+    
+    # Allow if: has valid diagnostic key OR is system_admin
+    has_diagnostic_key = diagnostic_key and expected_key and diagnostic_key == expected_key
+    is_admin = user_role == 'system_admin'
+    
+    if not (has_diagnostic_key or is_admin):
+        logger.warning(f"Unauthorized diagnostics access attempt from user_role={user_role}")
+        return jsonify({
+            "success": False,
+            "error": "Forbidden: diagnostics endpoint requires system_admin role or diagnostic key",
+            "details": "This endpoint exposes infrastructure details and is restricted"
+        }), 403
+    
+    diagnostics = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "redis": {},
+        "workers": [],
+        "queues": {},
+        "configuration": {}
+    }
+    
+    # Check Redis configuration
+    diagnostics["configuration"]["redis_url_configured"] = REDIS_URL is not None
+    if REDIS_URL:
+        # Mask password in URL for security
+        masked_url = REDIS_URL
+        if '@' in REDIS_URL:
+            parts = REDIS_URL.split('@')
+            if ':' in parts[0]:
+                user_pass = parts[0].split(':')
+                masked_url = f"{user_pass[0]}:{user_pass[1].split('//')[0]}//***@{parts[1]}"
+        diagnostics["configuration"]["redis_url"] = masked_url
+    
+    diagnostics["configuration"]["rq_available"] = RQ_AVAILABLE
+    
+    if not RQ_AVAILABLE or not redis_conn:
+        diagnostics["redis"]["available"] = False
+        diagnostics["redis"]["error"] = "RQ not available or Redis connection not configured"
+        return jsonify(diagnostics), 503
+    
+    try:
+        # Test Redis connection
+        redis_conn.ping()
+        diagnostics["redis"]["available"] = True
+        diagnostics["redis"]["ping"] = "OK"
+        
+        # Get Redis info
+        info = redis_conn.info()
+        diagnostics["redis"]["version"] = info.get('redis_version', 'unknown')
+        diagnostics["redis"]["connected_clients"] = info.get('connected_clients', 0)
+        diagnostics["redis"]["used_memory_human"] = info.get('used_memory_human', 'unknown')
+        
+    except Exception as e:
+        diagnostics["redis"]["available"] = False
+        diagnostics["redis"]["error"] = str(e)
+        return jsonify(diagnostics), 503
+    
+    try:
+        from rq import Worker, Queue
+        
+        # Get all workers
+        workers = Worker.all(connection=redis_conn)
+        diagnostics["workers_count"] = len(workers)
+        
+        for worker in workers:
+            queue_names = [q.name for q in worker.queues]
+            worker_info = {
+                "name": worker.name,
+                "state": worker.get_state(),
+                "queues": queue_names,
+                "current_job_id": worker.get_current_job_id(),
+                "successful_job_count": worker.successful_job_count,
+                "failed_job_count": worker.failed_job_count,
+                "total_working_time": worker.total_working_time,
+            }
+            diagnostics["workers"].append(worker_info)
+        
+        # Check specific queues
+        for queue_name in ['high', 'default', 'low']:
+            queue = Queue(queue_name, connection=redis_conn)
+            diagnostics["queues"][queue_name] = {
+                "length": len(queue),
+                "job_ids": [job.id for job in queue.jobs[:5]],  # First 5 jobs
+                "has_worker_listening": any(queue_name in [q.name for q in worker.queues] for worker in workers)
+            }
+        
+        # Critical check: Does 'default' queue have a worker?
+        default_has_worker = diagnostics["queues"]["default"]["has_worker_listening"]
+        diagnostics["critical_checks"] = {
+            "default_queue_has_worker": default_has_worker,
+            "status": "OK" if default_has_worker else "ERROR: No worker listening to 'default' queue!"
+        }
+        
+    except Exception as e:
+        diagnostics["workers_error"] = str(e)
+        import traceback
+        diagnostics["workers_traceback"] = traceback.format_exc()
+    
+    return jsonify(diagnostics), 200
+
