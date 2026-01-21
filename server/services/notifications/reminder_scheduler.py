@@ -199,6 +199,25 @@ def check_and_send_reminder_notifications(app):
     for attempt in range(max_attempts):
         try:
             with app.app_context():
+                # 🔥 CRITICAL FIX: Force refresh DATABASE_URL from environment
+                # This ensures we use the current DATABASE_URL, not a cached one
+                import os
+                current_db_url = os.getenv('DATABASE_URL', '')
+                if current_db_url and current_db_url != app.config.get('SQLALCHEMY_DATABASE_URI'):
+                    log.warning(f"[REMINDER_SCHEDULER] DATABASE_URL mismatch detected - app may need restart")
+                
+                # 🔥 DEBUG: Log database connection info on first attempt
+                if attempt == 0:
+                    try:
+                        db_url = app.config.get('DATABASE_URL', 'not_set')
+                        # Parse to extract host (don't log full URL with credentials!)
+                        from urllib.parse import urlparse
+                        parsed = urlparse(db_url)
+                        db_host = parsed.hostname if parsed.hostname else 'unknown'
+                        log.debug(f"[REMINDER_SCHEDULER] Using DB host: {db_host}")
+                    except Exception as e:
+                        log.debug(f"[REMINDER_SCHEDULER] Could not parse DB URL: {e}")
+                
                 # 🔥 FIX: Use local Israel time instead of UTC
                 # Since reminders are stored as naive datetime in local Israel time,
                 # we must compare against local time, not UTC

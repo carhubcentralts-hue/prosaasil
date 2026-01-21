@@ -79,9 +79,19 @@ def create_minimal_app():
     app = Flask(__name__)
     
     # Database configuration with SSL fix
-    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///default.db')
+    DATABASE_URL = os.getenv('DATABASE_URL', '')
+    
+    # 🔥 CRITICAL FIX: Fail fast if DATABASE_URL is not set
+    # This prevents confusing DNS errors from invalid database URLs
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "❌ CRITICAL: DATABASE_URL environment variable is not set!\n"
+            "   Set DATABASE_URL in your .env file or environment.\n"
+            "   Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
+        )
     
     if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
     
     app.config.update({
@@ -161,7 +171,16 @@ def create_app():
     }
     
     # Database configuration with SSL fix
-    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///default.db')
+    DATABASE_URL = os.getenv('DATABASE_URL', '')
+    
+    # 🔥 CRITICAL FIX: Fail fast if DATABASE_URL is not set
+    # This prevents confusing DNS errors from invalid database URLs
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "❌ CRITICAL: DATABASE_URL environment variable is not set!\n"
+            "   Set DATABASE_URL in your .env file or environment.\n"
+            "   Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
+        )
     
     # ✅ PRODUCTION SAFETY CHECK - No SQLite in production!
     IS_PRODUCTION = os.getenv('REPLIT_DEPLOYMENT') == '1' or os.getenv('RAILWAY_ENVIRONMENT') == 'production'
@@ -179,7 +198,7 @@ def create_app():
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
         'SQLALCHEMY_ENGINE_OPTIONS': {
             'pool_pre_ping': True,  # ✅ DB RESILIENCE: Verify connections before use (prevents stale connections)
-            'pool_recycle': 300,    # ✅ DB RESILIENCE: Recycle connections after 5 min (handles Neon idle timeout)
+            'pool_recycle': 60,     # 🔥 CRITICAL FIX: Recycle connections after 1 min (forces refresh of stale connections)
             # Fix for Eventlet + SQLAlchemy lock issue
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
