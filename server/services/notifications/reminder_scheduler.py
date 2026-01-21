@@ -160,7 +160,7 @@ def check_and_send_reminder_notifications(app):
     - 5 minutes before
     
     Uses DB-backed deduplication to prevent duplicate sends across workers.
-    Implements retry logic for transient DNS/connection failures.
+    Implements retry logic with exponential backoff for transient DNS/connection failures.
     
     Args:
         app: Flask application instance for context
@@ -169,8 +169,12 @@ def check_and_send_reminder_notifications(app):
     from server.models_sql import LeadReminder, Lead
     from sqlalchemy.exc import OperationalError
     
-    # 🔥 DNS RESILIENCE: Retry on transient DNS failures
-    for attempt in range(3):
+    # 🔥 DNS RESILIENCE: Retry with exponential backoff on transient DNS failures
+    # Backoff: 30s, 60s, 120s (max 3 attempts)
+    max_attempts = 3
+    backoff_times = [30, 60, 120]  # seconds
+    
+    for attempt in range(max_attempts):
         try:
             with app.app_context():
                 # 🔥 FIX: Use local Israel time instead of UTC
@@ -231,38 +235,67 @@ def check_and_send_reminder_notifications(app):
                 return
                 
         except OperationalError as e:
-            # 🔥 DNS RESILIENCE: Handle transient DNS failures gracefully
-            if _is_dns_error(e) and attempt < 2:
-                # Exponential backoff: 0.5s, 1s
-                sleep_time = 0.5 * (2 ** attempt)
-                log.warning(f"[REMINDER_SCHEDULER] DNS error (attempt {attempt + 1}/3), retrying in {sleep_time}s: {e}")
+            # 🔥 DNS RESILIENCE: Handle transient DNS failures gracefully with backoff
+            if _is_dns_error(e) and attempt < max_attempts - 1:
+                # Graduated backoff: 30s, 60s
+                sleep_time = backoff_times[attempt]
+                # Only log WARNING on first failure, DEBUG on subsequent
+                if attempt == 0:
+                    log.warning(f"[REMINDER_SCHEDULER] DB DNS error (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s")
+                else:
+                    log.debug(f"[REMINDER_SCHEDULER] DB DNS error (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
             # Last attempt failed or non-DNS error
-            log.warning(f"[REMINDER_SCHEDULER] DB unavailable (dns/conn). Skipping this cycle. err={e}")
+            # Only log once per multiple failures - use ERROR counter to avoid spam
+            if not hasattr(check_and_send_reminder_notifications, '_error_count'):
+                check_and_send_reminder_notifications._error_count = 0
+            check_and_send_reminder_notifications._error_count += 1
+            
+            # Log full error only every 5 failures
+            if check_and_send_reminder_notifications._error_count % 5 == 1:
+                log.warning(f"[REMINDER_SCHEDULER] DB unavailable (count={check_and_send_reminder_notifications._error_count}): {str(e)[:100]}")
             return
             
         except socket.gaierror as e:
-            # 🔥 DNS RESILIENCE: Explicit DNS error - use same retry logic
-            if attempt < 2:
-                # Exponential backoff: 0.5s, 1s
-                sleep_time = 0.5 * (2 ** attempt)
-                log.warning(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/3), retrying in {sleep_time}s: {e}")
+            # 🔥 DNS RESILIENCE: Explicit DNS error - use same backoff logic
+            if attempt < max_attempts - 1:
+                # Graduated backoff: 30s, 60s
+                sleep_time = backoff_times[attempt]
+                if attempt == 0:
+                    log.warning(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s")
+                else:
+                    log.debug(f"[REMINDER_SCHEDULER] DNS failure (attempt {attempt + 1}/{max_attempts}), retry in {sleep_time}s: {e}")
                 time.sleep(sleep_time)
                 continue
-            # Last attempt failed
-            log.warning(f"[REMINDER_SCHEDULER] DNS failure after 3 attempts. Skipping this cycle. err={e}")
+            # Last attempt failed - log once with counter
+            if not hasattr(check_and_send_reminder_notifications, '_dns_error_count'):
+                check_and_send_reminder_notifications._dns_error_count = 0
+            check_and_send_reminder_notifications._dns_error_count += 1
+            
+            # Log full error only every 5 failures
+            if check_and_send_reminder_notifications._dns_error_count % 5 == 1:
+                log.warning(f"[REMINDER_SCHEDULER] DNS failure after retries (count={check_and_send_reminder_notifications._dns_error_count}): {str(e)[:100]}")
             return
             
         except Exception as e:
             # Unexpected error - check if it's DNS-related before logging full traceback
             if _is_dns_error(e):
-                log.warning(f"[REMINDER_SCHEDULER] DB connection issue (likely DNS). Skipping this cycle. err={e}")
+                # DNS-related - use same counter logic as above
+                if not hasattr(check_and_send_reminder_notifications, '_generic_dns_error_count'):
+                    check_and_send_reminder_notifications._generic_dns_error_count = 0
+                check_and_send_reminder_notifications._generic_dns_error_count += 1
+                
+                # Log only every 5 failures
+                if check_and_send_reminder_notifications._generic_dns_error_count % 5 == 1:
+                    log.warning(f"[REMINDER_SCHEDULER] DB connection issue (count={check_and_send_reminder_notifications._generic_dns_error_count}): {str(e)[:100]}")
             else:
-                # Truly unexpected error - log with traceback for debugging
-                log.error(f"❌ Error in reminder notification scheduler: {e}")
-                import traceback
-                traceback.print_exc()
+                # Truly unexpected error - log with full traceback (but only in DEBUG mode)
+                if log.isEnabledFor(logging.DEBUG):
+                    log.error(f"❌ Error in reminder notification scheduler: {e}", exc_info=True)
+                else:
+                    # Production: log without traceback
+                    log.error(f"❌ Reminder scheduler error: {str(e)[:200]}")
             return
 
 

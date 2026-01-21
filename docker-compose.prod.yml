@@ -282,6 +282,9 @@ services:
   # Baileys WhatsApp Service - Production settings
   # ===========================================
   baileys:
+    environment:
+      # 🔥 LOGGING - Production mode (minimal logs)
+      LOG_LEVEL: INFO
     depends_on:
       prosaas-api:
         condition: service_healthy
