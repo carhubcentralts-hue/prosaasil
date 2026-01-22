@@ -3,17 +3,13 @@ services:
   # ===========================================
   # Nginx Reverse Proxy
   # Single entry point for all external traffic
-  # Note: Config templating happens at BUILD time, not runtime
+  # Proxies directly to prosaas-api and prosaas-calls services
   # ===========================================
   nginx:
     build:
       context: .
       dockerfile: Dockerfile.nginx
       args:
-        # Build-time arguments for template substitution
-        API_UPSTREAM: backend:5000
-        CALLS_UPSTREAM: backend:5000
-        FRONTEND_UPSTREAM: frontend
         USE_SSL: "false"
     restart: unless-stopped
     ports:
@@ -23,6 +19,10 @@ services:
       # Only mount SSL certificates (read-only)
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
+      prosaas-api:
+        condition: service_healthy
+      prosaas-calls:
+        condition: service_healthy
       frontend:
         condition: service_healthy
       n8n:
@@ -172,9 +172,10 @@ services:
       - timeout:2
       - attempts:2
     command: ["python", "-m", "server.worker"]
-    # Note: depends_on backend removed - will be added by dev profile or prod override
     depends_on:
       redis:
+        condition: service_healthy
+      prosaas-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); r.ping()\""]
@@ -194,16 +195,14 @@ services:
       context: .
       dockerfile: Dockerfile.baileys
     restart: unless-stopped
-    # Dependency on backend is configured per environment in override files
-    # Dev: depends on backend, Prod: depends on prosaas-api
     expose:
       - "3300"  # Only expose internally within Docker network
     env_file:
       - .env
     environment:
-      # 🔥 FIX #1: Use correct service name in docker network (backend in dev, prosaas-api in prod)
-      FLASK_BASE_URL: ${FLASK_BASE_URL:-http://backend:5000}
-      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:5000}
+      # 🔥 FIX #1: Use correct service name in docker network
+      FLASK_BASE_URL: ${FLASK_BASE_URL:-http://prosaas-api:5000}
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://prosaas-api:5000}
       BAILEYS_PORT: 3300
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       TZ: UTC
@@ -213,6 +212,9 @@ services:
     # Without this, auth files are lost on container restart -> Android connection fails
     volumes:
       - whatsapp_auth:/app/storage/whatsapp
+    depends_on:
+      prosaas-api:
+        condition: service_healthy
     # ✅ healthcheck uses wget (built-in to node:20-slim base image)
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3300/health >/dev/null 2>&1 || exit 1"]
@@ -268,6 +270,127 @@ services:
       - n8n_data:/home/node/.n8n
     expose:
       - "5678"
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # API Service - REST API endpoints
+  # Handles: Authentication, CRUD operations, business logic
+  # ===========================================
+  prosaas-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      # 🔥 MIGRATIONS - Run on container startup
+      RUN_MIGRATIONS_ON_START: 1
+      # 🔥 ATTACHMENT STORAGE - R2 Configuration
+      PRODUCTION: ${PRODUCTION:-0}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: api
+      # 🔥 SCHEDULERS: Disable schedulers in API service (only worker should run them)
+      ENABLE_SCHEDULERS: "false"
+      # 🔥 LOGGING - Development mode (full logs)
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      PYTHONUNBUFFERED: 1
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    expose:
+      - "5000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # Calls Service - WebSocket + Twilio streaming
+  # Handles: /ws/twilio-media, Twilio webhooks for calls
+  # ⚠️ CRITICAL: SINGLE WORKER ONLY (in-memory state)
+  # ===========================================
+  prosaas-calls:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      RUN_MIGRATIONS_ON_START: 0
+      PRODUCTION: ${PRODUCTION:-0}
+      ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
+      ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_ROLE: calls
+      PORT: 5050
+      # 🔥 SCHEDULERS: Disable schedulers in calls service (only worker should run them)
+      ENABLE_SCHEDULERS: "false"
+      # 🔥 LOGGING - Development mode (full logs)
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      PYTHONUNBUFFERED: 1
+    # 🔥 DNS FIX: Use external DNS to prevent transient failures
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
+    # ⚠️ CRITICAL: --workers MUST be 1 (not 4!)
+    # Reason: stream_registry is in-memory, not Redis
+    command: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5050", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30"]
+    expose:
+      - "5050"
+    volumes:
+      - recordings_data:/app/server/recordings
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - prosaas-net
 

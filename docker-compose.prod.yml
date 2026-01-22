@@ -24,17 +24,12 @@
 services:
   # ===========================================
   # Nginx Reverse Proxy - Production SSL + Separate Services
-  # Note: Config templating happens at BUILD time, not runtime
   # ===========================================
   nginx:
     build:
       context: .
       dockerfile: Dockerfile.nginx
       args:
-        # Production split architecture: separate API and Calls services
-        API_UPSTREAM: prosaas-api:5000
-        CALLS_UPSTREAM: prosaas-calls:5050
-        FRONTEND_UPSTREAM: frontend
         USE_SSL: "true"
     volumes:
       # Only mount SSL certificates (read-only)
