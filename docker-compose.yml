@@ -42,8 +42,8 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - "6379:6379"  # Expose for local development
+    expose:
+      - "6379"  # Only expose internally within Docker network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -187,7 +187,7 @@ services:
 
   # ===========================================
   # Baileys WhatsApp Service
-  # Keep external port for debugging (can be removed later)
+  # Internal service - no external port exposure in production
   # ===========================================
   baileys:
     build:
@@ -196,8 +196,8 @@ services:
     restart: unless-stopped
     # Dependency on backend is configured per environment in override files
     # Dev: depends on backend, Prod: depends on prosaas-api
-    ports:
-      - "3300:3300"
+    expose:
+      - "3300"  # Only expose internally within Docker network
     env_file:
       - .env
     environment:

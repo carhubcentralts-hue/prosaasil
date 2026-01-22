@@ -56,8 +56,8 @@ echo ""
 
 # Step 3: Deploy with both compose files
 echo "Step 3: Deploying services..."
-echo "Running: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+echo "Running: ./scripts/dcprod.sh up -d --remove-orphans"
+./scripts/dcprod.sh up -d --remove-orphans
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ ERROR: Deployment failed${NC}"

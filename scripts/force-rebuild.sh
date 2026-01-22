@@ -28,16 +28,16 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo -e "\n${BLUE}Step 1: Stopping all services...${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+./scripts/dcprod.sh down
 
 echo -e "\n${BLUE}Step 2: Removing old images...${NC}"
 docker images | grep prosaas | awk '{print $3}' | xargs -r docker rmi -f || true
 
 echo -e "\n${BLUE}Step 3: Building NGINX (no cache, forced)...${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache --pull nginx
+./scripts/dcprod.sh build --no-cache --pull nginx
 
 echo -e "\n${BLUE}Step 4: Building other services (no cache)...${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache --pull \
+./scripts/dcprod.sh build --no-cache --pull \
     prosaas-api \
     prosaas-calls \
     worker \
@@ -45,13 +45,13 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
     baileys
 
 echo -e "\n${BLUE}Step 5: Starting all services...${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+./scripts/dcprod.sh up -d
 
 echo -e "\n${BLUE}Step 6: Waiting for services to start...${NC}"
 sleep 10
 
 echo -e "\n${BLUE}Step 7: Checking status...${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+./scripts/dcprod.sh ps
 
 echo -e "\n${BLUE}Step 8: Verifying NGINX config...${NC}"
 echo "Checking proxy_pass directives:"
@@ -70,7 +70,7 @@ Force rebuild complete!
 ===========================================${NC}"
 
 echo -e "\n${BLUE}Services status:${NC}"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+./scripts/dcprod.sh ps
 
 echo -e "\n${BLUE}Test commands:${NC}"
 echo "curl http://localhost/health"
