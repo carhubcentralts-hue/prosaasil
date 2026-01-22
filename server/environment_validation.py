@@ -192,9 +192,13 @@ def check_column_exists(engine, table_name, column_name):
 def validate_database_schema(db):
     """
     Validate that all critical columns exist in the database.
-    If any are missing, fail immediately with a clear error message.
     
-    This prevents the system from starting in a broken state and cascading errors.
+    Behavior is controlled by MIGRATIONS_ENFORCE environment variable:
+    - MIGRATIONS_ENFORCE=true (production): Exit immediately if schema drift detected
+    - MIGRATIONS_ENFORCE=false (local/debug): Log warnings but allow startup
+    
+    This prevents the system from starting in a broken state in production,
+    while allowing local debugging when needed.
     """
     engine = db.engine
     missing_columns = []
@@ -208,6 +212,9 @@ def validate_database_schema(db):
                 logger.error(f"❌ Missing critical column: {table_name}.{column_name}")
     
     if missing_columns:
+        # Check if strict enforcement is enabled (production mode)
+        enforce_migrations = os.getenv('MIGRATIONS_ENFORCE', 'false').lower() in ('true', '1', 'yes')
+        
         error_msg = f"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                      ❌ DATABASE SCHEMA VALIDATION FAILED ❌                 ║
@@ -218,6 +225,8 @@ The following critical columns are MISSING from the database:
 {chr(10).join(f'  • {col}' for col in missing_columns)}
 
 This will cause PostgreSQL errors throughout the system, affecting:
+  - Lead creation (WhatsApp, calls, forms)
+  - Lead queries and filters
   - Recording callbacks (REC_CB)
   - Call status webhooks
   - Stream ended webhooks
@@ -230,6 +239,10 @@ This will cause PostgreSQL errors throughout the system, affecting:
    
    python -m server.db_migrate
    
+   OR via Docker:
+   
+   docker compose run --rm prosaas-api python -m server.db_migrate
+   
    OR in production with Flask app:
    
    from server.db_migrate import apply_migrations
@@ -238,14 +251,26 @@ This will cause PostgreSQL errors throughout the system, affecting:
 
 2. Restart the application
 
-⚠️  The application will NOT START until this is fixed.
-
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                         PREVENTING SERVER STARTUP                            ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+MIGRATIONS_ENFORCE: {enforce_migrations}
 """
-        logger.critical(error_msg)
-        sys.exit(1)
+        
+        if enforce_migrations:
+            # Production mode: fail-fast to prevent cascading errors
+            logger.critical(error_msg)
+            logger.critical("╔══════════════════════════════════════════════════════════════════════════════╗")
+            logger.critical("║                         PREVENTING SERVER STARTUP                            ║")
+            logger.critical("║          Set MIGRATIONS_ENFORCE=false to allow startup with warnings        ║")
+            logger.critical("╚══════════════════════════════════════════════════════════════════════════════╝")
+            sys.exit(1)
+        else:
+            # Debug/local mode: warn but allow startup
+            logger.warning(error_msg)
+            logger.warning("╔══════════════════════════════════════════════════════════════════════════════╗")
+            logger.warning("║                    ⚠️  SERVER STARTING WITH SCHEMA DRIFT ⚠️                 ║")
+            logger.warning("║          MIGRATIONS_ENFORCE=false - Startup allowed with warnings            ║")
+            logger.warning("║          Set MIGRATIONS_ENFORCE=true in production for fail-fast             ║")
+            logger.warning("╚══════════════════════════════════════════════════════════════════════════════╝")
+            return False  # Indicate validation failed but startup allowed
     
     logger.info("✅ Database schema validation passed - all critical columns exist")
     return True

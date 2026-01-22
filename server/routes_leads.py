@@ -1381,11 +1381,21 @@ def get_notifications():
         logger.error(f"❌ ERROR in /api/notifications: {e}")
         logger.error(f"❌ STACKTRACE:\n{traceback.format_exc()}")
         
-        # 🔒 FAIL-SOFT: Handle schema mismatch errors gracefully
-        # If database schema is outdated (missing columns), return empty result
-        # instead of 500 error. This prevents downtime during migrations.
+        # 🔒 FAIL-SOFT (BONUS ONLY): Handle schema mismatch errors gracefully
+        # ⚠️ IMPORTANT: This is NOT a real solution - just prevents 500 errors
+        # The real fix is running migrations: python -m server.db_migrate
+        # 
+        # Schema drift affects the ENTIRE Lead flow:
+        # - Lead creation (WhatsApp, calls, forms)
+        # - Lead queries and filters
+        # - Customer intelligence
+        # - Call direction tracking
+        # 
+        # This fail-soft only helps /api/notifications continue working.
+        # In production with MIGRATIONS_ENFORCE=true, server won't start anyway.
         if PSYCOPG2_AVAILABLE and isinstance(e, psycopg2.errors.UndefinedColumn):
             logger.error("❌ Database schema outdated - missing column in query")
+            logger.error("   ⚠️ This affects the ENTIRE Lead system, not just notifications!")
             logger.error("   Action: Run migrations with: python -m server.db_migrate")
             return jsonify({
                 "notifications": [],
@@ -1398,6 +1408,7 @@ def get_notifications():
         # Check for UndefinedColumn in string representation (fallback)
         if 'does not exist' in str(e).lower() and 'column' in str(e).lower():
             logger.error("❌ Database schema mismatch detected")
+            logger.error("   ⚠️ This affects the ENTIRE Lead system, not just notifications!")
             logger.error("   Action: Run migrations with: python -m server.db_migrate")
             return jsonify({
                 "notifications": [],
