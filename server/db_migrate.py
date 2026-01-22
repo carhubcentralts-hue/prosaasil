@@ -4471,6 +4471,97 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ leads table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 94: Add WhatsApp JID columns to leads table
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Fix migration drift - WhatsApp columns exist in model but not in DB
+        # 
+        # These columns were added to the Lead model to support WhatsApp LID identifiers
+        # (Android/Business accounts), proper identity mapping, and reliable reply routing.
+        # The standalone migration_add_lead_phone_whatsapp_fields.py was never integrated
+        # into db_migrate.py, causing UndefinedColumn errors when querying leads.
+        #
+        # Fixes: psycopg2.errors.UndefinedColumn: column leads.whatsapp_jid does not exist
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('leads'):
+            checkpoint("🔧 Running Migration 94: Add WhatsApp JID columns to leads table")
+            
+            try:
+                # Add whatsapp_jid column
+                if not check_column_exists('leads', 'whatsapp_jid'):
+                    checkpoint("  → Adding whatsapp_jid column (VARCHAR(128), nullable)")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN whatsapp_jid VARCHAR(128) NULL
+                    """))
+                    migrations_applied.append('add_leads_whatsapp_jid_column')
+                else:
+                    checkpoint("  ℹ️ whatsapp_jid column already exists - skipping")
+                
+                # Add whatsapp_jid_alt column
+                if not check_column_exists('leads', 'whatsapp_jid_alt'):
+                    checkpoint("  → Adding whatsapp_jid_alt column (VARCHAR(128), nullable)")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN whatsapp_jid_alt VARCHAR(128) NULL
+                    """))
+                    migrations_applied.append('add_leads_whatsapp_jid_alt_column')
+                else:
+                    checkpoint("  ℹ️ whatsapp_jid_alt column already exists - skipping")
+                
+                # Add reply_jid column (CRITICAL for Android/LID)
+                if not check_column_exists('leads', 'reply_jid'):
+                    checkpoint("  → Adding reply_jid column (VARCHAR(128), nullable)")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN reply_jid VARCHAR(128) NULL
+                    """))
+                    migrations_applied.append('add_leads_reply_jid_column')
+                else:
+                    checkpoint("  ℹ️ reply_jid column already exists - skipping")
+                
+                # Add reply_jid_type column
+                if not check_column_exists('leads', 'reply_jid_type'):
+                    checkpoint("  → Adding reply_jid_type column (VARCHAR(32), nullable)")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN reply_jid_type VARCHAR(32) NULL
+                    """))
+                    migrations_applied.append('add_leads_reply_jid_type_column')
+                else:
+                    checkpoint("  ℹ️ reply_jid_type column already exists - skipping")
+                
+                # Add index on whatsapp_jid for fast lookups
+                if not check_index_exists('ix_leads_whatsapp_jid'):
+                    checkpoint("  → Creating index on whatsapp_jid")
+                    db.session.execute(text("""
+                        CREATE INDEX ix_leads_whatsapp_jid ON leads(whatsapp_jid)
+                    """))
+                    migrations_applied.append('add_index_leads_whatsapp_jid')
+                else:
+                    checkpoint("  ℹ️ Index ix_leads_whatsapp_jid already exists - skipping")
+                
+                # Add index on reply_jid for fast lookups
+                if not check_index_exists('ix_leads_reply_jid'):
+                    checkpoint("  → Creating index on reply_jid")
+                    db.session.execute(text("""
+                        CREATE INDEX ix_leads_reply_jid ON leads(reply_jid)
+                    """))
+                    migrations_applied.append('add_index_leads_reply_jid')
+                else:
+                    checkpoint("  ℹ️ Index ix_leads_reply_jid already exists - skipping")
+                
+                checkpoint("✅ Migration 94 completed - WhatsApp JID columns added to leads")
+                checkpoint("   📋 Purpose: Store WhatsApp identifiers for LID support")
+                checkpoint("   🎯 Fixes: UndefinedColumn errors for WhatsApp features")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 94 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ leads table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
@@ -4525,7 +4616,30 @@ def apply_migrations():
             # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
             db.session.rollback()
             checkpoint(f"Could not verify data counts after migrations: {e}")
-    
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # POST-MIGRATION VERIFICATION: Check that all required columns exist
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Starting post-migration verification - checking required columns...")
+        if check_table_exists('leads'):
+            required_columns = ['phone_raw', 'whatsapp_jid', 'whatsapp_jid_alt', 'reply_jid', 'reply_jid_type']
+            missing_columns = []
+            
+            for col in required_columns:
+                if not check_column_exists('leads', col):
+                    missing_columns.append(col)
+                    checkpoint(f"  ❌ Required column 'leads.{col}' is MISSING!")
+                else:
+                    checkpoint(f"  ✅ Column 'leads.{col}' exists")
+            
+            if missing_columns:
+                error_msg = f"❌ POST-MIGRATION VERIFICATION FAILED: Missing columns in leads table: {', '.join(missing_columns)}"
+                checkpoint(error_msg)
+                checkpoint("💡 TIP: These columns are required by the Lead model. The migration may have failed silently.")
+                raise Exception(f"Migration verification failed: missing columns {missing_columns}")
+            else:
+                checkpoint("✅ All required columns verified successfully")
+        
         checkpoint("✅ Migration completed successfully!")
     
     # 🔒 CONCURRENCY PROTECTION: Release PostgreSQL advisory lock
