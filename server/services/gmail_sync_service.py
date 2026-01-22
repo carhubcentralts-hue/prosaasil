@@ -1259,8 +1259,10 @@ def process_single_receipt_message(
     import time
     
     # Fetch message if not provided
+    # CRITICAL: Uses format='full' by default to get complete payload.parts with attachment data
+    # This ensures attachments are properly detected (RULE 1: Any attachment = must process)
     if not message:
-        message = gmail.get_message(message_id)
+        message = gmail.get_message(message_id)  # format='full' by default
         result['processed'] += 1
     
     # Check if receipt if not already done
@@ -2296,7 +2298,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     # This allows re-processing of all emails in incremental sync even if previously synced
                     
                     try:
-                        message = gmail.get_message(message_id)
+                        # Fetch message with format='full' to get complete payload with attachments
+                        message = gmail.get_message(message_id)  # format='full' by default
                         result['processed'] += 1
                         
                         is_receipt, confidence, metadata = check_is_receipt_email(message)
