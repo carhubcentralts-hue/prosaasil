@@ -670,7 +670,11 @@ def list_receipts():
             try:
                 from server.services.attachment_service import get_attachment_service
                 attachment_service = get_attachment_service()
-                signed_url = attachment_service.get_signed_url(receipt.attachment.storage_path)
+                signed_url = attachment_service.generate_signed_url(
+                    attachment_id=receipt.attachment.id,
+                    storage_key=receipt.attachment.storage_path,
+                    ttl_minutes=60
+                )
             except Exception as e:
                 logger.warning(f"Failed to generate signed URL for attachment {receipt.attachment.id}: {e}")
                 signed_url = None
@@ -689,7 +693,11 @@ def list_receipts():
             try:
                 from server.services.attachment_service import get_attachment_service
                 attachment_service = get_attachment_service()
-                preview_signed_url = attachment_service.get_signed_url(receipt.preview_attachment.storage_path)
+                preview_signed_url = attachment_service.generate_signed_url(
+                    attachment_id=receipt.preview_attachment.id,
+                    storage_key=receipt.preview_attachment.storage_path,
+                    ttl_minutes=60
+                )
             except Exception as e:
                 logger.warning(f"Failed to generate signed URL for preview {receipt.preview_attachment.id}: {e}")
                 preview_signed_url = None

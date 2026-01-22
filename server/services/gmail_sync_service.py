@@ -2726,6 +2726,44 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         raise
 
 
+def _convert_png_to_pdf(png_path: str) -> bytes:
+    """
+    Helper function to convert PNG image to PDF format
+    
+    Args:
+        png_path: Path to PNG file
+        
+    Returns:
+        PDF bytes
+        
+    Raises:
+        Exception if conversion fails
+    """
+    import tempfile
+    import os
+    from PIL import Image
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
+        pdf_path = tmp_pdf.name
+    
+    try:
+        img = Image.open(png_path)
+        # Convert to RGB if necessary (PDF doesn't support RGBA)
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        img.save(pdf_path, 'PDF', resolution=100.0)
+        
+        # Read the PDF
+        with open(pdf_path, 'rb') as f:
+            pdf_data = f.read()
+        
+        return pdf_data
+    finally:
+        # Always clean up temp PDF file
+        if os.path.exists(pdf_path):
+            os.unlink(pdf_path)
+
+
 def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int = None) -> Optional[int]:
     """
     Generate a PDF screenshot from email HTML content
@@ -2835,7 +2873,6 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 try:
                     import tempfile
                     import os
-                    from PIL import Image
                     
                     logger.info(f"📄 Fallback: Generating PNG then converting to PDF")
                     
@@ -2851,23 +2888,11 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                         page.screenshot(path=screenshot_path, full_page=True)
                         browser.close()
                         
-                        # Convert PNG to PDF using PIL
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
-                            pdf_path = tmp_pdf.name
+                        # Convert PNG to PDF using helper function
+                        pdf_data = _convert_png_to_pdf(screenshot_path)
                         
-                        img = Image.open(screenshot_path)
-                        # Convert to RGB if necessary (PDF doesn't support RGBA)
-                        if img.mode == 'RGBA':
-                            img = img.convert('RGB')
-                        img.save(pdf_path, 'PDF', resolution=100.0)
-                        
-                        # Read the PDF
-                        with open(pdf_path, 'rb') as f:
-                            pdf_data = f.read()
-                        
-                        # Clean up temp files
+                        # Clean up temp PNG file
                         os.unlink(screenshot_path)
-                        os.unlink(pdf_path)
                         
                         if pdf_data:
                             from server.services.attachment_service import get_attachment_service
@@ -2918,7 +2943,6 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
         # Method 2: Try using html2image (convert PNG to PDF)
         try:
             from html2image import Html2Image
-            from PIL import Image
             import tempfile
             import os
             
@@ -2938,21 +2962,8 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 if output_file and len(output_file) > 0:
                     png_path = output_file[0]
                     
-                    # Convert PNG to PDF
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
-                        pdf_path = tmp_pdf.name
-                    
-                    img = Image.open(png_path)
-                    if img.mode == 'RGBA':
-                        img = img.convert('RGB')
-                    img.save(pdf_path, 'PDF', resolution=100.0)
-                    
-                    # Read the PDF
-                    with open(pdf_path, 'rb') as f:
-                        pdf_data = f.read()
-                    
-                    # Clean up temp PDF
-                    os.unlink(pdf_path)
+                    # Convert PNG to PDF using helper function
+                    pdf_data = _convert_png_to_pdf(png_path)
                     
                     # Save to storage
                     from server.services.attachment_service import get_attachment_service
