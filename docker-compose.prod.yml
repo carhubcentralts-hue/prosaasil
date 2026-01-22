@@ -59,6 +59,8 @@ services:
         limits:
           cpus: '0.5'
           memory: 256M
+    networks:
+      - prosaas-net
 
   # ===========================================
   # Redis - Queue Management for Background Jobs
@@ -311,6 +313,16 @@ services:
         limits:
           cpus: '0.5'
           memory: 256M
+    networks:
+      - prosaas-net
+
+  # ===========================================
+  # n8n - Production settings
+  # Add network configuration
+  # ===========================================
+  n8n:
+    networks:
+      - prosaas-net
 
 # ===========================================
 # Docker Networks (shared)
