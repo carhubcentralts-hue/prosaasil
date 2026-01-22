@@ -22,9 +22,12 @@ def api_health():
     This ensures dependent services (like worker) wait for schema to be ready.
     
     Validates:
-    1. Migrations signal is set
+    1. Migrations signal is set (if RUN_MIGRATIONS_ON_START=1)
     2. Database connection works
-    3. Alembic version table exists (schema is initialized)
+    3. Business table exists (core schema indicator)
+    4. Alembic version table exists (OPTIONAL - returns warning if missing)
+    
+    Note: ProSaaS uses custom db_migrate, so alembic_version is not required.
     """
     # If RUN_MIGRATIONS_ON_START=1, validate DB readiness
     run_migrations = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
@@ -73,23 +76,26 @@ def api_health():
                 }), 503
             
             # Check 2: Verify alembic_version table exists (migrations have run)
-            # Note: This is secondary check - business table is the primary indicator
+            # Note: This is OPTIONAL - business table is the primary indicator
+            # ProSaaS uses custom db_migrate, not standard Alembic
             result = db.session.execute(text(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = current_schema() "
                 "AND table_name = :table_name"
             ), {"table_name": "alembic_version"})
-            if not result.fetchone():
-                # Schema not initialized with migrations
-                db.session.rollback()
-                return jsonify({
-                    "status": "initializing",
-                    "service": "prosaasil-api",
-                    "message": "Database schema not initialized (alembic_version missing)",
-                    "timestamp": datetime.now().isoformat()
-                }), 503
+            alembic_exists = result.fetchone() is not None
             
             db.session.rollback()  # Clean up
+            
+            # If alembic_version is missing, return 200 with warning
+            # (not a blocking issue since ProSaaS uses custom migrations)
+            if not alembic_exists:
+                return jsonify({
+                    "status": "ok",
+                    "service": "prosaasil-api",
+                    "warnings": ["alembic_version missing (non-blocking in ProSaaS migrations)"],
+                    "timestamp": datetime.now().isoformat()
+                }), 200
             
         except Exception as e:
             # Database not ready
