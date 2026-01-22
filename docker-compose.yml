@@ -6,7 +6,6 @@ services:
   # Note: Config templating happens at BUILD time, not runtime
   # ===========================================
   nginx:
-    container_name: prosaas-nginx
     build:
       context: .
       dockerfile: Dockerfile.nginx
@@ -41,7 +40,6 @@ services:
   # ===========================================
   redis:
     image: redis:7-alpine
-    container_name: prosaas-redis
     restart: unless-stopped
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
@@ -60,7 +58,6 @@ services:
   # In production, use prosaas-api and prosaas-calls via --profile prod instead
   # ===========================================
   backend:
-    container_name: prosaas-backend
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -120,7 +117,6 @@ services:
   # Serves static files, no external port exposure
   # ===========================================
   frontend:
-    container_name: prosaas-frontend
     build:
       context: .
       dockerfile: Dockerfile.frontend
@@ -143,7 +139,6 @@ services:
   # Uses: Redis queue (RQ)
   # ===========================================
   worker:
-    container_name: prosaas-worker
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -195,7 +190,6 @@ services:
   # Keep external port for debugging (can be removed later)
   # ===========================================
   baileys:
-    container_name: prosaas-baileys
     build:
       context: .
       dockerfile: Dockerfile.baileys
@@ -235,7 +229,6 @@ services:
   # ===========================================
   n8n:
     image: n8nio/n8n:2.3.1
-    container_name: prosaas-n8n
     restart: unless-stopped
     env_file:
       - .env
@@ -279,7 +272,8 @@ services:
 # ===========================================
 networks:
   prosaas-net:
-    driver: bridge
+    external: true
+    name: prosaas-net
 
 volumes:
   n8n_data:

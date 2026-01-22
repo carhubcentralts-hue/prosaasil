@@ -127,7 +127,6 @@ services:
       - prosaas-net
   
   prosaas-api:
-    container_name: prosaas-api
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -199,7 +198,6 @@ services:
   # See: STATE_MANAGEMENT_CONSTRAINTS.md
   # ===========================================
   prosaas-calls:
-    container_name: prosaas-calls
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -320,8 +318,8 @@ services:
 # ===========================================
 networks:
   prosaas-net:
+    external: true
     name: prosaas-net
-    driver: bridge
 
 # ===========================================
 # Volumes (shared)
