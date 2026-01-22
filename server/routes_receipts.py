@@ -658,16 +658,48 @@ def list_receipts():
             "confidence": receipt.confidence,
             "status": receipt.status,
             "attachment_id": receipt.attachment_id,
+            "preview_attachment_id": receipt.preview_attachment_id,  # NEW: Include preview attachment ID
+            "preview_status": receipt.preview_status,  # NEW: Include preview generation status
+            "preview_failure_reason": receipt.preview_failure_reason,  # NEW: Include failure reason if any
             "created_at": receipt.created_at.isoformat() if receipt.created_at else None,
         }
         
         # Include attachment info if available
         if receipt.attachment_id and receipt.attachment:
+            # Get signed URL for attachment viewing
+            try:
+                from server.services.attachment_service import get_attachment_service
+                attachment_service = get_attachment_service()
+                signed_url = attachment_service.get_signed_url(receipt.attachment.storage_path)
+            except Exception as e:
+                logger.warning(f"Failed to generate signed URL for attachment {receipt.attachment.id}: {e}")
+                signed_url = None
+            
             item["attachment"] = {
                 "id": receipt.attachment.id,
                 "filename": receipt.attachment.filename_original,
                 "mime_type": receipt.attachment.mime_type,
                 "size": receipt.attachment.file_size,
+                "signed_url": signed_url,  # NEW: Include signed URL for download
+            }
+        
+        # NEW: Include preview attachment info if available (for thumbnail display in UI)
+        if receipt.preview_attachment_id and receipt.preview_attachment:
+            # Get signed URL for preview viewing
+            try:
+                from server.services.attachment_service import get_attachment_service
+                attachment_service = get_attachment_service()
+                preview_signed_url = attachment_service.get_signed_url(receipt.preview_attachment.storage_path)
+            except Exception as e:
+                logger.warning(f"Failed to generate signed URL for preview {receipt.preview_attachment.id}: {e}")
+                preview_signed_url = None
+            
+            item["preview_attachment"] = {
+                "id": receipt.preview_attachment.id,
+                "filename": receipt.preview_attachment.filename_original,
+                "mime_type": receipt.preview_attachment.mime_type,
+                "size": receipt.preview_attachment.file_size,
+                "signed_url": preview_signed_url,  # Signed URL for preview display
             }
         
         items.append(item)
@@ -720,6 +752,9 @@ def get_receipt(receipt_id):
         "reviewed_at": receipt.reviewed_at.isoformat() if receipt.reviewed_at else None,
         "created_at": receipt.created_at.isoformat() if receipt.created_at else None,
         "updated_at": receipt.updated_at.isoformat() if receipt.updated_at else None,
+        "preview_attachment_id": receipt.preview_attachment_id,  # NEW
+        "preview_status": receipt.preview_status,  # NEW
+        "preview_failure_reason": receipt.preview_failure_reason,  # NEW
     }
     
     # Get reviewer info
@@ -753,6 +788,29 @@ def get_receipt(receipt_id):
             "mime_type": receipt.attachment.mime_type,
             "size": receipt.attachment.file_size,
             "signed_url": signed_url
+        }
+    
+    # NEW: Get preview attachment with signed URL
+    if receipt.preview_attachment_id and receipt.preview_attachment:
+        from server.services.attachment_service import get_attachment_service
+        attachment_service = get_attachment_service()
+        
+        preview_signed_url = None
+        try:
+            preview_signed_url = attachment_service.generate_signed_url(
+                attachment_id=receipt.preview_attachment.id,
+                storage_key=receipt.preview_attachment.storage_path,
+                ttl_minutes=60  # 1 hour
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate signed URL for preview: {e}")
+        
+        result["preview_attachment"] = {
+            "id": receipt.preview_attachment.id,
+            "filename": receipt.preview_attachment.filename_original,
+            "mime_type": receipt.preview_attachment.mime_type,
+            "size": receipt.preview_attachment.file_size,
+            "signed_url": preview_signed_url
         }
     
     return jsonify({"success": True, "receipt": result})
