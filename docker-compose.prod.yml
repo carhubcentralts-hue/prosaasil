@@ -92,14 +92,6 @@ services:
       - local-db-only  # Won't start unless explicitly requested
 
   # ===========================================
-  # Backend Service - DISABLED in production
-  # Use prosaas-api and prosaas-calls instead (split architecture)
-  # ===========================================
-  backend:
-    profiles:
-      - legacy  # Don't start in production - use prosaas-api/prosaas-calls instead
-
-  # ===========================================
   # Worker Service - Production Overrides
   # Worker is defined in base docker-compose.yml
   # This overrides dependencies and resource limits for production
