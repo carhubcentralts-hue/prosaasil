@@ -207,7 +207,9 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         logger.info(f"🔍 [LEAD_UPSERT_START] trace_id={trace_id} phone={phone_number}")
                         customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
                         action = "created" if was_created else "updated"
-                        logger.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action={action}")
+                        # Log with normalized phone from lead
+                        normalized_phone = lead.phone_e164 if lead else phone_number
+                        logger.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action={action} phone={normalized_phone}")
                         logger.info(f"⏱️ customer lookup took: {time.time() - lookup_start:.2f}s")
                         
                         # ⚡ STEP 3: Extract last 10 messages for better context (FIXED from 4)
