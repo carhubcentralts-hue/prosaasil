@@ -151,6 +151,9 @@ services:
       R2_ENDPOINT: ${R2_ENDPOINT}
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: api
+      # 🔥 TTS WARMUP: Optional - disable TTS warmup if needed (does not affect DB)
+      # Set to "true" to skip TTS client warmup (useful for faster deployments)
+      DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
       # 🔥 SCHEDULERS: Disable schedulers in API service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
       # 🔥 LOGGING - Production mode (minimal logs)
@@ -223,6 +226,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
+      # 🔥 TTS WARMUP: Optional - disable TTS warmup if needed (does not affect DB)
+      # Set to "true" to skip TTS client warmup (useful for faster deployments)
+      DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
       # 🔥 SCHEDULERS: Disable schedulers in calls service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
       # 🔥 LOGGING - Production mode (minimal logs)

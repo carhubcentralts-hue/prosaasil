@@ -45,6 +45,86 @@ _app_lock = __import__('threading').RLock()  # RLock allows reentrant acquisitio
 # Used by health check to ensure migrations complete before returning 200 OK
 _migrations_complete = threading.Event()
 
+# 🔥 CRITICAL: Global DB readiness flag
+# Set to True only after actual DB connectivity and schema validation
+_db_ready = False
+
+def ensure_db_ready(max_retries=10, retry_delay=2.0):
+    """
+    🔥 CRITICAL: Ensure database is actually ready for use
+    
+    This validates:
+    1. Database connection works (SELECT 1)
+    2. Alembic version table exists (migrations have been applied)
+    3. Can query basic tables
+    
+    Returns True if DB is ready, False otherwise.
+    Does NOT raise exceptions - logs and returns status.
+    """
+    global _db_ready
+    
+    if _db_ready:
+        return True  # Already validated
+    
+    import time
+    from server.db import db
+    from sqlalchemy import text
+    
+    for attempt in range(max_retries):
+        try:
+            # Test 1: Basic connectivity
+            db.session.execute(text('SELECT 1'))
+            
+            # Test 2: Alembic version table exists (migrations ran)
+            result = db.session.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "alembic_version"})
+            if not result.fetchone():
+                logger.warning(f"⏳ Alembic table not found (attempt {attempt + 1}/{max_retries})")
+                db.session.rollback()
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+            
+            # Test 3: Can query business table (core schema exists)
+            result = db.session.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "business"})
+            if not result.fetchone():
+                logger.warning(f"⏳ Business table not found (attempt {attempt + 1}/{max_retries})")
+                db.session.rollback()
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return False
+            
+            db.session.rollback()  # Clean up
+            
+            # All checks passed
+            _db_ready = True
+            logger.info("✅ Database ready - connectivity and schema validated")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⏳ DB not ready (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"❌ Database not ready after {max_retries} attempts")
+                return False
+    
+    return False
+
 def get_process_app():
     """
     🔥 CRITICAL FIX: Get the Flask app without creating a new one
@@ -1088,18 +1168,26 @@ def create_app():
     # TTS Pre-warming on startup (prevents cold start)
     # SKIP if in migration mode
     if os.getenv('MIGRATION_MODE') != '1':
-        try:
-            from server.services.gcp_tts_live import maybe_warmup
-            maybe_warmup()
-        except Exception:
-            pass
+        # 🔥 TTS Warmup - Optional, can be disabled
+        # This doesn't query DB and can be skipped for faster startup
+        if os.getenv("DISABLE_TTS_WARMUP") != "true":
+            try:
+                from server.services.gcp_tts_live import maybe_warmup
+                maybe_warmup()
+            except Exception as e:
+                logger.warning(f"TTS warmup failed (non-critical): {e}")
+                pass
+        else:
+            logger.info("⚠️ TTS warmup disabled by DISABLE_TTS_WARMUP environment variable")
         
-        # Pre-create agents to eliminate cold starts
+        # 🔥 Agent Warmup - Queries DB, must wait for migrations
+        # This is separate from TTS warmup and cannot be completely bypassed
         try:
             from server.agent_tools.agent_factory import warmup_all_agents
             
             def warmup_with_context():
-                # 🔥 CRITICAL FIX: Wait for migrations to complete before starting warmup
+                # 🔥 CRITICAL: Wait for migrations AND validate actual DB readiness
+                # Agent warmup queries the database (Business.query), so schema MUST be ready
                 # This prevents "InFailedSqlTransaction" errors when warmup queries fail
                 # due to missing columns (e.g., business.company_id)
                 import time
@@ -1107,16 +1195,50 @@ def create_app():
                 # Use global _migrations_complete event
                 global _migrations_complete
                 
-                # Wait up to 60 seconds for migrations to complete
-                logger.info("🔥 Warmup waiting for migrations to complete...")
+                # Step 1: Wait up to 60 seconds for migrations signal
+                logger.info("🔥 Agent warmup waiting for migrations signal...")
                 migrations_ready = _migrations_complete.wait(timeout=60.0)
                 
                 if not migrations_ready:
-                    error_msg = "❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema"
-                    logger.error(error_msg)
-                    raise RuntimeError(error_msg)
+                    logger.error("❌ Agent warmup timeout waiting for migrations signal")
+                    
+                    # Check multiple environment variables to detect production mode
+                    is_production = (
+                        os.getenv("ENV") == "production" or
+                        os.getenv("FLASK_ENV") == "production" or
+                        os.getenv("PRODUCTION", "0") in ("1", "true", "True")
+                    )
+                    
+                    if not is_production:
+                        # In development, still raise to catch issues early
+                        raise RuntimeError("Agent warmup timeout waiting for migrations")
+                    
+                    # In production, don't crash but try DB validation anyway
+                    logger.warning("⚠️ Migration signal timeout in production - validating DB directly")
                 else:
-                    logger.info("✅ Migrations complete - starting warmup")
+                    logger.info("✅ Migrations signal received")
+                
+                # Step 2: Actually validate DB readiness (not just signal)
+                # This is CRITICAL - signal alone is not enough
+                logger.info("🔥 Validating actual database readiness...")
+                if not ensure_db_ready(max_retries=10, retry_delay=2.0):
+                    logger.error("❌ Database not ready after validation")
+                    
+                    # Check if production
+                    is_production = (
+                        os.getenv("ENV") == "production" or
+                        os.getenv("FLASK_ENV") == "production" or
+                        os.getenv("PRODUCTION", "0") in ("1", "true", "True")
+                    )
+                    
+                    if is_production:
+                        logger.warning("⚠️ Skipping agent warmup in production - DB not ready")
+                        logger.warning("⚠️ Note: First requests will be slower until DB is ready")
+                        return
+                    else:
+                        raise RuntimeError("Database not ready for agent warmup")
+                
+                logger.info("✅ Database ready - starting agent warmup")
                 
                 # Additional 1 second delay for DB connection pool to settle
                 time.sleep(1.0)
@@ -1124,13 +1246,16 @@ def create_app():
                 with app.app_context():
                     try:
                         warmup_all_agents()
+                        logger.info("✅ Agent warmup completed successfully")
                     except Exception as e:
-                        logger.warning(f"Warmup failed: {e}")
+                        # Agent warmup has built-in retry logic, so failures here are expected
+                        logger.warning(f"Agent warmup failed (will retry on first request): {e}")
                         pass
             
             warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
             warmup_thread.start()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to start agent warmup thread: {e}")
             pass
         
         # ====================================================================

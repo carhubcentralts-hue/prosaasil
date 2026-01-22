@@ -242,10 +242,14 @@ services:
       DB_POSTGRESDB_SSL: ${N8N_DB_SSL:-true}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-prosaas_n8n_super_secret_32_chars}
       N8N_USER_MANAGEMENT_JWT_SECRET: ${N8N_JWT_SECRET:-prosaas_n8n_jwt_secret_32_chars}
+      # 🔥 PRODUCTION FIX: Correct n8n base configuration
+      # Use domain name without path prefix to prevent asset loading issues
       N8N_HOST: ${N8N_HOST:-n8n.prosaas.pro}
       N8N_PORT: 5678
       N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
-      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-https://n8n.prosaas.pro/}
+      N8N_PATH: /
+      N8N_EDITOR_BASE_URL: https://n8n.prosaas.pro
+      WEBHOOK_URL: https://n8n.prosaas.pro
       N8N_TRUST_PROXY: "true"
       N8N_PROXY_HOPS: 1
       NODE_ENV: production

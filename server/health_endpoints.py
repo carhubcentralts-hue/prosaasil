@@ -18,24 +18,24 @@ def api_health():
     """
     API health check endpoint
     
-    Returns 200 OK only after migrations are complete.
+    🔥 CRITICAL: Returns 200 OK only after DB is ACTUALLY ready.
     This ensures dependent services (like worker) wait for schema to be ready.
-    """
-    # 🔥 CRITICAL: Check if migrations are complete
-    # This prevents worker from starting before schema is ready
-    import threading
-    migrations_event = getattr(threading.current_thread(), '_migrations_complete', None)
     
-    # If RUN_MIGRATIONS_ON_START=1, wait for migrations
+    Validates:
+    1. Migrations signal is set
+    2. Database connection works
+    3. Alembic version table exists (schema is initialized)
+    """
+    # If RUN_MIGRATIONS_ON_START=1, validate DB readiness
     run_migrations = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
     
     if run_migrations:
-        # Import the global migrations event from app_factory
+        # Check 1: Migrations event signal
         try:
             from server import app_factory
             if hasattr(app_factory, '_migrations_complete'):
                 if not app_factory._migrations_complete.is_set():
-                    # Migrations still running
+                    # Migrations still running based on signal
                     return jsonify({
                         "status": "initializing",
                         "service": "prosaasil-api",
@@ -43,7 +43,58 @@ def api_health():
                         "timestamp": datetime.now().isoformat()
                     }), 503  # Service Unavailable
         except Exception:
-            pass  # If can't check, assume OK (fallback)
+            pass  # Continue to DB check
+        
+        # Check 2: Actual database connectivity and schema validation
+        try:
+            from server.db import db
+            from sqlalchemy import text
+            
+            # Test basic connectivity
+            db.session.execute(text('SELECT 1'))
+            
+            # Verify alembic_version table exists (migrations have run)
+            result = db.session.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "alembic_version"})
+            if not result.fetchone():
+                # Schema not initialized
+                db.session.rollback()
+                return jsonify({
+                    "status": "initializing",
+                    "service": "prosaasil-api",
+                    "message": "Database schema not initialized (alembic_version missing)",
+                    "timestamp": datetime.now().isoformat()
+                }), 503
+            
+            # Verify business table exists (core schema)
+            result = db.session.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "business"})
+            if not result.fetchone():
+                # Core schema not initialized
+                db.session.rollback()
+                return jsonify({
+                    "status": "initializing",
+                    "service": "prosaasil-api",
+                    "message": "Database schema not initialized (business table missing)",
+                    "timestamp": datetime.now().isoformat()
+                }), 503
+            
+            db.session.rollback()  # Clean up
+            
+        except Exception as e:
+            # Database not ready
+            return jsonify({
+                "status": "unhealthy",
+                "service": "prosaasil-api",
+                "message": f"Database not ready: {str(e)[:50]}",
+                "timestamp": datetime.now().isoformat()
+            }), 503  # Service Unavailable
     
     return jsonify({
         "status": "ok",
