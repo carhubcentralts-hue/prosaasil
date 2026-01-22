@@ -574,16 +574,17 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     metadata['has_attachment'] = has_pdf or has_image
     
     # ==================================================================================
-    # MASTER INSTRUCTION RULE 1: ANY ATTACHMENT = MUST PROCESS (NO EXCEPTIONS!)
+    # REVISED LOGIC: Process ALL emails with receipt indicators
     # ==================================================================================
-    # If email has ANY attachment (PDF or image), it MUST be processed.
-    # No keyword checks, no confidence thresholds - attachment presence is absolute.
-    if has_pdf or has_image:
-        logger.info(f"📎 RULE 1: Email has attachment - MUST PROCESS (confidence=100)")
-        return True, 100, metadata  # Force processing with max confidence
+    # Attachments are a BONUS, not the primary criterion
+    # We want to capture ALL receipt-related emails based on keywords, subject, content
+    # Screenshots will be generated for emails without attachments
     
-    # If no attachment, use keyword-based detection for other receipt types
-    # (e.g., plain text receipts, embedded HTML receipts)
+    # Start with base confidence
+    # If email has attachments, boost confidence but don't force immediate return
+    if has_pdf or has_image:
+        confidence += 60  # High boost for attachments, but continue checking
+        logger.info(f"📎 Email has attachment - boosting confidence to {confidence}")
     
     # Check for receipt keywords in subject/content
     subject_lower = subject.lower()
@@ -596,12 +597,14 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     
     # If we have receipt keywords, it's likely a receipt even without attachment
     if matched_keywords:
-        confidence += 40  # Strong indicator
+        confidence += 50  # Very strong indicator - increased from 40
         metadata['matched_keywords'] = matched_keywords
+        logger.info(f"🔑 Found {len(matched_keywords)} keywords: {matched_keywords[:3]}, confidence now {confidence}")
     
     # Check sender domain
     if from_domain in KNOWN_RECEIPT_DOMAINS:
-        confidence += 40  # Increased from 35
+        confidence += 45  # Increased from 40
+        logger.info(f"🏢 Known receipt domain: {from_domain}, confidence now {confidence}")
     
     # Extract email snippet for additional analysis
     snippet = message.get('snippet', '').lower()
@@ -625,11 +628,15 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
             if snippet_matches >= MAX_SNIPPET_MATCHES:
                 break
     
-    # Also give benefit of doubt if we have keywords
-    if matched_keywords:
-        if confidence < MIN_CONFIDENCE:
-            confidence = MIN_CONFIDENCE + 5  # Small boost
-            logger.info(f"🔑 Boosted confidence to {confidence} due to keywords: {matched_keywords}")
+    # Ensure emails with keywords or attachments are ALWAYS processed
+    # This is critical - we don't want to miss ANY receipts!
+    if matched_keywords and confidence < MIN_CONFIDENCE:
+        confidence = 60  # Force high confidence for keyword matches
+        logger.info(f"🔑 FORCED PROCESSING: Keywords found, setting confidence to {confidence}")
+    
+    if (has_pdf or has_image) and confidence < MIN_CONFIDENCE:
+        confidence = 70  # Force high confidence for attachments
+        logger.info(f"📎 FORCED PROCESSING: Attachment found, setting confidence to {confidence}")
     
     # NEW: If snippet contains currency symbols, likely a receipt
     if any(symbol in snippet for symbol in ['₪', '$', '€', 'USD', 'ILS', 'EUR']):
@@ -637,10 +644,10 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
         logger.info(f"💰 Found currency in snippet, confidence now {confidence}")
     
     # Lower threshold - accept almost anything that looks like a receipt
-    # Philosophy: Better to let user review/reject than to miss receipts! (Rule 6)
+    # Philosophy: Better to let user review/reject than to miss receipts!
     is_receipt = confidence >= MIN_CONFIDENCE
     
-    # FIX: Show actual has_attachment value from metadata (was hardcoded to False)
+    # Show actual has_attachment value from metadata
     logger.info(f"📧 Receipt detection: is_receipt={is_receipt}, confidence={confidence}, has_attachment={metadata.get('has_attachment', False)}, keywords={len(matched_keywords)}")
     
     return is_receipt, confidence, metadata
