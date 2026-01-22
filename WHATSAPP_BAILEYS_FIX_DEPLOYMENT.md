@@ -9,16 +9,18 @@
 - **הפתרון**: 
   - שימוש ב-`prosaas-api:5000` במקום `backend`
   - הוספת `BACKEND_BASE_URL` כמשתנה סביבה
-  - DNS חיצוני (1.1.1.1, 8.8.8.8) למניעת כשלים
+  - 🔥 **waitForBackendReady** - retry עם exponential backoff לפני העלאת webhook sender
   - `depends_on` עם `service_healthy` למניעת race conditions
-  - תור עם retry logic (5s, 10s, 30s, 1m, 2m backoff)
-  - דדופ לפי (tenant_id, message_id)
+  - 🔥 **תור Persistent** על filesystem (`storage/queue`) שלא נאבד בריסטארט
+  - שמירה אוטומטית של התור כל 30 שניות
+  - דדופ לפי (tenant_id:wa_message_id)
 
 ### 2️⃣ נעילת גרסת Baileys
 - **הבעיה**: `TypeError: shouldSyncHistoryMessage is not a function`
 - **הפתרון**:
   - נעילה לגרסה 6.7.5 (ללא ^ או ~)
-  - בדיקת fail-fast בעליית השירות
+  - 🔥 **npm ci** חובה (לא npm install!) - נועל לפי package-lock.json
+  - בדיקת fail-fast בעליית השירות - יוצא אם אין התאמה
   - guards לפונקציות חסרות
   - תיקון `removeAllListeners`
 
@@ -28,6 +30,8 @@
   - חילוץ `remoteJid` + `remoteJidAlt` (sender_pn)
   - חישוב `reply_jid`: מעדיפים @s.whatsapp.net על פני @lid
   - שמירת `reply_jid` בליד - תמיד משתמשים ב-JID האחרון
+  - 🔥 **reply_jid_type** - מעקב אחרי סוג ה-JID (s.whatsapp.net / lid / g.us)
+  - עדכון מההודעה האחרונה מהלקוח בלבד (לא system messages)
   - אף פעם לא בונים מחדש - תמיד משתמשים ב-`reply_jid` השמור
 
 ### 4️⃣ טיפול ב-Decrypt/Bad MAC
@@ -52,7 +56,12 @@
   - תמיכה במספרים ישראליים ובינלאומיים
   - שמירת `phone_raw` לאודיט
   - חילוץ טלפון מ-sender_pn, לא מ-@lid
-  - upsert חכם לפי phone_e164 או whatsapp_jid
+  - 🔥 **Upsert חכם לפי סדר עדיפויות**:
+    1. **phone_e164** (העדיפה הגבוהה ביותר - יציב)
+    2. **reply_jid** (אם אין phone)
+    3. **whatsapp_jid_alt** (אם אין reply_jid)
+    4. **whatsapp_jid** (אם אין כלום אחר)
+  - זה מונע כפילויות כי JID יכול להשתנות אבל phone יציב
 
 ## הוראות פריסה
 
@@ -63,11 +72,22 @@ cd /home/runner/work/prosaasil/prosaasil
 python migration_add_lead_phone_whatsapp_fields.py
 ```
 
-המיגרציה מוסיפה 4 עמודות חדשות ל-`leads`:
+המיגרציה מוסיפה 5 עמודות חדשות ל-`leads`:
 - `phone_raw` - טלפון מקורי לפני נירמול
 - `whatsapp_jid` - מזהה WhatsApp ראשי (remoteJid)
 - `whatsapp_jid_alt` - מזהה חלופי (sender_pn)
 - `reply_jid` - **קריטי**: ה-JID המדויק לשליחת תשובות
+- `reply_jid_type` - סוג ה-JID (s.whatsapp.net / lid / g.us)
+
+### שלב 1.5: הכנת ספריית תור (אוטומטי)
+
+התור יוצר אוטומטית את `storage/queue` אבל מומלץ לוודא:
+```bash
+mkdir -p /home/runner/work/prosaasil/prosaasil/services/whatsapp/storage/queue
+chmod 755 /home/runner/work/prosaasil/prosaasil/services/whatsapp/storage/queue
+```
+
+התור נשמר ב-`storage/queue/pending_messages.json` וניטען אוטומטית בעליית השירות.
 
 ### שלב 2: עדכון משתני סביבה
 
@@ -84,17 +104,29 @@ LOG_LEVEL=INFO
 TZ=UTC
 ```
 
-### שלב 3: התקנת תלויות (Baileys)
+### שלב 3: התקנת תלויות (Baileys) - חובה npm ci!
 
 ```bash
 cd services/whatsapp
-npm ci  # שימוש ב-ci ולא install לנעילת גרסאות!
+npm ci  # 🔥 חובה להשתמש ב-ci ולא install! ci נועל לפי package-lock.json
 ```
 
-וודא שגרסת Baileys היא בדיוק 6.7.5 (לא 7.x או rc):
+וודא שגרסת Baileys היא **בדיוק** 6.7.5 (לא 7.x או rc):
 ```bash
 npm list @whiskeysockets/baileys
 # צריך להראות: @whiskeysockets/baileys@6.7.5
+```
+
+**אם הגרסה לא נכונה:**
+```bash
+# מחק node_modules ו-package-lock.json
+rm -rf node_modules package-lock.json
+
+# התקן מחדש
+npm install
+
+# צור lockfile חדש
+npm ci
 ```
 
 ### שלב 4: הפעלת השירות
@@ -119,9 +151,12 @@ docker logs prosaas-baileys --tail=100 -f
 חפש:
 - ✅ `Baileys version validated: 6.7.5`
 - ✅ `Timezone correctly set to UTC`
+- ✅ `Backend is ready: http://prosaas-api:5000`
+- ✅ `Loaded X pending messages from disk` (אם יש הודעות בתור)
 - ✅ `WhatsApp connected and ready to send`
 - ❌ אין `EAI_AGAIN backend`
 - ❌ אין `shouldSyncHistoryMessage is not a function`
+- ❌ אין `Backend not reachable`
 
 ## בדיקות קבלה
 

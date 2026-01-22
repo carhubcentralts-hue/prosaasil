@@ -425,6 +425,7 @@ class Lead(db.Model):
     whatsapp_jid = db.Column(db.String(128), index=True)  # Primary WhatsApp identifier (remoteJid)
     whatsapp_jid_alt = db.Column(db.String(128))  # Alternative identifier (sender_pn/participant)
     reply_jid = db.Column(db.String(128), index=True)  # 🔥 CRITICAL: EXACT JID to reply to (last seen)
+    reply_jid_type = db.Column(db.String(32))  # Type: 's.whatsapp.net' or 'lid' or 'g.us'
     
     # Lead tracking
     source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual|imported_outbound

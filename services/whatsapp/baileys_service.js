@@ -53,6 +53,39 @@ if (!INTERNAL_SECRET) {
   process.exit(1);
 }
 
+// 🔥 FIX #1: Wait for backend to be resolvable with retry
+async function waitForBackendReady(maxAttempts = 10, delayMs = 2000) {
+  console.log(`[BOOT] 🔍 Checking backend connectivity: ${FLASK_BASE_URL}`);
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await axios.get(`${FLASK_BASE_URL}/api/health`, {
+        headers: { 'X-Internal-Secret': INTERNAL_SECRET },
+        timeout: 5000
+      });
+      
+      if (response.status === 200) {
+        console.log(`[BOOT] ✅ Backend is ready: ${FLASK_BASE_URL}`);
+        return true;
+      }
+    } catch (err) {
+      const errCode = err?.code || 'UNKNOWN';
+      const errMsg = err?.message || String(err);
+      console.log(`[BOOT] ⚠️ Backend not ready (attempt ${attempt}/${maxAttempts}): ${errCode} - ${errMsg}`);
+      
+      if (attempt < maxAttempts) {
+        const waitTime = delayMs * Math.pow(1.5, attempt - 1); // Exponential backoff
+        console.log(`[BOOT] ⏳ Waiting ${Math.floor(waitTime/1000)}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+  
+  console.error(`[BOOT] ❌ Backend not reachable after ${maxAttempts} attempts: ${FLASK_BASE_URL}`);
+  console.error(`[BOOT] ❌ Check BACKEND_BASE_URL and ensure prosaas-api is running`);
+  process.exit(1);
+}
+
 // 🔥 CRITICAL FIX: Validate timezone is UTC to prevent clock drift issues
 // WhatsApp requires accurate time synchronization - clock drift causes logged_out errors
 const currentTZ = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -143,11 +176,37 @@ const startingLocks = new Map(); // tenantId -> { starting: boolean, timestamp: 
 // 🔥 STEP 4 FIX: Track sending operations to prevent restart during send
 const sendingLocks = new Map(); // tenantId -> { isSending: boolean, activeSends: number, lastSendTime: number }
 
-// 🔥 FIX #1: Message queue for failed webhook deliveries
-// Stores messages that failed to send to backend for retry
-// Structure: { tenantId, messageId, payload, attempts, lastAttempt, createdAt }
+// 🔥 FIX #3: Persistent message queue on filesystem (survives container restart)
+const QUEUE_DIR = path.join(process.cwd(), 'storage', 'queue');
+fs.mkdirSync(QUEUE_DIR, { recursive: true });
+
+// Load queue from disk on startup
 const messageQueue = [];
-const messageDedup = new Map(); // (tenantId + messageId) -> timestamp to prevent duplicates
+try {
+  const queueFile = path.join(QUEUE_DIR, 'pending_messages.json');
+  if (fs.existsSync(queueFile)) {
+    const savedQueue = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+    messageQueue.push(...savedQueue);
+    console.log(`[BOOT] 📂 Loaded ${messageQueue.length} pending messages from disk`);
+  }
+} catch (e) {
+  console.error(`[BOOT] ⚠️ Failed to load queue from disk:`, e.message);
+}
+
+// Save queue to disk periodically
+function saveQueueToDisk() {
+  try {
+    const queueFile = path.join(QUEUE_DIR, 'pending_messages.json');
+    fs.writeFileSync(queueFile, JSON.stringify(messageQueue, null, 2));
+  } catch (e) {
+    console.error(`[QUEUE] ⚠️ Failed to save queue to disk:`, e.message);
+  }
+}
+
+// Auto-save every 30 seconds
+setInterval(saveQueueToDisk, 30000);
+
+const messageDedup = new Map(); // (tenantId:wa_message_id) -> timestamp to prevent duplicates
 const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
@@ -215,6 +274,9 @@ async function retryWebhookDelivery(item) {
     // Remove from dedup map after successful delivery
     messageDedup.delete(`${tenantId}:${messageId}`);
     
+    // 🔥 FIX #3: Save queue after successful delivery
+    saveQueueToDisk();
+    
   } catch (e) {
     console.error(`[${tenantId}] ❌ Webhook retry failed (attempt ${attempts + 1}):`, e?.message || e);
     
@@ -224,9 +286,15 @@ async function retryWebhookDelivery(item) {
       item.lastAttempt = Date.now();
       messageQueue.push(item);
       console.log(`[${tenantId}] 📝 Message re-queued for retry (${attempts + 2}/${MAX_RETRY_ATTEMPTS})`);
+      
+      // 🔥 FIX #3: Save queue after re-queueing
+      saveQueueToDisk();
     } else {
       console.error(`[${tenantId}] ❌ Max retry attempts reached - dropping message ${messageId}`);
       messageDedup.delete(`${tenantId}:${messageId}`);
+      
+      // 🔥 FIX #3: Save queue after dropping message
+      saveQueueToDisk();
     }
   }
 }
@@ -1612,8 +1680,12 @@ async function disconnectSession(tenantId) {
 
 /** single server instance – we export start() to avoid double listen */
 let server = null;
-function start() {
+async function start() {
   if (server) return server;
+  
+  // 🔥 FIX #1: Wait for backend before starting webhook processing
+  await waitForBackendReady();
+  
   server = app.listen(PORT, HOST, () => {
     const addr = server.address();
     console.log(`[BOOT] Baileys listening on ${HOST}:${addr.port} pid=${process.pid}`);

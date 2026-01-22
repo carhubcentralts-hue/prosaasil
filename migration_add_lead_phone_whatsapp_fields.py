@@ -92,6 +92,20 @@ def run_migration():
                         RAISE NOTICE 'reply_jid column already exists';
                     END IF;
                     
+                    -- Add reply_jid_type column for storing JID type (s.whatsapp.net, lid, g.us)
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='leads' 
+                        AND column_name='reply_jid_type'
+                    ) THEN
+                        ALTER TABLE leads 
+                        ADD COLUMN reply_jid_type VARCHAR(32) NULL;
+                        
+                        RAISE NOTICE 'Added reply_jid_type column';
+                    ELSE
+                        RAISE NOTICE 'reply_jid_type column already exists';
+                    END IF;
+                    
                     -- Add index on whatsapp_jid for fast lookups
                     IF NOT EXISTS (
                         SELECT 1 FROM pg_indexes 
@@ -124,12 +138,14 @@ def run_migration():
             print("   - whatsapp_jid: Primary WhatsApp identifier (remoteJid)")
             print("   - whatsapp_jid_alt: Alternative WhatsApp identifier (sender_pn)")
             print("   - reply_jid: EXACT JID to reply to (last seen, for Android/LID)")
+            print("   - reply_jid_type: Type of JID (s.whatsapp.net, lid, g.us)")
             print("")
             print("💡 These fields enable:")
             print("   - Audit trail for phone normalization")
             print("   - WhatsApp LID support (@lid identifiers)")
             print("   - Proper identity mapping across phone and WhatsApp channels")
             print("   - Reliable reply routing (always use last seen reply_jid)")
+            print("   - JID type tracking to detect flips between LID and PN")
             
         except Exception as e:
             db.session.rollback()
