@@ -1449,38 +1449,47 @@ def process_single_receipt_message(
     # ==================================================================================
     # MASTER INSTRUCTION RULE 8: VALIDATION CHECK
     # ==================================================================================
-    # Before creating receipt record, validate:
-    # 1. If email had HTML, screenshot PDF must exist
-    # 2. If email had attachments, they must be saved
+    # CRITICAL: Validation determines STATUS, NOT whether to create record!
+    # Rule 6/7/10: ALWAYS create CRM record, even if validation fails
+    # Validation only gates "processed" status and flags for review
     
     validation_failed = False
     validation_errors = []
+    missing_snapshot = False
+    missing_attachments = []
     
     # Check 1: If we had HTML content, we MUST have a screenshot
     if email_html_snippet and not preview_generated:
         validation_failed = True
+        missing_snapshot = True
         validation_errors.append("Screenshot PDF mandatory but not generated")
         logger.error(f"❌ VALIDATION FAILED: Email had HTML but no screenshot PDF")
     
-    # Check 2: If original message had attachments, at least one must be processed
+    # Check 2: If original message had attachments, track which ones are missing
     # (all_attachments was already extracted above)
-    if all_attachments and not attachment_processed:
-        validation_failed = True
-        validation_errors.append(f"Email had {len(all_attachments)} attachments but none were saved")
-        logger.error(f"❌ VALIDATION FAILED: Attachments present but not saved")
+    if all_attachments:
+        if not attachment_processed:
+            validation_failed = True
+            missing_attachments = [att.get('filename', 'unknown') for att in all_attachments]
+            validation_errors.append(f"Email had {len(all_attachments)} attachments but none were saved")
+            logger.error(f"❌ VALIDATION FAILED: Attachments present but not saved")
+        elif len(saved_attachments) < len(all_attachments):
+            # Some attachments saved but not all
+            validation_failed = True
+            saved_count = len(saved_attachments)
+            total_count = len(all_attachments)
+            missing_attachments = [
+                att.get('filename', 'unknown') 
+                for i, att in enumerate(all_attachments) 
+                if i >= saved_count
+            ]
+            validation_errors.append(f"Only {saved_count}/{total_count} attachments saved")
+            logger.warning(f"⚠️ PARTIAL SAVE: {saved_count}/{total_count} attachments saved")
     
-    # If validation failed, do NOT create receipt - return None
-    if validation_failed:
-        logger.error(f"❌ CRITICAL: Receipt validation failed - will NOT create record")
-        logger.error(f"❌ Validation errors: {', '.join(validation_errors)}")
-        result['errors'] += 1
-        return None
-    
-    # Don't skip receipts just because they lack attachments
-    # If confidence check passed in check_is_receipt_email(), trust it
-    # Only skip if BOTH no attachment AND no HTML content (empty email)
-    if not attachment_processed and not email_html_snippet:
-        logger.info(f"⏭️ Skipping email with no attachment and no HTML content")
+    # CRITICAL: Only skip if email is completely empty (no HTML, no attachments)
+    # Otherwise ALWAYS create record (Rule 7)
+    if not attachment_processed and not email_html_snippet and not all_attachments:
+        logger.info(f"⏭️ Skipping completely empty email (no HTML, no attachments)")
         result['skipped'] += 1
         return None
     
@@ -1502,28 +1511,34 @@ def process_single_receipt_message(
     else:
         received_at = datetime.now(timezone.utc)
     
-    # Determine status based on confidence with two-tier system
-    # High confidence (>=50): Auto-approve
-    # Medium/Low confidence (5-49): Pending review
-    if confidence >= AUTO_APPROVE_THRESHOLD:
+    # Determine status based on validation and confidence
+    # CRITICAL: Validation failure forces incomplete status (Rule 6/7/10)
+    if validation_failed:
+        # Validation failed - mark as incomplete regardless of confidence
+        status = 'incomplete'
+        needs_review = True
+        logger.error(f"❌ Status=incomplete due to validation failure: {', '.join(validation_errors)}")
+    elif confidence >= AUTO_APPROVE_THRESHOLD:
+        # High confidence and validation passed
         status = 'approved'
         logger.debug(f"✅ Auto-approved (confidence={confidence} >= {AUTO_APPROVE_THRESHOLD})")
     else:
+        # Low/medium confidence
         status = 'pending_review'
         logger.debug(f"⏸️ Pending review (confidence={confidence} < {AUTO_APPROVE_THRESHOLD})")
     
     # Determine needs_review flag for low-confidence or missing data
     # This is SEPARATE from status - helps filter false positives from reports
-    needs_review = False
-    if confidence < 15:  # Very low confidence (5-14)
-        needs_review = True
-        logger.debug(f"🔍 Flagged for review: very low confidence ({confidence})")
-    elif not extracted.get('amount'):
-        needs_review = True
-        logger.debug(f"🔍 Flagged for review: missing amount")
-    elif not extracted.get('vendor_name'):
-        needs_review = True
-        logger.debug(f"🔍 Flagged for review: missing vendor")
+    if not needs_review:  # May already be set by validation_failed
+        if confidence < 15:  # Very low confidence (5-14)
+            needs_review = True
+            logger.debug(f"🔍 Flagged for review: very low confidence ({confidence})")
+        elif not extracted.get('amount'):
+            needs_review = True
+            logger.debug(f"🔍 Flagged for review: missing amount")
+        elif not extracted.get('vendor_name'):
+            needs_review = True
+            logger.debug(f"🔍 Flagged for review: missing vendor")
     
     # Determine receipt_type based on keywords in subject/content
     receipt_type = None
@@ -1561,8 +1576,19 @@ def process_single_receipt_message(
         logger.error(f"⚠️ JSON sanitization failed, using None: {sanitize_err}")
         sanitized_json = None
     
-    # CRITICAL: Validation - track why extraction failed
+    # CRITICAL: Validation - track why extraction failed and add to JSON
     extraction_warnings = []
+    
+    # Add validation errors to extraction warnings
+    if validation_failed:
+        extraction_warnings.extend(validation_errors)
+        if sanitized_json is None:
+            sanitized_json = {}
+        sanitized_json['validation_failed'] = True
+        sanitized_json['validation_errors'] = validation_errors
+        sanitized_json['missing_snapshot'] = missing_snapshot
+        if missing_attachments:
+            sanitized_json['missing_attachments'] = missing_attachments
     
     # Check preview generation
     if attachment_id and not preview_generated:
@@ -1573,7 +1599,7 @@ def process_single_receipt_message(
     if (pdf_text or email_html_snippet) and not extracted.get('amount'):
         extraction_warnings.append('amount_not_extracted')
         logger.warning(f"⚠️ Receipt {message_id}: Amount not extracted despite having content")
-        # Don't auto-approve if amount missing
+        # Don't auto-approve if amount missing (unless already incomplete)
         if status == 'approved':
             status = 'pending_review'
     
@@ -1583,10 +1609,10 @@ def process_single_receipt_message(
         logger.warning(f"⚠️ Receipt {message_id}: Currency not detected")
     
     # Add warnings to raw_extraction_json
-    if extraction_warnings and sanitized_json:
+    if extraction_warnings:
+        if sanitized_json is None:
+            sanitized_json = {}
         sanitized_json['extraction_warnings'] = extraction_warnings
-    elif extraction_warnings:
-        sanitized_json = {'extraction_warnings': extraction_warnings}
     
     # Determine preview status based on generation result
     if preview_generated:
@@ -1604,6 +1630,15 @@ def process_single_receipt_message(
         # No attachment and no HTML
         preview_status_val = 'not_available'
         preview_failure_reason_val = 'No attachment or HTML content available'
+    
+    # CRITICAL LOG: Always creating record (Rule 6/7/10)
+    if validation_failed:
+        logger.warning(
+            f"⚠️ RULE 6/7/10: Creating INCOMPLETE record despite validation failure\n"
+            f"   → message_id: {message_id}\n"
+            f"   → validation_errors: {validation_errors}\n"
+            f"   → This ensures NO emails with attachments are missed in CRM"
+        )
     
     receipt = Receipt(
         business_id=business_id,
@@ -1624,9 +1659,9 @@ def process_single_receipt_message(
         invoice_date=invoice_date,
         confidence=confidence,
         raw_extraction_json=sanitized_json,
-        status=status,
-        needs_review=needs_review,  # NEW: Flag for low-confidence items
-        receipt_type=receipt_type,  # NEW: Type classification
+        status=status,  # Will be 'incomplete' if validation failed
+        needs_review=needs_review,  # Will be True if validation failed
+        receipt_type=receipt_type,
         attachment_id=attachment_id,
         preview_attachment_id=preview_attachment_id,
         preview_status=preview_status_val,

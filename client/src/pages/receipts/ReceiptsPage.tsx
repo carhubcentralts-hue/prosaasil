@@ -333,7 +333,7 @@ interface ReceiptItem {
   invoice_number: string | null;
   invoice_date: string | null;
   confidence: number | null;
-  status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt';
+  status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt' | 'incomplete';
   attachment_id: number | null;
   preview_attachment_id: number | null;
   preview_status?: PreviewStatus;
@@ -416,6 +416,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     approved: { icon: CheckCircle, color: 'bg-green-100 text-green-800', label: 'מאושר' },
     rejected: { icon: XCircle, color: 'bg-red-100 text-red-800', label: 'נדחה' },
     not_receipt: { icon: AlertCircle, color: 'bg-gray-100 text-gray-600', label: 'לא קבלה' },
+    incomplete: { icon: AlertCircle, color: 'bg-orange-100 text-orange-800', label: 'לא הושלם' },
   };
   
   const config = statusConfig[status] || statusConfig.pending_review;
@@ -1683,6 +1684,14 @@ export function ReceiptsPage() {
                   }`}
                 >
                   לבדיקה
+                </button>
+                <button
+                  onClick={() => { setStatusFilter('incomplete'); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    statusFilter === 'incomplete' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  לא הושלם
                 </button>
                 <button
                   onClick={() => { setStatusFilter('approved'); setPage(1); }}

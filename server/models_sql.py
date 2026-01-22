@@ -1651,7 +1651,7 @@ class Receipt(db.Model):
         db.Index('idx_receipts_business_received', 'business_id', 'received_at'),
         db.Index('idx_receipts_business_status', 'business_id', 'status'),
         db.Index('idx_receipts_preview_attachment', 'preview_attachment_id'),
-        db.CheckConstraint("status IN ('pending_review', 'approved', 'rejected', 'not_receipt')", name='chk_receipt_status'),
+        db.CheckConstraint("status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete')", name='chk_receipt_status'),
         db.CheckConstraint("source IN ('gmail', 'manual', 'upload')", name='chk_receipt_source'),
     )
 
