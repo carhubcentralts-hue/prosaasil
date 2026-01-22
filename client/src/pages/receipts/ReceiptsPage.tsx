@@ -1350,54 +1350,8 @@ export function ReceiptsPage() {
     }
   }, [fetchGmailStatus, handleSync]);
   
-  // Sync Progress Display Component
-  const SyncProgressDisplay = () => {
-    if (!syncInProgress || !syncStatus) return null;
-
-    return (
-      <div className="fixed bottom-4 left-4 bg-white rounded-lg shadow-2xl border-2 border-blue-500 p-4 z-50 max-w-sm">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
-            סנכרון רץ...
-          </h3>
-          {syncStatus.status === 'partial' && (
-            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded">חלקי</span>
-          )}
-        </div>
-        
-        {/* Progress bar */}
-        <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
-          <div 
-            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-            style={{ width: `${syncStatus.progress_percentage}%` }}
-          ></div>
-        </div>
-        
-        {/* Stats */}
-        <div className="text-sm text-gray-600 space-y-1">
-          <div className="flex justify-between">
-            <span>הודעות נסרקו:</span>
-            <span className="font-medium">{syncStatus.messages_scanned}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>קבלות נשמרו:</span>
-            <span className="font-medium text-green-600">{syncStatus.saved_receipts}</span>
-          </div>
-          {syncStatus.errors_count > 0 && (
-            <div className="flex justify-between text-red-600">
-              <span>שגיאות:</span>
-              <span className="font-medium">{syncStatus.errors_count}</span>
-            </div>
-          )}
-        </div>
-        
-        <div className="text-xs text-gray-500 mt-2">
-          {syncStatus.progress_percentage}% הושלם
-        </div>
-      </div>
-    );
-  };
+  // REMOVED: SyncProgressDisplay component - using only the card-based progress bar now
+  // This eliminates the duplicate progress bar issue as per requirement
   
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
@@ -2045,8 +1999,7 @@ export function ReceiptsPage() {
         }}
       />
       
-      {/* Sync Progress Display */}
-      <SyncProgressDisplay />
+      {/* REMOVED: <SyncProgressDisplay /> - using only card-based progress bar to avoid duplicates */}
       
       {/* Mobile Date Picker Modal */}
       <MobileDatePickerModal
