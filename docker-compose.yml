@@ -213,12 +213,12 @@ services:
     # Without this, auth files are lost on container restart -> Android connection fails
     volumes:
       - whatsapp_auth:/app/storage/whatsapp
-    # ✅ healthcheck uses curl which is installed in Dockerfile.baileys (line 11-12)
+    # ✅ healthcheck uses wget (built-in to node:20-slim base image)
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3300/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3300/health >/dev/null 2>&1 || exit 1"]
       interval: 15s
-      timeout: 5s
-      retries: 5
+      timeout: 3s
+      retries: 10
       start_period: 30s
     networks:
       - prosaas-net
