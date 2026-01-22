@@ -3,17 +3,13 @@ services:
   # ===========================================
   # Nginx Reverse Proxy
   # Single entry point for all external traffic
-  # Note: Config templating happens at BUILD time, not runtime
+  # Proxies directly to prosaas-api and prosaas-calls services
   # ===========================================
   nginx:
     build:
       context: .
       dockerfile: Dockerfile.nginx
       args:
-        # Build-time arguments for template substitution
-        API_UPSTREAM: prosaas-api:5000
-        CALLS_UPSTREAM: prosaas-calls:5050
-        FRONTEND_UPSTREAM: frontend
         USE_SSL: "false"
     restart: unless-stopped
     ports:

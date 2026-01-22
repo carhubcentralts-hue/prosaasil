@@ -20,12 +20,6 @@ server {
     listen 80;
     server_name prosaas.pro www.prosaas.pro;
 
-    # Set upstream variables for runtime DNS resolution
-    set $api_upstream "${API_UPSTREAM}";
-    set $calls_upstream "${CALLS_UPSTREAM}";
-    set $frontend_upstream "${FRONTEND_UPSTREAM}:80";
-    set $n8n_upstream "n8n:5678";
-
     # Health check endpoint
     location = /health {
         access_log off;
@@ -33,13 +27,13 @@ server {
         return 200 "ok\n";
     }
 
-    # API endpoints - proxy to backend
+    # API endpoints - proxy to prosaas-api service
     # 🔥 CRITICAL FIX: Remove /api/ from proxy_pass to prevent double /api/api/ path
     # NGINX strips location prefix and appends the rest to proxy_pass
     # So: /api/auth/login → backend receives /api/auth/login (correct)
     # NOT: /api/auth/login → /api/api/auth/login (404!)
     location /api/ {
-        proxy_pass http://$api_upstream;
+        proxy_pass http://prosaas-api:5000;
         
         # HTTP/1.1 required for keepalive and streaming
         proxy_http_version 1.1;
@@ -69,10 +63,10 @@ server {
         proxy_connect_timeout 75s;
     }
 
-    # Calls API endpoints - proxy to calls service (if separated)
+    # Calls API endpoints - proxy to prosaas-calls service (if separated)
     # This route is for future use if /calls-api/ is ever used instead of /ws/
     location /calls-api/ {
-        proxy_pass http://$calls_upstream;
+        proxy_pass http://prosaas-calls:5050;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -86,9 +80,9 @@ server {
         proxy_connect_timeout 75s;
     }
 
-    # WebSocket endpoints - proxy to backend
+    # WebSocket endpoints - proxy to prosaas-calls service
     location /ws/ {
-        proxy_pass http://$calls_upstream;
+        proxy_pass http://prosaas-calls:5050;
         
         # WebSocket support - must use HTTP/1.1
         proxy_http_version 1.1;
@@ -113,9 +107,9 @@ server {
         proxy_buffering off;
     }
 
-    # Webhook endpoints - proxy to backend
+    # Webhook endpoints - proxy to prosaas-calls service
     location /webhook {
-        proxy_pass http://$calls_upstream;
+        proxy_pass http://prosaas-calls:5050;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -131,7 +125,7 @@ server {
 
     # Static assets - proxy to frontend with caching
     location /assets {
-        proxy_pass http://$frontend_upstream;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -143,7 +137,7 @@ server {
     
     # Disable caching for index.html to ensure updates are visible
     location = /index.html {
-        proxy_pass http://$frontend_upstream;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -155,7 +149,7 @@ server {
 
     # All other requests - proxy to frontend (SPA routing)
     location / {
-        proxy_pass http://$frontend_upstream;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -185,7 +179,7 @@ server {
 
     # WebSocket push endpoint - critical for n8n real-time updates
     location /rest/push {
-        proxy_pass http://$n8n_upstream;
+        proxy_pass http://n8n:5678;
         
         # WebSocket support - must use HTTP/1.1
         proxy_http_version 1.1;
@@ -210,7 +204,7 @@ server {
 
     # All other n8n requests
     location / {
-        proxy_pass http://$n8n_upstream;
+        proxy_pass http://n8n:5678;
         
         # WebSocket support for all endpoints - n8n uses WebSocket throughout
         proxy_http_version 1.1;

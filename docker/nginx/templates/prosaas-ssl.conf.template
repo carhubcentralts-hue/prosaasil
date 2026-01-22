@@ -30,12 +30,6 @@ server {
     http2 on;
     server_name prosaas.pro www.prosaas.pro;
 
-    # Set upstream variables for runtime DNS resolution
-    set $api_upstream "${API_UPSTREAM}";
-    set $calls_upstream "${CALLS_UPSTREAM}";
-    set $frontend_upstream "${FRONTEND_UPSTREAM}:80";
-    set $n8n_upstream "n8n:5678";
-
     # SSL Configuration
     ssl_certificate /etc/nginx/ssl/prosaas-origin.crt;
     ssl_certificate_key /etc/nginx/ssl/prosaas-origin.key;
@@ -60,13 +54,13 @@ server {
         return 200 "ok\n";
     }
 
-    # API endpoints - proxy to ${API_UPSTREAM} (REST only, no WebSocket)
+    # API endpoints - proxy to prosaas-api service (REST only, no WebSocket)
     # 🔥 CRITICAL FIX: Remove /api/ from proxy_pass to prevent double /api/api/ path
     # NGINX strips location prefix and appends the rest to proxy_pass
     # So: /api/auth/login → backend receives /api/auth/login (correct)
     # NOT: /api/auth/login → /api/api/auth/login (404!)
     location /api/ {
-        proxy_pass http://$api_upstream;
+        proxy_pass http://prosaas-api:5000;
         
         # HTTP/1.1 required for keepalive and streaming
         proxy_http_version 1.1;
@@ -94,10 +88,10 @@ server {
         proxy_connect_timeout 75s;
     }
 
-    # Calls API endpoints - proxy to calls service (if separated)
+    # Calls API endpoints - proxy to prosaas-calls service (if separated)
     # This route is for future use if /calls-api/ is ever used instead of /ws/
     location /calls-api/ {
-        proxy_pass http://$calls_upstream;
+        proxy_pass http://prosaas-calls:5050;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -111,9 +105,9 @@ server {
         proxy_connect_timeout 75s;
     }
 
-    # WebSocket endpoints - proxy to ${CALLS_UPSTREAM} (optimized for WS)
+    # WebSocket endpoints - proxy to prosaas-calls service (optimized for WS)
     location /ws/ {
-        proxy_pass http://$calls_upstream;
+        proxy_pass http://prosaas-calls:5050;
         
         # WebSocket support
         proxy_http_version 1.1;
@@ -138,9 +132,9 @@ server {
         proxy_buffering off;
     }
 
-    # Webhook endpoints - proxy to ${CALLS_UPSTREAM} (Twilio call webhooks)
+    # Webhook endpoints - proxy to prosaas-calls service (Twilio call webhooks)
     location /webhook {
-        proxy_pass http://$calls_upstream;
+        proxy_pass http://prosaas-calls:5050;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -153,9 +147,9 @@ server {
         proxy_connect_timeout 10s;
     }
 
-    # Static assets - proxy to ${FRONTEND_UPSTREAM} with caching
+    # Static assets - proxy to frontend with caching
     location /assets {
-        proxy_pass http://$frontend_upstream;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -166,7 +160,7 @@ server {
     
     # No cache for index.html
     location = /index.html {
-        proxy_pass http://$frontend_upstream;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -176,9 +170,9 @@ server {
         add_header Expires "0" always;
     }
 
-    # All other requests - proxy to ${FRONTEND_UPSTREAM}
+    # All other requests - proxy to frontend
     location / {
-        proxy_pass http://$frontend_upstream;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -235,7 +229,7 @@ server {
 
     # WebSocket push endpoint - critical for n8n real-time updates
     location /rest/push {
-        proxy_pass http://$n8n_upstream;
+        proxy_pass http://n8n:5678;
         
         # WebSocket support
         proxy_http_version 1.1;
@@ -260,7 +254,7 @@ server {
 
     # All other n8n requests
     location / {
-        proxy_pass http://$n8n_upstream;
+        proxy_pass http://n8n:5678;
         
         # WebSocket support for all endpoints
         proxy_http_version 1.1;

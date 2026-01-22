@@ -1,24 +1,14 @@
 # ===========================================
-# ProSaaS - Nginx Reverse Proxy (BUILD-TIME ONLY)
+# ProSaaS - Nginx Reverse Proxy
 # ===========================================
 
 FROM nginx:alpine
 
-# ARGs for build-time configuration
-ARG API_UPSTREAM
-ARG CALLS_UPSTREAM
-ARG FRONTEND_UPSTREAM
+# ARG for build-time SSL configuration
 ARG USE_SSL=false
 
-# Convert to ENV for envsubst
-ENV API_UPSTREAM=${API_UPSTREAM}
-ENV CALLS_UPSTREAM=${CALLS_UPSTREAM}
-ENV FRONTEND_UPSTREAM=${FRONTEND_UPSTREAM}
-ENV USE_SSL=${USE_SSL}
-
-# Ensure envsubst and wget exist
-RUN command -v envsubst || apk add --no-cache gettext && \
-    command -v wget || apk add --no-cache wget
+# Ensure wget exists for health checks
+RUN command -v wget || apk add --no-cache wget
 
 # Remove default nginx config
 RUN rm -f /etc/nginx/conf.d/default.conf
@@ -37,22 +27,13 @@ RUN chmod +x /docker-entrypoint.d/*.sh
 RUN mkdir -p /etc/nginx/conf.d && \
     cp /templates/00-health.conf.template /etc/nginx/conf.d/00-health.conf && \
     if [ "$USE_SSL" = "true" ]; then \
-      envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' \
-        < /templates/prosaas-ssl.conf.template \
-        > /etc/nginx/conf.d/prosaas.conf ; \
+      cp /templates/prosaas-ssl.conf.template /etc/nginx/conf.d/prosaas.conf ; \
     else \
-      envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' \
-        < /templates/prosaas.conf.template \
-        > /etc/nginx/conf.d/prosaas.conf ; \
+      cp /templates/prosaas.conf.template /etc/nginx/conf.d/prosaas.conf ; \
     fi
-
-# ❌ REMOVED: grep-based validation (BREAKS runtime DNS resolution)
 
 # Cleanup
 RUN rm -rf /templates
-
-# Unset ENV vars (not needed at runtime)
-ENV API_UPSTREAM= CALLS_UPSTREAM= FRONTEND_UPSTREAM= USE_SSL=
 
 # SSL directory
 RUN mkdir -p /etc/nginx/ssl
