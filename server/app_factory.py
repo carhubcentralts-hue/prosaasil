@@ -1088,40 +1088,44 @@ def create_app():
     # TTS Pre-warming on startup (prevents cold start)
     # SKIP if in migration mode
     if os.getenv('MIGRATION_MODE') != '1':
-        try:
-            from server.services.gcp_tts_live import maybe_warmup
-            maybe_warmup()
-        except Exception:
-            pass
+        # 🔥 TTS Warmup - Optional, can be disabled
+        # This doesn't query DB and can be skipped for faster startup
+        if os.getenv("DISABLE_TTS_WARMUP") != "true":
+            try:
+                from server.services.gcp_tts_live import maybe_warmup
+                maybe_warmup()
+            except Exception as e:
+                logger.warning(f"TTS warmup failed (non-critical): {e}")
+                pass
+        else:
+            logger.info("⚠️ TTS warmup disabled by DISABLE_TTS_WARMUP environment variable")
         
-        # Pre-create agents to eliminate cold starts
+        # 🔥 Agent Warmup - Queries DB, must wait for migrations
+        # This is separate from TTS warmup and cannot be completely bypassed
         try:
             from server.agent_tools.agent_factory import warmup_all_agents
             
             def warmup_with_context():
-                # 🔥 CRITICAL FIX: Wait for migrations to complete before starting warmup
+                # 🔥 CRITICAL: Wait for migrations to complete before agent warmup
+                # Agent warmup queries the database (Business.query), so schema MUST be ready
                 # This prevents "InFailedSqlTransaction" errors when warmup queries fail
                 # due to missing columns (e.g., business.company_id)
                 import time
-                
-                # Check if warmup is disabled via environment variable
-                if os.getenv("DISABLE_WARMUP") == "true":
-                    logger.info("⚠️ Warmup disabled by DISABLE_WARMUP environment variable")
-                    return
                 
                 # Use global _migrations_complete event
                 global _migrations_complete
                 
                 # Wait up to 60 seconds for migrations to complete
-                logger.info("🔥 Warmup waiting for migrations to complete...")
+                logger.info("🔥 Agent warmup waiting for migrations to complete...")
                 migrations_ready = _migrations_complete.wait(timeout=60.0)
                 
                 if not migrations_ready:
-                    error_msg = "❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema"
+                    error_msg = "❌ Agent warmup timeout waiting for migrations"
                     logger.error(error_msg)
                     
-                    # 🔥 PRODUCTION FIX: Never crash the app because of warmup timeout
-                    # Warmup is best-effort optimization, not a blocker for app startup
+                    # 🔥 PRODUCTION FIX: Don't crash app, but log clearly
+                    # Agent warmup has built-in retry logic and will handle DB not ready gracefully
+                    # The key is that migrations ARE running - just the signal didn't arrive
                     # Check multiple environment variables to detect production mode
                     is_production = (
                         os.getenv("ENV") == "production" or
@@ -1130,13 +1134,14 @@ def create_app():
                     )
                     
                     if is_production:
-                        logger.warning("⚠️ Skipping warmup failure in production - app will continue without warmup")
+                        logger.warning("⚠️ Skipping agent warmup in production due to timeout")
+                        logger.warning("⚠️ Note: Migrations may still be running. First requests may be slower.")
                         return
                     else:
                         # In development, still raise to catch issues early
                         raise RuntimeError(error_msg)
                 else:
-                    logger.info("✅ Migrations complete - starting warmup")
+                    logger.info("✅ Migrations complete - starting agent warmup")
                 
                 # Additional 1 second delay for DB connection pool to settle
                 time.sleep(1.0)
@@ -1145,12 +1150,14 @@ def create_app():
                     try:
                         warmup_all_agents()
                     except Exception as e:
-                        logger.warning(f"Warmup failed: {e}")
+                        # Agent warmup has built-in retry logic, so failures here are expected
+                        logger.warning(f"Agent warmup failed (will retry on first request): {e}")
                         pass
             
             warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
             warmup_thread.start()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to start agent warmup thread: {e}")
             pass
         
         # ====================================================================

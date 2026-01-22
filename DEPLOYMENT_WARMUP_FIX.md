@@ -1,79 +1,83 @@
-# Deployment Guide: Warmup Timeout and n8n Configuration Fix
+# Deployment Guide: Production Startup Race Condition Fix
 
 ## 🎯 Problem Summary
 
-Two critical issues were preventing production deployment:
+The production deployment was failing due to a **race condition during startup**:
 
-1. **Warmup Timeout Crash** (PRIMARY ISSUE)
-   - The API was crashing with `RuntimeError` when migrations didn't complete within 60 seconds
-   - This was a **race condition**: migrations were running successfully, but the warmup thread timed out before they completed
-   - Result: Login failures, API instability, application crashes
+1. **The Real Issue** (NOT what I initially thought)
+   - Migrations ARE completing successfully
+   - The database IS accessible
+   - The problem is **timing**: The app tries to warm up agents before migrations signal completion
+   - Agent warmup queries the database (Business.query), so it needs the schema to be ready
+   - When warmup times out, it was crashing the entire app
 
-2. **n8n Configuration Issue** (SECONDARY ISSUE)
-   - n8n environment variables needed explicit base path configuration
-   - Without proper `N8N_PATH` and `N8N_EDITOR_BASE_URL`, n8n would try to load assets from incorrect paths
+2. **What Was Wrong With My Initial Fix**
+   - I made `DISABLE_WARMUP` skip waiting for migrations entirely
+   - This would allow the app to start with an invalid schema
+   - Agent warmup QUERIES THE DATABASE, so it MUST wait for migrations
+   - This was hiding the symptom, not fixing the root cause
 
-## ✅ Solution Implemented
+## ✅ Correct Solution Implemented
 
-### 1. Warmup Timeout Fix (server/app_factory.py)
+### 1. Separate TTS Warmup from Agent Warmup
 
-**Changes:**
-- Added `DISABLE_WARMUP` environment variable support to completely skip warmup if needed
-- Modified warmup timeout behavior to be **production-safe**:
-  - ✅ **Production mode**: Logs warning and continues without crashing
-  - ✅ **Development mode**: Still raises RuntimeError to catch issues early
-- Improved production detection logic to check multiple environment variables
+**TTS Warmup** (Optional - Does NOT query DB):
+- Initializes Google Cloud TTS client
+- Can be safely skipped with `DISABLE_TTS_WARMUP=true`
+- Non-critical optimization
 
-**Key Code Change:**
-```python
-if not migrations_ready:
-    error_msg = "❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema"
-    logger.error(error_msg)
-    
-    # Check if production mode
-    is_production = (
-        os.getenv("ENV") == "production" or
-        os.getenv("FLASK_ENV") == "production" or
-        os.getenv("PRODUCTION", "0") in ("1", "true", "True")
-    )
-    
-    if is_production:
-        logger.warning("⚠️ Skipping warmup failure in production - app will continue without warmup")
-        return  # Don't crash!
-    else:
-        raise RuntimeError(error_msg)  # Catch issues early in dev
-```
+**Agent Warmup** (Queries DB - Must wait for migrations):
+- Queries `Business.query` to get active businesses
+- Pre-creates AI agents to eliminate cold starts
+- MUST wait for migrations to complete or it will fail
 
-### 2. DISABLE_WARMUP Environment Variable (docker-compose.prod.yml)
+### 2. Production-Safe Timeout Handling
 
-**Changes:**
-- Added `DISABLE_WARMUP` to both `prosaas-api` and `prosaas-calls` services
-- Defaults to `false` (warmup enabled)
-- Can be set to `true` to skip warmup entirely during deployment
+**Key Changes in server/app_factory.py:**
+- Agent warmup still waits for migrations (60 second timeout)
+- If timeout occurs in production:
+  - ✅ Logs warning but does NOT crash
+  - ✅ App continues to start
+  - ✅ Agent warmup has built-in retry logic anyway
+- If timeout occurs in development:
+  - ❌ Still raises RuntimeError (fail-fast to catch issues early)
 
-**Usage:**
-```yaml
-environment:
-  DISABLE_WARMUP: ${DISABLE_WARMUP:-false}
-```
+**Why this is safe:**
+- The timeout means the signal didn't arrive, NOT that migrations failed
+- Migrations are likely still running (or completed but signal was delayed)
+- Agent warmup has built-in retry logic (5 attempts with exponential backoff)
+- First requests may be slower, but app stays up
 
-### 3. n8n Configuration Fix (docker-compose.yml)
+### 3. Health Check Validates DB Readiness
 
-**Changes:**
-- Explicitly set `N8N_PATH: /` (no subpath)
-- Added `N8N_EDITOR_BASE_URL: https://n8n.prosaas.pro`
-- Fixed `WEBHOOK_URL` format (removed trailing slash)
+**`/api/health` endpoint:**
+- Returns 503 (Service Unavailable) while migrations are running
+- Returns 200 (OK) only after migrations complete
+- Docker healthcheck uses this, so dependent services wait
 
-**Updated Configuration:**
-```yaml
-environment:
-  N8N_HOST: ${N8N_HOST:-n8n.prosaas.pro}
-  N8N_PORT: 5678
-  N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
-  N8N_PATH: /
-  N8N_EDITOR_BASE_URL: https://n8n.prosaas.pro
-  WEBHOOK_URL: https://n8n.prosaas.pro
-```
+**`/readyz` endpoint:**
+- Validates actual DB connectivity with `SELECT 1`
+- Checks Baileys service connectivity
+- Returns 200 only when all dependencies are healthy
+
+## 📦 Changes Made
+
+### server/app_factory.py
+- Separated TTS warmup (optional) from agent warmup (must wait for DB)
+- Added `DISABLE_TTS_WARMUP` environment variable
+- Made agent warmup timeout non-blocking in production
+- Improved logging to distinguish between warmup types
+
+### docker-compose.prod.yml
+- Changed `DISABLE_WARMUP` to `DISABLE_TTS_WARMUP`
+- Clarified that this only affects TTS, not DB-dependent warmup
+- Added clear comments about what can/cannot be disabled
+
+### docker-compose.yml
+- Fixed n8n environment configuration:
+  - Explicit `N8N_PATH: /` (no subpath)
+  - Added `N8N_EDITOR_BASE_URL: https://n8n.prosaas.pro`
+  - Fixed `WEBHOOK_URL` format
 
 ## 🚀 Deployment Instructions
 
@@ -82,175 +86,150 @@ environment:
 git pull origin <branch-name>
 ```
 
-### Step 2: Optional - Disable Warmup (Recommended for First Deploy)
-If you want to skip warmup during this deployment for faster startup:
+### Step 2: (Optional) Disable TTS Warmup Only
+If you want to skip TTS client warmup for faster startup (does NOT affect DB):
 
-1. Edit your `.env` file:
-   ```bash
-   echo "DISABLE_WARMUP=true" >> .env
-   ```
+```bash
+echo "DISABLE_TTS_WARMUP=true" >> .env
+```
 
-2. This is **optional** but recommended for first deploy after this fix
+**Note:** This only skips TTS client initialization. Agent warmup still runs.
 
-### Step 3: Rebuild and Deploy
+### Step 3: Deploy
 ```bash
 ./scripts/dcprod.sh down
 ./scripts/dcprod.sh up -d --build --force-recreate
 ```
 
-### Step 4: Monitor Logs
-Watch the logs to verify the fix:
+### Step 4: Monitor Startup
+Watch the logs to see migrations and warmup:
 
 ```bash
 # Watch API logs
-docker logs -f prosaasil-prosaas-api-1 | grep -E "(Warmup|Migration|ERROR)"
+docker logs -f prosaasil-prosaas-api-1 | grep -E "(Migration|Agent warmup|ERROR)"
 
-# Watch n8n logs
-docker logs -f prosaasil-n8n-1
+# Check health status
+watch -n 2 'curl -s https://prosaas.pro/api/health | jq'
 ```
-
-### Step 5: Verify Services
-
-1. **Check API Health:**
-   ```bash
-   curl https://prosaas.pro/health
-   # Should return: ok
-   ```
-
-2. **Test Login:**
-   - Open https://prosaas.pro
-   - Try logging in
-   - Should work without errors
-
-3. **Check n8n:**
-   - Open https://n8n.prosaas.pro
-   - Should load correctly with all assets
-   - No white screen or 500 errors
 
 ## 📊 Expected Log Output
 
-### ✅ Success Case 1: Warmup Completes
+### ✅ Success Case 1: Migrations Complete, Agent Warmup Runs
 ```
-🔥 Warmup waiting for migrations to complete...
-✅ Migrations complete - starting warmup
-[Warmup runs successfully]
-```
-
-### ✅ Success Case 2: Warmup Timeout in Production (NON-BLOCKING)
-```
-🔥 Warmup waiting for migrations to complete...
-❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema
-⚠️ Skipping warmup failure in production - app will continue without warmup
-[App continues to start normally - LOGIN WORKS!]
+🔒 Migrations complete - warmup can now proceed
+🔥 Agent warmup waiting for migrations to complete...
+✅ Migrations complete - starting agent warmup
+🔥 WARMUP: Pre-creating agents for active businesses...
+📊 Found 10 businesses to warm up
+✅ Warmed up 10 agents in 5.2s
 ```
 
-### ✅ Success Case 3: Warmup Disabled
+### ✅ Success Case 2: Timeout in Production (Non-Blocking)
 ```
-⚠️ Warmup disabled by DISABLE_WARMUP environment variable
-[App starts immediately without warmup]
+🔥 Agent warmup waiting for migrations to complete...
+❌ Agent warmup timeout waiting for migrations
+⚠️ Skipping agent warmup in production due to timeout
+⚠️ Note: Migrations may still be running. First requests may be slower.
+[App continues normally - no crash!]
 ```
 
-### ❌ Old Behavior (FIXED)
+### ✅ Success Case 3: TTS Warmup Disabled
 ```
-🔥 Warmup waiting for migrations to complete...
-❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema
-RuntimeError: Warmup timeout waiting for migrations
-[APP CRASHES - LOGIN DOESN'T WORK]
+⚠️ TTS warmup disabled by DISABLE_TTS_WARMUP environment variable
+🔥 Agent warmup waiting for migrations to complete...
+✅ Migrations complete - starting agent warmup
 ```
 
 ## 🔧 Environment Variables
 
-### New Variables Added
+### New Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DISABLE_WARMUP` | `false` | Set to `true` to skip agent warmup entirely |
+| `DISABLE_TTS_WARMUP` | `false` | Skip TTS client warmup (does NOT skip agent warmup) |
 
 ### Existing Variables (No Changes)
 
 | Variable | Purpose |
 |----------|---------|
-| `ENV` | Environment mode (`production` or `development`) |
-| `FLASK_ENV` | Flask environment mode |
-| `PRODUCTION` | Production flag (`1` or `0`) |
-| `RUN_MIGRATIONS_ON_START` | Run migrations on startup |
+| `RUN_MIGRATIONS_ON_START` | Run DB migrations on startup (always 1 in production) |
+| `ENV` / `FLASK_ENV` / `PRODUCTION` | Detect production mode |
 
-## 🔒 Security Summary
+## ⚠️ What NOT To Do
 
-- ✅ CodeQL scan completed: **0 vulnerabilities found**
-- ✅ Code review completed: All critical issues addressed
-- ✅ No sensitive data exposed
-- ✅ No new dependencies added
-- ✅ Maintains backward compatibility
+❌ **DO NOT** try to skip agent warmup entirely
+- Agent warmup queries the database
+- It has built-in retry logic
+- Skipping it doesn't solve any problem
 
-## 📝 Rollback Plan
+❌ **DO NOT** bypass migration completion checks
+- Migrations MUST complete before agent warmup
+- The health check ensures this
+- Bypassing it could cause 500 errors on first requests
 
-If you need to rollback:
+## ✅ What This Fix Actually Does
 
-```bash
-# Stop services
-./scripts/dcprod.sh down
-
-# Checkout previous commit
-git checkout <previous-commit-sha>
-
-# Rebuild and restart
-./scripts/dcprod.sh up -d --build --force-recreate
-```
-
-## ✨ Benefits
-
-1. **Production Stability**: App never crashes due to warmup timeout
-2. **Login Reliability**: Login works even if migrations are still running
-3. **Faster Deployment**: Option to skip warmup for quicker startup
-4. **Better Monitoring**: Clear log messages about warmup status
-5. **n8n Reliability**: n8n loads correctly with proper asset paths
+1. **Prevents app crashes** when agent warmup times out waiting for migrations
+2. **Maintains DB safety** - migrations still run and must complete
+3. **Allows optional TTS skip** - for faster deployment without affecting DB
+4. **Better logging** - clearly shows what's happening during startup
+5. **Production-friendly** - degrades gracefully instead of crashing
 
 ## 🆘 Troubleshooting
 
-### If Login Still Doesn't Work
+### If Login Still Fails
 
-1. Check if migrations are running:
+1. **Check migrations completed:**
    ```bash
-   docker logs prosaasil-prosaas-api-1 | grep Migration
+   docker logs prosaasil-prosaas-api-1 | grep "Migrations complete"
    ```
 
-2. Check database connectivity:
+2. **Check DB connectivity:**
    ```bash
-   docker logs prosaasil-prosaas-api-1 | grep DATABASE_URL
+   curl https://prosaas.pro/api/health
+   # Should return {"status": "ok"} not {"status": "initializing"}
    ```
 
-3. Check for other errors:
+3. **Check for actual migration errors:**
    ```bash
-   docker logs prosaasil-prosaas-api-1 | grep ERROR
+   docker logs prosaasil-prosaas-api-1 | grep "MIGRATION FAILED"
    ```
 
 ### If n8n Doesn't Load
 
-1. Check n8n service status:
+1. **Check n8n container:**
    ```bash
-   docker ps | grep n8n
+   docker logs prosaasil-n8n-1 | tail -50
    ```
 
-2. Check n8n logs:
+2. **Test direct connectivity:**
    ```bash
-   docker logs prosaasil-n8n-1
+   docker exec -it prosaasil-n8n-1 curl -I http://localhost:5678
    ```
 
-3. Test direct connection:
+3. **Check nginx routing:**
    ```bash
-   docker exec -it prosaasil-n8n-1 curl http://localhost:5678/health
+   docker exec -it prosaasil-nginx-1 curl -H "Host: n8n.prosaas.pro" http://n8n:5678
    ```
 
-## 📞 Support
+## 🔒 Security Summary
 
-If issues persist after deployment:
-1. Collect logs: `docker logs prosaasil-prosaas-api-1 > api.log`
-2. Check environment: `docker exec prosaasil-prosaas-api-1 env | grep -E "(PRODUCTION|ENV|WARMUP)"`
-3. Create issue with logs and environment details
+- ✅ CodeQL scan: 0 vulnerabilities
+- ✅ No sensitive data exposed
+- ✅ No new dependencies added
+- ✅ Maintains backward compatibility
+- ✅ DB migrations still required and blocking
+
+## 📝 Key Takeaways
+
+1. **The timeout is a symptom, not the root cause** - Migrations ARE running
+2. **Agent warmup needs DB** - It cannot be completely disabled
+3. **Production must be resilient** - Timeouts shouldn't crash the app
+4. **TTS warmup is optional** - It doesn't query DB and can be skipped
+5. **Health checks matter** - They ensure proper startup ordering
 
 ---
 
-**Deployed by:** GitHub Copilot Agent  
+**Updated by:** GitHub Copilot Agent (Corrected Fix)  
 **Date:** 2026-01-22  
-**PR:** Fix warmup timeout and n8n configuration blocking production deployment
+**PR:** Fix production startup race condition with proper DB/warmup separation
