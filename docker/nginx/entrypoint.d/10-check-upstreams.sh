@@ -15,18 +15,20 @@ echo "[NGINX] Checking upstream services..."
 
 # Hardcoded upstreams (matching the nginx config)
 API_UPSTREAM="prosaas-api:5000"
+API_HEALTH_ENDPOINT="/api/health"
 CALLS_UPSTREAM="prosaas-calls:5050"
+CALLS_HEALTH_ENDPOINT="/health"
 
 echo "[NGINX] Expected upstreams:"
-echo "  API: ${API_UPSTREAM}"
-echo "  CALLS: ${CALLS_UPSTREAM}"
+echo "  API: ${API_UPSTREAM}${API_HEALTH_ENDPOINT}"
+echo "  CALLS: ${CALLS_UPSTREAM}${CALLS_HEALTH_ENDPOINT}"
 
 # Check API upstream
 echo "[NGINX] Checking API upstream: ${API_UPSTREAM}"
 MAX_RETRIES=30
 RETRY=0
 while [ $RETRY -lt $MAX_RETRIES ]; do
-  if wget -qO- --timeout=2 "http://${API_UPSTREAM}/health" >/dev/null 2>&1; then
+  if wget -qO- --timeout=2 "http://${API_UPSTREAM}${API_HEALTH_ENDPOINT}" >/dev/null 2>&1; then
     echo "[NGINX] ✅ API upstream is reachable"
     break
   fi
@@ -45,7 +47,7 @@ done
 echo "[NGINX] Checking CALLS upstream: ${CALLS_UPSTREAM}"
 RETRY=0
 while [ $RETRY -lt $MAX_RETRIES ]; do
-  if wget -qO- --timeout=2 "http://${CALLS_UPSTREAM}/health" >/dev/null 2>&1; then
+  if wget -qO- --timeout=2 "http://${CALLS_UPSTREAM}${CALLS_HEALTH_ENDPOINT}" >/dev/null 2>&1; then
     echo "[NGINX] ✅ CALLS upstream is reachable"
     break
   fi
