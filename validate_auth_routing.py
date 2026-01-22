@@ -109,11 +109,11 @@ def main():
                         "  location /api/ block exists"):
             checks_passed += 1
         
-        # Check 3b: Proxy pass with variable
+        # Check 3b: Proxy pass with variable (WITHOUT /api/ suffix to prevent double path)
         checks_total += 1
         if check_content('docker/nginx/templates/prosaas.conf.template',
-                        r"proxy_pass\s+http:\/\/\$api_upstream\/api\/",
-                        "  proxy_pass uses $api_upstream variable"):
+                        r"proxy_pass\s+http:\/\/\$api_upstream\s*;",
+                        "  proxy_pass uses $api_upstream (no /api/ suffix - correct!)"):
             checks_passed += 1
     
     # Check 4: Frontend auth API

@@ -1,5 +1,27 @@
 # Auth Routing Fix - Complete Documentation
 
+## 🔥 ROOT CAUSE FOUND!
+
+**The Problem:** NGINX `proxy_pass` was configured with a trailing `/api/` which caused double path:
+```nginx
+❌ WRONG: proxy_pass http://backend:5000/api/;
+✅ FIXED: proxy_pass http://backend:5000;
+```
+
+**Why it broke:**
+- Request: `GET /api/auth/login`
+- NGINX with `/api/` suffix sends: `GET /api/api/auth/login` (double!)
+- Flask can't find `/api/api/auth/login` → **404/405**
+
+**After fix:**
+- Request: `GET /api/auth/login`
+- NGINX without suffix sends: `GET /api/auth/login` (correct!)
+- Flask finds `/api/auth/login` → **200**
+
+See detailed explanation: [NGINX_PROXY_PASS_BUG_FIX.md](./NGINX_PROXY_PASS_BUG_FIX.md)
+
+---
+
 ## Problem Statement
 
 The system was experiencing 404/405 errors on auth endpoints:
