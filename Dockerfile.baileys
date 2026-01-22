@@ -9,15 +9,20 @@ WORKDIR /app
 
 # Install system dependencies for Baileys
 # ✅ curl is required for Docker healthcheck (used in docker-compose.yml)
+# ✅ git is required for npm dependencies that reference git repositories
+# ✅ ca-certificates is required for SSL/TLS connections during npm install
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY services/whatsapp/package*.json ./
 
 # Install dependencies
-RUN npm install --omit=dev
+# ✅ Use npm ci for faster, more reliable installs with package-lock.json
+RUN npm ci --omit=dev
 
 # Copy application code
 COPY services/whatsapp/baileys_service.js ./
