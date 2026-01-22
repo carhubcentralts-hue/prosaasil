@@ -12,6 +12,7 @@ from server.models_sql import (
     Customer, Lead, CallLog, WhatsAppMessage, 
     LeadActivity, LeadStatus, Business
 )
+from server.agent_tools.phone_utils import normalize_phone
 
 log = logging.getLogger(__name__)
 
@@ -303,45 +304,30 @@ class CustomerIntelligence:
     # === PRIVATE HELPER METHODS ===
     
     def _normalize_phone(self, phone: str) -> str:
-        """🔥 FIX D: נקה וסדר מספר טלפון לפורמט E164 - תמיד +972XXXXXXXXX
+        """
+        🔥 FIX #6: Use universal normalize_phone function - Single source of truth
         
-        Handles:
-        - Standard phone numbers → E.164 format (+972...)
-        - @lid identifiers → Return as-is (NOT a phone number!)
-        - Invalid formats → Return as-is (NOT a phone number!)
+        Normalizes phone numbers to E.164 format (+972... for Israeli, +... for others)
+        Handles @lid and other non-phone identifiers gracefully.
+        
+        Returns:
+            - Normalized E.164 phone (+972...) for valid phone numbers
+            - Original string for @lid or invalid formats (NOT a phone number)
         """
         if not phone:
             return ""
         
-        # 🔥 FIX D: Detect @lid or _lid identifiers - these are NOT phone numbers!
-        # Don't convert them to +972 prefix as they're external WhatsApp IDs
-        if '_lid' in phone.lower() or '_at_lid' in phone.lower() or '@lid' in phone.lower():
-            log.info(f"📱 Detected @lid identifier (not a phone): {phone} - returning as-is")
-            return phone  # Return as-is, don't try to normalize
+        # 🔥 FIX #6: Use the universal normalize_phone function
+        normalized = normalize_phone(phone)
         
-        # הסר תווים לא נומריים (שמור +)
-        digits_only = re.sub(r'[^\d+]', '', phone)
-        
-        # 🔥 FIX D: If no digits found, it's not a phone number - return original
-        if not digits_only or digits_only == '+':
-            log.warning(f"⚠️ Not a phone number (no digits): {phone}")
-            return phone  # Return original, don't try to normalize
-        
-        # התמודד עם פורמטים שונים - תמיד החזר +972
-        if digits_only.startswith('+972'):
-            # כבר בפורמט נכון
-            return digits_only
-        elif digits_only.startswith('972'):
-            # חסר + בהתחלה
-            return '+' + digits_only
-        elif digits_only.startswith('0') and len(digits_only) == 10:
-            # פורמט ישראלי מקומי: 0501234567 -> +972501234567
-            return '+972' + digits_only[1:]
-        elif len(digits_only) == 9:
-            # חסר 0 בהתחלה: 501234567 -> +972501234567
-            return '+972' + digits_only
+        if normalized:
+            # Successfully normalized to E.164
+            log.debug(f"📱 Phone normalized: {phone} -> {normalized}")
+            return normalized
         else:
-            # 🔥 FIX D: פורמט לא מזוהה - DON'T force +972 if it looks wrong
+            # Not a valid phone number (could be @lid or other identifier)
+            log.info(f"📱 Not a phone number or invalid format: {phone} - returning as-is")
+            return phone  # Return original for @lid or external IDs
             # Validate that it could be a valid phone number before adding prefix
             if len(digits_only) > 15 or len(digits_only) < 8:
                 # Invalid phone length - return as-is

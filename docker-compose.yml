@@ -200,13 +200,18 @@ services:
       context: .
       dockerfile: Dockerfile.baileys
     restart: unless-stopped
-    # Note: depends_on backend removed - will be added by dev profile or prod override
+    # 🔥 FIX #1: Add explicit dependency on backend for proper startup order
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "3300:3300"
     env_file:
       - .env
     environment:
+      # 🔥 FIX #1: Use correct service name in docker network (backend in dev, prosaas-api in prod)
       FLASK_BASE_URL: ${FLASK_BASE_URL:-http://backend:5000}
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:5000}
       BAILEYS_PORT: 3300
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       TZ: UTC

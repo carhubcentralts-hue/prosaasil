@@ -289,8 +289,20 @@ services:
   # ===========================================
   baileys:
     environment:
+      # 🔥 FIX #1: Override backend URL to use prosaas-api service in production
+      FLASK_BASE_URL: http://prosaas-api:5000
+      BACKEND_BASE_URL: http://prosaas-api:5000
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
+    # 🔥 FIX #1: DNS configuration for external DNS resolution
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_search: ["."]
+    dns_opt:
+      - ndots:0
+      - timeout:2
+      - attempts:2
     depends_on:
       prosaas-api:
         condition: service_healthy
