@@ -573,7 +573,19 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     metadata['attachments'] = attachments
     metadata['has_attachment'] = has_pdf or has_image
     
-    # NEW LOGIC: Check for receipt keywords in subject/content first
+    # ==================================================================================
+    # MASTER INSTRUCTION RULE 1: ANY ATTACHMENT = MUST PROCESS (NO EXCEPTIONS!)
+    # ==================================================================================
+    # If email has ANY attachment (PDF or image), it MUST be processed.
+    # No keyword checks, no confidence thresholds - attachment presence is absolute.
+    if has_pdf or has_image:
+        logger.info(f"📎 RULE 1: Email has attachment - MUST PROCESS (confidence=100)")
+        return True, 100, metadata  # Force processing with max confidence
+    
+    # If no attachment, use keyword-based detection for other receipt types
+    # (e.g., plain text receipts, embedded HTML receipts)
+    
+    # Check for receipt keywords in subject/content
     subject_lower = subject.lower()
     matched_keywords = []
     
@@ -586,13 +598,6 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     if matched_keywords:
         confidence += 40  # Strong indicator
         metadata['matched_keywords'] = matched_keywords
-    
-    # CRITICAL FIX: Give high weight to attachments (PDFs and images)
-    # Many receipts come as images or PDFs without keywords in subject
-    if has_pdf:
-        confidence += 50  # INCREASED - PDFs are very strong receipt indicators
-    elif has_image:
-        confidence += 35  # INCREASED - images can be receipt photos
     
     # Check sender domain
     if from_domain in KNOWN_RECEIPT_DOMAINS:
@@ -620,15 +625,6 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
             if snippet_matches >= MAX_SNIPPET_MATCHES:
                 break
     
-    # CRITICAL FIX: If we have ANY attachment, give benefit of doubt
-    # Worst case: user marks it as "not a receipt" later
-    # BETTER TO HAVE FALSE POSITIVES THAN MISS REAL RECEIPTS!
-    if has_pdf or has_image:
-        # Ensure emails with attachments ALWAYS pass
-        if confidence < MIN_CONFIDENCE:
-            confidence = MIN_CONFIDENCE + ATTACHMENT_CONFIDENCE_BOOST
-            logger.info(f"📎 Boosted confidence to {confidence} due to attachment")
-    
     # Also give benefit of doubt if we have keywords
     if matched_keywords:
         if confidence < MIN_CONFIDENCE:
@@ -640,19 +636,11 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
         confidence += 15
         logger.info(f"💰 Found currency in snippet, confidence now {confidence}")
     
-    # NEW: Lower threshold - accept almost anything that looks like a receipt
-    # Philosophy: Better to let user review/reject than to miss receipts!
+    # Lower threshold - accept almost anything that looks like a receipt
+    # Philosophy: Better to let user review/reject than to miss receipts! (Rule 6)
     is_receipt = confidence >= MIN_CONFIDENCE
     
-    # FALLBACK: Even if confidence is low, if we have attachment+amount indicators, accept it
-    if not is_receipt and (has_pdf or has_image):
-        has_amount_indicator = any(ind in snippet for ind in ['total', 'סה"כ', 'amount', 'סכום', '₪', '$'])
-        if has_amount_indicator:
-            is_receipt = True
-            confidence = MIN_CONFIDENCE
-            logger.info(f"✅ Accepted low-confidence email due to attachment + amount indicator")
-    
-    logger.info(f"📧 Receipt detection: is_receipt={is_receipt}, confidence={confidence}, has_attachment={has_pdf or has_image}, keywords={len(matched_keywords)}")
+    logger.info(f"📧 Receipt detection: is_receipt={is_receipt}, confidence={confidence}, has_attachment=False, keywords={len(matched_keywords)}")
     
     return is_receipt, confidence, metadata
 
@@ -1311,16 +1299,24 @@ def process_single_receipt_message(
     # Track preview failure reason if any
     preview_error_msg = None
     
-    # Process attachments
-    for att in all_attachments:
+    # ==================================================================================
+    # MASTER INSTRUCTION RULE 5: SAVE ALL ATTACHMENTS (NO EXCEPTIONS!)
+    # ==================================================================================
+    # Extract, save, and link ALL attachments to records
+    # Never skip, never decide "not relevant" - Rule 5
+    
+    saved_attachments = []  # Track all saved attachment IDs
+    
+    # Process ALL attachments (not just first one)
+    for att_idx, att in enumerate(all_attachments):
         if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']:
             try:
                 # CRITICAL: Skip if no attachment ID (can't download)
                 if not att['id']:
-                    logger.warning(f"⚠️ Attachment has no ID, skipping: {att['filename']}")
+                    logger.warning(f"⚠️ Attachment {att_idx+1} has no ID, skipping: {att['filename']}")
                     continue
                 
-                logger.info(f"📎 Downloading attachment: {att['filename']} (ID: {att['id']})")
+                logger.info(f"📎 Downloading attachment {att_idx+1}/{len(all_attachments)}: {att['filename']} (ID: {att['id']})")
                 att_data = gmail.get_attachment(message_id, att['id'])
                 
                 if not att_data:
@@ -1329,8 +1325,8 @@ def process_single_receipt_message(
                 
                 logger.info(f"✅ Downloaded {len(att_data)} bytes for {att['filename']}")
                 
-                # Extract PDF text if applicable
-                if att['mime_type'] == 'application/pdf':
+                # Extract PDF text if applicable (only for first PDF for performance)
+                if att['mime_type'] == 'application/pdf' and not pdf_text:
                     pdf_text = extract_pdf_text(att_data)
                     pdf_confidence = calculate_pdf_confidence(pdf_text)
                     confidence = min(confidence + pdf_confidence, 100)
@@ -1341,13 +1337,13 @@ def process_single_receipt_message(
                 
                 file_storage = FileStorage(
                     stream=BytesIO(att_data),
-                    filename=att['filename'] or 'receipt.pdf',
+                    filename=att['filename'] or f'attachment_{att_idx+1}.pdf',
                     content_type=att['mime_type']
                 )
                 
                 attachment = Attachment(
                     business_id=business_id,
-                    filename_original=att['filename'] or 'receipt',
+                    filename_original=att['filename'] or f'attachment_{att_idx+1}',
                     mime_type=att['mime_type'],
                     file_size=0,
                     storage_path='',
@@ -1367,48 +1363,61 @@ def process_single_receipt_message(
                 
                 attachment.storage_path = storage_key
                 attachment.file_size = file_size
-                attachment_id = attachment.id
-                attachment_processed = True
+                saved_attachments.append(attachment.id)
                 
-                # Generate preview from attachment
-                try:
-                    from server.services.receipt_preview_service import generate_pdf_thumbnail, generate_image_thumbnail, save_preview_attachment
-                    
-                    # Acquire semaphore before heavy Playwright/PDF operations
-                    with playwright_semaphore:
-                        preview_data = None
-                        if att['mime_type'] == 'application/pdf':
-                            preview_data = generate_pdf_thumbnail(att_data)
-                            time.sleep(0.1)  # Small delay after PDF processing
-                        elif att['mime_type'].startswith('image/'):
-                            preview_data = generate_image_thumbnail(att_data, att['mime_type'])
+                # Use first attachment as THE attachment for receipt record
+                if not attachment_processed:
+                    attachment_id = attachment.id
+                    attachment_processed = True
+                
+                logger.info(f"✅ Saved attachment {att_idx+1}: ID={attachment.id}, size={file_size}")
+                
+                # Generate preview from FIRST attachment only (for performance)
+                if att_idx == 0 and not preview_generated:
+                    try:
+                        from server.services.receipt_preview_service import generate_pdf_thumbnail, generate_image_thumbnail, save_preview_attachment
                         
-                        if preview_data:
-                            preview_attachment_id = save_preview_attachment(
-                                preview_data=preview_data,
-                                business_id=business_id,
-                                original_filename=att['filename'] or 'receipt',
-                                purpose='receipt_preview'
-                            )
-                            if preview_attachment_id:
-                                preview_generated = True
-                                logger.info(f"✅ Preview generated from attachment")
-                        else:
-                            logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
-                            preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
-                except Exception as preview_err:
-                    preview_error_msg = str(preview_err)[:ERROR_MESSAGE_MAX_LENGTH]
-                    logger.warning(f"⚠️ Preview generation failed: {preview_err}", exc_info=True)
-                
-                break  # Only process first attachment
+                        # Acquire semaphore before heavy Playwright/PDF operations
+                        with playwright_semaphore:
+                            preview_data = None
+                            if att['mime_type'] == 'application/pdf':
+                                preview_data = generate_pdf_thumbnail(att_data)
+                                time.sleep(0.1)  # Small delay after PDF processing
+                            elif att['mime_type'].startswith('image/'):
+                                preview_data = generate_image_thumbnail(att_data, att['mime_type'])
+                            
+                            if preview_data:
+                                preview_attachment_id = save_preview_attachment(
+                                    preview_data=preview_data,
+                                    business_id=business_id,
+                                    original_filename=att['filename'] or 'receipt',
+                                    purpose='receipt_preview'
+                                )
+                                if preview_attachment_id:
+                                    preview_generated = True
+                                    logger.info(f"✅ Preview generated from first attachment")
+                            else:
+                                logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
+                                preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
+                    except Exception as preview_err:
+                        preview_error_msg = str(preview_err)[:ERROR_MESSAGE_MAX_LENGTH]
+                        logger.warning(f"⚠️ Preview generation failed: {preview_err}", exc_info=True)
                 
             except Exception as e:
-                logger.error(f"❌ Failed to process attachment: {e}")
+                logger.error(f"❌ Failed to process attachment {att_idx+1}: {e}")
                 result['errors'] += 1
                 sync_run.errors_count = result['errors']
     
-    # ✨ ALWAYS generate screenshot from HTML - even if we have attachments!
-    # This provides a visual preview of the email itself (useful for context)
+    # Log summary of saved attachments
+    if saved_attachments:
+        logger.info(f"✅ RULE 5: Saved {len(saved_attachments)} attachments: {saved_attachments}")
+    
+    # ==================================================================================
+    # MASTER INSTRUCTION RULE 2: SCREENSHOT MANDATORY FOR ALL PROCESSED EMAILS
+    # ==================================================================================
+    # Every processed email MUST have a screenshot/snapshot PDF (Rule 2)
+    # This is NON-NEGOTIABLE - if screenshot fails, email should NOT be marked as processed
+    
     if email_html_snippet and not preview_generated:
         try:
             # Acquire semaphore before Playwright screenshot
@@ -1427,17 +1436,60 @@ def process_single_receipt_message(
                     # Screenshot is always the preview (shows email context)
                     preview_attachment_id = screenshot_attachment_id
                     preview_generated = True
-                    logger.info(f"✅ Screenshot generated from HTML email")
+                    logger.info(f"✅ Email snapshot PDF generated successfully")
                     time.sleep(0.1)  # Small delay after Playwright
+                else:
+                    # CRITICAL: Screenshot generation failed - this violates Rule 2
+                    logger.error(f"❌ RULE 2 VIOLATION: Screenshot mandatory but generation failed!")
+                    preview_error_msg = "Screenshot generation failed - mandatory requirement not met"
         except Exception as e:
             preview_error_msg = str(e)[:ERROR_MESSAGE_MAX_LENGTH]
-            logger.error(f"❌ Screenshot generation failed: {e}")
+            logger.error(f"❌ RULE 2 VIOLATION: Screenshot generation exception: {e}")
     
-    # CRITICAL FIX: Don't skip receipts just because they lack attachments
-    # If confidence check passed in check_is_receipt_email(), trust it
-    # Only skip if BOTH no attachment AND no HTML content (empty email)
-    if not attachment_processed and not email_html_snippet:
-        logger.info(f"⚠️ Skipping email with no attachment and no HTML content")
+    # ==================================================================================
+    # MASTER INSTRUCTION RULE 8: VALIDATION CHECK
+    # ==================================================================================
+    # CRITICAL: Validation determines STATUS, NOT whether to create record!
+    # Rule 6/7/10: ALWAYS create CRM record, even if validation fails
+    # Validation only gates "processed" status and flags for review
+    
+    validation_failed = False
+    validation_errors = []
+    missing_snapshot = False
+    missing_attachments = []
+    
+    # Check 1: If we had HTML content, we MUST have a screenshot
+    if email_html_snippet and not preview_generated:
+        validation_failed = True
+        missing_snapshot = True
+        validation_errors.append("Screenshot PDF mandatory but not generated")
+        logger.error(f"❌ VALIDATION FAILED: Email had HTML but no screenshot PDF")
+    
+    # Check 2: If original message had attachments, track which ones are missing
+    # (all_attachments was already extracted above)
+    if all_attachments:
+        if not attachment_processed:
+            validation_failed = True
+            missing_attachments = [att.get('filename', 'unknown') for att in all_attachments]
+            validation_errors.append(f"Email had {len(all_attachments)} attachments but none were saved")
+            logger.error(f"❌ VALIDATION FAILED: Attachments present but not saved")
+        elif len(saved_attachments) < len(all_attachments):
+            # Some attachments saved but not all
+            validation_failed = True
+            saved_count = len(saved_attachments)
+            total_count = len(all_attachments)
+            missing_attachments = [
+                att.get('filename', 'unknown') 
+                for i, att in enumerate(all_attachments) 
+                if i >= saved_count
+            ]
+            validation_errors.append(f"Only {saved_count}/{total_count} attachments saved")
+            logger.warning(f"⚠️ PARTIAL SAVE: {saved_count}/{total_count} attachments saved")
+    
+    # CRITICAL: Only skip if email is completely empty (no HTML, no attachments)
+    # Otherwise ALWAYS create record (Rule 7)
+    if not attachment_processed and not email_html_snippet and not all_attachments:
+        logger.info(f"⏭️ Skipping completely empty email (no HTML, no attachments)")
         result['skipped'] += 1
         return None
     
@@ -1459,28 +1511,34 @@ def process_single_receipt_message(
     else:
         received_at = datetime.now(timezone.utc)
     
-    # Determine status based on confidence with two-tier system
-    # High confidence (>=50): Auto-approve
-    # Medium/Low confidence (5-49): Pending review
-    if confidence >= AUTO_APPROVE_THRESHOLD:
+    # Determine status based on validation and confidence
+    # CRITICAL: Validation failure forces incomplete status (Rule 6/7/10)
+    if validation_failed:
+        # Validation failed - mark as incomplete regardless of confidence
+        status = 'incomplete'
+        needs_review = True
+        logger.error(f"❌ Status=incomplete due to validation failure: {', '.join(validation_errors)}")
+    elif confidence >= AUTO_APPROVE_THRESHOLD:
+        # High confidence and validation passed
         status = 'approved'
         logger.debug(f"✅ Auto-approved (confidence={confidence} >= {AUTO_APPROVE_THRESHOLD})")
     else:
+        # Low/medium confidence
         status = 'pending_review'
         logger.debug(f"⏸️ Pending review (confidence={confidence} < {AUTO_APPROVE_THRESHOLD})")
     
     # Determine needs_review flag for low-confidence or missing data
     # This is SEPARATE from status - helps filter false positives from reports
-    needs_review = False
-    if confidence < 15:  # Very low confidence (5-14)
-        needs_review = True
-        logger.debug(f"🔍 Flagged for review: very low confidence ({confidence})")
-    elif not extracted.get('amount'):
-        needs_review = True
-        logger.debug(f"🔍 Flagged for review: missing amount")
-    elif not extracted.get('vendor_name'):
-        needs_review = True
-        logger.debug(f"🔍 Flagged for review: missing vendor")
+    if not needs_review:  # May already be set by validation_failed
+        if confidence < 15:  # Very low confidence (5-14)
+            needs_review = True
+            logger.debug(f"🔍 Flagged for review: very low confidence ({confidence})")
+        elif not extracted.get('amount'):
+            needs_review = True
+            logger.debug(f"🔍 Flagged for review: missing amount")
+        elif not extracted.get('vendor_name'):
+            needs_review = True
+            logger.debug(f"🔍 Flagged for review: missing vendor")
     
     # Determine receipt_type based on keywords in subject/content
     receipt_type = None
@@ -1518,8 +1576,19 @@ def process_single_receipt_message(
         logger.error(f"⚠️ JSON sanitization failed, using None: {sanitize_err}")
         sanitized_json = None
     
-    # CRITICAL: Validation - track why extraction failed
+    # CRITICAL: Validation - track why extraction failed and add to JSON
     extraction_warnings = []
+    
+    # Add validation errors to extraction warnings
+    if validation_failed:
+        extraction_warnings.extend(validation_errors)
+        if sanitized_json is None:
+            sanitized_json = {}
+        sanitized_json['validation_failed'] = True
+        sanitized_json['validation_errors'] = validation_errors
+        sanitized_json['missing_snapshot'] = missing_snapshot
+        if missing_attachments:
+            sanitized_json['missing_attachments'] = missing_attachments
     
     # Check preview generation
     if attachment_id and not preview_generated:
@@ -1530,7 +1599,7 @@ def process_single_receipt_message(
     if (pdf_text or email_html_snippet) and not extracted.get('amount'):
         extraction_warnings.append('amount_not_extracted')
         logger.warning(f"⚠️ Receipt {message_id}: Amount not extracted despite having content")
-        # Don't auto-approve if amount missing
+        # Don't auto-approve if amount missing (unless already incomplete)
         if status == 'approved':
             status = 'pending_review'
     
@@ -1540,10 +1609,10 @@ def process_single_receipt_message(
         logger.warning(f"⚠️ Receipt {message_id}: Currency not detected")
     
     # Add warnings to raw_extraction_json
-    if extraction_warnings and sanitized_json:
+    if extraction_warnings:
+        if sanitized_json is None:
+            sanitized_json = {}
         sanitized_json['extraction_warnings'] = extraction_warnings
-    elif extraction_warnings:
-        sanitized_json = {'extraction_warnings': extraction_warnings}
     
     # Determine preview status based on generation result
     if preview_generated:
@@ -1561,6 +1630,15 @@ def process_single_receipt_message(
         # No attachment and no HTML
         preview_status_val = 'not_available'
         preview_failure_reason_val = 'No attachment or HTML content available'
+    
+    # CRITICAL LOG: Always creating record (Rule 6/7/10)
+    if validation_failed:
+        logger.warning(
+            f"⚠️ RULE 6/7/10: Creating INCOMPLETE record despite validation failure\n"
+            f"   → message_id: {message_id}\n"
+            f"   → validation_errors: {validation_errors}\n"
+            f"   → This ensures NO emails with attachments are missed in CRM"
+        )
     
     receipt = Receipt(
         business_id=business_id,
@@ -1581,9 +1659,9 @@ def process_single_receipt_message(
         invoice_date=invoice_date,
         confidence=confidence,
         raw_extraction_json=sanitized_json,
-        status=status,
-        needs_review=needs_review,  # NEW: Flag for low-confidence items
-        receipt_type=receipt_type,  # NEW: Type classification
+        status=status,  # Will be 'incomplete' if validation failed
+        needs_review=needs_review,  # Will be True if validation failed
+        receipt_type=receipt_type,
         attachment_id=attachment_id,
         preview_attachment_id=preview_attachment_id,
         preview_status=preview_status_val,
@@ -2683,10 +2761,53 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         raise
 
 
+def _convert_png_to_pdf(png_path: str) -> bytes:
+    """
+    Helper function to convert PNG image to PDF format
+    
+    Args:
+        png_path: Path to PNG file
+        
+    Returns:
+        PDF bytes
+        
+    Raises:
+        Exception if conversion fails
+    """
+    import tempfile
+    import os
+    from PIL import Image
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_pdf:
+        pdf_path = tmp_pdf.name
+    
+    try:
+        img = Image.open(png_path)
+        # Convert to RGB if necessary (PDF doesn't support RGBA)
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        img.save(pdf_path, 'PDF', resolution=100.0)
+        
+        # Read the PDF
+        with open(pdf_path, 'rb') as f:
+            pdf_data = f.read()
+        
+        return pdf_data
+    finally:
+        # Always clean up temp PDF file
+        if os.path.exists(pdf_path):
+            os.unlink(pdf_path)
+
+
 def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int = None) -> Optional[int]:
     """
-    Generate a screenshot/image from email HTML content
-    Used when receipt has no PDF/image attachment
+    Generate a PDF screenshot from email HTML content
+    
+    MASTER INSTRUCTION COMPLIANCE:
+    - ALWAYS generates PDF (not PNG) - Rule 3
+    - Filename: email_snapshot.pdf - Rule 3
+    - Contains email body only (HTML rendered) - Rule 4
+    - Used for ALL processed emails - Rule 2
     
     Args:
         email_html: HTML content of the email
@@ -2697,13 +2818,13 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
         Attachment ID if successful, None otherwise
     """
     try:
-        # Method 1: Try using Playwright (already available in dependencies)
+        # Method 1: Try using Playwright to generate PDF directly
         if PLAYWRIGHT_AVAILABLE:
             try:
                 import tempfile
                 import os
                 
-                logger.info(f"🖼️ Generating HTML screenshot with Playwright for receipt {receipt_id or 'unknown'}")
+                logger.info(f"📄 Generating HTML snapshot as PDF with Playwright for receipt {receipt_id or 'unknown'}")
                 
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=True)
@@ -2715,22 +2836,27 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     # Wait for content to load
                     page.wait_for_load_state('networkidle')
                     
-                    # Create temp file
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
-                        screenshot_path = tmp.name
+                    # Create temp PDF file - CRITICAL: Must be PDF, not PNG (Rule 3)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                        pdf_path = tmp.name
                     
-                    # Take screenshot
-                    page.screenshot(path=screenshot_path, full_page=True)
+                    # Generate PDF directly (not screenshot)
+                    page.pdf(
+                        path=pdf_path,
+                        format='A4',
+                        print_background=True,
+                        display_header_footer=False
+                    )
                     browser.close()
                     
-                    # Read the screenshot
-                    with open(screenshot_path, 'rb') as f:
-                        screenshot_data = f.read()
+                    # Read the PDF
+                    with open(pdf_path, 'rb') as f:
+                        pdf_data = f.read()
                     
                     # Clean up temp file
-                    os.unlink(screenshot_path)
+                    os.unlink(pdf_path)
                     
-                    if screenshot_data:
+                    if pdf_data:
                         # Save to storage
                         from server.services.attachment_service import get_attachment_service
                         from server.models_sql import Attachment
@@ -2740,17 +2866,18 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                         
                         attachment_service = get_attachment_service()
                         
+                        # CRITICAL: Filename must be email_snapshot.pdf (Rule 3)
                         file_storage = FileStorage(
-                            stream=BytesIO(screenshot_data),
-                            filename='email_screenshot.png',
-                            content_type='image/png'
+                            stream=BytesIO(pdf_data),
+                            filename='email_snapshot.pdf',
+                            content_type='application/pdf'
                         )
                         
                         # Create attachment record
                         attachment = Attachment(
                             business_id=business_id,
-                            filename_original='email_screenshot.png',
-                            mime_type='image/png',
+                            filename_original='email_snapshot.pdf',
+                            mime_type='application/pdf',
                             file_size=0,
                             storage_path='',
                             purpose='receipt_source',
@@ -2772,26 +2899,95 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                         attachment.file_size = file_size
                         db.session.commit()
                         
-                        logger.info(f"✅ Email screenshot generated with Playwright: attachment_id={attachment.id}, size={file_size}")
+                        logger.info(f"✅ Email snapshot PDF generated with Playwright: attachment_id={attachment.id}, size={file_size}")
                         return attachment.id
                         
             except Exception as e:
-                logger.warning(f"Playwright screenshot failed: {e}")
+                logger.warning(f"Playwright PDF generation failed: {e}, trying PNG-to-PDF fallback")
+                # Fallback: Generate PNG then convert to PDF
+                try:
+                    import tempfile
+                    import os
+                    
+                    logger.info(f"📄 Fallback: Generating PNG then converting to PDF")
+                    
+                    with sync_playwright() as p:
+                        browser = p.chromium.launch(headless=True)
+                        page = browser.new_page(viewport={'width': 800, 'height': 1200})
+                        page.set_content(email_html)
+                        page.wait_for_load_state('networkidle')
+                        
+                        # Take PNG screenshot
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+                            screenshot_path = tmp.name
+                        page.screenshot(path=screenshot_path, full_page=True)
+                        browser.close()
+                        
+                        # Convert PNG to PDF using helper function
+                        pdf_data = _convert_png_to_pdf(screenshot_path)
+                        
+                        # Clean up temp PNG file
+                        os.unlink(screenshot_path)
+                        
+                        if pdf_data:
+                            from server.services.attachment_service import get_attachment_service
+                            from server.models_sql import Attachment
+                            from server.db import db
+                            from werkzeug.datastructures import FileStorage
+                            from io import BytesIO
+                            
+                            attachment_service = get_attachment_service()
+                            
+                            file_storage = FileStorage(
+                                stream=BytesIO(pdf_data),
+                                filename='email_snapshot.pdf',
+                                content_type='application/pdf'
+                            )
+                            
+                            attachment = Attachment(
+                                business_id=business_id,
+                                filename_original='email_snapshot.pdf',
+                                mime_type='application/pdf',
+                                file_size=0,
+                                storage_path='',
+                                purpose='receipt_source',
+                                origin_module='receipts',
+                                channel_compatibility={'email': True, 'whatsapp': False, 'broadcast': False}
+                            )
+                            db.session.add(attachment)
+                            db.session.flush()
+                            
+                            storage_key, file_size = attachment_service.save_file(
+                                file=file_storage,
+                                business_id=business_id,
+                                attachment_id=attachment.id,
+                                purpose='receipt_source'
+                            )
+                            
+                            attachment.storage_path = storage_key
+                            attachment.file_size = file_size
+                            db.session.commit()
+                            
+                            logger.info(f"✅ Email snapshot PDF generated via PNG conversion: attachment_id={attachment.id}, size={file_size}")
+                            return attachment.id
+                except Exception as fallback_err:
+                    logger.error(f"PNG-to-PDF fallback failed: {fallback_err}")
         else:
             logger.debug("Playwright not available, trying alternative methods")
         
-        # Method 2: Try using html2image
+        # Method 2: Try using html2image (convert PNG to PDF)
         try:
             from html2image import Html2Image
             import tempfile
+            import os
             
-            logger.info(f"🖼️ Generating HTML screenshot with html2image for receipt {receipt_id or 'unknown'}")
+            logger.info(f"📄 Method 2: Generating PDF via html2image for receipt {receipt_id or 'unknown'}")
             
             hti = Html2Image()
             
             # Create temp directory
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Generate screenshot
+                # Generate PNG screenshot
                 output_file = hti.screenshot(
                     html_str=email_html,
                     save_as='receipt_screenshot.png',
@@ -2799,11 +2995,10 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 )
                 
                 if output_file and len(output_file) > 0:
-                    screenshot_path = output_file[0]
+                    png_path = output_file[0]
                     
-                    # Read the file
-                    with open(screenshot_path, 'rb') as f:
-                        screenshot_data = f.read()
+                    # Convert PNG to PDF using helper function
+                    pdf_data = _convert_png_to_pdf(png_path)
                     
                     # Save to storage
                     from server.services.attachment_service import get_attachment_service
@@ -2815,16 +3010,16 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     attachment_service = get_attachment_service()
                     
                     file_storage = FileStorage(
-                        stream=BytesIO(screenshot_data),
-                        filename='email_screenshot.png',
-                        content_type='image/png'
+                        stream=BytesIO(pdf_data),
+                        filename='email_snapshot.pdf',
+                        content_type='application/pdf'
                     )
                     
                     # Create attachment record
                     attachment = Attachment(
                         business_id=business_id,
-                        filename_original='email_screenshot.png',
-                        mime_type='image/png',
+                        filename_original='email_snapshot.pdf',
+                        mime_type='application/pdf',
                         file_size=0,
                         storage_path='',
                         purpose='receipt_source',
@@ -2846,25 +3041,25 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     attachment.file_size = file_size
                     db.session.commit()
                     
-                    logger.info(f"✅ Email screenshot generated with html2image: attachment_id={attachment.id}")
+                    logger.info(f"✅ Email snapshot PDF generated with html2image: attachment_id={attachment.id}")
                     return attachment.id
                     
         except ImportError:
             logger.debug("html2image not available")
         except Exception as e:
-            logger.warning(f"html2image screenshot failed: {e}")
+            logger.warning(f"html2image PDF generation failed: {e}")
         
-        # Method 3: Try using weasyprint for HTML to PNG
+        # Method 3: Try using weasyprint (generates PDF directly)
         try:
             from weasyprint import HTML as WeasyprintHTML
             
-            logger.info(f"🖼️ Generating HTML screenshot with weasyprint for receipt {receipt_id or 'unknown'}")
+            logger.info(f"📄 Method 3: Generating PDF with weasyprint for receipt {receipt_id or 'unknown'}")
             
-            # Generate PNG from HTML
+            # Generate PDF directly from HTML (weasyprint's native format)
             html_obj = WeasyprintHTML(string=email_html)
-            png_bytes = html_obj.write_png()
+            pdf_bytes = html_obj.write_pdf()
             
-            if png_bytes:
+            if pdf_bytes:
                 # Save to storage
                 from server.services.attachment_service import get_attachment_service
                 from server.models_sql import Attachment
@@ -2875,16 +3070,16 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 attachment_service = get_attachment_service()
                 
                 file_storage = FileStorage(
-                    stream=BytesIO(png_bytes),
-                    filename='email_screenshot.png',
-                    content_type='image/png'
+                    stream=BytesIO(pdf_bytes),
+                    filename='email_snapshot.pdf',
+                    content_type='application/pdf'
                 )
                 
                 # Create attachment record
                 attachment = Attachment(
                     business_id=business_id,
-                    filename_original='email_screenshot.png',
-                    mime_type='image/png',
+                    filename_original='email_snapshot.pdf',
+                    mime_type='application/pdf',
                     file_size=0,
                     storage_path='',
                     purpose='receipt_source',
@@ -2906,20 +3101,21 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 attachment.file_size = file_size
                 db.session.commit()
                 
-                logger.info(f"✅ Email screenshot generated with weasyprint: attachment_id={attachment.id}")
+                logger.info(f"✅ Email snapshot PDF generated with weasyprint: attachment_id={attachment.id}")
                 return attachment.id
                 
         except ImportError:
             logger.debug("weasyprint not available")
         except Exception as e:
-            logger.warning(f"weasyprint screenshot failed: {e}")
+            logger.warning(f"weasyprint PDF generation failed: {e}")
         
-        # If all methods fail, return None
-        logger.warning(f"⚠️ Could not generate email screenshot - no suitable library available")
+        # If all methods fail, log critical error (Rule 2: Screenshot mandatory!)
+        logger.error(f"❌ CRITICAL: Could not generate email snapshot PDF - no suitable library available")
+        logger.error(f"❌ This violates Rule 2: Screenshot mandatory for ALL processed emails")
         return None
         
     except Exception as e:
-        logger.error(f"❌ Email screenshot generation failed: {e}", exc_info=True)
+        logger.error(f"❌ Email snapshot PDF generation failed: {e}", exc_info=True)
         return None
 
 

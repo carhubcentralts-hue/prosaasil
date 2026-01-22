@@ -4562,6 +4562,41 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ leads table does not exist - skipping")
         
+        # Migration 95: Add 'incomplete' status to receipts check constraint
+        if check_table_exists('receipts'):
+            from sqlalchemy import text
+            try:
+                checkpoint("🔧 Running Migration 95: Add 'incomplete' status to receipts")
+                
+                # Drop old constraint and create new one with 'incomplete'
+                db.session.execute(text("""
+                    DO $$ 
+                    BEGIN
+                        -- Drop existing constraint if it exists
+                        ALTER TABLE receipts DROP CONSTRAINT IF EXISTS chk_receipt_status;
+                        
+                        -- Create new constraint with 'incomplete' status
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_receipt_status 
+                        CHECK (status IN ('pending_review', 'approved', 'rejected', 'not_receipt', 'incomplete'));
+                        
+                        RAISE NOTICE 'Added incomplete status to receipts check constraint';
+                    END $$;
+                """))
+                
+                migrations_applied.append("add_incomplete_status_to_receipts")
+                checkpoint("✅ Migration 95 completed - 'incomplete' status added to receipts")
+                checkpoint("   📋 Purpose: Track receipts with validation failures (missing snapshot/attachments)")
+                checkpoint("   🎯 Ensures: NO emails with attachments are missed (Rule 6/7/10)")
+                checkpoint("   ℹ️  Status values: pending_review, approved, rejected, not_receipt, incomplete")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 95 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ receipts table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

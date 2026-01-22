@@ -333,7 +333,7 @@ interface ReceiptItem {
   invoice_number: string | null;
   invoice_date: string | null;
   confidence: number | null;
-  status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt';
+  status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt' | 'incomplete';
   attachment_id: number | null;
   preview_attachment_id: number | null;
   preview_status?: PreviewStatus;
@@ -416,6 +416,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     approved: { icon: CheckCircle, color: 'bg-green-100 text-green-800', label: 'מאושר' },
     rejected: { icon: XCircle, color: 'bg-red-100 text-red-800', label: 'נדחה' },
     not_receipt: { icon: AlertCircle, color: 'bg-gray-100 text-gray-600', label: 'לא קבלה' },
+    incomplete: { icon: AlertCircle, color: 'bg-orange-100 text-orange-800', label: 'לא הושלם' },
   };
   
   const config = statusConfig[status] || statusConfig.pending_review;
@@ -1002,9 +1003,48 @@ export function ReceiptsPage() {
     }
   }, [user?.token, fetchStats]);
   
-  // Initial load - only load status and stats, receipts are handled by debounced effect
+  // Initial load - load status, stats, and check for active sync
   useEffect(() => {
-    doInitialFetch();
+    const initializeAndCheckSync = async () => {
+      await doInitialFetch();
+      
+      // Check if there's an active sync run on page load/refresh
+      try {
+        const latestSyncRes = await axios.get('/api/receipts/sync/latest');
+        if (latestSyncRes.data.success && latestSyncRes.data.sync_run) {
+          const run = latestSyncRes.data.sync_run;
+          
+          // If sync is still running, restore the UI state
+          if (run.status === 'running' || run.status === 'paused') {
+            console.log('📍 Found active sync on page load:', run);
+            setActiveSyncRunId(run.id);
+            setSyncing(true);
+            setSyncInProgress(true);
+            setSyncProgress(run.progress);
+            setSyncProgressPercentage(run.progress_percentage || 0);
+            
+            // Restore from localStorage if available
+            const storedSyncDates = localStorage.getItem('activeSyncDates');
+            if (storedSyncDates) {
+              try {
+                const { from_date, to_date } = JSON.parse(storedSyncDates);
+                if (from_date) setSyncFromDate(from_date);
+                if (to_date) setSyncToDate(to_date);
+              } catch (e) {
+                console.error('Failed to parse stored sync dates:', e);
+              }
+            }
+          } else {
+            // Sync completed/failed - clear localStorage
+            localStorage.removeItem('activeSyncDates');
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check for active sync:', err);
+      }
+    };
+    
+    initializeAndCheckSync();
   }, [doInitialFetch]);
   
   // Poll sync progress while sync is running
@@ -1027,6 +1067,9 @@ export function ReceiptsPage() {
             setSyncing(false);
             setSyncProgress(null);
             setSyncProgressPercentage(0);
+            
+            // Clear localStorage when sync completes
+            localStorage.removeItem('activeSyncDates');
             
             // Refresh data - trigger via state change
             setPage(p => p); // This triggers a re-fetch via the effect
@@ -1114,6 +1157,11 @@ export function ReceiptsPage() {
       }
       if (syncToDate) {
         syncParams.to_date = syncToDate;
+      }
+
+      // Save sync dates to localStorage for persistence across refresh
+      if (syncFromDate || syncToDate) {
+        localStorage.setItem('activeSyncDates', JSON.stringify(syncParams));
       }
 
       console.log('🔔 Starting sync with params:', syncParams);
@@ -1551,22 +1599,28 @@ export function ReceiptsPage() {
             </div>
           )}
           
-          {/* Sync progress bar */}
-          {syncing && syncProgress && (
+          {/* Sync progress bar - show if syncing OR if syncInProgress (even without progress yet) */}
+          {(syncing || syncInProgress) && (
             <div className="mt-4 bg-white rounded-lg border border-blue-300 shadow-sm p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <RefreshCw className="w-5 h-5 text-blue-600 animate-spin" />
                   <div>
                     <p className="text-sm font-medium text-gray-900">מסנכרן קבלות...</p>
-                    <p className="text-xs text-gray-600">
-                      {syncProgress.messages_scanned} הודעות נסרקו · {syncProgress.saved_receipts} קבלות נמצאו
-                    </p>
+                    {syncProgress && (
+                      <p className="text-xs text-gray-600">
+                        {syncProgress.messages_scanned} הודעות נסרקו · {syncProgress.saved_receipts} קבלות נמצאו
+                      </p>
+                    )}
+                    {!syncProgress && (
+                      <p className="text-xs text-gray-600">מתחיל סנכרון...</p>
+                    )}
                   </div>
                 </div>
                 <button
                   onClick={handleCancelSync}
-                  className="flex items-center px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium text-sm min-h-[44px] touch-manipulation"
+                  disabled={!activeSyncRunId}
+                  className="flex items-center px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium text-sm min-h-[44px] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
                   title="עצור סנכרון"
                 >
                   <X className="w-4 h-4 ml-1" />
@@ -1578,20 +1632,27 @@ export function ReceiptsPage() {
               <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div 
                   className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-500 transition-all duration-300 ease-out"
-                  style={{ width: `${syncProgressPercentage}%` }}
+                  style={{ width: `${syncProgressPercentage || 0}%` }}
                 ></div>
               </div>
               
-              <p className="text-xs text-gray-500 mt-2 flex items-center justify-between">
-                <span>{syncProgressPercentage}% הושלם</span>
-                <span>
-                  {[
-                    `${syncProgress.pages_scanned} עמודים`,
-                    syncProgress.candidate_receipts ? `${syncProgress.candidate_receipts} מועמדים` : null,
-                    syncProgress.errors_count ? `${syncProgress.errors_count} שגיאות` : null
-                  ].filter(Boolean).join(' · ')}
-                </span>
-              </p>
+              {syncProgress && (
+                <p className="text-xs text-gray-500 mt-2 flex items-center justify-between">
+                  <span>{syncProgressPercentage || 0}% הושלם</span>
+                  <span>
+                    {[
+                      `${syncProgress.pages_scanned || 0} עמודים`,
+                      syncProgress.candidate_receipts ? `${syncProgress.candidate_receipts} מועמדים` : null,
+                      syncProgress.errors_count ? `${syncProgress.errors_count} שגיאות` : null
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                </p>
+              )}
+              {!syncProgress && (
+                <p className="text-xs text-gray-500 mt-2">
+                  מכין סנכרון...
+                </p>
+              )}
             </div>
           )}
           
@@ -1683,6 +1744,14 @@ export function ReceiptsPage() {
                   }`}
                 >
                   לבדיקה
+                </button>
+                <button
+                  onClick={() => { setStatusFilter('incomplete'); setPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    statusFilter === 'incomplete' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  לא הושלם
                 </button>
                 <button
                   onClick={() => { setStatusFilter('approved'); setPage(1); }}
