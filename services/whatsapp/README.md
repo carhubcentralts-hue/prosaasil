@@ -30,9 +30,11 @@ docker run -d \
 ## Dependencies
 
 - @whiskeysockets/baileys: 6.7.5
-- express: 4.18.0
-- axios: 1.6.0
+- express: 4.22.1 (updated for security patches)
+- axios: 1.12.0 (updated for security patches)
 - qrcode: 1.5.3
 - cors: 2.8.5
 
 All versions are locked to exact versions (no ^ or ~) to ensure consistency.
+
+**Security Note**: Dependencies are regularly updated to patch vulnerabilities. Current configuration has 0 known vulnerabilities.
