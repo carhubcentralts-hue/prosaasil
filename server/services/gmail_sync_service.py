@@ -1207,8 +1207,10 @@ def process_single_receipt_message(
                             if preview_attachment_id:
                                 preview_generated = True
                                 logger.info(f"✅ Preview generated from attachment")
+                        else:
+                            logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
                 except Exception as preview_err:
-                    logger.warning(f"⚠️ Preview generation failed: {preview_err}")
+                    logger.warning(f"⚠️ Preview generation failed: {preview_err}", exc_info=True)
                 
                 break  # Only process first attachment
                 
@@ -1339,6 +1341,23 @@ def process_single_receipt_message(
     elif extraction_warnings:
         sanitized_json = {'extraction_warnings': extraction_warnings}
     
+    # Determine preview status based on generation result
+    if preview_generated:
+        preview_status_val = 'generated'
+        preview_failure_reason_val = None
+    elif attachment_processed:
+        # Had attachment but preview failed
+        preview_status_val = 'failed'
+        preview_failure_reason_val = 'Preview generation failed for attachment'
+    elif email_html_snippet:
+        # Had HTML but screenshot failed
+        preview_status_val = 'failed'
+        preview_failure_reason_val = 'Email screenshot generation failed'
+    else:
+        # No attachment and no HTML
+        preview_status_val = 'not_available'
+        preview_failure_reason_val = 'No attachment or HTML content available'
+    
     receipt = Receipt(
         business_id=business_id,
         source='gmail',
@@ -1360,7 +1379,9 @@ def process_single_receipt_message(
         raw_extraction_json=sanitized_json,
         status=status,
         attachment_id=attachment_id,
-        preview_attachment_id=preview_attachment_id
+        preview_attachment_id=preview_attachment_id,
+        preview_status=preview_status_val,
+        preview_failure_reason=preview_failure_reason_val
     )
     
     db.session.add(receipt)

@@ -1617,6 +1617,10 @@ class Receipt(db.Model):
     attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)  # Original attachment
     preview_attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)  # Preview/thumbnail
     
+    # Preview tracking (Migration 91)
+    preview_status = db.Column(db.String(20), nullable=False, default='pending')  # pending|generated|failed|not_available|skipped
+    preview_failure_reason = db.Column(db.Text, nullable=True)  # Error message if preview generation failed
+    
     # Soft delete
     is_deleted = db.Column(db.Boolean, default=False, index=True)
     deleted_at = db.Column(db.DateTime, nullable=True)

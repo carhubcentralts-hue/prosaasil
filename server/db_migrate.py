@@ -4228,6 +4228,95 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 91: Add Preview Tracking Fields to Receipts Table
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Track preview generation status and failure reasons for debugging
+        # 
+        # Current issue: When preview generation fails, we log it but don't store
+        # the failure in the database. This makes it hard to:
+        # 1. Show users which receipts have preview issues
+        # 2. Retry failed previews automatically
+        # 3. Debug why previews are failing
+        #
+        # Solution: Add two fields to receipts table:
+        # - preview_status: 'pending'|'generated'|'failed'|'not_available'
+        # - preview_failure_reason: TEXT for storing error message
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('receipts'):
+            checkpoint("🔧 Running Migration 91: Add preview tracking to receipts table")
+            
+            try:
+                fields_to_add = []
+                
+                # Add preview_status field
+                if not check_column_exists('receipts', 'preview_status'):
+                    checkpoint("  → Adding preview_status column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN preview_status VARCHAR(20) DEFAULT 'pending'
+                    """))
+                    
+                    # Add CHECK constraint for valid values
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_receipt_preview_status 
+                        CHECK (preview_status IN ('pending', 'generated', 'failed', 'not_available', 'skipped'))
+                    """))
+                    
+                    fields_to_add.append('preview_status')
+                    checkpoint("    ✅ preview_status added with constraint")
+                
+                # Add preview_failure_reason field
+                if not check_column_exists('receipts', 'preview_failure_reason'):
+                    checkpoint("  → Adding preview_failure_reason column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN preview_failure_reason TEXT
+                    """))
+                    
+                    fields_to_add.append('preview_failure_reason')
+                    checkpoint("    ✅ preview_failure_reason added")
+                
+                # Backfill existing receipts with appropriate status
+                if fields_to_add:
+                    checkpoint("  → Backfilling existing receipts with status")
+                    
+                    # Set 'generated' for receipts that have preview_attachment_id
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET preview_status = 'generated' 
+                        WHERE preview_attachment_id IS NOT NULL 
+                        AND preview_status = 'pending'
+                    """))
+                    generated_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    # Set 'not_available' for old receipts without preview (won't retry automatically)
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET preview_status = 'not_available' 
+                        WHERE preview_attachment_id IS NULL 
+                        AND preview_status = 'pending'
+                        AND created_at < NOW() - INTERVAL '7 days'
+                    """))
+                    old_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    checkpoint(f"    ✅ Backfilled: {generated_count} generated, {old_count} not_available")
+                    
+                    migrations_applied.append('add_receipt_preview_tracking')
+                    checkpoint("✅ Migration 91 completed - Receipt preview tracking enabled")
+                    checkpoint("   📋 Purpose: Track preview generation status and enable retries")
+                    checkpoint("   🎯 Benefits: Better UI feedback + automatic retry for failed previews")
+                else:
+                    checkpoint("  ℹ️ All preview tracking fields already exist - skipping")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 91 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ receipts table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
