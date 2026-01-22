@@ -49,7 +49,7 @@ _migrations_complete = threading.Event()
 # Set to True only after actual DB connectivity and schema validation
 _db_ready = False
 
-def ensure_db_ready(max_retries=10, retry_delay=2.0):
+def ensure_db_ready(app, max_retries=10, retry_delay=2.0):
     """
     🔥 CRITICAL: Ensure database is actually ready for use
     
@@ -57,6 +57,11 @@ def ensure_db_ready(max_retries=10, retry_delay=2.0):
     1. Database connection works (SELECT 1)
     2. Alembic version table exists (migrations have been applied)
     3. Can query basic tables
+    
+    Args:
+        app: Flask application instance (required for app_context)
+        max_retries: Maximum number of retry attempts
+        retry_delay: Delay between retries in seconds
     
     Returns True if DB is ready, False otherwise.
     Does NOT raise exceptions - logs and returns status.
@@ -72,48 +77,52 @@ def ensure_db_ready(max_retries=10, retry_delay=2.0):
     
     for attempt in range(max_retries):
         try:
-            # Test 1: Basic connectivity
-            db.session.execute(text('SELECT 1'))
-            
-            # Test 2: Alembic version table exists (migrations ran)
-            result = db.session.execute(text(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = current_schema() "
-                "AND table_name = :table_name"
-            ), {"table_name": "alembic_version"})
-            if not result.fetchone():
-                logger.warning(f"⏳ Alembic table not found (attempt {attempt + 1}/{max_retries})")
-                db.session.rollback()
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return False
-            
-            # Test 3: Can query business table (core schema exists)
-            result = db.session.execute(text(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = current_schema() "
-                "AND table_name = :table_name"
-            ), {"table_name": "business"})
-            if not result.fetchone():
-                logger.warning(f"⏳ Business table not found (attempt {attempt + 1}/{max_retries})")
-                db.session.rollback()
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return False
-            
-            db.session.rollback()  # Clean up
-            
-            # All checks passed
-            _db_ready = True
-            logger.info("✅ Database ready - connectivity and schema validated")
-            return True
+            # 🔥 CRITICAL: Wrap all DB operations in app context to avoid
+            # "Working outside of application context" error
+            with app.app_context():
+                # Test 1: Basic connectivity
+                db.session.execute(text('SELECT 1'))
+                
+                # Test 2: Alembic version table exists (migrations ran)
+                result = db.session.execute(text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = :table_name"
+                ), {"table_name": "alembic_version"})
+                if not result.fetchone():
+                    logger.warning(f"⏳ Alembic table not found (attempt {attempt + 1}/{max_retries})")
+                    db.session.rollback()
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    return False
+                
+                # Test 3: Can query business table (core schema exists)
+                result = db.session.execute(text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = :table_name"
+                ), {"table_name": "business"})
+                if not result.fetchone():
+                    logger.warning(f"⏳ Business table not found (attempt {attempt + 1}/{max_retries})")
+                    db.session.rollback()
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    return False
+                
+                db.session.rollback()  # Clean up
+                
+                # All checks passed
+                _db_ready = True
+                logger.info("✅ Database ready - connectivity and schema validated")
+                return True
             
         except Exception as e:
             logger.warning(f"⏳ DB not ready (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
             try:
-                db.session.rollback()
+                with app.app_context():
+                    db.session.rollback()
             except Exception:
                 pass
             
@@ -1214,7 +1223,7 @@ def create_app():
                 # Step 2: Actually validate DB readiness (not just signal)
                 # This is CRITICAL - signal alone is not enough
                 logger.info("🔥 Validating actual database readiness...")
-                if not ensure_db_ready(max_retries=10, retry_delay=2.0):
+                if not ensure_db_ready(app, max_retries=10, retry_delay=2.0):
                     logger.error("❌ Database not ready after validation")
                     
                     # Check if production
