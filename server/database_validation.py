@@ -24,7 +24,7 @@ def validate_database_url():
     Can be skipped by setting REQUIRE_DATABASE=false (for services that don't need DB).
     
     Performs the following checks:
-    1. DATABASE_URL is set and not empty
+    1. DATABASE_URL is set (or can be constructed from DB_POSTGRESDB_*)
     2. DATABASE_URL is not using SQLite in production
     3. DATABASE_URL has valid PostgreSQL format
     
@@ -37,22 +37,23 @@ def validate_database_url():
         logger.info("ℹ️  DATABASE_URL validation skipped (REQUIRE_DATABASE=false)")
         return True
     
-    DATABASE_URL = os.getenv('DATABASE_URL', '')
-    IS_PRODUCTION = os.getenv('PRODUCTION', '0') == '1' or os.getenv('FLASK_ENV') == 'production'
-    
-    # Check 1: DATABASE_URL must be set
-    if not DATABASE_URL:
+    # 🔥 FIX: Use single source of truth for database URL
+    # Try to get DATABASE_URL with fallback to DB_POSTGRESDB_*
+    try:
+        from server.database_url import get_database_url
+        DATABASE_URL = get_database_url()
+    except RuntimeError as e:
         logger.error("=" * 80)
-        logger.error("❌ CRITICAL: DATABASE_URL environment variable is not set!")
+        logger.error("❌ CRITICAL: No database configuration found!")
         logger.error("=" * 80)
-        logger.error("All services require DATABASE_URL to access the database.")
-        logger.error("Set DATABASE_URL in your .env file or environment.")
-        logger.error("")
-        logger.error("Example:")
-        logger.error("  DATABASE_URL=postgresql://user:pass@host:5432/dbname")
-        logger.error("")
+        logger.error(str(e))
         logger.error("=" * 80)
         sys.exit(1)
+    
+    IS_PRODUCTION = os.getenv('PRODUCTION', '0') == '1' or os.getenv('FLASK_ENV') == 'production'
+    
+    # DATABASE_URL is now guaranteed to be set (from get_database_url())
+    # Continue with remaining checks
     
     # Check 2: SQLite not allowed in production
     if IS_PRODUCTION and DATABASE_URL.startswith('sqlite'):
@@ -87,7 +88,8 @@ def validate_database_url():
     if DATABASE_URL.startswith('postgres://'):
         logger.warning("⚠️  DATABASE_URL uses deprecated 'postgres://' scheme")
         logger.warning("   Auto-converting to 'postgresql://'")
-        os.environ['DATABASE_URL'] = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        os.environ['DATABASE_URL'] = DATABASE_URL
     
     # Mask password for logging
     masked_url = DATABASE_URL
