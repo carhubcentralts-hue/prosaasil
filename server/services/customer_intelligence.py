@@ -30,32 +30,76 @@ class CustomerIntelligence:
     def find_or_create_customer_from_whatsapp(
         self, 
         phone_number: str, 
-        message_text: str
+        message_text: str,
+        whatsapp_jid: str = None,
+        whatsapp_jid_alt: str = None,
+        phone_raw: str = None
     ) -> Tuple[Customer, Lead, bool]:
         """
         זיהוי או יצירת לקוח מתוך הודעת WhatsApp
         ✅ תמיד נרמל טלפון לפני בדיקה - מונע כפילויות!
-        🔥 FIX: Support @lid identifiers (non-phone WhatsApp IDs)
+        🔥 FIX #3 & #6: Support @lid identifiers and WhatsApp JID mapping
+        
+        Args:
+            phone_number: Phone number or external ID (may be @lid)
+            message_text: Message content
+            whatsapp_jid: Primary WhatsApp identifier (remoteJid)
+            whatsapp_jid_alt: Alternative WhatsApp identifier (sender_pn/participant)
+            phone_raw: Original phone input before normalization
         
         Returns:
             Tuple[Customer, Lead, bool]: (לקוח, ליד, האם נוצר חדש)
         """
         try:
-            # 🔥 FIX: Check if this is @lid or other non-phone identifier
+            # 🔥 FIX #6: Check if this is @lid or other non-phone identifier
             if not phone_number or '_at_lid' in str(phone_number) or '@lid' in str(phone_number):
                 # @lid format - no real phone number available
                 # Use external_id for deduplication instead of phone_e164
                 log.info(f"📱 WhatsApp @lid identifier detected: {phone_number}")
-                return self._handle_lid_message(phone_number, message_text)
+                return self._handle_lid_message(phone_number, message_text, whatsapp_jid, whatsapp_jid_alt)
             
-            # ✅ נרמל טלפון קודם כל - תמיד +972 format
+            # ✅ נרמל טלפון קודם כל - תמיד E.164 format
             phone_e164 = self._normalize_phone(phone_number)
             
-            if not phone_e164 or not phone_e164.startswith('+972'):
+            if not phone_e164:
                 log.error(f"❌ Failed to normalize phone: {phone_number} -> {phone_e164}")
+                # If normalization fails, try to use as external ID
+                if whatsapp_jid:
+                    return self._handle_lid_message(phone_number, message_text, whatsapp_jid, whatsapp_jid_alt)
                 raise ValueError(f"Invalid phone number format: {phone_number}")
             
             log.info(f"📱 WhatsApp from {phone_e164}")
+            
+            # 🔥 FIX #3: Calculate reply_jid - prefer @s.whatsapp.net over @lid
+            # Rule: Always reply to the most specific identifier
+            reply_jid = whatsapp_jid  # Default: use remoteJid
+            if whatsapp_jid_alt and whatsapp_jid_alt.endswith('@s.whatsapp.net'):
+                # Prefer participant/sender_pn if it's a standard WhatsApp number
+                reply_jid = whatsapp_jid_alt
+                log.debug(f"[WA] Using whatsapp_jid_alt as reply_jid: {reply_jid}")
+            elif whatsapp_jid:
+                log.debug(f"[WA] Using whatsapp_jid as reply_jid: {reply_jid}")
+            
+            # 🔥 FIX #6: Try to find lead by WhatsApp JID first (more specific)
+            existing_lead = None
+            if whatsapp_jid:
+                existing_lead = Lead.query.filter_by(
+                    tenant_id=self.business_id,
+                    whatsapp_jid=whatsapp_jid
+                ).order_by(Lead.updated_at.desc()).first()
+                
+                if existing_lead:
+                    log.info(f"♻️ Found existing lead by whatsapp_jid: {whatsapp_jid}")
+            
+            # Fallback: Search by normalized phone
+            if not existing_lead:
+                existing_lead = Lead.query.filter_by(
+                    tenant_id=self.business_id,
+                    phone_e164=phone_e164
+                ).order_by(Lead.updated_at.desc()).first()
+                
+                if existing_lead:
+                    log.info(f"♻️ Found existing lead by phone_e164: {phone_e164}")
             
             # חפש לקוח קיים לפי מספר טלפון מנורמל
             customer = Customer.query.filter_by(
@@ -80,18 +124,30 @@ class CustomerIntelligence:
                 was_created = True
                 log.info(f"🆕 Created new customer: {customer.name} ({phone_e164})")
             
-            # ✅ חפש ליד קיים לפי מספר מנורמל בלבד - מונע כפילויות!
-            # 🔥 SIMPLIFIED: Just check by phone number, no status filtering
-            existing_lead = Lead.query.filter_by(
-                tenant_id=self.business_id,
-                phone_e164=phone_e164  # ✅ משתמש במספר מנורמל!
-            ).order_by(Lead.updated_at.desc()).first()
-            
             if not existing_lead:
-                lead = self._create_lead_from_whatsapp(customer, message_text)
-                log.info(f"🆕 Created new lead for {phone_e164}")
+                lead = self._create_lead_from_whatsapp(
+                    customer, message_text, 
+                    whatsapp_jid=whatsapp_jid, 
+                    whatsapp_jid_alt=whatsapp_jid_alt,
+                    reply_jid=reply_jid,
+                    phone_raw=phone_raw
+                )
+                log.info(f"🆕 Created new lead for {phone_e164} with reply_jid={reply_jid}")
             else:
                 lead = existing_lead
+                # 🔥 FIX #3: ALWAYS update reply_jid to last seen (critical for Android/LID)
+                # Don't check if it exists - always use the most recent one
+                lead.reply_jid = reply_jid
+                log.info(f"♻️ Updated reply_jid to latest: {reply_jid}")
+                
+                # 🔥 FIX #6: Update WhatsApp JID fields if they've changed
+                if whatsapp_jid and not lead.whatsapp_jid:
+                    lead.whatsapp_jid = whatsapp_jid
+                if whatsapp_jid_alt and not lead.whatsapp_jid_alt:
+                    lead.whatsapp_jid_alt = whatsapp_jid_alt
+                if phone_raw and not lead.phone_raw:
+                    lead.phone_raw = phone_raw
+                    
                 # עדכון הליד הקיים עם מידע חדש
                 self._update_lead_from_message(lead, message_text)
                 log.info(f"♻️ Updated existing lead {lead.id} for {phone_e164}")
@@ -574,13 +630,28 @@ class CustomerIntelligence:
                 customer.phone_e164, message, extracted_info
             )[1]
     
-    def _create_lead_from_whatsapp(self, customer: Customer, message_text: str) -> Lead:
-        """יצירת ליד חדש מהודעת WhatsApp"""
+    def _create_lead_from_whatsapp(
+        self, 
+        customer: Customer, 
+        message_text: str,
+        whatsapp_jid: str = None,
+        whatsapp_jid_alt: str = None,
+        reply_jid: str = None,
+        phone_raw: str = None
+    ) -> Lead:
+        """
+        יצירת ליד חדש מהודעת WhatsApp
+        🔥 FIX #3 & #6: Store WhatsApp JID, reply_jid, and phone_raw for identity mapping
+        """
         extracted_info = self._extract_info_from_transcription(message_text)
         
         lead = Lead()
         lead.tenant_id = self.business_id
         lead.phone_e164 = customer.phone_e164  # ✅ FIX: Associate lead with phone number!
+        lead.phone_raw = phone_raw  # 🔥 FIX #6: Store original phone for debugging
+        lead.whatsapp_jid = whatsapp_jid  # 🔥 FIX #3: Store WhatsApp identifier
+        lead.whatsapp_jid_alt = whatsapp_jid_alt  # 🔥 FIX #3: Store alternative identifier
+        lead.reply_jid = reply_jid  # 🔥 FIX #3: Store EXACT JID to reply to
         # lead.customer_id = customer.id  # Use phone_e164 matching instead
         lead.source = "whatsapp"
         lead.status = "new"

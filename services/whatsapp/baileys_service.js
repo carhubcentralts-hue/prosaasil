@@ -7,6 +7,30 @@ const fs = require('fs');
 const path = require('path');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
+// 🔥 FIX #2: Version validation - Fail-fast if Baileys version mismatch
+const EXPECTED_BAILEYS_VERSION = '6.7.5';
+try {
+  const packageJson = require('./package.json');
+  const actualVersion = packageJson.dependencies['@whiskeysockets/baileys'];
+  console.log(`[BOOT] 🔍 Baileys version check: expected=${EXPECTED_BAILEYS_VERSION}, package.json=${actualVersion}`);
+  
+  // Strip ^ or ~ if present
+  const cleanVersion = actualVersion.replace(/[\^~]/, '');
+  if (cleanVersion !== EXPECTED_BAILEYS_VERSION) {
+    console.error(`[FATAL] ❌ Baileys version mismatch!`);
+    console.error(`[FATAL] Expected: ${EXPECTED_BAILEYS_VERSION}`);
+    console.error(`[FATAL] Found in package.json: ${actualVersion}`);
+    console.error(`[FATAL] This will cause shouldSyncHistoryMessage and other API errors.`);
+    console.error(`[FATAL] Fix: Update package.json to exactly "${EXPECTED_BAILEYS_VERSION}" (no ^ or ~)`);
+    console.error(`[FATAL] Then run: npm install`);
+    process.exit(1);
+  }
+  console.log(`[BOOT] ✅ Baileys version validated: ${EXPECTED_BAILEYS_VERSION}`);
+} catch (e) {
+  console.error(`[FATAL] Failed to validate Baileys version:`, e.message);
+  process.exit(1);
+}
+
 // ⚡ PERFORMANCE: Connection pooling with keep-alive
 const keepAliveAgent = new http.Agent({ 
   keepAlive: true, 

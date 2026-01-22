@@ -417,8 +417,14 @@ class Lead(db.Model):
     first_name = db.Column(db.String(255))
     last_name = db.Column(db.String(255))
     phone_e164 = db.Column(db.String(64), index=True)
+    phone_raw = db.Column(db.String(64))  # 🔥 FIX #6: Original phone input for debugging
     email = db.Column(db.String(255), index=True)
     gender = db.Column(db.String(16), nullable=True)  # 'male', 'female', or NULL - auto-detected or manually set
+    
+    # 🔥 FIX #3 & #6: WhatsApp identity mapping
+    whatsapp_jid = db.Column(db.String(128), index=True)  # Primary WhatsApp identifier (remoteJid)
+    whatsapp_jid_alt = db.Column(db.String(128))  # Alternative identifier (sender_pn/participant)
+    reply_jid = db.Column(db.String(128), index=True)  # 🔥 CRITICAL: EXACT JID to reply to (last seen)
     
     # Lead tracking
     source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual|imported_outbound

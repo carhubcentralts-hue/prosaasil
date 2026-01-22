@@ -864,7 +864,7 @@ def baileys_webhook():
                 
                 # 🔥 FIX #3: Check for participant (sender_pn) first - this is the preferred reply address
                 participant = msg.get('key', {}).get('participant')
-                if participant and participant.endsWith('@s.whatsapp.net'):
+                if participant and participant.endswith('@s.whatsapp.net'):
                     remote_jid_alt = participant
                     log.debug(f"[WA-LID] Found participant (sender_pn): {participant}")
                 
@@ -1004,17 +1004,29 @@ def baileys_webhook():
                 
                 log.info(f"[WA-INCOMING] biz={business_id}, from={from_number_e164}, remoteJid={remote_jid}, text={message_text[:50]}...")
                 
+                # 🔥 FIX #3: Calculate reply_jid - prefer @s.whatsapp.net over @lid
+                reply_jid = remote_jid  # Default: use remoteJid
+                if remote_jid_alt and remote_jid_alt.endswith('@s.whatsapp.net'):
+                    # Prefer participant/sender_pn if it's a standard WhatsApp number
+                    reply_jid = remote_jid_alt
+                    log.debug(f"[WA] Using remote_jid_alt as reply target: {reply_jid}")
+                elif remote_jid:
+                    log.debug(f"[WA] Using remote_jid as reply target: {reply_jid}")
+                
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
                 # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
                 phone_or_id = from_number_e164 if from_number_e164 else customer_external_id
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
                     phone_number=phone_or_id,
-                    message_text=message_text
+                    message_text=message_text,
+                    whatsapp_jid=remote_jid,
+                    whatsapp_jid_alt=remote_jid_alt,
+                    phone_raw=phone_raw
                 )
                 
                 action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {phone_or_id}")
+                log.info(f"✅ {action} customer/lead for {phone_or_id}, reply_jid={reply_jid}")
                 
                 # Extract message_id from Baileys message structure
                 # This is critical for deduplication (same message_id = same message)
