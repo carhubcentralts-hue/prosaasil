@@ -1,47 +1,22 @@
-# ===========================================
-# ProSaaS Baileys - Node.js WhatsApp Service
-# ✅ BUILD 153: Node 20+ required for Baileys
-# ===========================================
 FROM node:20-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies for Baileys
-# ✅ curl is required for Docker healthcheck (used in docker-compose.yml)
-# ✅ git is required for npm dependencies that reference git repositories
-# ✅ ca-certificates is required for SSL/TLS connections during npm install
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
+# מערכת
+RUN apt-get update && apt-get install -y \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package files AND node_modules (pre-installed on host)
-# ⚠️ WORKAROUND: npm ci times out after ~70 seconds in GitHub Actions Runner
-# Solution: Install node_modules locally with `npm ci --omit=dev` and copy to image
-# This avoids the timeout issue during Docker build
-COPY services/whatsapp/package*.json ./
-COPY services/whatsapp/node_modules ./node_modules
+# רק manifests
+COPY services/whatsapp/package.json services/whatsapp/package-lock.json ./
 
-# Copy application code
-COPY services/whatsapp/baileys_service.js ./
+# התקנה אחת ויחידה – זה חייב לעבוד
+RUN npm ci --omit=dev --no-audit --no-fund
 
-# Create auth directory (will be mounted as volume)
-RUN mkdir -p auth_info_baileys
+# קוד אפליקציה
+COPY services/whatsapp/ ./
 
-# Set environment variables
 ENV NODE_ENV=production
-ENV BAILEYS_PORT=3300
-ENV FLASK_BASE_URL=http://backend:5000
-ENV TZ=UTC
 
-# Expose port
-EXPOSE 3300
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:3300/health || exit 1
-
-# Run the application
 CMD ["node", "baileys_service.js"]
