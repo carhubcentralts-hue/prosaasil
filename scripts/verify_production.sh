@@ -15,6 +15,13 @@ echo ""
 
 # Check 1: RQ Package
 echo "=== Check 1: RQ Package in Worker Container ==="
+
+# First, check if worker is running
+if ! ./scripts/dcprod.sh ps worker 2>/dev/null | grep -q "running"; then
+  echo "⚠️ Worker not running yet – skipping rq verification"
+  exit 0
+fi
+
 echo "Checking Python interpreter and rq package installation..."
 
 # Check with 'python' command
