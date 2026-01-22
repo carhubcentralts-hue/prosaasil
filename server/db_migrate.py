@@ -4320,6 +4320,92 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 92: Add needs_review and receipt_type fields for better filtering
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Address false positives from low MIN_CONFIDENCE (5)
+        # 
+        # New fields:
+        # - needs_review: Flag for low-confidence receipts (5-14) or missing critical data
+        # - receipt_type: Classify receipt types (confirmation|receipt|invoice|statement)
+        #
+        # This allows:
+        # 1. Filter out "confirmation emails" from reports/summaries
+        # 2. User can review low-confidence items separately
+        # 3. Better analytics on receipt types
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('receipts'):
+            checkpoint("🔧 Running Migration 92: Add needs_review and receipt_type to receipts")
+            
+            try:
+                fields_to_add = []
+                
+                # Add needs_review field
+                if not check_column_exists('receipts', 'needs_review'):
+                    checkpoint("  → Adding needs_review column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN needs_review BOOLEAN DEFAULT FALSE
+                    """))
+                    fields_to_add.append('needs_review')
+                    checkpoint("    ✅ needs_review added")
+                
+                # Add receipt_type field
+                if not check_column_exists('receipts', 'receipt_type'):
+                    checkpoint("  → Adding receipt_type column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN receipt_type VARCHAR(32)
+                    """))
+                    
+                    # Add CHECK constraint for valid values
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_receipt_type 
+                        CHECK (receipt_type IS NULL OR receipt_type IN ('confirmation', 'receipt', 'invoice', 'statement', 'other'))
+                    """))
+                    
+                    fields_to_add.append('receipt_type')
+                    checkpoint("    ✅ receipt_type added with constraint")
+                
+                # Backfill existing receipts
+                if fields_to_add:
+                    checkpoint("  → Backfilling existing receipts")
+                    
+                    # Set needs_review for low-confidence receipts (confidence < 15)
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET needs_review = TRUE 
+                        WHERE confidence < 15 
+                        AND needs_review = FALSE
+                    """))
+                    low_conf_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    # Set needs_review for receipts without amount
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET needs_review = TRUE 
+                        WHERE amount IS NULL 
+                        AND needs_review = FALSE
+                    """))
+                    no_amount_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    checkpoint(f"    ✅ Backfilled: {low_conf_count} low-confidence, {no_amount_count} no-amount")
+                    
+                    migrations_applied.append('add_receipt_review_fields')
+                    checkpoint("✅ Migration 92 completed - Receipt review fields added")
+                    checkpoint("   📋 Purpose: Better handling of false positives from low threshold")
+                    checkpoint("   🎯 Benefits: Filter confirmations from reports, flag suspicious items")
+                else:
+                    checkpoint("  ℹ️ All review fields already exist - skipping")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 92 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ receipts table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

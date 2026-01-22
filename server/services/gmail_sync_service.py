@@ -219,6 +219,71 @@ def decrypt_token(encrypted: str) -> str:
         return ''
 
 
+def mask_pii(text: str, mask_char: str = '*') -> str:
+    """
+    Mask PII (Personally Identifiable Information) in text for safe logging
+    
+    SECURITY: Never log full emails, phone numbers, or credit card numbers
+    
+    Args:
+        text: Text that may contain PII
+        mask_char: Character to use for masking
+        
+    Returns:
+        Text with PII masked
+    """
+    if not text:
+        return text
+    
+    # Mask email addresses (keep first 2 chars + domain)
+    text = re.sub(r'\b([a-zA-Z0-9]{1,2})[a-zA-Z0-9._%+-]*@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', 
+                  r'\1***@\2', text)
+    
+    # Mask phone numbers (keep country code if present)
+    text = re.sub(r'\b(\+?\d{1,3})[- ]?\d{2,3}[- ]?\d{3,4}[- ]?\d{3,4}\b', 
+                  r'\1-***-****', text)
+    
+    # Mask credit card numbers (keep first 4 and last 4)
+    text = re.sub(r'\b(\d{4})[\s-]?\d{4}[\s-]?\d{4}[\s-]?(\d{4})\b', 
+                  r'\1-****-****-\2', text)
+    
+    # Mask Israeli ID numbers (9 digits)
+    text = re.sub(r'\b(\d{2})\d{5}(\d{2})\b', 
+                  r'\1*****\2', text)
+    
+    return text
+
+
+def get_safe_log_metadata(metadata: dict) -> dict:
+    """
+    Extract safe metadata for logging (no PII)
+    
+    Args:
+        metadata: Full metadata dict
+        
+    Returns:
+        Safe dict with PII masked
+    """
+    safe = {}
+    
+    # Safe fields (IDs, booleans, counts)
+    for key in ['has_attachment', 'matched_keywords']:
+        if key in metadata:
+            safe[key] = metadata[key]
+    
+    # Mask PII in text fields
+    if 'subject' in metadata:
+        safe['subject'] = mask_pii(metadata['subject'][:50])
+    
+    if 'from_domain' in metadata:
+        safe['from_domain'] = metadata['from_domain']  # Domain is safe
+    
+    if 'from_email' in metadata:
+        safe['from_email'] = mask_pii(metadata['from_email'])
+    
+    return safe
+
+
 def get_gmail_service(business_id: int):
     """
     Get authenticated Gmail API service for a business
@@ -353,11 +418,14 @@ def extract_all_attachments(message: dict) -> list:
     Gmail uses nested multipart structure. We recurse through ALL parts.
     CRITICAL: Must handle all Gmail attachment patterns correctly!
     
+    SECURITY: Filters out inline images (tracking pixels, signatures, logos)
+    to avoid bloating storage and processing.
+    
     Args:
         message: Gmail message object
         
     Returns:
-        List of attachment dicts with {id, filename, mime_type, size}
+        List of attachment dicts with {id, filename, mime_type, size, disposition}
     """
     attachments = []
     
@@ -372,6 +440,14 @@ def extract_all_attachments(message: dict) -> list:
             body = part.get('body', {})
             attachment_id = body.get('attachmentId')
             size = body.get('size', 0)
+            
+            # Check Content-Disposition header to distinguish attachment from inline
+            headers = part.get('headers', [])
+            content_disposition = None
+            for header in headers:
+                if header.get('name', '').lower() == 'content-disposition':
+                    content_disposition = header.get('value', '').lower()
+                    break
             
             # IMPROVED: Check multiple conditions for attachments
             # 1. Has explicit attachmentId
@@ -391,14 +467,22 @@ def extract_all_attachments(message: dict) -> list:
                     ext = mime_type.split('/')[-1]
                     filename = f'attachment.{ext}'
             
+            # SECURITY FILTER: Skip inline images that are likely tracking pixels/logos
+            if is_attachment and content_disposition and 'inline' in content_disposition:
+                # Skip small inline images (< 5KB) - likely tracking pixels or signatures
+                if mime_type.startswith('image/') and size < 5120:  # 5KB threshold
+                    logger.debug(f"🔒 Skipping small inline image: {filename} ({size} bytes)")
+                    is_attachment = False
+            
             if is_attachment:
                 attachments.append({
                     'id': attachment_id,
                     'filename': filename or 'attachment',
                     'mime_type': mime_type,
-                    'size': size
+                    'size': size,
+                    'disposition': content_disposition or 'attachment'
                 })
-                logger.debug(f"📎 Found attachment: {filename} ({mime_type}, {size} bytes, id={attachment_id})")
+                logger.debug(f"📎 Found attachment: {filename} ({mime_type}, {size} bytes, disposition={content_disposition})")
             
             # Recurse into nested parts (multipart/alternative, etc.)
             if 'parts' in part:
@@ -421,7 +505,8 @@ def extract_all_attachments(message: dict) -> list:
                 'id': attachment_id,
                 'filename': filename,
                 'mime_type': mime_type,
-                'size': size
+                'size': size,
+                'disposition': 'attachment'
             })
             logger.debug(f"📎 Found single-part attachment: {filename}")
     
@@ -1198,8 +1283,14 @@ def process_single_receipt_message(
             sync_run.candidate_receipts = result['candidate_receipts']
     
     if not is_receipt:
-        # Log why it was skipped for debugging
-        logger.info(f"⏭️ SKIP: confidence={confidence}, subject={metadata.get('subject', 'N/A')[:50]}, has_attachment={metadata.get('has_attachment', False)}")
+        # Log why it was skipped for debugging - WITH PII MASKING
+        safe_metadata = get_safe_log_metadata(metadata)
+        logger.info(
+            f"⏭️ SKIP: confidence={confidence}, "
+            f"subject='{safe_metadata.get('subject', 'N/A')}', "
+            f"from_domain={safe_metadata.get('from_domain', 'N/A')}, "
+            f"has_attachment={metadata.get('has_attachment', False)}"
+        )
         result['skipped'] += 1
         return None
     
@@ -1378,6 +1469,33 @@ def process_single_receipt_message(
         status = 'pending_review'
         logger.debug(f"⏸️ Pending review (confidence={confidence} < {AUTO_APPROVE_THRESHOLD})")
     
+    # Determine needs_review flag for low-confidence or missing data
+    # This is SEPARATE from status - helps filter false positives from reports
+    needs_review = False
+    if confidence < 15:  # Very low confidence (5-14)
+        needs_review = True
+        logger.debug(f"🔍 Flagged for review: very low confidence ({confidence})")
+    elif not extracted.get('amount'):
+        needs_review = True
+        logger.debug(f"🔍 Flagged for review: missing amount")
+    elif not extracted.get('vendor_name'):
+        needs_review = True
+        logger.debug(f"🔍 Flagged for review: missing vendor")
+    
+    # Determine receipt_type based on keywords in subject/content
+    receipt_type = None
+    subject_lower = metadata.get('subject', '').lower()
+    if any(kw in subject_lower for kw in ['confirmation', 'אישור', 'confirmed']):
+        receipt_type = 'confirmation'
+    elif any(kw in subject_lower for kw in ['invoice', 'חשבונית']):
+        receipt_type = 'invoice'
+    elif any(kw in subject_lower for kw in ['receipt', 'קבלה']):
+        receipt_type = 'receipt'
+    elif any(kw in subject_lower for kw in ['statement', 'דוח']):
+        receipt_type = 'statement'
+    else:
+        receipt_type = 'other'
+    
     # Parse invoice date
     invoice_date = None
     if extracted.get('invoice_date'):
@@ -1464,6 +1582,8 @@ def process_single_receipt_message(
         confidence=confidence,
         raw_extraction_json=sanitized_json,
         status=status,
+        needs_review=needs_review,  # NEW: Flag for low-confidence items
+        receipt_type=receipt_type,  # NEW: Type classification
         attachment_id=attachment_id,
         preview_attachment_id=preview_attachment_id,
         preview_status=preview_status_val,
@@ -1476,16 +1596,19 @@ def process_single_receipt_message(
     result['saved_receipts'] += 1
     sync_run.saved_receipts = result['saved_receipts']
     
-    # Enhanced logging per receipt with full details
+    # Enhanced logging per receipt with full details - PII MASKED
+    safe_metadata = get_safe_log_metadata(metadata)
     logger.info(
         f"✅ RECEIPT_SAVED id={receipt.id}, "
-        f"message_id={message_id}, "
-        f"subject='{metadata.get('subject', '')[:50]}', "
-        f"from={metadata.get('from_email', '')},"
+        f"message_id={message_id[:20]}..., "
+        f"subject='{safe_metadata.get('subject', '')}', "
+        f"from_domain={safe_metadata.get('from_domain', '')}, "
         f"has_attachment={attachment_processed} (att_id={attachment_id}), "
         f"amount={extracted.get('amount')}, "
         f"currency={extracted.get('currency')}, "
         f"confidence={confidence}, "
+        f"needs_review={needs_review}, "
+        f"receipt_type={receipt_type}, "
         f"preview={'✓' if preview_generated else '✗'} (prev_id={preview_attachment_id}), "
         f"warnings={extraction_warnings if extraction_warnings else 'none'}"
     )
@@ -2253,6 +2376,25 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         db.session.commit()
         
         duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
+        
+        # SUMMARY LOGGING: Show key metrics for verification
+        total_emails_scanned = result['messages_scanned']
+        total_receipts_saved = result['saved_receipts']
+        total_skipped = result['skipped']
+        receipts_to_emails_ratio = (total_receipts_saved / total_emails_scanned * 100) if total_emails_scanned > 0 else 0
+        
+        logger.info("=" * 80)
+        logger.info(f"📊 SYNC SUMMARY (run_id={sync_run.id}, duration={duration:.1f}s)")
+        logger.info(f"   Emails scanned: {total_emails_scanned}")
+        logger.info(f"   Receipts saved: {total_receipts_saved}")
+        logger.info(f"   Skipped (duplicates): {total_skipped}")
+        logger.info(f"   Pages scanned: {result['pages_scanned']}")
+        logger.info(f"   Candidate receipts: {result.get('candidate_receipts', 0)}")
+        logger.info(f"   Errors: {result.get('errors', 0)}")
+        logger.info(f"   Receipts/Emails ratio: {receipts_to_emails_ratio:.1f}%")
+        if receipts_to_emails_ratio > 60:
+            logger.warning(f"⚠️ High ratio ({receipts_to_emails_ratio:.1f}%) - possible false positives!")
+        logger.info("=" * 80)
         
         if result['errors'] > 0:
             logger.warning(

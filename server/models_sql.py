@@ -1610,6 +1610,8 @@ class Receipt(db.Model):
     
     # Status management
     status = db.Column(db.String(32), nullable=False, default="pending_review")  # pending_review|approved|rejected|not_receipt
+    needs_review = db.Column(db.Boolean, default=False)  # True if confidence too low or missing critical data
+    receipt_type = db.Column(db.String(32), nullable=True)  # confirmation|receipt|invoice|statement (for filtering)
     reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     
