@@ -78,8 +78,9 @@ def ensure_db_ready(max_retries=10, retry_delay=2.0):
             # Test 2: Alembic version table exists (migrations ran)
             result = db.session.execute(text(
                 "SELECT 1 FROM information_schema.tables "
-                "WHERE table_name = 'alembic_version'"
-            ))
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "alembic_version"})
             if not result.fetchone():
                 logger.warning(f"⏳ Alembic table not found (attempt {attempt + 1}/{max_retries})")
                 db.session.rollback()
@@ -91,8 +92,9 @@ def ensure_db_ready(max_retries=10, retry_delay=2.0):
             # Test 3: Can query business table (core schema exists)
             result = db.session.execute(text(
                 "SELECT 1 FROM information_schema.tables "
-                "WHERE table_name = 'business'"
-            ))
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "business"})
             if not result.fetchone():
                 logger.warning(f"⏳ Business table not found (attempt {attempt + 1}/{max_retries})")
                 db.session.rollback()
@@ -112,7 +114,7 @@ def ensure_db_ready(max_retries=10, retry_delay=2.0):
             logger.warning(f"⏳ DB not ready (attempt {attempt + 1}/{max_retries}): {str(e)[:100]}")
             try:
                 db.session.rollback()
-            except:
+            except Exception:
                 pass
             
             if attempt < max_retries - 1:
