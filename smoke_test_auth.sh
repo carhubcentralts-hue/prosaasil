@@ -31,9 +31,9 @@ test_endpoint() {
     echo -n "Testing $method $path ... "
     
     if [ "$method" = "GET" ]; then
-        status=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$BASE_URL$path")
+        status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X GET "$BASE_URL$path")
     elif [ "$method" = "POST" ]; then
-        status=$(curl -s -o /dev/null -w "%{http_code}" \
+        status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
             -X POST "$BASE_URL$path" \
             -H "Content-Type: application/json" \
             -d "$data")

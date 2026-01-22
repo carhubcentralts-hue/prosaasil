@@ -1,6 +1,11 @@
 """
 Test auth routing - verify endpoints return correct status codes
 This test ensures auth routes are registered correctly and don't return 404/405
+
+Requirements:
+- Python environment with Flask and dependencies installed
+- Run with: python test_auth_routing.py
+- Or with pytest: pytest test_auth_routing.py -v
 """
 import os
 import sys
