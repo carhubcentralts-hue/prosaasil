@@ -4454,7 +4454,7 @@ def apply_migrations():
                     checkpoint("  → Adding phone_raw column (VARCHAR(64), nullable)")
                     db.session.execute(text("""
                         ALTER TABLE leads 
-                        ADD COLUMN phone_raw VARCHAR(64)
+                        ADD COLUMN phone_raw VARCHAR(64) NULL
                     """))
                     
                     migrations_applied.append('add_leads_phone_raw_column')

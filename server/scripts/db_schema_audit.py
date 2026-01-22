@@ -22,9 +22,6 @@ import sys
 import os
 from typing import List, Tuple
 
-# Ensure we can import server modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
 def checkpoint(message):
     """Print checkpoint message to stderr"""
     print(f"🔍 SCHEMA AUDIT: {message}", file=sys.stderr, flush=True)
@@ -129,7 +126,7 @@ def main():
         checkpoint("❌ DATABASE_URL environment variable is not set!")
         return 2
     
-    checkpoint(f"Database: {database_url.split('@')[-1] if '@' in database_url else 'sqlite'}")
+    checkpoint(f"Database: {database_url.split('@')[-1] if '@' in database_url else 'unknown'}")  # Only show host, not credentials
     
     try:
         # Create database connection
