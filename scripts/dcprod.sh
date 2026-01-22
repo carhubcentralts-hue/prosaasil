@@ -102,10 +102,16 @@ check_backend_not_running() {
 }
 
 # Run docker compose with both configuration files
-docker compose --env-file .env \
+echo ">>> Running docker compose command..."
+if ! docker compose --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.prod.yml \
-  "$@"
+  "$@"; then
+    echo "❌ docker compose failed. Stopping verification checks."
+    exit 1
+fi
+
+echo "✅ docker compose succeeded."
 
 # Validate no backend service after certain commands
 validate_no_backend "$1"

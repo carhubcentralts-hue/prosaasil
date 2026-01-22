@@ -27,7 +27,9 @@ dist/
 *.egg
 
 # Node modules (rebuilt during Docker build)
+# ⚠️ EXCEPTION: services/whatsapp/node_modules is copied to avoid npm timeout in Docker build
 node_modules/
+!services/whatsapp/node_modules/
 npm-debug.log
 yarn-error.log
 
