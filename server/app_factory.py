@@ -1122,8 +1122,14 @@ def create_app():
                     
                     # 🔥 PRODUCTION FIX: Never crash the app because of warmup timeout
                     # Warmup is best-effort optimization, not a blocker for app startup
-                    env_mode = os.getenv("ENV", os.getenv("FLASK_ENV", "development"))
-                    if env_mode == "production" or os.getenv("PRODUCTION", "0") in ("1", "true", "True"):
+                    # Check multiple environment variables to detect production mode
+                    is_production = (
+                        os.getenv("ENV") == "production" or
+                        os.getenv("FLASK_ENV") == "production" or
+                        os.getenv("PRODUCTION", "0") in ("1", "true", "True")
+                    )
+                    
+                    if is_production:
                         logger.warning("⚠️ Skipping warmup failure in production - app will continue without warmup")
                         return
                     else:
