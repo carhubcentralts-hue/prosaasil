@@ -45,8 +45,12 @@ axios.defaults.timeout = 30000;  // 🔧 Increased from 10s to 30s for Flask web
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const HOST = process.env.BAILEYS_HOST || '0.0.0.0';  // ✅ Listen on all interfaces for Docker networking
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
-// 🔥 FIX #1: Use BACKEND_BASE_URL if available, fallback to FLASK_BASE_URL
-const FLASK_BASE_URL = process.env.BACKEND_BASE_URL || process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000';
+// Base URL must come from env, never hardcode "backend"
+const BACKEND_BASE_URL =
+  process.env.BACKEND_BASE_URL ||
+  process.env.API_BASE_URL ||
+  'http://prosaas-api:5000';
+const FLASK_BASE_URL = BACKEND_BASE_URL; // Alias for backwards compatibility
 
 if (!INTERNAL_SECRET) {
   console.error('[FATAL] INTERNAL_SECRET missing');

@@ -20,9 +20,7 @@
 # 3. The nginx container will mount these certificates from the repo directory
 #
 # ===========================================
-
-version: '3.8'
-
+# Compose v2 (no version key)
 services:
   # ===========================================
   # Nginx Reverse Proxy - Production SSL + Separate Services
@@ -83,7 +81,7 @@ services:
           cpus: '0.5'
           memory: 256M
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Disable local database in production
@@ -92,14 +90,6 @@ services:
   db:
     profiles:
       - local-db-only  # Won't start unless explicitly requested
-
-  # ===========================================
-  # Backend Service - DISABLED in production
-  # Use prosaas-api and prosaas-calls instead (split architecture)
-  # ===========================================
-  backend:
-    profiles:
-      - legacy  # Don't start in production - use prosaas-api/prosaas-calls instead
 
   # ===========================================
   # Worker Service - Production Overrides
@@ -140,6 +130,8 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    networks:
+      - prosaas-net
   
   prosaas-api:
     container_name: prosaas-api
@@ -187,11 +179,11 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -201,7 +193,7 @@ services:
           cpus: '0.5'
           memory: 512M
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Calls Service (WebSocket + Twilio streaming only)
@@ -282,7 +274,7 @@ services:
           cpus: '1'
           memory: 1G
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Baileys WhatsApp Service - Production settings
@@ -305,6 +297,8 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - prosaas-net
 
   # ===========================================
   # Frontend - Production settings
@@ -322,7 +316,8 @@ services:
 # Docker Networks (shared)
 # ===========================================
 networks:
-  prosaas-network:
+  prosaas-net:
+    name: prosaas-net
     driver: bridge
 
 # ===========================================

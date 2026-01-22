@@ -18,6 +18,8 @@
 
 set -euo pipefail
 
+# ✅ Deployment is docker-only. No host python checks.
+
 # Navigate to repository root (one level up from scripts/)
 cd "$(dirname "$0")/.."
 
