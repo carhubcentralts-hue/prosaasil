@@ -7,6 +7,25 @@
 # ===========================================
 
 # ===========================================
+# Upstream Definitions with DNS Resolution
+# ===========================================
+upstream prosaas_api {
+    server ${API_UPSTREAM} resolve;
+}
+
+upstream prosaas_calls {
+    server ${CALLS_UPSTREAM} resolve;
+}
+
+upstream prosaas_frontend {
+    server ${FRONTEND_UPSTREAM}:80 resolve;
+}
+
+upstream prosaas_n8n {
+    server n8n:5678 resolve;
+}
+
+# ===========================================
 # Server Block 1: prosaas.pro
 # Main application domain
 # ===========================================
@@ -23,7 +42,7 @@ server {
 
     # API endpoints - proxy to backend
     location /api/ {
-        proxy_pass http://${API_UPSTREAM}/api/;
+        proxy_pass http://prosaas_api/api/;
         
         # HTTP/1.1 required for keepalive and streaming
         proxy_http_version 1.1;
@@ -55,7 +74,7 @@ server {
 
     # WebSocket endpoints - proxy to backend
     location /ws/ {
-        proxy_pass http://${CALLS_UPSTREAM};
+        proxy_pass http://prosaas_calls;
         
         # WebSocket support - must use HTTP/1.1
         proxy_http_version 1.1;
@@ -82,7 +101,7 @@ server {
 
     # Webhook endpoints - proxy to backend
     location /webhook {
-        proxy_pass http://${CALLS_UPSTREAM};
+        proxy_pass http://prosaas_calls;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -98,7 +117,7 @@ server {
 
     # Static assets - proxy to frontend with caching
     location /assets {
-        proxy_pass http://${FRONTEND_UPSTREAM}:80;
+        proxy_pass http://prosaas_frontend;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -110,7 +129,7 @@ server {
     
     # Disable caching for index.html to ensure updates are visible
     location = /index.html {
-        proxy_pass http://${FRONTEND_UPSTREAM}:80;
+        proxy_pass http://prosaas_frontend;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -122,7 +141,7 @@ server {
 
     # All other requests - proxy to frontend (SPA routing)
     location / {
-        proxy_pass http://${FRONTEND_UPSTREAM}:80;
+        proxy_pass http://prosaas_frontend;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -152,7 +171,7 @@ server {
 
     # WebSocket push endpoint - critical for n8n real-time updates
     location /rest/push {
-        proxy_pass http://n8n:5678;
+        proxy_pass http://prosaas_n8n;
         
         # WebSocket support - must use HTTP/1.1
         proxy_http_version 1.1;
@@ -177,7 +196,7 @@ server {
 
     # All other n8n requests
     location / {
-        proxy_pass http://n8n:5678;
+        proxy_pass http://prosaas_n8n;
         
         # WebSocket support for all endpoints - n8n uses WebSocket throughout
         proxy_http_version 1.1;
