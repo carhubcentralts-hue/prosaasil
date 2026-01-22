@@ -1380,6 +1380,44 @@ def get_notifications():
         import traceback
         logger.error(f"❌ ERROR in /api/notifications: {e}")
         logger.error(f"❌ STACKTRACE:\n{traceback.format_exc()}")
+        
+        # 🔒 FAIL-SOFT (BONUS ONLY): Handle schema mismatch errors gracefully
+        # ⚠️ IMPORTANT: This is NOT a real solution - just prevents 500 errors
+        # The real fix is running migrations: python -m server.db_migrate
+        # 
+        # Schema drift affects the ENTIRE Lead flow:
+        # - Lead creation (WhatsApp, calls, forms)
+        # - Lead queries and filters
+        # - Customer intelligence
+        # - Call direction tracking
+        # 
+        # This fail-soft only helps /api/notifications continue working.
+        # In production with MIGRATIONS_ENFORCE=true, server won't start anyway.
+        if PSYCOPG2_AVAILABLE and isinstance(e, psycopg2.errors.UndefinedColumn):
+            logger.error("❌ Database schema outdated - missing column in query")
+            logger.error("   ⚠️ This affects the ENTIRE Lead system, not just notifications!")
+            logger.error("   Action: Run migrations with: python -m server.db_migrate")
+            return jsonify({
+                "notifications": [],
+                "overdue": [],
+                "today": [],
+                "soon": [],
+                "warning": "Database schema outdated. Please run migrations."
+            }), 200  # Return 200 with empty data for graceful degradation
+        
+        # Check for UndefinedColumn in string representation (fallback)
+        if 'does not exist' in str(e).lower() and 'column' in str(e).lower():
+            logger.error("❌ Database schema mismatch detected")
+            logger.error("   ⚠️ This affects the ENTIRE Lead system, not just notifications!")
+            logger.error("   Action: Run migrations with: python -m server.db_migrate")
+            return jsonify({
+                "notifications": [],
+                "overdue": [],
+                "today": [],
+                "soon": [],
+                "warning": "Database schema outdated. Please run migrations."
+            }), 200  # Return 200 with empty data for graceful degradation
+        
         return jsonify({"error": f"Internal error: {str(e)}"}), 500
     
     notifications = []

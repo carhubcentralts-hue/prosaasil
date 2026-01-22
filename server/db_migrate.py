@@ -4434,6 +4434,43 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 93: Add phone_raw column to leads table
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Fix migration drift - phone_raw column exists in model but not in DB
+        # 
+        # The phone_raw column was added to the Lead model to store the original phone
+        # input before normalization (for debugging purposes), but the corresponding
+        # migration was never created. This causes UndefinedColumn errors when querying
+        # leads with phone_raw in the SELECT clause.
+        #
+        # Fixes: psycopg2.errors.UndefinedColumn: column leads.phone_raw does not exist
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('leads'):
+            checkpoint("🔧 Running Migration 93: Add phone_raw column to leads table")
+            
+            try:
+                if not check_column_exists('leads', 'phone_raw'):
+                    checkpoint("  → Adding phone_raw column (VARCHAR(64), nullable)")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN phone_raw VARCHAR(64) NULL
+                    """))
+                    
+                    migrations_applied.append('add_leads_phone_raw_column')
+                    checkpoint("✅ Migration 93 completed - phone_raw column added to leads")
+                    checkpoint("   📋 Purpose: Store original phone input before normalization")
+                    checkpoint("   🎯 Fixes: UndefinedColumn errors in routes and services")
+                else:
+                    checkpoint("  ℹ️ phone_raw column already exists - skipping")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 93 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ leads table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
