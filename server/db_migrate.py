@@ -17,6 +17,9 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+# ProSaaS custom migration marker for alembic_version table
+PROSAAS_MIGRATION_MARKER = 'prosaas_custom_migrations'
+
 # Migration 89 required columns for receipt_sync_runs
 MIGRATION_89_REQUIRED_COLUMNS = [
     'from_date', 'to_date', 'months_back',
@@ -207,6 +210,31 @@ def apply_migrations():
             db.session.rollback()
             log.warning(f"Could not check data counts (database may be new): {e}")
             checkpoint(f"Could not check data counts (database may be new): {e}")
+        
+        # Migration 0: Create alembic_version table (for compatibility with health checks)
+        # This is optional but prevents 503 errors in health endpoint
+        if not check_table_exists('alembic_version'):
+            from sqlalchemy import text
+            try:
+                checkpoint("Creating alembic_version table for health check compatibility")
+                db.session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS alembic_version (
+                        version_num VARCHAR(32) NOT NULL PRIMARY KEY
+                    )
+                """))
+                # Insert a marker version to indicate ProSaaS custom migrations
+                db.session.execute(text("""
+                    INSERT INTO alembic_version(version_num)
+                    SELECT :marker
+                    WHERE NOT EXISTS (SELECT 1 FROM alembic_version)
+                """), {"marker": PROSAAS_MIGRATION_MARKER})
+                migrations_applied.append("create_alembic_version_table")
+                checkpoint("✅ Created alembic_version table with marker")
+            except Exception as e:
+                # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+                db.session.rollback()
+                log.warning(f"Could not create alembic_version table: {e}")
+                checkpoint(f"Could not create alembic_version table: {e}")
         
         # Migration 1: Add transcript column to CallLog
         if check_table_exists('call_log'):
