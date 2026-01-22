@@ -8,6 +8,7 @@ from server.security.permissions import require_page_access
 from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 from server.services.whatsapp_session_service import update_session_activity
+from server.agent_tools.phone_utils import normalize_phone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -851,54 +852,68 @@ def baileys_webhook():
                     log.info(f"[WA-SKIP] Ignoring non-private message from {remote_jid} - bot only responds to private chats")
                     continue
                 
-                # 🔥 FIX D: Extract E.164 phone number OR store @lid as customer_external_id
-                # For @lid or other non-standard JIDs, DON'T create invalid phone numbers like "+97282399..."
+                # 🔥 FIX #3 & #6: Extract phone number with proper normalization and LID support
+                # remoteJid can be:
+                # - Standard: 972501234567@s.whatsapp.net
+                # - LID (Android/Business): 82399031480511@lid
+                # - Participant (Groups): phone@s.whatsapp.net as participant
                 from_number_e164 = None
-                customer_external_id = None  # For @lid and other non-standard JIDs
+                customer_external_id = None
+                remote_jid_alt = None  # Alternative JID for proper reply routing
+                phone_raw = None  # Raw phone for debugging
+                
+                # 🔥 FIX #3: Check for participant (sender_pn) first - this is the preferred reply address
+                participant = msg.get('key', {}).get('participant')
+                if participant and participant.endswith('@s.whatsapp.net'):
+                    remote_jid_alt = participant
+                    log.debug(f"[WA-LID] Found participant (sender_pn): {participant}")
                 
                 if remote_jid.endswith('@s.whatsapp.net'):
-                    # Standard WhatsApp user - extract phone number
-                    phone_part = remote_jid.replace('@s.whatsapp.net', '')
-                    # Clean and normalize to E.164 format
-                    from_number_e164 = phone_part.replace('+', '').strip()
-                    # Validate it's a valid phone number (digits only, 10+ chars)
-                    if from_number_e164 and from_number_e164.isdigit() and len(from_number_e164) >= 10:
-                        # Valid phone number - keep as-is or normalize Israeli numbers
-                        if not from_number_e164.startswith('972') and from_number_e164.startswith('0'):
-                            # Israeli local number - convert to international
-                            from_number_e164 = '972' + from_number_e164[1:]
-                        # 🔥 NEW FIX: Use E.164 phone for AI state checking
+                    # Standard WhatsApp user - extract and normalize phone
+                    phone_raw = remote_jid.replace('@s.whatsapp.net', '')
+                    from_number_e164 = normalize_phone(phone_raw)
+                    
+                    if from_number_e164:
+                        log.debug(f"[WA-INCOMING] Standard JID - phone normalized: {phone_raw} -> {from_number_e164}")
                         phone_for_ai_check = from_number_e164
                     else:
                         # Invalid phone format - treat as external ID
-                        log.warning(f"[WA-INCOMING] Invalid phone in standard JID: {remote_jid}")
+                        log.warning(f"[WA-INCOMING] Could not normalize phone from standard JID: {remote_jid}")
                         customer_external_id = remote_jid
-                        from_number_e164 = None
                         phone_for_ai_check = remote_jid
                         
                 elif remote_jid.endswith('@lid'):
-                    # 🔥 FIX: @lid JID - store as customer_external_id, NOT as phone
-                    # DO NOT try to extract phone from @lid - it's NOT a phone number!
+                    # 🔥 FIX #3: LID JID - DO NOT extract phone from LID!
+                    # LID is NOT a phone number - it's an internal WhatsApp identifier
                     push_name = msg.get('pushName', 'Unknown')
                     log.info(f"[WA-INCOMING] @lid JID detected: {remote_jid}, pushName={push_name}")
-                    customer_external_id = remote_jid  # Store full @lid
-                    # 🔥 CRITICAL FIX: Keep from_number_e164 = None - don't overwrite with synthetic ID!
-                    # Using @lid as phone number causes validation failures and duplicate leads
-                    from_number_e164 = None
-                    # 🔥 NEW FIX: Store remoteJid for AI state checking
-                    phone_for_ai_check = remote_jid
+                    
+                    # Store LID as external ID for this conversation
+                    customer_external_id = remote_jid
+                    
+                    # 🔥 FIX #3: Try to extract phone from participant/sender_pn if available
+                    if remote_jid_alt:
+                        phone_raw = remote_jid_alt.replace('@s.whatsapp.net', '')
+                        from_number_e164 = normalize_phone(phone_raw)
+                        if from_number_e164:
+                            log.info(f"[WA-LID] Extracted phone from participant: {from_number_e164}")
+                        else:
+                            log.warning(f"[WA-LID] Could not normalize phone from participant: {remote_jid_alt}")
+                    else:
+                        log.info(f"[WA-LID] No participant field - using @lid as external_id only")
+                    
+                    phone_for_ai_check = customer_external_id  # Use LID for AI state
                     
                 else:
-                    # 🔥 FIX: Other non-standard JID - store as external ID
+                    # 🔥 FIX #6: Other non-standard JID - store as external ID
                     push_name = msg.get('pushName', 'Unknown')
-                    log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name} - storing as external ID")
+                    log.warning(f"[WA-INCOMING] Non-standard JID {remote_jid}, pushName={push_name}")
                     customer_external_id = remote_jid
-                    # 🔥 CRITICAL FIX: Keep from_number_e164 = None for non-standard JIDs
-                    from_number_e164 = None
-                    # 🔥 NEW FIX: Store remoteJid for AI state checking
                     phone_for_ai_check = remote_jid
                 
-                log.debug(f"[WA-INCOMING] remoteJid={remote_jid}, E.164={from_number_e164}, external_id={customer_external_id}")
+                log.info(f"[WA-INCOMING] Processed JIDs: remoteJid={(remote_jid or '')[:30]}, "
+                        f"remoteJidAlt={(remote_jid_alt or '')[:30]}, "
+                        f"phone_e164={from_number_e164}, external_id={(customer_external_id or '')[:30]}")
                 
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
                 # Different devices send messages in different formats:
@@ -989,17 +1004,29 @@ def baileys_webhook():
                 
                 log.info(f"[WA-INCOMING] biz={business_id}, from={from_number_e164}, remoteJid={remote_jid}, text={message_text[:50]}...")
                 
+                # 🔥 FIX #3: Calculate reply_jid - prefer @s.whatsapp.net over @lid
+                reply_jid = remote_jid  # Default: use remoteJid
+                if remote_jid_alt and remote_jid_alt.endswith('@s.whatsapp.net'):
+                    # Prefer participant/sender_pn if it's a standard WhatsApp number
+                    reply_jid = remote_jid_alt
+                    log.debug(f"[WA] Using remote_jid_alt as reply target: {reply_jid}")
+                elif remote_jid:
+                    log.debug(f"[WA] Using remote_jid as reply target: {reply_jid}")
+                
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
                 # 🔥 CRITICAL FIX: For @lid messages, pass customer_external_id instead of None
                 phone_or_id = from_number_e164 if from_number_e164 else customer_external_id
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
                     phone_number=phone_or_id,
-                    message_text=message_text
+                    message_text=message_text,
+                    whatsapp_jid=remote_jid,
+                    whatsapp_jid_alt=remote_jid_alt,
+                    phone_raw=phone_raw
                 )
                 
                 action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {phone_or_id}")
+                log.info(f"✅ {action} customer/lead for {phone_or_id}, reply_jid={reply_jid}")
                 
                 # Extract message_id from Baileys message structure
                 # This is critical for deduplication (same message_id = same message)

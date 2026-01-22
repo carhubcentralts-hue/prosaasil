@@ -7,6 +7,30 @@ const fs = require('fs');
 const path = require('path');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
+// 🔥 FIX #2: Version validation - Fail-fast if Baileys version mismatch
+const EXPECTED_BAILEYS_VERSION = '6.7.5';
+try {
+  const packageJson = require('./package.json');
+  const actualVersion = packageJson.dependencies['@whiskeysockets/baileys'];
+  console.log(`[BOOT] 🔍 Baileys version check: expected=${EXPECTED_BAILEYS_VERSION}, package.json=${actualVersion}`);
+  
+  // Strip ^ or ~ if present
+  const cleanVersion = actualVersion.replace(/[\^~]/, '');
+  if (cleanVersion !== EXPECTED_BAILEYS_VERSION) {
+    console.error(`[FATAL] ❌ Baileys version mismatch!`);
+    console.error(`[FATAL] Expected: ${EXPECTED_BAILEYS_VERSION}`);
+    console.error(`[FATAL] Found in package.json: ${actualVersion}`);
+    console.error(`[FATAL] This will cause shouldSyncHistoryMessage and other API errors.`);
+    console.error(`[FATAL] Fix: Update package.json to exactly "${EXPECTED_BAILEYS_VERSION}" (no ^ or ~)`);
+    console.error(`[FATAL] Then run: npm install`);
+    process.exit(1);
+  }
+  console.log(`[BOOT] ✅ Baileys version validated: ${EXPECTED_BAILEYS_VERSION}`);
+} catch (e) {
+  console.error(`[FATAL] Failed to validate Baileys version:`, e.message);
+  process.exit(1);
+}
+
 // ⚡ PERFORMANCE: Connection pooling with keep-alive
 const keepAliveAgent = new http.Agent({ 
   keepAlive: true, 
@@ -21,10 +45,44 @@ axios.defaults.timeout = 30000;  // 🔧 Increased from 10s to 30s for Flask web
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const HOST = process.env.BAILEYS_HOST || '0.0.0.0';  // ✅ Listen on all interfaces for Docker networking
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
-const FLASK_BASE_URL = process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000';
+// 🔥 FIX #1: Use BACKEND_BASE_URL if available, fallback to FLASK_BASE_URL
+const FLASK_BASE_URL = process.env.BACKEND_BASE_URL || process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000';
 
 if (!INTERNAL_SECRET) {
   console.error('[FATAL] INTERNAL_SECRET missing');
+  process.exit(1);
+}
+
+// 🔥 FIX #1: Wait for backend to be resolvable with retry
+async function waitForBackendReady(maxAttempts = 10, delayMs = 2000) {
+  console.log(`[BOOT] 🔍 Checking backend connectivity: ${FLASK_BASE_URL}`);
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await axios.get(`${FLASK_BASE_URL}/api/health`, {
+        headers: { 'X-Internal-Secret': INTERNAL_SECRET },
+        timeout: 5000
+      });
+      
+      if (response.status === 200) {
+        console.log(`[BOOT] ✅ Backend is ready: ${FLASK_BASE_URL}`);
+        return true;
+      }
+    } catch (err) {
+      const errCode = err?.code || 'UNKNOWN';
+      const errMsg = err?.message || String(err);
+      console.log(`[BOOT] ⚠️ Backend not ready (attempt ${attempt}/${maxAttempts}): ${errCode} - ${errMsg}`);
+      
+      if (attempt < maxAttempts) {
+        const waitTime = delayMs * Math.pow(1.5, attempt - 1); // Exponential backoff
+        console.log(`[BOOT] ⏳ Waiting ${Math.floor(waitTime/1000)}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+  
+  console.error(`[BOOT] ❌ Backend not reachable after ${maxAttempts} attempts: ${FLASK_BASE_URL}`);
+  console.error(`[BOOT] ❌ Check BACKEND_BASE_URL and ensure prosaas-api is running`);
   process.exit(1);
 }
 
@@ -118,6 +176,129 @@ const startingLocks = new Map(); // tenantId -> { starting: boolean, timestamp: 
 // 🔥 STEP 4 FIX: Track sending operations to prevent restart during send
 const sendingLocks = new Map(); // tenantId -> { isSending: boolean, activeSends: number, lastSendTime: number }
 
+// 🔥 FIX #3: Persistent message queue on filesystem (survives container restart)
+const QUEUE_DIR = path.join(process.cwd(), 'storage', 'queue');
+fs.mkdirSync(QUEUE_DIR, { recursive: true });
+
+// Load queue from disk on startup
+const messageQueue = [];
+try {
+  const queueFile = path.join(QUEUE_DIR, 'pending_messages.json');
+  if (fs.existsSync(queueFile)) {
+    const savedQueue = JSON.parse(fs.readFileSync(queueFile, 'utf8'));
+    messageQueue.push(...savedQueue);
+    console.log(`[BOOT] 📂 Loaded ${messageQueue.length} pending messages from disk`);
+  }
+} catch (e) {
+  console.error(`[BOOT] ⚠️ Failed to load queue from disk:`, e.message);
+}
+
+// Save queue to disk periodically
+function saveQueueToDisk() {
+  try {
+    const queueFile = path.join(QUEUE_DIR, 'pending_messages.json');
+    fs.writeFileSync(queueFile, JSON.stringify(messageQueue, null, 2));
+  } catch (e) {
+    console.error(`[QUEUE] ⚠️ Failed to save queue to disk:`, e.message);
+  }
+}
+
+// Auto-save every 30 seconds
+setInterval(saveQueueToDisk, 30000);
+
+const messageDedup = new Map(); // (tenantId:wa_message_id) -> timestamp to prevent duplicates
+const MAX_QUEUE_SIZE = 1000;
+const MAX_RETRY_ATTEMPTS = 5;
+const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
+const DEDUP_CLEANUP_MS = 600000; // Clean dedup entries older than 10 minutes
+
+// 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  
+  for (const [key, timestamp] of messageDedup.entries()) {
+    if (now - timestamp > DEDUP_CLEANUP_MS) {
+      messageDedup.delete(key);
+      cleaned++;
+    }
+  }
+  
+  if (cleaned > 0) {
+    console.log(`[DEDUP] Cleaned ${cleaned} old entries from dedup map (size: ${messageDedup.size})`);
+  }
+}, 300000); // Run cleanup every 5 minutes
+
+// 🔥 FIX #1: Process message queue periodically
+setInterval(() => {
+  if (messageQueue.length === 0) return;
+  
+  const now = Date.now();
+  const toRetry = [];
+  
+  // Find messages ready for retry
+  for (let i = messageQueue.length - 1; i >= 0; i--) {
+    const item = messageQueue[i];
+    const backoffDelay = RETRY_BACKOFF_MS[Math.min(item.attempts, RETRY_BACKOFF_MS.length - 1)];
+    
+    if (now - item.lastAttempt >= backoffDelay) {
+      toRetry.push(item);
+      messageQueue.splice(i, 1);
+    }
+  }
+  
+  // Retry messages
+  toRetry.forEach(item => {
+    retryWebhookDelivery(item);
+  });
+}, 10000); // Check every 10 seconds
+
+async function retryWebhookDelivery(item) {
+  const { tenantId, messageId, payload, attempts } = item;
+  
+  try {
+    console.log(`[${tenantId}] 🔄 Retrying webhook delivery (attempt ${attempts + 1}/${MAX_RETRY_ATTEMPTS})`);
+    
+    const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
+      payload,
+      { 
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': INTERNAL_SECRET 
+        },
+        timeout: 10000
+      }
+    );
+    
+    console.log(`[${tenantId}] ✅ Webhook retry succeeded: ${response.status}`);
+    // Remove from dedup map after successful delivery
+    messageDedup.delete(`${tenantId}:${messageId}`);
+    
+    // 🔥 FIX #3: Save queue after successful delivery
+    saveQueueToDisk();
+    
+  } catch (e) {
+    console.error(`[${tenantId}] ❌ Webhook retry failed (attempt ${attempts + 1}):`, e?.message || e);
+    
+    // Re-queue if under max attempts
+    if (attempts + 1 < MAX_RETRY_ATTEMPTS) {
+      item.attempts += 1;
+      item.lastAttempt = Date.now();
+      messageQueue.push(item);
+      console.log(`[${tenantId}] 📝 Message re-queued for retry (${attempts + 2}/${MAX_RETRY_ATTEMPTS})`);
+      
+      // 🔥 FIX #3: Save queue after re-queueing
+      saveQueueToDisk();
+    } else {
+      console.error(`[${tenantId}] ❌ Max retry attempts reached - dropping message ${messageId}`);
+      messageDedup.delete(`${tenantId}:${messageId}`);
+      
+      // 🔥 FIX #3: Save queue after dropping message
+      saveQueueToDisk();
+    }
+  }
+}
+
 // 🔧 HARDENING 1.1: Exponential backoff configuration for reconnection
 // 🔥 FIX: Increased resilience for slow/unstable connections
 const RECONNECT_CONFIG = {
@@ -157,11 +338,24 @@ async function safeClose(sock, tenantId) {
   
   console.log(`[${tenantId}] 🔚 safeClose: Closing existing socket...`);
   try {
-    // Remove all listeners first to prevent events during shutdown
-    sock.removeAllListeners();
+    // 🔥 FIX #5: Safely remove listeners - check if method exists
+    // Different Baileys versions may have different event emitter structures
+    if (sock.ev && typeof sock.ev.removeAllListeners === 'function') {
+      sock.ev.removeAllListeners();
+    } else if (typeof sock.removeAllListeners === 'function') {
+      sock.removeAllListeners();
+    } else {
+      console.log(`[${tenantId}] ⚠️ safeClose: No removeAllListeners method found`);
+    }
     
     // End the socket connection
-    sock.end();
+    if (typeof sock.end === 'function') {
+      sock.end();
+    } else if (typeof sock.close === 'function') {
+      sock.close();
+    } else {
+      console.log(`[${tenantId}] ⚠️ safeClose: No end/close method found`);
+    }
     
     // Wait a bit for socket to fully close
     await new Promise(resolve => setTimeout(resolve, 500));
@@ -879,7 +1073,11 @@ async function startSession(tenantId, forceRelink = false) {
       printQRInTerminal: false,
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      shouldSyncHistoryMessage: false,
+      // 🔥 FIX #2: Guard against missing shouldSyncHistoryMessage function
+      // Some Baileys versions don't have this function - provide safe fallback
+      shouldSyncHistoryMessage: typeof state.shouldSyncHistoryMessage === 'function' 
+        ? state.shouldSyncHistoryMessage 
+        : () => false,  // Default: don't sync history
       getMessage: async () => undefined,
       defaultQueryTimeoutMs: 20000,
       connectTimeoutMs: 30000,
@@ -1150,23 +1348,31 @@ async function startSession(tenantId, forceRelink = false) {
           }
           
           // CASE 3: RestartRequired (515) - WhatsApp server explicitly requests restart
+          // 🔥 FIX #5: Wrap in try-catch to prevent UNHANDLED exception
           if (reason === DisconnectReason.restartRequired) {
-            console.log(`[WA] ${tenantId}: 🔄 RESTART_REQUIRED (515) - auto-reconnect with existing auth`);
-            
-            // Keep auth, auto-reconnect after short delay
-            const attempts = (s.reconnectAttempts || 0) + 1;
-            sessions.delete(tenantId);
-            startingLocks.delete(tenantId);
-            
-            setTimeout(() => {
-              console.log(`[${tenantId}] ⏰ Auto-reconnecting after restartRequired (attempt ${attempts})...`);
-              getOrCreateSession(tenantId, 'restart_required').catch(err => {
-                console.error(`[WA-ERROR] ${tenantId}: restart_required reconnect failed:`, err.message);
-              });
-            }, 5000);
-            
-            if (rejectPromise) {
-              rejectPromise(new Error('restart_required'));
+            try {
+              console.log(`[WA] ${tenantId}: 🔄 RESTART_REQUIRED (515) - auto-reconnect with existing auth`);
+              
+              // Keep auth, auto-reconnect after short delay
+              const attempts = (s.reconnectAttempts || 0) + 1;
+              sessions.delete(tenantId);
+              startingLocks.delete(tenantId);
+              
+              setTimeout(() => {
+                console.log(`[${tenantId}] ⏰ Auto-reconnecting after restartRequired (attempt ${attempts})...`);
+                getOrCreateSession(tenantId, 'restart_required').catch(err => {
+                  console.error(`[WA-ERROR] ${tenantId}: restart_required reconnect failed:`, err.message);
+                });
+              }, 5000);
+              
+              if (rejectPromise) {
+                rejectPromise(new Error('restart_required'));
+              }
+            } catch (restartError) {
+              console.error(`[WA-ERROR] ${tenantId}: Error handling restart_required:`, restartError);
+              if (rejectPromise) {
+                rejectPromise(restartError);
+              }
             }
             return;
           }
@@ -1226,11 +1432,31 @@ async function startSession(tenantId, forceRelink = false) {
         const messages = payload.messages || [];
         
         console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
+        
+        // 🔥 FIX #3: Extract LID and Android information from messages
         messages.forEach((msg, idx) => {
           const fromMe = msg.key?.fromMe;
           const remoteJid = msg.key?.remoteJid;
+          const participant = msg.key?.participant;
           const pushName = msg.pushName || 'Unknown';
-          console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}, pushName=${pushName}`);
+          
+          // 🔥 FIX #3: Extract alternative JID (sender_pn) for proper reply routing
+          const messageObj = msg.message || {};
+          const senderKeyDistribution = messageObj.senderKeyDistributionMessage;
+          const protocolMsg = messageObj.protocolMessage;
+          
+          // Try to find sender_pn from various message fields
+          let senderPn = null;
+          if (participant && participant.endsWith('@s.whatsapp.net')) {
+            senderPn = participant;
+          }
+          
+          console.log(`[${tenantId}] Message ${idx}: fromMe=${fromMe}, remoteJid=${remoteJid}, participant=${participant || 'N/A'}, pushName=${pushName}`);
+          
+          // 🔥 FIX #3: Log LID vs standard JID for debugging
+          if (remoteJid.endsWith('@lid')) {
+            console.log(`[${tenantId}] Message ${idx}: ⚠️ LID detected: ${remoteJid}, senderPn=${senderPn || 'N/A'}`);
+          }
           
           const messageKeys = Object.keys(msg.message || {});
           console.log(`[${tenantId}] Message ${idx} content keys: ${messageKeys.join(', ')}`);
@@ -1294,21 +1520,98 @@ async function startSession(tenantId, forceRelink = false) {
         
         console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected - forwarding to Flask`);
         
+        // 🔥 FIX #1 & #4: Deduplication - check if we've already processed these messages
+        const newMessages = [];
+        for (const msg of incomingMessages) {
+          const messageId = msg.key?.id;
+          if (!messageId) continue;
+          
+          const dedupKey = `${tenantId}:${messageId}`;
+          const lastSeen = messageDedup.get(dedupKey);
+          const now = Date.now();
+          
+          // Skip if seen in last 5 minutes
+          if (lastSeen && (now - lastSeen) < 300000) {
+            console.log(`[${tenantId}] ⏭️ Skipping duplicate message ${messageId} (seen ${Math.floor((now - lastSeen)/1000)}s ago)`);
+            continue;
+          }
+          
+          messageDedup.set(dedupKey, now);
+          newMessages.push(msg);
+          
+          // Clean old dedup entries (keep last 10 minutes only)
+          if (messageDedup.size > 1000) {
+            for (const [key, timestamp] of messageDedup.entries()) {
+              if (now - timestamp > 600000) {
+                messageDedup.delete(key);
+              }
+            }
+          }
+        }
+        
+        if (newMessages.length === 0) {
+          console.log(`[${tenantId}] ⏭️ All messages were duplicates - skipping webhook`);
+          return;
+        }
+        
         const filteredPayload = {
           ...payload,
-          messages: incomingMessages
+          messages: newMessages
         };
         
-        const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
-          { tenantId, payload: filteredPayload },
-          { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
-        );
-        console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
-      } catch (e) { 
-        console.error(`[${tenantId}] ❌ [Webhook→Flask] failed:`, e?.message || e);
-        if (e.response) {
-          console.error(`[${tenantId}] Flask response:`, e.response.status, e.response.data);
+        // 🔥 FIX #1: Wrap webhook call with fail-safe and queue
+        try {
+          const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
+            { tenantId, payload: filteredPayload },
+            { 
+              headers: { 
+                'Content-Type': 'application/json',
+                'X-Internal-Secret': INTERNAL_SECRET 
+              },
+              timeout: 15000  // 15 second timeout
+            }
+          );
+          console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
+        } catch (e) {
+          console.error(`[${tenantId}] ❌ [Webhook→Flask] failed:`, e?.code || e?.message || e);
+          
+          // 🔥 FIX #1: Log DNS errors clearly
+          if (e?.code === 'EAI_AGAIN' || e?.code === 'ENOTFOUND') {
+            console.error(`[${tenantId}] 🔴 DNS ERROR: Cannot resolve ${FLASK_BASE_URL}`);
+            console.error(`[${tenantId}] 🔴 Check FLASK_BASE_URL/BACKEND_BASE_URL environment variable`);
+          }
+          
+          if (e.response) {
+            console.error(`[${tenantId}] Flask response:`, e.response.status, e.response.data);
+          }
+          
+          // 🔥 FIX #1: Queue messages for retry if backend is down
+          if (e?.code === 'EAI_AGAIN' || e?.code === 'ENOTFOUND' || e?.code === 'ECONNREFUSED' || 
+              e?.code === 'ETIMEDOUT' || (e.response && e.response.status >= 500)) {
+            
+            // Add to retry queue
+            for (const msg of newMessages) {
+              const messageId = msg.key?.id;
+              if (!messageId) continue;
+              
+              if (messageQueue.length < MAX_QUEUE_SIZE) {
+                messageQueue.push({
+                  tenantId,
+                  messageId,
+                  payload: { tenantId, payload: { ...payload, messages: [msg] } },
+                  attempts: 0,
+                  lastAttempt: Date.now(),
+                  createdAt: Date.now()
+                });
+                console.log(`[${tenantId}] 📝 Message ${messageId} queued for retry (queue size: ${messageQueue.length})`);
+              } else {
+                console.error(`[${tenantId}] ❌ Message queue full (${MAX_QUEUE_SIZE}) - dropping message ${messageId}`);
+              }
+            }
+          }
         }
+      } catch (e) { 
+        console.error(`[${tenantId}] ❌ [messages.upsert] handler error:`, e?.message || e);
       }
     });
 
@@ -1377,8 +1680,12 @@ async function disconnectSession(tenantId) {
 
 /** single server instance – we export start() to avoid double listen */
 let server = null;
-function start() {
+async function start() {
   if (server) return server;
+  
+  // 🔥 FIX #1: Wait for backend before starting webhook processing
+  await waitForBackendReady();
+  
   server = app.listen(PORT, HOST, () => {
     const addr = server.address();
     console.log(`[BOOT] Baileys listening on ${HOST}:${addr.port} pid=${process.pid}`);

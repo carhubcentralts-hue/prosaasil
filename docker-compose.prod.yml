@@ -289,6 +289,9 @@ services:
   # ===========================================
   baileys:
     environment:
+      # 🔥 FIX #1: Override backend URL to use prosaas-api service in production
+      FLASK_BASE_URL: http://prosaas-api:5000
+      BACKEND_BASE_URL: http://prosaas-api:5000
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
     depends_on:
