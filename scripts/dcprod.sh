@@ -102,7 +102,7 @@ check_backend_not_running() {
 }
 
 # Run docker compose with both configuration files
-echo ">>> Running docker compose command: $@"
+echo ">>> Running docker compose command..."
 if ! docker compose --env-file .env \
   -f docker-compose.yml \
   -f docker-compose.prod.yml \
