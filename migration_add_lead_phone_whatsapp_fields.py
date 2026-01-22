@@ -11,7 +11,14 @@ This supports:
 - Proper identity mapping across channels
 - Reliable reply routing (always reply to last seen JID)
 
-Run with: python migration_add_lead_phone_whatsapp_fields.py
+⚠️  DEPRECATION NOTICE:
+This standalone migration has been superseded by Migration 94 in server/db_migrate.py.
+Running this script is no longer necessary. Instead, run:
+    python -m server.db_migrate
+
+This will apply all migrations, including the WhatsApp JID columns.
+
+Run with: python migration_add_lead_phone_whatsapp_fields.py (DEPRECATED - use db_migrate instead)
 """
 import os
 import sys
