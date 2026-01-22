@@ -162,21 +162,10 @@ def create_minimal_app():
     """
     app = Flask(__name__)
     
-    # Database configuration with SSL fix
-    DATABASE_URL = os.getenv('DATABASE_URL', '')
-    
-    # 🔥 CRITICAL FIX: Fail fast if DATABASE_URL is not set
-    # This prevents confusing DNS errors from invalid database URLs
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "❌ CRITICAL: DATABASE_URL environment variable is not set!\n"
-            "   Set DATABASE_URL in your .env file or environment.\n"
-            "   Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
-        )
-    
-    if DATABASE_URL.startswith('postgres://'):
-        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    # 🔥 FIX: Single source of truth for database URL
+    # Use unified function that prioritizes DATABASE_URL, falls back to DB_POSTGRESDB_*
+    from server.database_url import get_database_url
+    DATABASE_URL = get_database_url()
     
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY', secrets.token_hex(32)),
@@ -259,7 +248,11 @@ def create_app():
     # This prevents confusing DNS errors from invalid database URLs
     from server.database_validation import validate_database_url
     validate_database_url()
-    DATABASE_URL = os.getenv('DATABASE_URL', '')
+    
+    # 🔥 FIX: Single source of truth for database URL
+    # Use unified function that prioritizes DATABASE_URL, falls back to DB_POSTGRESDB_*
+    from server.database_url import get_database_url
+    DATABASE_URL = get_database_url()
     
     # Enterprise Security Configuration
     app.config.update({

@@ -53,23 +53,10 @@ def api_health():
             # Test basic connectivity
             db.session.execute(text('SELECT 1'))
             
-            # Verify alembic_version table exists (migrations have run)
-            result = db.session.execute(text(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = current_schema() "
-                "AND table_name = :table_name"
-            ), {"table_name": "alembic_version"})
-            if not result.fetchone():
-                # Schema not initialized
-                db.session.rollback()
-                return jsonify({
-                    "status": "initializing",
-                    "service": "prosaasil-api",
-                    "message": "Database schema not initialized (alembic_version missing)",
-                    "timestamp": datetime.now().isoformat()
-                }), 503
+            # 🔥 FIX: Check for core tables instead of relying only on alembic_version
+            # This ensures we detect when migrations ran but pointed to different DB
             
-            # Verify business table exists (core schema)
+            # Check 1: Verify business table exists (core schema)
             result = db.session.execute(text(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = current_schema() "
@@ -82,6 +69,23 @@ def api_health():
                     "status": "initializing",
                     "service": "prosaasil-api",
                     "message": "Database schema not initialized (business table missing)",
+                    "timestamp": datetime.now().isoformat()
+                }), 503
+            
+            # Check 2: Verify alembic_version table exists (migrations have run)
+            # Note: This is secondary check - business table is the primary indicator
+            result = db.session.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = :table_name"
+            ), {"table_name": "alembic_version"})
+            if not result.fetchone():
+                # Schema not initialized with migrations
+                db.session.rollback()
+                return jsonify({
+                    "status": "initializing",
+                    "service": "prosaasil-api",
+                    "message": "Database schema not initialized (alembic_version missing)",
                     "timestamp": datetime.now().isoformat()
                 }), 503
             

@@ -16,8 +16,14 @@ class ProductionConfig:
     SECRET_KEY = os.getenv("JWT_SECRET", "production-secret-key-change-this")
     # ❌ WTF_CSRF_ENABLED הוסר - משתמשים רק בSeaSurf לפי ההנחיות
     
-    # Database configuration
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")
+    # Database configuration - use single source of truth
+    # 🔥 FIX: Use get_database_url() for consistent DB connection
+    try:
+        from server.database_url import get_database_url
+        SQLALCHEMY_DATABASE_URI = get_database_url()
+    except Exception:
+        # Fallback for edge cases (e.g., during import before env is set)
+        SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_recycle": 300,
