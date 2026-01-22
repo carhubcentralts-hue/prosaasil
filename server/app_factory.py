@@ -1084,15 +1084,21 @@ def create_app():
                     _migrations_complete.set()
                     raise RuntimeError(f"Migration failed - cannot proceed: {e}") from e
             else:
-                # Development mode - quick table creation
+                # Development mode - use migrations (NOT db.create_all())
+                # 🔥 CRITICAL: All schema changes must go through migrations
+                # This prevents drift between dev and prod schemas
                 try:
                     with app.app_context():
-                        db.create_all()
+                        # Run migrations even in dev mode to ensure schema consistency
+                        logger.info("🔧 Running migrations in development mode...")
+                        from server.db_migrate import apply_migrations
+                        apply_migrations()
                         # 🔥 CRITICAL FIX: Signal migrations complete in dev mode too
                         _migrations_complete.set()
                         logger.info("🔒 Dev mode DB setup complete - warmup can now proceed")
-                except Exception:
+                except Exception as e:
                     # Even on failure, allow warmup to proceed
+                    logger.warning(f"⚠️ Dev mode migrations failed: {e}")
                     _migrations_complete.set()
                     pass
             

@@ -1380,6 +1380,33 @@ def get_notifications():
         import traceback
         logger.error(f"❌ ERROR in /api/notifications: {e}")
         logger.error(f"❌ STACKTRACE:\n{traceback.format_exc()}")
+        
+        # 🔒 FAIL-SOFT: Handle schema mismatch errors gracefully
+        # If database schema is outdated (missing columns), return empty result
+        # instead of 500 error. This prevents downtime during migrations.
+        if PSYCOPG2_AVAILABLE and isinstance(e, psycopg2.errors.UndefinedColumn):
+            logger.error("❌ Database schema outdated - missing column in query")
+            logger.error("   Action: Run migrations with: python -m server.db_migrate")
+            return jsonify({
+                "notifications": [],
+                "overdue": [],
+                "today": [],
+                "soon": [],
+                "warning": "Database schema outdated. Please run migrations."
+            }), 200  # Return 200 with empty data for graceful degradation
+        
+        # Check for UndefinedColumn in string representation (fallback)
+        if 'does not exist' in str(e).lower() and 'column' in str(e).lower():
+            logger.error("❌ Database schema mismatch detected")
+            logger.error("   Action: Run migrations with: python -m server.db_migrate")
+            return jsonify({
+                "notifications": [],
+                "overdue": [],
+                "today": [],
+                "soon": [],
+                "warning": "Database schema outdated. Please run migrations."
+            }), 200  # Return 200 with empty data for graceful degradation
+        
         return jsonify({"error": f"Internal error: {str(e)}"}), 500
     
     notifications = []

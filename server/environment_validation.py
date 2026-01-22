@@ -24,6 +24,8 @@ CRITICAL_COLUMNS = {
     ],
     'leads': [
         'gender',  # Required for lead queries and call lookups
+        'phone_raw',  # Required for WhatsApp lead creation and debugging
+        'last_call_direction',  # Required for lead filtering by call direction
     ],
     'business': [
         'voice_id',  # Required for per-business voice selection in Realtime API
