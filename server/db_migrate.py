@@ -17,6 +17,9 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+# ProSaaS custom migration marker for alembic_version table
+PROSAAS_MIGRATION_MARKER = 'prosaas_custom_migrations'
+
 # Migration 89 required columns for receipt_sync_runs
 MIGRATION_89_REQUIRED_COLUMNS = [
     'from_date', 'to_date', 'months_back',
@@ -222,9 +225,9 @@ def apply_migrations():
                 # Insert a marker version to indicate ProSaaS custom migrations
                 db.session.execute(text("""
                     INSERT INTO alembic_version(version_num)
-                    SELECT 'prosaas_custom_migrations'
+                    SELECT :marker
                     WHERE NOT EXISTS (SELECT 1 FROM alembic_version)
-                """))
+                """), {"marker": PROSAAS_MIGRATION_MARKER})
                 migrations_applied.append("create_alembic_version_table")
                 checkpoint("✅ Created alembic_version table with marker")
             except Exception as e:

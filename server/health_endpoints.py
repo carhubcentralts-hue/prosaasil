@@ -109,6 +109,7 @@ def api_health():
     return jsonify({
         "status": "ok",
         "service": "prosaasil-api",
+        "warnings": [],
         "timestamp": datetime.now().isoformat()
     }), 200
 
