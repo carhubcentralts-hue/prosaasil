@@ -29,7 +29,7 @@ def generate_trace_id(business_id: int, remote_jid: str, message_id: str = None)
         return f"{business_id}:{phone}"
 
 
-def extract_inbound_text(msg: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+def extract_inbound_text(msg: Dict[str, Any]) -> tuple[str, Optional[str]]:
     """
     Extract text from WhatsApp message in any format
     
@@ -45,7 +45,7 @@ def extract_inbound_text(msg: Dict[str, Any]) -> tuple[Optional[str], Optional[s
         msg: WhatsApp message object
     
     Returns:
-        tuple: (text, format_type) or (None, None) if no text found
+        tuple: (text, format_type) where text is always a string (empty if no text found)
     """
     message_content = msg.get('message', {})
     
@@ -80,7 +80,7 @@ def extract_inbound_text(msg: Dict[str, Any]) -> tuple[Optional[str], Optional[s
     
     # Try audioMessage (no text, but we should note it)
     if message_content.get('audioMessage'):
-        return None, 'audioMessage'
+        return '', 'audioMessage'
     
     # Try button response
     button_response = message_content.get('buttonsResponseMessage', {})
@@ -100,4 +100,5 @@ def extract_inbound_text(msg: Dict[str, Any]) -> tuple[Optional[str], Optional[s
     if text:
         return text, 'listResponseMessage'
     
-    return None, None
+    # Return empty string if no text found
+    return '', None
