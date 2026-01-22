@@ -2,22 +2,24 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# מערכת
+# System dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# רק manifests
+# Copy package manifests only
 COPY services/whatsapp/package.json services/whatsapp/package-lock.json ./
 
-# התקנה אחת ויחידה – זה חייב לעבוד
-# Disable strict SSL for npm install in case of cert issues in build environment
+# Single npm ci install - must work reliably
+# Note: strict-ssl temporarily disabled due to SELF_SIGNED_CERT_IN_CHAIN errors in some build environments
+# This is a known issue with corporate proxies/firewalls during Docker builds
+# SSL is re-enabled immediately after install for security
 RUN npm config set strict-ssl false && \
     npm ci --omit=dev --no-audit --no-fund && \
     npm config set strict-ssl true
 
-# קוד אפליקציה
+# Copy application code
 COPY services/whatsapp/ ./
 
 ENV NODE_ENV=production
