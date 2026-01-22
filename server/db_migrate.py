@@ -4143,6 +4143,91 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ receipt_sync_runs table doesn't exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 90: Expand contract_sign_events event_type constraint
+        # ═══════════════════════════════════════════════════════════════════════
+        # ROOT CAUSE: The current constraint only allows 7 event types, but the code
+        # tries to insert 'file_viewed', 'updated', 'deleted', 'signature_fields_updated'
+        # causing constraint violations and breaking PDF preview/audit trail.
+        #
+        # FIX: Expand the CHECK constraint to include ALL event types used in routes_contracts.py:
+        # - file_viewed (line 889)
+        # - updated (line 1699)
+        # - deleted (line 1759)
+        # - signature_fields_updated (line 1887)
+        # 
+        # This is NOT "softening errors" - it's fixing the schema to match the code.
+        # The constraint exists to prevent typos, not to restrict legitimate event types.
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('contract_sign_events'):
+            checkpoint("🔧 Running Migration 90: Expand contract_sign_events event_type constraint")
+            
+            try:
+                # Check if constraint exists by querying check_constraints
+                result = db.session.execute(text("""
+                    SELECT constraint_name, check_clause
+                    FROM information_schema.check_constraints 
+                    WHERE constraint_name LIKE '%event_type%'
+                    AND constraint_schema = 'public'
+                """))
+                constraint_row = result.fetchone()
+                
+                if constraint_row:
+                    constraint_name = constraint_row[0]
+                    check_clause = constraint_row[1] if len(constraint_row) > 1 else ''
+                    
+                    # Check if ALL new event types are already in the constraint
+                    missing_types = []
+                    new_types = ['file_viewed', 'updated', 'deleted', 'signature_fields_updated']
+                    for event_type in new_types:
+                        if event_type not in check_clause:
+                            missing_types.append(event_type)
+                    
+                    if not missing_types:
+                        checkpoint("  ℹ️ All event types already in constraint - skipping")
+                    else:
+                        checkpoint(f"  → Adding missing event types: {', '.join(missing_types)}")
+                        
+                        # Drop old constraint and add new one with ALL event types
+                        db.session.execute(text(f"""
+                            ALTER TABLE contract_sign_events 
+                            DROP CONSTRAINT IF EXISTS {constraint_name}
+                        """))
+                        
+                        # Complete list of ALL event types used in routes_contracts.py
+                        db.session.execute(text("""
+                            ALTER TABLE contract_sign_events 
+                            ADD CONSTRAINT contract_sign_events_event_type_check 
+                            CHECK (event_type IN (
+                                'created', 
+                                'file_uploaded', 
+                                'file_downloaded',
+                                'file_viewed',
+                                'sent_for_signature', 
+                                'viewed', 
+                                'signed_completed', 
+                                'cancelled',
+                                'updated',
+                                'deleted',
+                                'signature_fields_updated'
+                            ))
+                        """))
+                        
+                        migrations_applied.append('expand_contract_event_types')
+                        checkpoint("✅ Migration 90 completed - Expanded event_type constraint")
+                        checkpoint(f"   📋 Added: {', '.join(missing_types)}")
+                        checkpoint("   🎯 Purpose: Fix PDF preview/audit trail failures")
+                        checkpoint("   🔒 Security: Constraint still prevents typos, now matches actual code usage")
+                else:
+                    checkpoint("  ℹ️ Event type constraint not found - table may not have constraint yet")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 90 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
