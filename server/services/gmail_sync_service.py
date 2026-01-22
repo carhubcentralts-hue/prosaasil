@@ -154,8 +154,10 @@ PDF_RECEIPT_INDICATORS = [
 
 # Minimum confidence to save as receipt - LOWERED to catch more receipts!
 MIN_CONFIDENCE = 5  # Super low threshold - catch everything that might be a receipt
-REVIEW_THRESHOLD = 30  # Below this goes to pending_review (lowered significantly)
+AUTO_APPROVE_THRESHOLD = 50  # Above this = auto-approve, below = pending_review
+REVIEW_THRESHOLD = 30  # Deprecated - using AUTO_APPROVE_THRESHOLD instead
 ATTACHMENT_CONFIDENCE_BOOST = 10  # Increased boost for attachments
+MAX_SNIPPET_MATCHES = 3  # Maximum number of snippet indicators to count
 
 # Error message truncation (to fit in DB error_message column)
 ERROR_MESSAGE_MAX_LENGTH = 450  # Leave room for message_id prefix
@@ -529,8 +531,8 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
         if indicator in snippet:
             confidence += points
             snippet_matches += 1
-            # Allow multiple matches (up to 3) for better detection
-            if snippet_matches >= 3:
+            # Allow multiple matches for better detection
+            if snippet_matches >= MAX_SNIPPET_MATCHES:
                 break
     
     # CRITICAL FIX: If we have ANY attachment, give benefit of doubt
@@ -1304,7 +1306,7 @@ def process_single_receipt_message(
                             logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
                             preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
                 except Exception as preview_err:
-                    preview_error_msg = str(preview_err)[:500]  # Limit length
+                    preview_error_msg = str(preview_err)[:ERROR_MESSAGE_MAX_LENGTH]
                     logger.warning(f"⚠️ Preview generation failed: {preview_err}", exc_info=True)
                 
                 break  # Only process first attachment
@@ -1337,7 +1339,7 @@ def process_single_receipt_message(
                     logger.info(f"✅ Screenshot generated from HTML email")
                     time.sleep(0.1)  # Small delay after Playwright
         except Exception as e:
-            preview_error_msg = str(e)[:500]  # Limit length
+            preview_error_msg = str(e)[:ERROR_MESSAGE_MAX_LENGTH]
             logger.error(f"❌ Screenshot generation failed: {e}")
     
     # CRITICAL FIX: Don't skip receipts just because they lack attachments
@@ -1366,8 +1368,15 @@ def process_single_receipt_message(
     else:
         received_at = datetime.now(timezone.utc)
     
-    # Determine status
-    status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
+    # Determine status based on confidence with two-tier system
+    # High confidence (>=50): Auto-approve
+    # Medium/Low confidence (5-49): Pending review
+    if confidence >= AUTO_APPROVE_THRESHOLD:
+        status = 'approved'
+        logger.debug(f"✅ Auto-approved (confidence={confidence} >= {AUTO_APPROVE_THRESHOLD})")
+    else:
+        status = 'pending_review'
+        logger.debug(f"⏸️ Pending review (confidence={confidence} < {AUTO_APPROVE_THRESHOLD})")
     
     # Parse invoice date
     invoice_date = None

@@ -32,6 +32,17 @@ const SYNC_POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
 const SYNC_MAX_POLL_DURATION_MS = 10 * 60 * 1000; // Stop polling after 10 minutes
 const FILTER_DEBOUNCE_MS = 300; // Debounce filter changes
 
+// Preview status constants
+const PREVIEW_STATUS = {
+  PENDING: 'pending',
+  GENERATED: 'generated',
+  FAILED: 'failed',
+  NOT_AVAILABLE: 'not_available',
+  SKIPPED: 'skipped'
+} as const;
+
+type PreviewStatus = typeof PREVIEW_STATUS[keyof typeof PREVIEW_STATUS];
+
 // =============================================
 // Mobile Date Picker Modal Component
 // Uses Portal for proper layering and scroll handling on iOS
@@ -325,7 +336,7 @@ interface ReceiptItem {
   status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt';
   attachment_id: number | null;
   preview_attachment_id: number | null;
-  preview_status?: 'pending' | 'generated' | 'failed' | 'not_available' | 'skipped';
+  preview_status?: PreviewStatus;
   preview_failure_reason?: string | null;
   attachment?: {
     id: number;
@@ -569,7 +580,7 @@ const ReceiptCard: React.FC<{
       {!receipt.preview_attachment?.signed_url && receipt.preview_status && (
         <div className="mb-3 p-2 rounded-lg bg-gray-50 border border-gray-200">
           <div className="flex items-center gap-2 text-xs">
-            {receipt.preview_status === 'failed' && (
+            {receipt.preview_status === PREVIEW_STATUS.FAILED && (
               <>
                 <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -585,13 +596,13 @@ const ReceiptCard: React.FC<{
                 </div>
               </>
             )}
-            {receipt.preview_status === 'pending' && (
+            {receipt.preview_status === PREVIEW_STATUS.PENDING && (
               <>
                 <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
                 <span className="text-blue-700">ממתין לתצוגה מקדימה</span>
               </>
             )}
-            {receipt.preview_status === 'not_available' && (
+            {receipt.preview_status === PREVIEW_STATUS.NOT_AVAILABLE && (
               <>
                 <XCircle className="w-4 h-4 text-gray-400 flex-shrink-0" />
                 <span className="text-gray-600">תצוגה מקדימה לא זמינה</span>
