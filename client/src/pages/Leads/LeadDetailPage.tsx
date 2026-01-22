@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File, Send, FileSignature, MoreHorizontal, ClipboardList, FolderOpen } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -19,20 +19,30 @@ import { getStatusColor, getStatusLabel } from '../../shared/utils/status';
 
 interface LeadDetailPageProps {}
 
-const TABS = [
-  { key: 'overview', label: 'סקירה', icon: User },
-  { key: 'conversation', label: 'וואטסאפ', icon: MessageSquare },
-  { key: 'wa_template', label: 'שליחה מתבנית', icon: Send },  // NEW: WhatsApp template-based sending for single lead
-  { key: 'calls', label: 'שיחות טלפון', icon: Phone },
-  { key: 'email', label: 'מייל', icon: Mail },
-  { key: 'contracts', label: 'חוזים', icon: FileSignature },  // NEW: Lead contracts
-  { key: 'appointments', label: 'פגישות', icon: Calendar },
-  { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
-  { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone },  // AI-generated call summaries for customer service
-  { key: 'notes', label: 'הערות חופשיות', icon: FileText },  // Manual free-text notes
+// Primary tabs - always visible (3 maximum per requirements)
+const PRIMARY_TABS = [
+  { key: 'activity', label: 'פעילות', icon: Activity },  // Unified Timeline
+  { key: 'reminders', label: 'משימות', icon: ClipboardList },
+  { key: 'documents', label: 'מסמכים', icon: FolderOpen },  // Contracts + Notes with files
 ] as const;
 
-type TabKey = typeof TABS[number]['key'];
+// Secondary tabs - shown in "More" dropdown
+const SECONDARY_TABS = [
+  { key: 'overview', label: 'סקירה', icon: User },
+  { key: 'conversation', label: 'וואטסאפ', icon: MessageSquare },
+  { key: 'wa_template', label: 'שליחה מתבנית', icon: Send },
+  { key: 'calls', label: 'שיחות טלפון', icon: Phone },
+  { key: 'email', label: 'מייל', icon: Mail },
+  { key: 'contracts', label: 'חוזים', icon: FileSignature },
+  { key: 'appointments', label: 'פגישות', icon: Calendar },
+  { key: 'ai_notes', label: 'שירות לקוחות AI', icon: Phone },
+  { key: 'notes', label: 'הערות חופשיות', icon: FileText },
+] as const;
+
+// All tabs combined for backward compatibility
+const ALL_TABS = [...PRIMARY_TABS, ...SECONDARY_TABS] as const;
+
+type TabKey = typeof PRIMARY_TABS[number]['key'] | typeof SECONDARY_TABS[number]['key'];
 
 export default function LeadDetailPage({}: LeadDetailPageProps) {
   const { id } = useParams<{ id: string }>();
@@ -93,12 +103,25 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   }, [fromParam, navigate, location.search]);
   
   const [lead, setLead] = useState<Lead | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [activeTab, setActiveTab] = useState<TabKey>('activity');  // Default to Activity (Timeline)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [whatsappChatOpen, setWhatsappChatOpen] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
   const [editingReminder, setEditingReminder] = useState<LeadReminder | null>(null);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);  // For "More" dropdown
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Close more menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
@@ -293,35 +316,43 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header - sticky at top for both mobile and desktop */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
+    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-0">
+      {/* Header - sticky at top for both mobile and desktop with improved actions */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm" style={{ direction: 'rtl' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Desktop Header */}
-          <div className="hidden sm:flex items-center justify-between h-16">
-            <div className="flex items-center">
+          {/* Desktop Header - Enhanced with all quick actions */}
+          <div className="hidden lg:flex items-center justify-between py-3">
+            <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleBack}
-                className="mr-4"
+                className="min-h-[44px]"
                 data-testid="button-back"
               >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                חזור לרשימת הלידים
+                <ArrowLeft className="w-4 h-4 ml-2" />
+                חזור
               </Button>
+              <div className="border-r border-gray-200 h-8 mx-2"></div>
               <div>
                 <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2" data-testid="text-lead-name">
                   {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם'}
-                  {/* Desktop navigation arrows */}
                   <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="desktop" />
                 </h1>
-                <p className="text-sm text-gray-500" data-testid="text-lead-phone">
-                  {lead.phone_e164}
-                </p>
+                <div className="flex items-center gap-3 text-sm text-gray-500">
+                  <span data-testid="text-lead-phone">{lead.phone_e164}</span>
+                  {lead.source && (
+                    <Badge variant="info" className="text-xs">{lead.source}</Badge>
+                  )}
+                  {lead.created_at && (
+                    <span className="text-xs text-gray-400">{formatDate(lead.created_at)}</span>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
+            
+            {/* Desktop Quick Actions - Always visible */}
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <StatusDropdown
                 currentStatus={lead.status}
                 statuses={statuses}
@@ -329,16 +360,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 data-testid="status-dropdown"
               />
               <Button 
-                size="sm" 
-                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
-                data-testid="button-call"
-              >
-                <Phone className="w-4 h-4 mr-2" />
-                התקשר
-              </Button>
-              <Button 
-                size="sm" 
-                variant="secondary" 
+                size="sm"
+                className="min-h-[44px] bg-green-600 hover:bg-green-700"
                 onClick={() => {
                   if (lead.phone_e164 || lead.phone) {
                     const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
@@ -349,23 +372,52 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 }}
                 data-testid="button-whatsapp"
               >
-                <MessageSquare className="w-4 h-4 mr-2" />
+                <MessageSquare className="w-4 h-4 ml-2" />
                 וואטסאפ
+              </Button>
+              <Button 
+                size="sm"
+                className="min-h-[44px]"
+                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
+                data-testid="button-call"
+              >
+                <Phone className="w-4 h-4 ml-2" />
+                התקשר
+              </Button>
+              <Button 
+                size="sm" 
+                variant="secondary"
+                className="min-h-[44px]"
+                onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
+                data-testid="button-new-task"
+              >
+                <Clock className="w-4 h-4 ml-2" />
+                משימה
+              </Button>
+              <Button 
+                size="sm" 
+                variant="secondary"
+                className="min-h-[44px]"
+                onClick={() => setActiveTab('notes')}
+                data-testid="button-new-note"
+              >
+                <FileText className="w-4 h-4 ml-2" />
+                תיעוד
               </Button>
             </div>
           </div>
           
-          {/* Mobile Header */}
-          <div className="sm:hidden py-4">
-            <div className="flex items-center justify-between mb-3">
+          {/* Mobile Header - Compact with essential info */}
+          <div className="lg:hidden py-3">
+            <div className="flex items-center justify-between mb-2">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleBack}
+                className="min-h-[44px] min-w-[44px]"
                 data-testid="button-back-mobile"
               >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                חזור
+                <ArrowLeft className="w-5 h-5" />
               </Button>
               <StatusDropdown
                 currentStatus={lead.status}
@@ -375,7 +427,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 data-testid="status-dropdown-mobile"
               />
             </div>
-            <div className="text-center mb-4">
+            <div className="text-center">
               <h1 className="text-lg font-semibold text-gray-900" data-testid="text-lead-name-mobile">
                 {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם'}
               </h1>
@@ -383,116 +435,291 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 {lead.phone_e164}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button 
-                size="sm" 
-                className="flex-1" 
-                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
-                data-testid="button-call-mobile"
-              >
-                <Phone className="w-4 h-4 mr-2" />
-                התקשר
-              </Button>
-              <Button 
-                size="sm" 
-                variant="secondary" 
-                className="flex-1"
-                onClick={() => {
-                  if (lead.phone_e164 || lead.phone) {
-                    const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
-                    window.open(`https://wa.me/${cleanPhone}`, '_blank');
-                  } else {
-                    setWhatsappChatOpen(true);
-                  }
-                }}
-                data-testid="button-whatsapp-mobile"
-              >
-                <MessageSquare className="w-4 h-4 mr-2" />
-                וואטסאפ
-              </Button>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b border-gray-200">
+      {/* Tabs - Segmented Control Style with "More" dropdown */}
+      <div className="bg-white border-b border-gray-200 sticky top-[73px] lg:top-[81px] z-10" style={{ direction: 'rtl' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Desktop Tabs */}
-          <nav className="hidden sm:flex space-x-8" aria-label="Tabs">
-            {TABS.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`${
-                    isActive
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-                  data-testid={`tab-${tab.key}`}
-                >
-                  <Icon className="w-4 h-4 mr-2" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-          
-          {/* Mobile Tabs - Scrollable */}
-          <div className="sm:hidden overflow-x-auto">
-            <nav className="flex space-x-6 py-3" aria-label="Mobile Tabs">
-              {TABS.map((tab) => {
+          <div className="flex items-center justify-between gap-3 py-3">
+            {/* Primary Tabs - Segmented Control */}
+            <div className="flex items-center bg-gray-100 rounded-lg p-1 flex-1 max-w-md">
+              {PRIMARY_TABS.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
                 return (
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
-                    className={`${
-                      isActive
-                        ? 'bg-blue-100 text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    } whitespace-nowrap px-3 py-2 rounded-lg font-medium text-sm flex items-center flex-shrink-0`}
-                    data-testid={`tab-mobile-${tab.key}`}
+                    className={`
+                      flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all
+                      min-h-[44px]
+                      ${isActive
+                        ? 'bg-white text-blue-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                      }
+                    `}
+                    data-testid={`tab-${tab.key}`}
                   >
-                    <Icon className="w-4 h-4 mr-2" />
-                    {tab.label}
+                    <Icon className="w-4 h-4" />
+                    <span className="hidden sm:inline">{tab.label}</span>
                   </button>
                 );
               })}
-            </nav>
+            </div>
+            
+            {/* More Menu Dropdown */}
+            <div className="relative" ref={moreMenuRef}>
+              <button
+                onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+                className={`
+                  flex items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all
+                  min-h-[44px] border
+                  ${SECONDARY_TABS.some(t => t.key === activeTab)
+                    ? 'bg-blue-50 text-blue-600 border-blue-200'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }
+                `}
+                data-testid="button-more-menu"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                <span className="hidden sm:inline">עוד</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${moreMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {moreMenuOpen && (
+                <div className="absolute left-0 lg:right-0 lg:left-auto top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 min-w-[200px] max-h-[300px] overflow-y-auto">
+                  {SECONDARY_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => {
+                          setActiveTab(tab.key);
+                          setMoreMenuOpen(false);
+                        }}
+                        className={`
+                          w-full flex items-center gap-3 px-4 py-3 text-sm text-right transition-colors
+                          min-h-[44px]
+                          ${isActive
+                            ? 'bg-blue-50 text-blue-600'
+                            : 'text-gray-700 hover:bg-gray-50'
+                          }
+                        `}
+                        data-testid={`tab-more-${tab.key}`}
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span>{tab.label}</span>
+                        {isActive && <span className="mr-auto text-blue-600">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        {activeTab === 'overview' && (
-          <OverviewTab 
-            lead={lead} 
-            reminders={reminders} 
-            onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }}
-            isEditing={isEditing}
-            isSaving={isSaving}
-            editForm={editForm}
-            setEditForm={setEditForm}
-            startEditing={startEditing}
-            cancelEditing={cancelEditing}
-            saveLead={saveLead}
-          />
+      {/* Content - Responsive Grid Layout */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-6">
+        {/* Desktop: 2-column layout for Activity tab */}
+        {activeTab === 'activity' ? (
+          <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-6">
+            {/* Main Column - Timeline */}
+            <div className="mb-6 lg:mb-0">
+              <ActivityTab activities={activities} />
+            </div>
+            
+            {/* Sidebar - Lead Info & Quick Actions (Desktop only) */}
+            <aside className="hidden lg:block space-y-4">
+              {/* Lead Info Card */}
+              <Card className="p-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  פרטי קשר
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">שם:</span>
+                    <span className="text-gray-900">{lead.first_name} {lead.last_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">טלפון:</span>
+                    <span className="text-gray-900 font-mono">{lead.phone_e164}</span>
+                  </div>
+                  {lead.email && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">מייל:</span>
+                      <span className="text-gray-900 truncate max-w-[180px]">{lead.email}</span>
+                    </div>
+                  )}
+                  {lead.source && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">מקור:</span>
+                      <span className="text-gray-900">{lead.source}</span>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="w-full mt-3"
+                  onClick={() => setActiveTab('overview')}
+                >
+                  <Pencil className="w-3 h-3 ml-2" />
+                  ערוך פרטים
+                </Button>
+              </Card>
+              
+              {/* Quick Tasks Card */}
+              <Card className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    משימות קרובות
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {reminders.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-2">אין משימות</p>
+                ) : (
+                  <div className="space-y-2">
+                    {reminders.slice(0, 3).map((reminder) => (
+                      <div key={reminder.id} className="flex items-start gap-2 text-sm">
+                        <Circle className={`w-3 h-3 mt-1 flex-shrink-0 ${reminder.completed_at ? 'text-green-500' : 'text-gray-400'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`truncate ${reminder.completed_at ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                            {reminder.note}
+                          </p>
+                          {reminder.due_at && (
+                            <p className="text-xs text-gray-400">{formatDate(reminder.due_at)}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {reminders.length > 3 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-full text-xs"
+                        onClick={() => setActiveTab('reminders')}
+                      >
+                        הצג עוד ({reminders.length - 3})
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </Card>
+              
+              {/* Tags Card */}
+              {lead.tags && lead.tags.length > 0 && (
+                <Card className="p-4">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <Tag className="w-4 h-4" />
+                    תגיות
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {lead.tags.map((tag, index) => (
+                      <Badge key={index} variant="info" className="text-xs">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </aside>
+          </div>
+        ) : (
+          /* Other tabs - full width */
+          <div>
+            {activeTab === 'overview' && (
+              <OverviewTab 
+                lead={lead} 
+                reminders={reminders} 
+                onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }}
+                isEditing={isEditing}
+                isSaving={isSaving}
+                editForm={editForm}
+                setEditForm={setEditForm}
+                startEditing={startEditing}
+                cancelEditing={cancelEditing}
+                saveLead={saveLead}
+              />
+            )}
+            {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
+            {activeTab === 'wa_template' && <WhatsAppTemplateTab lead={lead} />}
+            {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
+            {activeTab === 'email' && <EmailTab lead={lead} />}
+            {activeTab === 'contracts' && <ContractsTab lead={lead} />}
+            {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
+            {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
+            {activeTab === 'ai_notes' && <AINotesTab lead={lead} onUpdate={fetchLead} />}
+            {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
+            {activeTab === 'documents' && (
+              <div className="space-y-6">
+                <ContractsTab lead={lead} />
+                <NotesTab lead={lead} onUpdate={fetchLead} />
+              </div>
+            )}
+          </div>
         )}
-        {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
-        {activeTab === 'wa_template' && <WhatsAppTemplateTab lead={lead} />}
-        {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
-        {activeTab === 'email' && <EmailTab lead={lead} />}
-        {activeTab === 'contracts' && <ContractsTab lead={lead} />}
-        {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
-        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
-        {activeTab === 'ai_notes' && <AINotesTab lead={lead} onUpdate={fetchLead} />}
-        {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
+      </div>
+
+      {/* Mobile Bottom Action Bar - Fixed at bottom */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 safe-area-bottom z-30 shadow-lg" style={{ direction: 'rtl' }}>
+        <div className="flex items-center justify-around py-2 px-2 gap-1">
+          <button
+            onClick={() => {
+              if (lead.phone_e164 || lead.phone) {
+                const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
+                window.open(`https://wa.me/${cleanPhone}`, '_blank');
+              } else {
+                setWhatsappChatOpen(true);
+              }
+            }}
+            className="flex flex-col items-center justify-center py-2 px-3 min-h-[56px] min-w-[56px] rounded-lg text-green-600 hover:bg-green-50 active:bg-green-100 transition-colors"
+            data-testid="mobile-action-whatsapp"
+          >
+            <MessageSquare className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">וואטסאפ</span>
+          </button>
+          
+          <button
+            onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
+            className="flex flex-col items-center justify-center py-2 px-3 min-h-[56px] min-w-[56px] rounded-lg text-blue-600 hover:bg-blue-50 active:bg-blue-100 transition-colors"
+            data-testid="mobile-action-call"
+          >
+            <Phone className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">התקשר</span>
+          </button>
+          
+          <button
+            onClick={() => { setEditingReminder(null); setReminderModalOpen(true); }}
+            className="flex flex-col items-center justify-center py-2 px-3 min-h-[56px] min-w-[56px] rounded-lg text-purple-600 hover:bg-purple-50 active:bg-purple-100 transition-colors"
+            data-testid="mobile-action-task"
+          >
+            <Clock className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">משימה</span>
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('notes')}
+            className="flex flex-col items-center justify-center py-2 px-3 min-h-[56px] min-w-[56px] rounded-lg text-gray-600 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+            data-testid="mobile-action-note"
+          >
+            <FileText className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">תיעוד</span>
+          </button>
+        </div>
       </div>
 
       {/* WhatsApp Chat Modal */}
@@ -518,8 +745,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         />
       )}
       
-      {/* Mobile navigation arrows - floating in bottom-right */}
-      <div className="sm:hidden">
+      {/* Mobile navigation arrows - positioned above action bar */}
+      <div className="lg:hidden">
         <LeadNavigationArrows currentLeadId={parseInt(id!)} variant="mobile" />
       </div>
     </div>
