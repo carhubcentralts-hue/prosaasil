@@ -6,7 +6,6 @@ services:
   # Note: Config templating happens at BUILD time, not runtime
   # ===========================================
   nginx:
-    container_name: prosaas-nginx
     build:
       context: .
       dockerfile: Dockerfile.nginx
@@ -34,14 +33,13 @@ services:
       timeout: 3s
       retries: 10
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Redis - Queue Management for Background Jobs
   # ===========================================
   redis:
     image: redis:7-alpine
-    container_name: prosaas-redis
     restart: unless-stopped
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
@@ -52,7 +50,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Backend API Service
@@ -60,7 +58,6 @@ services:
   # In production, use prosaas-api and prosaas-calls via --profile prod instead
   # ===========================================
   backend:
-    container_name: prosaas-backend
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -113,14 +110,13 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Frontend Service
   # Serves static files, no external port exposure
   # ===========================================
   frontend:
-    container_name: prosaas-frontend
     build:
       context: .
       dockerfile: Dockerfile.frontend
@@ -135,7 +131,7 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Worker Service (Heavy background tasks)
@@ -143,7 +139,6 @@ services:
   # Uses: Redis queue (RQ)
   # ===========================================
   worker:
-    container_name: prosaas-worker
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -188,14 +183,13 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # Baileys WhatsApp Service
   # Keep external port for debugging (can be removed later)
   # ===========================================
   baileys:
-    container_name: prosaas-baileys
     build:
       context: .
       dockerfile: Dockerfile.baileys
@@ -227,7 +221,7 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - prosaas-network
+      - prosaas-net
 
   # ===========================================
   # n8n Automation Platform
@@ -235,7 +229,6 @@ services:
   # ===========================================
   n8n:
     image: n8nio/n8n:2.3.1
-    container_name: prosaas-n8n
     restart: unless-stopped
     env_file:
       - .env
@@ -272,14 +265,15 @@ services:
     expose:
       - "5678"
     networks:
-      - prosaas-network
+      - prosaas-net
 
 # ===========================================
 # Docker Networks
 # ===========================================
 networks:
-  prosaas-network:
-    driver: bridge
+  prosaas-net:
+    external: true
+    name: prosaas-net
 
 volumes:
   n8n_data:
