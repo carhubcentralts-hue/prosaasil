@@ -93,21 +93,34 @@ echo ""
 
 # Check 5: API health endpoint (with retry loop)
 echo "=== Check 5: API Health Endpoint (Wait for Ready) ==="
-echo "Waiting for /api/health to return 200 OK..."
+echo "Waiting for /api/health to return 200 OK (via nginx proxy)..."
 
 MAX_WAIT=120  # Wait up to 2 minutes
 ELAPSED=0
 HEALTH_OK=false
 
+# Try to detect if we're in Docker environment
+if docker ps >/dev/null 2>&1 && docker exec prosaasil-nginx-1 true 2>/dev/null; then
+    # Inside Docker - test through nginx container
+    HEALTH_CMD="docker exec prosaasil-nginx-1 curl -s http://localhost/api/health 2>&1 || echo 'failed'"
+    echo "Testing via nginx container (validates full proxy chain)"
+else
+    # Outside Docker or nginx not available - use localhost
+    HEALTH_CMD="curl -s http://localhost/api/health 2>&1 || echo 'failed'"
+    echo "Testing via localhost (nginx may not be reachable)"
+fi
+
 while [ $ELAPSED -lt $MAX_WAIT ]; do
-    HEALTH_RESPONSE=$(curl -s http://localhost/api/health 2>&1 || echo "failed")
+    HEALTH_RESPONSE=$(eval "$HEALTH_CMD")
     
     if echo "$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
         echo -e "${GREEN}✅ PASS: API health endpoint returns OK (after ${ELAPSED}s)${NC}"
+        echo "   Health check validates: DB connectivity, alembic_version, business table"
         HEALTH_OK=true
         break
     elif echo "$HEALTH_RESPONSE" | grep -q '"status":"initializing"'; then
-        echo -n "⏳ Waiting for migrations to complete... (${ELAPSED}s/${MAX_WAIT}s)\r"
+        MESSAGE=$(echo "$HEALTH_RESPONSE" | grep -o '"message":"[^"]*"' | cut -d'"' -f4 || echo "waiting")
+        echo -n "⏳ Initializing: $MESSAGE (${ELAPSED}s/${MAX_WAIT}s)\r"
     elif echo "$HEALTH_RESPONSE" | grep -q '"status":"unhealthy"'; then
         echo -e "\n${RED}❌ FAIL: API reports unhealthy status${NC}"
         echo "   Response: $HEALTH_RESPONSE"
@@ -125,6 +138,7 @@ if [ "$HEALTH_OK" = false ]; then
     if [ $ELAPSED -ge $MAX_WAIT ]; then
         echo -e "\n${RED}❌ FAIL: API health endpoint did not become healthy within ${MAX_WAIT}s${NC}"
         echo "   Last response: $HEALTH_RESPONSE"
+        echo "   This means DB schema is not ready or migrations failed"
         FAILURES=$((FAILURES + 1))
     fi
 fi
