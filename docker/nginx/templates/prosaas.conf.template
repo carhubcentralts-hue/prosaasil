@@ -34,8 +34,12 @@ server {
     }
 
     # API endpoints - proxy to backend
+    # 🔥 CRITICAL FIX: Remove /api/ from proxy_pass to prevent double /api/api/ path
+    # NGINX strips location prefix and appends the rest to proxy_pass
+    # So: /api/auth/login → backend receives /api/auth/login (correct)
+    # NOT: /api/auth/login → /api/api/auth/login (404!)
     location /api/ {
-        proxy_pass http://$api_upstream/api/;
+        proxy_pass http://$api_upstream;
         
         # HTTP/1.1 required for keepalive and streaming
         proxy_http_version 1.1;
