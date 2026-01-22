@@ -27,9 +27,12 @@ echo "=== Check 1: DATABASE_URL Environment Variable ==="
 echo "Checking if DATABASE_URL is set in prosaas-api container..."
 if docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T prosaas-api env | grep -q "DATABASE_URL="; then
     echo -e "${GREEN}✅ PASS: DATABASE_URL is set in prosaas-api${NC}"
-    # Show driver without password
-    DB_DRIVER=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T prosaas-api env | grep DATABASE_URL | cut -d'=' -f2 | cut -d':' -f1)
-    echo "   Database driver: $DB_DRIVER"
+    # Show only driver without exposing credentials
+    DB_URL=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T prosaas-api env | grep "^DATABASE_URL=" | cut -d'=' -f2 || echo "")
+    if [ -n "$DB_URL" ]; then
+        DB_DRIVER=$(echo "$DB_URL" | cut -d':' -f1)
+        echo "   Database driver: $DB_DRIVER"
+    fi
 else
     echo -e "${RED}❌ FAIL: DATABASE_URL is NOT set in prosaas-api${NC}"
     echo "   This will cause login failures!"
@@ -60,7 +63,9 @@ try:
     print('✅ Database connection successful')
     exit(0)
 except Exception as e:
-    print(f'❌ Database connection failed: {e}')
+    # Sanitize error message to avoid exposing credentials
+    error_msg = str(e)[:100]
+    print(f'❌ Database connection failed: {error_msg}')
     exit(1)
 " 2>&1; then
     echo -e "${GREEN}✅ PASS: Database is reachable and query works${NC}"
@@ -86,18 +91,42 @@ else
 fi
 echo ""
 
-# Check 5: API health endpoint
-echo "=== Check 5: API Health Endpoint ==="
-echo "Checking /api/health endpoint..."
-HEALTH_RESPONSE=$(curl -s http://localhost/api/health 2>&1 || echo "failed")
-if echo "$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
-    echo -e "${GREEN}✅ PASS: API health endpoint returns OK${NC}"
-elif echo "$HEALTH_RESPONSE" | grep -q '"status":"initializing"'; then
-    echo -e "${YELLOW}⚠️  WARNING: API is still initializing (migrations in progress)${NC}"
-else
-    echo -e "${RED}❌ FAIL: API health endpoint not responding correctly${NC}"
-    echo "   Response: $HEALTH_RESPONSE"
-    FAILURES=$((FAILURES + 1))
+# Check 5: API health endpoint (with retry loop)
+echo "=== Check 5: API Health Endpoint (Wait for Ready) ==="
+echo "Waiting for /api/health to return 200 OK..."
+
+MAX_WAIT=120  # Wait up to 2 minutes
+ELAPSED=0
+HEALTH_OK=false
+
+while [ $ELAPSED -lt $MAX_WAIT ]; do
+    HEALTH_RESPONSE=$(curl -s http://localhost/api/health 2>&1 || echo "failed")
+    
+    if echo "$HEALTH_RESPONSE" | grep -q '"status":"ok"'; then
+        echo -e "${GREEN}✅ PASS: API health endpoint returns OK (after ${ELAPSED}s)${NC}"
+        HEALTH_OK=true
+        break
+    elif echo "$HEALTH_RESPONSE" | grep -q '"status":"initializing"'; then
+        echo -n "⏳ Waiting for migrations to complete... (${ELAPSED}s/${MAX_WAIT}s)\r"
+    elif echo "$HEALTH_RESPONSE" | grep -q '"status":"unhealthy"'; then
+        echo -e "\n${RED}❌ FAIL: API reports unhealthy status${NC}"
+        echo "   Response: $HEALTH_RESPONSE"
+        FAILURES=$((FAILURES + 1))
+        break
+    else
+        echo -n "⏳ Waiting for API to respond... (${ELAPSED}s/${MAX_WAIT}s)\r"
+    fi
+    
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+done
+
+if [ "$HEALTH_OK" = false ]; then
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        echo -e "\n${RED}❌ FAIL: API health endpoint did not become healthy within ${MAX_WAIT}s${NC}"
+        echo "   Last response: $HEALTH_RESPONSE"
+        FAILURES=$((FAILURES + 1))
+    fi
 fi
 echo ""
 
