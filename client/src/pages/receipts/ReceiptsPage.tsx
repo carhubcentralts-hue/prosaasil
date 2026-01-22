@@ -325,6 +325,8 @@ interface ReceiptItem {
   status: 'pending_review' | 'approved' | 'rejected' | 'not_receipt';
   attachment_id: number | null;
   preview_attachment_id: number | null;
+  preview_status?: 'pending' | 'generated' | 'failed' | 'not_available' | 'skipped';
+  preview_failure_reason?: string | null;
   attachment?: {
     id: number;
     filename: string;
@@ -559,6 +561,39 @@ const ReceiptCard: React.FC<{
               }`}
               style={{ width: `${receipt.confidence}%` }}
             />
+          </div>
+        </div>
+      )}
+      
+      {/* Preview Status - Show if preview failed or not available */}
+      {!receipt.preview_attachment?.signed_url && receipt.preview_status && (
+        <div className="mb-3 p-2 rounded-lg bg-gray-50 border border-gray-200">
+          <div className="flex items-center gap-2 text-xs">
+            {receipt.preview_status === 'failed' && (
+              <>
+                <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-amber-700 font-medium">תצוגה מקדימה נכשלה</span>
+                  {receipt.preview_failure_reason && (
+                    <p className="text-gray-600 mt-1 text-xs truncate" title={receipt.preview_failure_reason}>
+                      {receipt.preview_failure_reason}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+            {receipt.preview_status === 'pending' && (
+              <>
+                <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                <span className="text-blue-700">ממתין לתצוגה מקדימה</span>
+              </>
+            )}
+            {receipt.preview_status === 'not_available' && (
+              <>
+                <XCircle className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <span className="text-gray-600">תצוגה מקדימה לא זמינה</span>
+              </>
+            )}
           </div>
         </div>
       )}
