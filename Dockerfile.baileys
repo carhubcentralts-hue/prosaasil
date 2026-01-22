@@ -17,12 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files AND node_modules (pre-installed on host)
+# ⚠️ WORKAROUND: npm ci times out after ~70 seconds in GitHub Actions Runner
+# Solution: Install node_modules locally with `npm ci --omit=dev` and copy to image
+# This avoids the timeout issue during Docker build
 COPY services/whatsapp/package*.json ./
-
-# Install dependencies
-# ✅ Use npm ci for faster, more reliable installs with package-lock.json
-RUN npm ci --omit=dev
+COPY services/whatsapp/node_modules ./node_modules
 
 # Copy application code
 COPY services/whatsapp/baileys_service.js ./
