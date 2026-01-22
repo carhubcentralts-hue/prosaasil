@@ -1104,6 +1104,11 @@ def create_app():
                 # due to missing columns (e.g., business.company_id)
                 import time
                 
+                # Check if warmup is disabled via environment variable
+                if os.getenv("DISABLE_WARMUP") == "true":
+                    logger.info("⚠️ Warmup disabled by DISABLE_WARMUP environment variable")
+                    return
+                
                 # Use global _migrations_complete event
                 global _migrations_complete
                 
@@ -1114,7 +1119,16 @@ def create_app():
                 if not migrations_ready:
                     error_msg = "❌ Warmup timeout waiting for migrations - CANNOT proceed with invalid schema"
                     logger.error(error_msg)
-                    raise RuntimeError(error_msg)
+                    
+                    # 🔥 PRODUCTION FIX: Never crash the app because of warmup timeout
+                    # Warmup is best-effort optimization, not a blocker for app startup
+                    env_mode = os.getenv("ENV", os.getenv("FLASK_ENV", "development"))
+                    if env_mode == "production" or os.getenv("PRODUCTION", "0") in ("1", "true", "True"):
+                        logger.warning("⚠️ Skipping warmup failure in production - app will continue without warmup")
+                        return
+                    else:
+                        # In development, still raise to catch issues early
+                        raise RuntimeError(error_msg)
                 else:
                     logger.info("✅ Migrations complete - starting warmup")
                 
