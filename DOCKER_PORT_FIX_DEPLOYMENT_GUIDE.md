@@ -1,5 +1,8 @@
 # Docker Port Conflict Fix - Deployment Guide
 
+> **⚠️ לקריאה מעודכנת ומפורטת בעברית:**  
+> ראה [DEPLOYMENT_GUIDE_PRODUCTION.md](./DEPLOYMENT_GUIDE_PRODUCTION.md)
+
 ## Problem Summary
 
 The deployment was failing due to port conflicts on the Docker host:
@@ -7,8 +10,28 @@ The deployment was failing due to port conflicts on the Docker host:
 - Baileys port 3300 was exposed to the host
 - Multiple stacks running simultaneously (prosaas-* and prosaasil-*)
 - Docker-proxy conflicts causing containers to fail
+- Using `-p prosaas` flag caused duplicate stack naming issues
 
 In production, internal services should **NOT** expose ports to the host. They should only use `expose` to make them available within the Docker network. Only nginx (the reverse proxy) should publish ports 80/443 to the host.
+
+## Quick Start
+
+### Using the Deployment Script (Recommended)
+
+```bash
+# Clean deployment
+./scripts/dcprod.sh down
+./scripts/dcprod.sh up -d --build --force-recreate
+./scripts/verify_production.sh
+
+# Quick update
+./scripts/dcprod.sh up -d
+
+# Check status
+./scripts/dcprod.sh ps
+```
+
+**Important:** The `dcprod.sh` script now does **NOT** use the `-p` flag. Docker automatically determines the project name from the directory name, preventing duplicate stacks.
 
 ## Changes Made
 
@@ -27,12 +50,22 @@ In production, internal services should **NOT** expose ports to the host. They s
 - Already has correct override for Redis: `ports: []`
 - No changes needed - production overrides are correct
 
-### 3. Nginx Configuration
-**Verified nginx uses correct service names:**
-- ✅ `proxy_pass http://prosaas-api:5000` (not localhost)
-- ✅ `proxy_pass http://prosaas-calls:5050` (not localhost)
-- ✅ `proxy_pass http://frontend:80` (not localhost)
-- ✅ `proxy_pass http://n8n:5678` (not localhost)
+### 3. scripts/dcprod.sh
+**Critical Fix: Removed `-p prosaas` flag**
+- Before: `docker compose -f ... -p prosaas "$@"`
+- After: `docker compose -f ... "$@"` (no -p flag)
+- Docker now determines project name from directory
+- This prevents duplicate stacks (prosaas-* vs prosaasil-*)
+- Ensures idempotent deployments
+
+### 4. Nginx Configuration
+**Verified nginx uses correct service names (production):**
+- ✅ Production uses `proxy_pass http://prosaas-api:5000` (not localhost)
+- ✅ Production uses `proxy_pass http://prosaas-calls:5050` (not localhost)
+- ✅ Production uses `proxy_pass http://frontend:80` (not localhost)
+- ✅ All environments use `proxy_pass http://n8n:5678` (not localhost)
+
+**Note:** Service names are configured at build time via nginx Dockerfile build args. Development uses `backend:5000` while production uses separate `prosaas-api:5000` and `prosaas-calls:5050` services.
 
 ## Deployment Instructions
 
@@ -185,8 +218,11 @@ curl -I http://localhost/health
 # Check nginx logs
 docker logs <nginx-container-id> --tail=100
 
-# Verify nginx can reach upstreams
+# Verify nginx can reach upstreams (use actual service name from your deployment)
+# For production:
 docker exec -it <nginx-container-id> curl -I http://prosaas-api:5000/health
+# For development:
+docker exec -it <nginx-container-id> curl -I http://backend:5000/api/health
 ```
 
 ## Verification Checklist
@@ -204,7 +240,8 @@ docker exec -it <nginx-container-id> curl -I http://prosaas-api:5000/health
 
 ## Notes
 
-- This fix addresses the port conflict issue described in the Hebrew problem statement
+- This fix addresses the port conflict issue preventing successful production deployments
 - The configuration now follows Docker best practices for production deployments
 - Only nginx should expose ports to the host - all other services communicate via the internal Docker network
 - The `expose` directive makes ports available within the Docker network but doesn't publish them to the host
+- Service names in nginx are configured at build time and differ between development (backend:5000) and production (prosaas-api:5000, prosaas-calls:5050)

@@ -34,7 +34,7 @@ VALIDATION_FAILED=false
 
 # Check 1: Validate no backend/legacy service is running
 echo "📝 Check 1: Validating no backend/legacy service..."
-BACKEND_RUNNING=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps --format json 2>/dev/null | grep '"Service":"backend"' || echo "")
+BACKEND_RUNNING=$(./scripts/dcprod.sh ps --format json 2>/dev/null | grep '"Service":"backend"' || echo "")
 
 if [ -n "$BACKEND_RUNNING" ]; then
     echo -e "${RED}❌ FAIL: backend service is running in production!${NC}"
@@ -53,7 +53,7 @@ OPTIONAL_SERVICES=("baileys" "n8n")
 echo "   Required services:"
 for service in "${EXPECTED_SERVICES[@]}"; do
     # Check if service is running (handle both docker compose and docker ps formats)
-    SERVICE_RUNNING=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps "$service" 2>/dev/null | grep -E "Up|running" || echo "")
+    SERVICE_RUNNING=$(./scripts/dcprod.sh ps "$service" 2>/dev/null | grep -E "Up|running" || echo "")
     
     if [ -z "$SERVICE_RUNNING" ]; then
         # Try checking by container name
@@ -71,7 +71,7 @@ done
 
 echo "   Optional services:"
 for service in "${OPTIONAL_SERVICES[@]}"; do
-    SERVICE_RUNNING=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml ps "$service" 2>/dev/null | grep -E "Up|running" || echo "")
+    SERVICE_RUNNING=$(./scripts/dcprod.sh ps "$service" 2>/dev/null | grep -E "Up|running" || echo "")
     if [ -n "$SERVICE_RUNNING" ]; then
         echo -e "   ${GREEN}✅ ${service} (optional)${NC}"
     else

@@ -60,13 +60,13 @@ fi
 
 # Validate production override
 echo "📝 Checking docker-compose.yml + docker-compose.prod.yml merge..."
-if docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet >/dev/null 2>&1; then
+if ./scripts/dcprod.sh config --quiet >/dev/null 2>&1; then
     echo -e "${GREEN}✅ Compose files merge successfully${NC}"
 else
     echo -e "${RED}❌ Compose merge has errors${NC}"
     echo ""
     echo "Full error output:"
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml config 2>&1 | grep -A 3 -i "error\|invalid" || true
+    ./scripts/dcprod.sh config 2>&1 | grep -A 3 -i "error\|invalid" || true
     exit 1
 fi
 
@@ -75,7 +75,7 @@ echo ""
 echo "📝 Validating nginx upstream services..."
 
 # Get the merged config
-MERGED_CONFIG=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config 2>/dev/null)
+MERGED_CONFIG=$(./scripts/dcprod.sh config 2>/dev/null)
 
 # Extract nginx environment variables
 API_UPSTREAM=$(echo "$MERGED_CONFIG" | grep -A 100 "nginx:" | grep "API_UPSTREAM:" | head -1 | sed 's/.*API_UPSTREAM: *//;s/"//g' || echo "backend")
@@ -159,7 +159,7 @@ echo -e "${GREEN}✅ All validations passed!${NC}"
 echo ""
 echo "Deployment commands:"
 echo "  # Production (without backend, uses prosaas-api/prosaas-calls):"
-echo "  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
+echo "  ./scripts/dcprod.sh up -d"
 echo ""
 echo "  # Development (with backend using --profile dev):"
 echo "  docker compose --profile dev up -d"

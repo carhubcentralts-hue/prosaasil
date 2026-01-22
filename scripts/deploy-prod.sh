@@ -73,10 +73,10 @@ echo -e "This may take several minutes..."
 echo -e "${YELLOW}⚠ Using --no-cache for nginx to ensure config is rebuilt${NC}"
 
 # Build nginx with --no-cache to ensure build args are applied
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull --no-cache nginx
+./scripts/dcprod.sh build --pull --no-cache nginx
 
 # Build other services normally (with cache)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull \
+./scripts/dcprod.sh build --pull \
     prosaas-api \
     prosaas-calls \
     worker \
@@ -90,7 +90,7 @@ echo -e "\n${BLUE}Step 4: Recreating containers...${NC}"
 
 # Use --force-recreate to ensure containers pick up new config
 # Use --no-deps to avoid recreating dependencies unnecessarily
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate \
+./scripts/dcprod.sh up -d --force-recreate \
     nginx \
     prosaas-api \
     prosaas-calls \
@@ -108,7 +108,7 @@ sleep 5
 
 # Check container status
 echo -e "\nContainer Status:"
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+./scripts/dcprod.sh ps
 
 # Step 6: Clean up old images (optional, saves disk space)
 echo -e "\n${BLUE}Step 6: Cleaning up old images...${NC}"
