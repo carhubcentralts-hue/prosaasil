@@ -23,6 +23,21 @@ MIGRATION_89_REQUIRED_COLUMNS = [
     'run_to_completion', 'max_seconds_per_run', 'skipped_count'
 ]
 
+# Migration 90: Complete list of valid contract event types
+CONTRACT_EVENT_TYPES = [
+    'created',
+    'file_uploaded',
+    'file_downloaded',
+    'file_viewed',
+    'sent_for_signature',
+    'viewed',
+    'signed_completed',
+    'cancelled',
+    'updated',
+    'deleted',
+    'signature_fields_updated'
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -4142,6 +4157,254 @@ def apply_migrations():
                 checkpoint("  ✅ Schema validation passed - all required columns exist")
         else:
             checkpoint("  ℹ️ receipt_sync_runs table doesn't exist - skipping")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 90: Expand contract_sign_events event_type constraint
+        # ═══════════════════════════════════════════════════════════════════════
+        # ROOT CAUSE: The current constraint only allows 7 event types, but the code
+        # tries to insert 'file_viewed', 'updated', 'deleted', 'signature_fields_updated'
+        # causing constraint violations and breaking PDF preview/audit trail.
+        #
+        # FIX: Expand the CHECK constraint to include ALL event types used in routes_contracts.py:
+        # - file_viewed (line 889)
+        # - updated (line 1699)
+        # - deleted (line 1759)
+        # - signature_fields_updated (line 1887)
+        # 
+        # This is NOT "softening errors" - it's fixing the schema to match the code.
+        # The constraint exists to prevent typos, not to restrict legitimate event types.
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('contract_sign_events'):
+            checkpoint("🔧 Running Migration 90: Expand contract_sign_events event_type constraint")
+            
+            try:
+                # Check if constraint exists by querying check_constraints
+                result = db.session.execute(text("""
+                    SELECT constraint_name, check_clause
+                    FROM information_schema.check_constraints 
+                    WHERE constraint_name LIKE '%event_type%'
+                    AND constraint_schema = 'public'
+                """))
+                constraint_row = result.fetchone()
+                
+                if constraint_row:
+                    constraint_name = constraint_row[0]
+                    check_clause = constraint_row[1] if len(constraint_row) > 1 else ''
+                    
+                    # Check if ALL event types from the constant are in the constraint
+                    missing_types = []
+                    for event_type in CONTRACT_EVENT_TYPES:
+                        if event_type not in check_clause:
+                            missing_types.append(event_type)
+                    
+                    if not missing_types:
+                        checkpoint("  ℹ️ All event types already in constraint - skipping")
+                    else:
+                        checkpoint(f"  → Adding missing event types: {', '.join(missing_types)}")
+                        
+                        # Drop old constraint and add new one with ALL event types
+                        db.session.execute(text(f"""
+                            ALTER TABLE contract_sign_events 
+                            DROP CONSTRAINT IF EXISTS {constraint_name}
+                        """))
+                        
+                        # Build constraint with all event types from constant
+                        event_types_sql = ', '.join([f"'{et}'" for et in CONTRACT_EVENT_TYPES])
+                        db.session.execute(text(f"""
+                            ALTER TABLE contract_sign_events 
+                            ADD CONSTRAINT contract_sign_events_event_type_check 
+                            CHECK (event_type IN ({event_types_sql}))
+                        """))
+                        
+                        migrations_applied.append('expand_contract_event_types')
+                        checkpoint("✅ Migration 90 completed - Expanded event_type constraint")
+                        checkpoint(f"   📋 Added: {', '.join(missing_types)}")
+                        checkpoint("   🎯 Purpose: Fix PDF preview/audit trail failures")
+                        checkpoint("   🔒 Security: Constraint still prevents typos, now matches actual code usage")
+                else:
+                    checkpoint("  ℹ️ Event type constraint not found - table may not have constraint yet")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 90 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ contract_sign_events table does not exist - skipping")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 91: Add Preview Tracking Fields to Receipts Table
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Track preview generation status and failure reasons for debugging
+        # 
+        # Current issue: When preview generation fails, we log it but don't store
+        # the failure in the database. This makes it hard to:
+        # 1. Show users which receipts have preview issues
+        # 2. Retry failed previews automatically
+        # 3. Debug why previews are failing
+        #
+        # Solution: Add two fields to receipts table:
+        # - preview_status: 'pending'|'generated'|'failed'|'not_available'
+        # - preview_failure_reason: TEXT for storing error message
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('receipts'):
+            checkpoint("🔧 Running Migration 91: Add preview tracking to receipts table")
+            
+            try:
+                fields_to_add = []
+                
+                # Add preview_status field
+                if not check_column_exists('receipts', 'preview_status'):
+                    checkpoint("  → Adding preview_status column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN preview_status VARCHAR(20) DEFAULT 'pending'
+                    """))
+                    
+                    # Add CHECK constraint for valid values
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_receipt_preview_status 
+                        CHECK (preview_status IN ('pending', 'generated', 'failed', 'not_available', 'skipped'))
+                    """))
+                    
+                    fields_to_add.append('preview_status')
+                    checkpoint("    ✅ preview_status added with constraint")
+                
+                # Add preview_failure_reason field
+                if not check_column_exists('receipts', 'preview_failure_reason'):
+                    checkpoint("  → Adding preview_failure_reason column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN preview_failure_reason TEXT
+                    """))
+                    
+                    fields_to_add.append('preview_failure_reason')
+                    checkpoint("    ✅ preview_failure_reason added")
+                
+                # Backfill existing receipts with appropriate status
+                if fields_to_add:
+                    checkpoint("  → Backfilling existing receipts with status")
+                    
+                    # Set 'generated' for receipts that have preview_attachment_id
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET preview_status = 'generated' 
+                        WHERE preview_attachment_id IS NOT NULL 
+                        AND preview_status = 'pending'
+                    """))
+                    generated_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    # Set 'not_available' for old receipts without preview (won't retry automatically)
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET preview_status = 'not_available' 
+                        WHERE preview_attachment_id IS NULL 
+                        AND preview_status = 'pending'
+                        AND created_at < NOW() - INTERVAL '7 days'
+                    """))
+                    old_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    checkpoint(f"    ✅ Backfilled: {generated_count} generated, {old_count} not_available")
+                    
+                    migrations_applied.append('add_receipt_preview_tracking')
+                    checkpoint("✅ Migration 91 completed - Receipt preview tracking enabled")
+                    checkpoint("   📋 Purpose: Track preview generation status and enable retries")
+                    checkpoint("   🎯 Benefits: Better UI feedback + automatic retry for failed previews")
+                else:
+                    checkpoint("  ℹ️ All preview tracking fields already exist - skipping")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 91 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ receipts table does not exist - skipping")
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 92: Add needs_review and receipt_type fields for better filtering
+        # ═══════════════════════════════════════════════════════════════════════
+        # PURPOSE: Address false positives from low MIN_CONFIDENCE (5)
+        # 
+        # New fields:
+        # - needs_review: Flag for low-confidence receipts (5-14) or missing critical data
+        # - receipt_type: Classify receipt types (confirmation|receipt|invoice|statement)
+        #
+        # This allows:
+        # 1. Filter out "confirmation emails" from reports/summaries
+        # 2. User can review low-confidence items separately
+        # 3. Better analytics on receipt types
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('receipts'):
+            checkpoint("🔧 Running Migration 92: Add needs_review and receipt_type to receipts")
+            
+            try:
+                fields_to_add = []
+                
+                # Add needs_review field
+                if not check_column_exists('receipts', 'needs_review'):
+                    checkpoint("  → Adding needs_review column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN needs_review BOOLEAN DEFAULT FALSE
+                    """))
+                    fields_to_add.append('needs_review')
+                    checkpoint("    ✅ needs_review added")
+                
+                # Add receipt_type field
+                if not check_column_exists('receipts', 'receipt_type'):
+                    checkpoint("  → Adding receipt_type column")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN receipt_type VARCHAR(32)
+                    """))
+                    
+                    # Add CHECK constraint for valid values
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_receipt_type 
+                        CHECK (receipt_type IS NULL OR receipt_type IN ('confirmation', 'receipt', 'invoice', 'statement', 'other'))
+                    """))
+                    
+                    fields_to_add.append('receipt_type')
+                    checkpoint("    ✅ receipt_type added with constraint")
+                
+                # Backfill existing receipts
+                if fields_to_add:
+                    checkpoint("  → Backfilling existing receipts")
+                    
+                    # Set needs_review for low-confidence receipts (confidence < 15)
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET needs_review = TRUE 
+                        WHERE confidence < 15 
+                        AND needs_review = FALSE
+                    """))
+                    low_conf_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    # Set needs_review for receipts without amount
+                    result = db.session.execute(text("""
+                        UPDATE receipts 
+                        SET needs_review = TRUE 
+                        WHERE amount IS NULL 
+                        AND needs_review = FALSE
+                    """))
+                    no_amount_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    
+                    checkpoint(f"    ✅ Backfilled: {low_conf_count} low-confidence, {no_amount_count} no-amount")
+                    
+                    migrations_applied.append('add_receipt_review_fields')
+                    checkpoint("✅ Migration 92 completed - Receipt review fields added")
+                    checkpoint("   📋 Purpose: Better handling of false positives from low threshold")
+                    checkpoint("   🎯 Benefits: Filter confirmations from reports, flag suspicious items")
+                else:
+                    checkpoint("  ℹ️ All review fields already exist - skipping")
+                
+            except Exception as e:
+                log.error(f"❌ Migration 92 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ receipts table does not exist - skipping")
         
         checkpoint("Committing migrations to database...")
         if migrations_applied:

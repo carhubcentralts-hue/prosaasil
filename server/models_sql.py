@@ -1610,12 +1610,18 @@ class Receipt(db.Model):
     
     # Status management
     status = db.Column(db.String(32), nullable=False, default="pending_review")  # pending_review|approved|rejected|not_receipt
+    needs_review = db.Column(db.Boolean, default=False)  # True if confidence too low or missing critical data
+    receipt_type = db.Column(db.String(32), nullable=True)  # confirmation|receipt|invoice|statement (for filtering)
     reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
     
     # Attachment references (via unified attachments system)
     attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)  # Original attachment
     preview_attachment_id = db.Column(db.Integer, db.ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True, index=True)  # Preview/thumbnail
+    
+    # Preview tracking (Migration 91)
+    preview_status = db.Column(db.String(20), nullable=False, default='pending')  # pending|generated|failed|not_available|skipped
+    preview_failure_reason = db.Column(db.Text, nullable=True)  # Error message if preview generation failed
     
     # Soft delete
     is_deleted = db.Column(db.Boolean, default=False, index=True)

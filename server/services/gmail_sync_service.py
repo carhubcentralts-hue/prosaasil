@@ -96,44 +96,68 @@ def strip_null_bytes(obj):
 # Keep old name for compatibility but use new function
 sanitize_for_postgres = strip_null_bytes
 
-# Receipt detection keywords (Hebrew + English)
+# Receipt detection keywords (Hebrew + English) - EXPANDED for better coverage
 RECEIPT_KEYWORDS = [
-    # Hebrew
-    'קבלה', 'חשבונית', 'חשבונית מס', 'קבלת תשלום',
-    # English
+    # Hebrew - expanded
+    'קבלה', 'חשבונית', 'חשבונית מס', 'קבלת תשלום', 'אישור תשלום',
+    'תשלום התקבל', 'תודה על ההזמנה', 'הזמנה מאושרת', 'חיוב',
+    'סה"כ לתשלום', 'תשלום בוצע', 'עסקה מאושרת', 'קניה', 'רכישה',
+    # English - expanded  
     'invoice', 'receipt', 'payment confirmation', 'tax invoice',
-    'order confirmation', 'payment receipt', 'billing statement'
+    'order confirmation', 'payment receipt', 'billing statement',
+    'payment successful', 'thank you for your order', 'purchase',
+    'transaction', 'your order', 'charge', 'payment received',
+    'invoice number', 'receipt number', 'order number'
 ]
 
-# Known receipt sender domains
+# Known receipt sender domains - EXPANDED
 KNOWN_RECEIPT_DOMAINS = [
-    'paypal.com', 'stripe.com', 'square.com',
-    'greeninvoice.co.il', 'icount.co.il', 'invoice4u.co.il',
-    'amazon.com', 'ebay.com', 'aliexpress.com',
-    'apple.com', 'google.com', 'microsoft.com',
-    'uber.com', 'lyft.com', 'wolt.com', 'doordash.com',
+    # Payment processors
+    'paypal.com', 'stripe.com', 'square.com', 'payoneer.com',
+    # Israeli billing
+    'greeninvoice.co.il', 'icount.co.il', 'invoice4u.co.il', 'meshulam.co.il',
+    'meshulam-pay.co.il', 'tranzila.com', 'cardcom.co.il', 'payplus.co.il',
+    # E-commerce
+    'amazon.com', 'ebay.com', 'aliexpress.com', 'alibaba.com',
+    'wish.com', 'etsy.com', 'shopify.com',
+    # Tech companies
+    'apple.com', 'google.com', 'microsoft.com', 'dropbox.com',
+    'github.com', 'slack.com', 'zoom.us', 'notion.so',
+    # Food delivery
+    'uber.com', 'lyft.com', 'wolt.com', 'doordash.com', '10bis.co.il',
+    'tenbis.co.il', 'deliveroo.com', 'foodora.com',
     # Israeli services
-    'pelephone.co.il', 'partner.co.il', 'cellcom.co.il',
-    'bezeq.co.il', 'hot.net.il', 'yes.co.il'
+    'pelephone.co.il', 'partner.co.il', 'cellcom.co.il', 'golan.co.il',
+    'bezeq.co.il', 'hot.net.il', 'yes.co.il', 'iec.co.il',
+    # Israeli retail
+    'zap.co.il', 'ksp.co.il', 'ivory.co.il', 'bug.co.il', 'shufersal.co.il',
+    'rami-levy.co.il', 'victory.co.il', 'mega.co.il',
+    # Travel
+    'booking.com', 'airbnb.com', 'hotels.com', 'expedia.com',
+    'elal.co.il', 'arkia.co.il', 'israir.co.il'
 ]
 
-# PDF receipt indicators (for confidence scoring)
+# PDF receipt indicators (for confidence scoring) - EXPANDED
 PDF_RECEIPT_INDICATORS = [
     # Hebrew
-    'סה"כ', "סה''כ", 'סהכ', 'מע"מ', "מע''מ",
-    'חשבונית מס', 'קבלה מס', 'תאריך',
-    'לתשלום', 'שולם', 'תודה על הקנייה',
+    'סה"כ', "סה''כ", 'סהכ', 'מע"מ', "מע''מ", 'מעמ',
+    'חשבונית מס', 'קבלה מס', 'תאריך', 'מספר חשבונית',
+    'לתשלום', 'שולם', 'תודה על הקנייה', 'תודה על ההזמנה',
+    'ח.פ', 'ע.מ', 'כתובת', 'טלפון', 'אתר',
     # English
-    'total', 'subtotal', 'tax', 'vat',
-    'invoice number', 'receipt number',
+    'total', 'subtotal', 'tax', 'vat', 'grand total',
+    'invoice number', 'receipt number', 'order number',
     'amount due', 'paid', 'payment received',
-    'thank you for your purchase'
+    'thank you for your purchase', 'thank you for your order',
+    'date', 'address', 'phone', 'email', 'website'
 ]
 
-# Minimum confidence to save as receipt (lowered to catch more receipts)
-MIN_CONFIDENCE = 10  # Very low threshold - prefer false positives over false negatives
-REVIEW_THRESHOLD = 40  # Below this goes to pending_review (lowered to catch more)
-ATTACHMENT_CONFIDENCE_BOOST = 5  # Extra points to ensure attachments pass threshold
+# Minimum confidence to save as receipt - LOWERED to catch more receipts!
+MIN_CONFIDENCE = 5  # Super low threshold - catch everything that might be a receipt
+AUTO_APPROVE_THRESHOLD = 50  # Above this = auto-approve, below = pending_review
+REVIEW_THRESHOLD = 30  # Deprecated - using AUTO_APPROVE_THRESHOLD instead
+ATTACHMENT_CONFIDENCE_BOOST = 10  # Increased boost for attachments
+MAX_SNIPPET_MATCHES = 3  # Maximum number of snippet indicators to count
 
 # Error message truncation (to fit in DB error_message column)
 ERROR_MESSAGE_MAX_LENGTH = 450  # Leave room for message_id prefix
@@ -193,6 +217,71 @@ def decrypt_token(encrypted: str) -> str:
         logger.error(f"Decryption failed: {e}")
         # Don't expose encrypted data, just return empty
         return ''
+
+
+def mask_pii(text: str, mask_char: str = '*') -> str:
+    """
+    Mask PII (Personally Identifiable Information) in text for safe logging
+    
+    SECURITY: Never log full emails, phone numbers, or credit card numbers
+    
+    Args:
+        text: Text that may contain PII
+        mask_char: Character to use for masking
+        
+    Returns:
+        Text with PII masked
+    """
+    if not text:
+        return text
+    
+    # Mask email addresses (keep first 2 chars + domain)
+    text = re.sub(r'\b([a-zA-Z0-9]{1,2})[a-zA-Z0-9._%+-]*@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', 
+                  r'\1***@\2', text)
+    
+    # Mask phone numbers (keep country code if present)
+    text = re.sub(r'\b(\+?\d{1,3})[- ]?\d{2,3}[- ]?\d{3,4}[- ]?\d{3,4}\b', 
+                  r'\1-***-****', text)
+    
+    # Mask credit card numbers (keep first 4 and last 4)
+    text = re.sub(r'\b(\d{4})[\s-]?\d{4}[\s-]?\d{4}[\s-]?(\d{4})\b', 
+                  r'\1-****-****-\2', text)
+    
+    # Mask Israeli ID numbers (9 digits)
+    text = re.sub(r'\b(\d{2})\d{5}(\d{2})\b', 
+                  r'\1*****\2', text)
+    
+    return text
+
+
+def get_safe_log_metadata(metadata: dict) -> dict:
+    """
+    Extract safe metadata for logging (no PII)
+    
+    Args:
+        metadata: Full metadata dict
+        
+    Returns:
+        Safe dict with PII masked
+    """
+    safe = {}
+    
+    # Safe fields (IDs, booleans, counts)
+    for key in ['has_attachment', 'matched_keywords']:
+        if key in metadata:
+            safe[key] = metadata[key]
+    
+    # Mask PII in text fields
+    if 'subject' in metadata:
+        safe['subject'] = mask_pii(metadata['subject'][:50])
+    
+    if 'from_domain' in metadata:
+        safe['from_domain'] = metadata['from_domain']  # Domain is safe
+    
+    if 'from_email' in metadata:
+        safe['from_email'] = mask_pii(metadata['from_email'])
+    
+    return safe
 
 
 def get_gmail_service(business_id: int):
@@ -324,16 +413,19 @@ class GmailApiClient:
 
 def extract_all_attachments(message: dict) -> list:
     """
-    Recursively extract ALL attachments from Gmail message
+    Recursively extract ALL attachments from Gmail message - IMPROVED!
     
-    Gmail uses nested multipart structure (multipart/alternative, multipart/related, etc.)
-    We need to recurse through ALL parts to find attachments.
+    Gmail uses nested multipart structure. We recurse through ALL parts.
+    CRITICAL: Must handle all Gmail attachment patterns correctly!
+    
+    SECURITY: Filters out inline images (tracking pixels, signatures, logos)
+    to avoid bloating storage and processing.
     
     Args:
         message: Gmail message object
         
     Returns:
-        List of attachment dicts with {id, filename, mime_type, size}
+        List of attachment dicts with {id, filename, mime_type, size, disposition}
     """
     attachments = []
     
@@ -349,15 +441,48 @@ def extract_all_attachments(message: dict) -> list:
             attachment_id = body.get('attachmentId')
             size = body.get('size', 0)
             
-            # Check if this is an attachment
-            # Either has filename OR has attachmentId (explicitly check for None)
-            if attachment_id is not None or (filename and size > 0):
+            # Check Content-Disposition header to distinguish attachment from inline
+            headers = part.get('headers', [])
+            content_disposition = None
+            for header in headers:
+                if header.get('name', '').lower() == 'content-disposition':
+                    content_disposition = header.get('value', '').lower()
+                    break
+            
+            # IMPROVED: Check multiple conditions for attachments
+            # 1. Has explicit attachmentId
+            # 2. Has filename and size > 0
+            # 3. Is PDF/image mime type (even without filename)
+            is_attachment = False
+            
+            if attachment_id:
+                is_attachment = True
+            elif filename and size > 0:
+                is_attachment = True
+            elif mime_type in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']:
+                # PDF or image without filename - still an attachment!
+                is_attachment = True
+                if not filename:
+                    # Generate filename from mime type
+                    ext = mime_type.split('/')[-1]
+                    filename = f'attachment.{ext}'
+            
+            # SECURITY FILTER: Skip inline images that are likely tracking pixels/logos
+            if is_attachment and content_disposition and 'inline' in content_disposition:
+                # Skip small inline images (< 5KB) - likely tracking pixels or signatures
+                if mime_type.startswith('image/') and size < 5120:  # 5KB threshold
+                    logger.debug(f"🔒 Skipping small inline image: {filename} ({size} bytes)")
+                    is_attachment = False
+            
+            if is_attachment:
                 attachments.append({
                     'id': attachment_id,
                     'filename': filename or 'attachment',
                     'mime_type': mime_type,
-                    'size': size
+                    'size': size,
+                    'disposition': content_disposition or 'attachment'
                 })
+                logger.debug(f"📎 Found attachment: {filename} ({mime_type}, {size} bytes, disposition={content_disposition})")
             
             # Recurse into nested parts (multipart/alternative, etc.)
             if 'parts' in part:
@@ -367,6 +492,26 @@ def extract_all_attachments(message: dict) -> list:
     payload = message.get('payload', {})
     if 'parts' in payload:
         recurse_parts(payload['parts'])
+    else:
+        # Single-part message - check if it's an attachment
+        mime_type = payload.get('mimeType', '')
+        body = payload.get('body', {})
+        attachment_id = body.get('attachmentId')
+        size = body.get('size', 0)
+        
+        if attachment_id or mime_type in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
+            filename = payload.get('filename', f'attachment.{mime_type.split("/")[-1]}')
+            attachments.append({
+                'id': attachment_id,
+                'filename': filename,
+                'mime_type': mime_type,
+                'size': size,
+                'disposition': 'attachment'
+            })
+            logger.debug(f"📎 Found single-part attachment: {filename}")
+    
+    if attachments:
+        logger.info(f"📎 Total attachments found: {len(attachments)}")
     
     return attachments
 
@@ -460,29 +605,54 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     # IMPROVED: Check snippet for receipt indicators (amounts, payment terms)
     snippet_indicators = [
         ('total', 10), ('amount', 10), ('סכום', 10), ('סה"כ', 10),
-        ('payment', 8), ('תשלום', 8), ('paid', 8), ('שולם', 8),
-        ('₪', 12), ('$', 12), ('€', 12),  # Currency symbols are strong indicators
+        ('payment', 10), ('תשלום', 10), ('paid', 10), ('שולם', 10),
+        ('₪', 15), ('$', 15), ('€', 15), ('USD', 12), ('ILS', 12), ('EUR', 12),  # Currency is STRONG indicator
         ('invoice', 15), ('חשבונית', 15), ('receipt', 15), ('קבלה', 15),
-        ('order', 8), ('הזמנה', 8), ('purchase', 8), ('רכישה', 8)
+        ('order', 10), ('הזמנה', 10), ('purchase', 10), ('רכישה', 10),
+        ('thank you', 12), ('תודה', 12), ('confirmation', 12), ('אישור', 12),
     ]
+    snippet_matches = 0
     for indicator, points in snippet_indicators:
         if indicator in snippet:
             confidence += points
-            break  # Only count first match to avoid double-counting
+            snippet_matches += 1
+            # Allow multiple matches for better detection
+            if snippet_matches >= MAX_SNIPPET_MATCHES:
+                break
     
     # CRITICAL FIX: If we have ANY attachment, give benefit of doubt
     # Worst case: user marks it as "not a receipt" later
+    # BETTER TO HAVE FALSE POSITIVES THAN MISS REAL RECEIPTS!
     if has_pdf or has_image:
-        # Ensure minimum confidence for emails with attachments
+        # Ensure emails with attachments ALWAYS pass
         if confidence < MIN_CONFIDENCE:
-            confidence = MIN_CONFIDENCE + ATTACHMENT_CONFIDENCE_BOOST  # Give small boost above threshold
+            confidence = MIN_CONFIDENCE + ATTACHMENT_CONFIDENCE_BOOST
+            logger.info(f"📎 Boosted confidence to {confidence} due to attachment")
     
     # Also give benefit of doubt if we have keywords
-    if matched_keywords and confidence < MIN_CONFIDENCE:
-        confidence = MIN_CONFIDENCE
+    if matched_keywords:
+        if confidence < MIN_CONFIDENCE:
+            confidence = MIN_CONFIDENCE + 5  # Small boost
+            logger.info(f"🔑 Boosted confidence to {confidence} due to keywords: {matched_keywords}")
     
-    # Must have at least SOME indicator to be considered a receipt
+    # NEW: If snippet contains currency symbols, likely a receipt
+    if any(symbol in snippet for symbol in ['₪', '$', '€', 'USD', 'ILS', 'EUR']):
+        confidence += 15
+        logger.info(f"💰 Found currency in snippet, confidence now {confidence}")
+    
+    # NEW: Lower threshold - accept almost anything that looks like a receipt
+    # Philosophy: Better to let user review/reject than to miss receipts!
     is_receipt = confidence >= MIN_CONFIDENCE
+    
+    # FALLBACK: Even if confidence is low, if we have attachment+amount indicators, accept it
+    if not is_receipt and (has_pdf or has_image):
+        has_amount_indicator = any(ind in snippet for ind in ['total', 'סה"כ', 'amount', 'סכום', '₪', '$'])
+        if has_amount_indicator:
+            is_receipt = True
+            confidence = MIN_CONFIDENCE
+            logger.info(f"✅ Accepted low-confidence email due to attachment + amount indicator")
+    
+    logger.info(f"📧 Receipt detection: is_receipt={is_receipt}, confidence={confidence}, has_attachment={has_pdf or has_image}, keywords={len(matched_keywords)}")
     
     return is_receipt, confidence, metadata
 
@@ -1113,8 +1283,14 @@ def process_single_receipt_message(
             sync_run.candidate_receipts = result['candidate_receipts']
     
     if not is_receipt:
-        # Log why it was skipped for debugging
-        logger.info(f"⏭️ SKIP: confidence={confidence}, subject={metadata.get('subject', 'N/A')[:50]}, has_attachment={metadata.get('has_attachment', False)}")
+        # Log why it was skipped for debugging - WITH PII MASKING
+        safe_metadata = get_safe_log_metadata(metadata)
+        logger.info(
+            f"⏭️ SKIP: confidence={confidence}, "
+            f"subject='{safe_metadata.get('subject', 'N/A')}', "
+            f"from_domain={safe_metadata.get('from_domain', 'N/A')}, "
+            f"has_attachment={metadata.get('has_attachment', False)}"
+        )
         result['skipped'] += 1
         return None
     
@@ -1132,16 +1308,26 @@ def process_single_receipt_message(
     # Use recursive attachment extraction
     all_attachments = extract_all_attachments(message)
     
+    # Track preview failure reason if any
+    preview_error_msg = None
+    
     # Process attachments
     for att in all_attachments:
-        if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
+        if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']:
             try:
-                logger.info(f"📎 Downloading attachment: {att['filename']}")
+                # CRITICAL: Skip if no attachment ID (can't download)
+                if not att['id']:
+                    logger.warning(f"⚠️ Attachment has no ID, skipping: {att['filename']}")
+                    continue
+                
+                logger.info(f"📎 Downloading attachment: {att['filename']} (ID: {att['id']})")
                 att_data = gmail.get_attachment(message_id, att['id'])
                 
                 if not att_data:
-                    logger.warning(f"⚠️ Empty attachment data")
+                    logger.warning(f"⚠️ Empty attachment data for {att['filename']}")
                     continue
+                
+                logger.info(f"✅ Downloaded {len(att_data)} bytes for {att['filename']}")
                 
                 # Extract PDF text if applicable
                 if att['mime_type'] == 'application/pdf':
@@ -1207,8 +1393,12 @@ def process_single_receipt_message(
                             if preview_attachment_id:
                                 preview_generated = True
                                 logger.info(f"✅ Preview generated from attachment")
+                        else:
+                            logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
+                            preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
                 except Exception as preview_err:
-                    logger.warning(f"⚠️ Preview generation failed: {preview_err}")
+                    preview_error_msg = str(preview_err)[:ERROR_MESSAGE_MAX_LENGTH]
+                    logger.warning(f"⚠️ Preview generation failed: {preview_err}", exc_info=True)
                 
                 break  # Only process first attachment
                 
@@ -1217,8 +1407,9 @@ def process_single_receipt_message(
                 result['errors'] += 1
                 sync_run.errors_count = result['errors']
     
-    # Generate screenshot if no attachment
-    if not attachment_processed and email_html_snippet:
+    # ✨ ALWAYS generate screenshot from HTML - even if we have attachments!
+    # This provides a visual preview of the email itself (useful for context)
+    if email_html_snippet and not preview_generated:
         try:
             # Acquire semaphore before Playwright screenshot
             with playwright_semaphore:
@@ -1229,37 +1420,18 @@ def process_single_receipt_message(
                 )
                 
                 if screenshot_attachment_id:
-                    attachment_id = screenshot_attachment_id
-                    attachment_processed = True
-                    # Screenshot serves as both source and preview
+                    if not attachment_processed:
+                        # No attachment - screenshot IS the attachment
+                        attachment_id = screenshot_attachment_id
+                        attachment_processed = True
+                    # Screenshot is always the preview (shows email context)
                     preview_attachment_id = screenshot_attachment_id
                     preview_generated = True
-                    logger.info(f"✅ Screenshot generated as source and preview")
+                    logger.info(f"✅ Screenshot generated from HTML email")
                     time.sleep(0.1)  # Small delay after Playwright
         except Exception as e:
+            preview_error_msg = str(e)[:ERROR_MESSAGE_MAX_LENGTH]
             logger.error(f"❌ Screenshot generation failed: {e}")
-    
-    # Generate HTML preview if we have attachment but no preview yet
-    if attachment_processed and not preview_generated and email_html_snippet:
-        try:
-            from server.services.receipt_preview_service import generate_html_preview, save_preview_attachment
-            
-            # Acquire semaphore before Playwright HTML preview
-            with playwright_semaphore:
-                preview_data = generate_html_preview(email_html_snippet)
-                if preview_data:
-                    preview_attachment_id = save_preview_attachment(
-                        preview_data=preview_data,
-                        business_id=business_id,
-                        original_filename='email_preview',
-                        purpose='receipt_preview'
-                    )
-                    if preview_attachment_id:
-                        preview_generated = True
-                        logger.info(f"✅ HTML preview generated as fallback")
-                        time.sleep(0.1)  # Small delay after Playwright
-        except Exception as e:
-            logger.warning(f"⚠️ HTML preview fallback failed: {e}")
     
     # CRITICAL FIX: Don't skip receipts just because they lack attachments
     # If confidence check passed in check_is_receipt_email(), trust it
@@ -1287,8 +1459,42 @@ def process_single_receipt_message(
     else:
         received_at = datetime.now(timezone.utc)
     
-    # Determine status
-    status = 'approved' if confidence >= REVIEW_THRESHOLD else 'pending_review'
+    # Determine status based on confidence with two-tier system
+    # High confidence (>=50): Auto-approve
+    # Medium/Low confidence (5-49): Pending review
+    if confidence >= AUTO_APPROVE_THRESHOLD:
+        status = 'approved'
+        logger.debug(f"✅ Auto-approved (confidence={confidence} >= {AUTO_APPROVE_THRESHOLD})")
+    else:
+        status = 'pending_review'
+        logger.debug(f"⏸️ Pending review (confidence={confidence} < {AUTO_APPROVE_THRESHOLD})")
+    
+    # Determine needs_review flag for low-confidence or missing data
+    # This is SEPARATE from status - helps filter false positives from reports
+    needs_review = False
+    if confidence < 15:  # Very low confidence (5-14)
+        needs_review = True
+        logger.debug(f"🔍 Flagged for review: very low confidence ({confidence})")
+    elif not extracted.get('amount'):
+        needs_review = True
+        logger.debug(f"🔍 Flagged for review: missing amount")
+    elif not extracted.get('vendor_name'):
+        needs_review = True
+        logger.debug(f"🔍 Flagged for review: missing vendor")
+    
+    # Determine receipt_type based on keywords in subject/content
+    receipt_type = None
+    subject_lower = metadata.get('subject', '').lower()
+    if any(kw in subject_lower for kw in ['confirmation', 'אישור', 'confirmed']):
+        receipt_type = 'confirmation'
+    elif any(kw in subject_lower for kw in ['invoice', 'חשבונית']):
+        receipt_type = 'invoice'
+    elif any(kw in subject_lower for kw in ['receipt', 'קבלה']):
+        receipt_type = 'receipt'
+    elif any(kw in subject_lower for kw in ['statement', 'דוח']):
+        receipt_type = 'statement'
+    else:
+        receipt_type = 'other'
     
     # Parse invoice date
     invoice_date = None
@@ -1339,6 +1545,23 @@ def process_single_receipt_message(
     elif extraction_warnings:
         sanitized_json = {'extraction_warnings': extraction_warnings}
     
+    # Determine preview status based on generation result
+    if preview_generated:
+        preview_status_val = 'generated'
+        preview_failure_reason_val = None
+    elif attachment_processed:
+        # Had attachment but preview failed
+        preview_status_val = 'failed'
+        preview_failure_reason_val = preview_error_msg or 'Preview generation failed for attachment'
+    elif email_html_snippet:
+        # Had HTML but screenshot failed
+        preview_status_val = 'failed'
+        preview_failure_reason_val = preview_error_msg or 'Email screenshot generation failed'
+    else:
+        # No attachment and no HTML
+        preview_status_val = 'not_available'
+        preview_failure_reason_val = 'No attachment or HTML content available'
+    
     receipt = Receipt(
         business_id=business_id,
         source='gmail',
@@ -1359,8 +1582,12 @@ def process_single_receipt_message(
         confidence=confidence,
         raw_extraction_json=sanitized_json,
         status=status,
+        needs_review=needs_review,  # NEW: Flag for low-confidence items
+        receipt_type=receipt_type,  # NEW: Type classification
         attachment_id=attachment_id,
-        preview_attachment_id=preview_attachment_id
+        preview_attachment_id=preview_attachment_id,
+        preview_status=preview_status_val,
+        preview_failure_reason=preview_failure_reason_val
     )
     
     db.session.add(receipt)
@@ -1369,13 +1596,20 @@ def process_single_receipt_message(
     result['saved_receipts'] += 1
     sync_run.saved_receipts = result['saved_receipts']
     
-    # Enhanced logging per receipt with warnings
+    # Enhanced logging per receipt with full details - PII MASKED
+    safe_metadata = get_safe_log_metadata(metadata)
     logger.info(
-        f"✅ receipt_saved id={receipt.id}, "
+        f"✅ RECEIPT_SAVED id={receipt.id}, "
+        f"message_id={message_id[:20]}..., "
+        f"subject='{safe_metadata.get('subject', '')}', "
+        f"from_domain={safe_metadata.get('from_domain', '')}, "
+        f"has_attachment={attachment_processed} (att_id={attachment_id}), "
         f"amount={extracted.get('amount')}, "
         f"currency={extracted.get('currency')}, "
-        f"preview={'ok' if preview_generated else 'fail'}, "
-        f"source_attachment={'pdf' if pdf_text else ('html' if email_html_snippet else 'none')}, "
+        f"confidence={confidence}, "
+        f"needs_review={needs_review}, "
+        f"receipt_type={receipt_type}, "
+        f"preview={'✓' if preview_generated else '✗'} (prev_id={preview_attachment_id}), "
         f"warnings={extraction_warnings if extraction_warnings else 'none'}"
     )
     
@@ -2142,6 +2376,25 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         db.session.commit()
         
         duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
+        
+        # SUMMARY LOGGING: Show key metrics for verification
+        total_emails_scanned = result['messages_scanned']
+        total_receipts_saved = result['saved_receipts']
+        total_skipped = result['skipped']
+        receipts_to_emails_ratio = (total_receipts_saved / total_emails_scanned * 100) if total_emails_scanned > 0 else 0
+        
+        logger.info("=" * 80)
+        logger.info(f"📊 SYNC SUMMARY (run_id={sync_run.id}, duration={duration:.1f}s)")
+        logger.info(f"   Emails scanned: {total_emails_scanned}")
+        logger.info(f"   Receipts saved: {total_receipts_saved}")
+        logger.info(f"   Skipped (duplicates): {total_skipped}")
+        logger.info(f"   Pages scanned: {result['pages_scanned']}")
+        logger.info(f"   Candidate receipts: {result.get('candidate_receipts', 0)}")
+        logger.info(f"   Errors: {result.get('errors', 0)}")
+        logger.info(f"   Receipts/Emails ratio: {receipts_to_emails_ratio:.1f}%")
+        if receipts_to_emails_ratio > 60:
+            logger.warning(f"⚠️ High ratio ({receipts_to_emails_ratio:.1f}%) - possible false positives!")
+        logger.info("=" * 80)
         
         if result['errors'] > 0:
             logger.warning(

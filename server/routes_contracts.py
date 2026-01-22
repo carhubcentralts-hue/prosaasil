@@ -799,17 +799,21 @@ def download_contract_file(contract_id, file_id):
         if not signed_url:
             return jsonify({'error': 'Failed to generate download URL'}), 500
         
-        # Log event
-        log_contract_event(
-            contract_id=contract_id,
-            business_id=business_id,
-            event_type='file_downloaded',
-            metadata={
-                'file_id': file_id,
-                'filename': attachment.filename_original
-            },
-            user_id=user_id
-        )
+        # Log event (best effort - don't fail if audit logging fails)
+        try:
+            log_contract_event(
+                contract_id=contract_id,
+                business_id=business_id,
+                event_type='file_downloaded',
+                metadata={
+                    'file_id': file_id,
+                    'filename': attachment.filename_original
+                },
+                user_id=user_id
+            )
+        except Exception as audit_err:
+            # Don't fail download if audit logging fails
+            logger.warning(f"[CONTRACTS_DOWNLOAD] Audit logging failed: {audit_err}")
         
         return jsonify({
             'url': signed_url,
@@ -882,17 +886,21 @@ def stream_contract_pdf(contract_id):
             mime_type=attachment.mime_type
         )
         
-        # Log event
-        log_contract_event(
-            contract_id=contract_id,
-            business_id=business_id,
-            event_type='file_viewed',
-            metadata={
-                'file_id': contract_file.id,
-                'filename': filename
-            },
-            user_id=user_id
-        )
+        # Log event (best effort - don't fail if audit logging fails)
+        try:
+            log_contract_event(
+                contract_id=contract_id,
+                business_id=business_id,
+                event_type='file_viewed',
+                metadata={
+                    'file_id': contract_file.id,
+                    'filename': filename
+                },
+                user_id=user_id
+            )
+        except Exception as audit_err:
+            # Don't fail PDF viewing if audit logging fails
+            logger.warning(f"[CONTRACTS_PDF_STREAM] Audit logging failed: {audit_err}")
         
         # Return PDF stream with proper headers for inline viewing
         # Including Accept-Ranges for browser PDF viewers to work properly
