@@ -23,6 +23,21 @@ MIGRATION_89_REQUIRED_COLUMNS = [
     'run_to_completion', 'max_seconds_per_run', 'skipped_count'
 ]
 
+# Migration 90: Complete list of valid contract event types
+CONTRACT_EVENT_TYPES = [
+    'created',
+    'file_uploaded',
+    'file_downloaded',
+    'file_viewed',
+    'sent_for_signature',
+    'viewed',
+    'signed_completed',
+    'cancelled',
+    'updated',
+    'deleted',
+    'signature_fields_updated'
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -4176,10 +4191,9 @@ def apply_migrations():
                     constraint_name = constraint_row[0]
                     check_clause = constraint_row[1] if len(constraint_row) > 1 else ''
                     
-                    # Check if ALL new event types are already in the constraint
+                    # Check if ALL event types from the constant are in the constraint
                     missing_types = []
-                    new_types = ['file_viewed', 'updated', 'deleted', 'signature_fields_updated']
-                    for event_type in new_types:
+                    for event_type in CONTRACT_EVENT_TYPES:
                         if event_type not in check_clause:
                             missing_types.append(event_type)
                     
@@ -4194,23 +4208,12 @@ def apply_migrations():
                             DROP CONSTRAINT IF EXISTS {constraint_name}
                         """))
                         
-                        # Complete list of ALL event types used in routes_contracts.py
-                        db.session.execute(text("""
+                        # Build constraint with all event types from constant
+                        event_types_sql = ', '.join([f"'{et}'" for et in CONTRACT_EVENT_TYPES])
+                        db.session.execute(text(f"""
                             ALTER TABLE contract_sign_events 
                             ADD CONSTRAINT contract_sign_events_event_type_check 
-                            CHECK (event_type IN (
-                                'created', 
-                                'file_uploaded', 
-                                'file_downloaded',
-                                'file_viewed',
-                                'sent_for_signature', 
-                                'viewed', 
-                                'signed_completed', 
-                                'cancelled',
-                                'updated',
-                                'deleted',
-                                'signature_fields_updated'
-                            ))
+                            CHECK (event_type IN ({event_types_sql}))
                         """))
                         
                         migrations_applied.append('expand_contract_event_types')

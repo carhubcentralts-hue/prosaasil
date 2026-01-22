@@ -1132,6 +1132,9 @@ def process_single_receipt_message(
     # Use recursive attachment extraction
     all_attachments = extract_all_attachments(message)
     
+    # Track preview failure reason if any
+    preview_error_msg = None
+    
     # Process attachments
     for att in all_attachments:
         if att['mime_type'] in ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']:
@@ -1209,7 +1212,9 @@ def process_single_receipt_message(
                                 logger.info(f"✅ Preview generated from attachment")
                         else:
                             logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
+                            preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
                 except Exception as preview_err:
+                    preview_error_msg = str(preview_err)[:500]  # Limit length
                     logger.warning(f"⚠️ Preview generation failed: {preview_err}", exc_info=True)
                 
                 break  # Only process first attachment
@@ -1239,6 +1244,7 @@ def process_single_receipt_message(
                     logger.info(f"✅ Screenshot generated as source and preview")
                     time.sleep(0.1)  # Small delay after Playwright
         except Exception as e:
+            preview_error_msg = str(e)[:500]  # Limit length
             logger.error(f"❌ Screenshot generation failed: {e}")
     
     # Generate HTML preview if we have attachment but no preview yet
@@ -1348,11 +1354,11 @@ def process_single_receipt_message(
     elif attachment_processed:
         # Had attachment but preview failed
         preview_status_val = 'failed'
-        preview_failure_reason_val = 'Preview generation failed for attachment'
+        preview_failure_reason_val = preview_error_msg or 'Preview generation failed for attachment'
     elif email_html_snippet:
         # Had HTML but screenshot failed
         preview_status_val = 'failed'
-        preview_failure_reason_val = 'Email screenshot generation failed'
+        preview_failure_reason_val = preview_error_msg or 'Email screenshot generation failed'
     else:
         # No attachment and no HTML
         preview_status_val = 'not_available'

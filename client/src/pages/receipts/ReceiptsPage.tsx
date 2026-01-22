@@ -575,7 +575,10 @@ const ReceiptCard: React.FC<{
                 <div className="flex-1 min-w-0">
                   <span className="text-amber-700 font-medium">תצוגה מקדימה נכשלה</span>
                   {receipt.preview_failure_reason && (
-                    <p className="text-gray-600 mt-1 text-xs truncate" title={receipt.preview_failure_reason}>
+                    <p 
+                      className="text-gray-600 mt-1 text-xs break-words"
+                      title={receipt.preview_failure_reason}
+                    >
                       {receipt.preview_failure_reason}
                     </p>
                   )}
