@@ -316,7 +316,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 lg:pb-0">
+    <div className="min-h-screen bg-gray-50 pb-[72px] lg:pb-0">
       {/* Header - sticky at top for both mobile and desktop with improved actions */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm" style={{ direction: 'rtl' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -512,7 +512,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                       >
                         <Icon className="w-4 h-4 flex-shrink-0" />
                         <span>{tab.label}</span>
-                        {isActive && <span className="mr-auto text-blue-600">✓</span>}
+                        {isActive && <CheckCircle2 className="w-4 h-4 mr-auto text-blue-600" />}
                       </button>
                     );
                   })}
@@ -628,8 +628,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                     תגיות
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {lead.tags.map((tag, index) => (
-                      <Badge key={index} variant="info" className="text-xs">
+                    {lead.tags.map((tag) => (
+                      <Badge key={`tag-${tag}`} variant="info" className="text-xs">
                         {tag}
                       </Badge>
                     ))}
