@@ -1340,6 +1340,28 @@ def create_app():
             except Exception as e:
                 logger.warning(f"⚠️ [BACKGROUND] Could not start reminder scheduler: {e}")
     
+    # ✅ GUARDRAIL: Route map audit at startup (prevent 404/405 errors)
+    # Log all auth routes to verify they're registered correctly
+    if os.getenv('MIGRATION_MODE') != '1':
+        logger.info("🔍 [STARTUP] Auth route audit:")
+        auth_routes_found = False
+        for rule in app.url_map.iter_rules():
+            if 'auth' in rule.rule.lower():
+                methods = sorted([m for m in rule.methods if m not in ["HEAD", "OPTIONS"]])
+                logger.info(f"   ✅ {rule.rule} → methods={methods} endpoint={rule.endpoint}")
+                auth_routes_found = True
+                
+                # Verify critical auth endpoints
+                if rule.rule == '/api/auth/csrf' and 'GET' not in methods:
+                    logger.error(f"   ❌ CRITICAL: /api/auth/csrf missing GET method!")
+                if rule.rule == '/api/auth/me' and 'GET' not in methods:
+                    logger.error(f"   ❌ CRITICAL: /api/auth/me missing GET method!")
+                if rule.rule == '/api/auth/login' and 'POST' not in methods:
+                    logger.error(f"   ❌ CRITICAL: /api/auth/login missing POST method!")
+        
+        if not auth_routes_found:
+            logger.error("   ❌ CRITICAL: No auth routes found! Blueprint might not be registered.")
+    
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton
     with _app_lock:
