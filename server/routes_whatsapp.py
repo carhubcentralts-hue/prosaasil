@@ -911,9 +911,9 @@ def baileys_webhook():
                     customer_external_id = remote_jid
                     phone_for_ai_check = remote_jid
                 
-                log.info(f"[WA-INCOMING] Processed JIDs: remoteJid={remote_jid[:30]}, "
-                        f"remoteJidAlt={remote_jid_alt[:30] if remote_jid_alt else 'N/A'}, "
-                        f"phone_e164={from_number_e164}, external_id={customer_external_id[:30] if customer_external_id else 'N/A'}")
+                log.info(f"[WA-INCOMING] Processed JIDs: remoteJid={(remote_jid or '')[:30]}, "
+                        f"remoteJidAlt={(remote_jid_alt or '')[:30]}, "
+                        f"phone_e164={from_number_e164}, external_id={(customer_external_id or '')[:30]}")
                 
                 # 🔥 ANDROID FIX: Support ALL message formats (iPhone + Android)
                 # Different devices send messages in different formats:

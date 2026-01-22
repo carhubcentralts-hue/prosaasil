@@ -719,9 +719,15 @@ class CustomerIntelligence:
         db.session.commit()
         return lead
     
-    def _handle_lid_message(self, lid_identifier: str, message_text: str) -> Tuple[None, Lead, bool]:
+    def _handle_lid_message(
+        self, 
+        lid_identifier: str, 
+        message_text: str,
+        whatsapp_jid: str = None,
+        whatsapp_jid_alt: str = None
+    ) -> Tuple[None, Lead, bool]:
         """
-        🔥 FIX: Handle WhatsApp @lid messages (non-phone identifiers)
+        🔥 FIX #3: Handle WhatsApp @lid messages (non-phone identifiers)
         
         @lid is used for:
         - WhatsApp Business accounts without phone numbers
@@ -730,33 +736,57 @@ class CustomerIntelligence:
         
         Since there's no phone number, we:
         1. Store lid_identifier as external_id for deduplication
-        2. Don't create Customer (no phone = no customer)
-        3. Create Lead with source="whatsapp_lid"
+        2. Store whatsapp_jid/whatsapp_jid_alt for proper routing
+        3. Calculate reply_jid for sending responses
+        4. Don't create Customer (no phone = no customer)
+        5. Create Lead with source="whatsapp_lid"
         
         Args:
             lid_identifier: The @lid identifier (e.g., "135871961501772@lid")
             message_text: The message content
+            whatsapp_jid: Primary WhatsApp identifier (remoteJid)
+            whatsapp_jid_alt: Alternative identifier (sender_pn/participant)
             
         Returns:
             (None, Lead, was_created): No customer, the lead, and whether it was newly created
         """
         try:
-            # Look for existing lead with this external_id
-            existing_lead = Lead.query.filter_by(
-                tenant_id=self.business_id,
-                external_id=lid_identifier
-            ).order_by(Lead.updated_at.desc()).first()
+            # 🔥 FIX #3: Calculate reply_jid for sending
+            reply_jid = whatsapp_jid or lid_identifier
+            if whatsapp_jid_alt and whatsapp_jid_alt.endswith('@s.whatsapp.net'):
+                reply_jid = whatsapp_jid_alt
+            
+            # Look for existing lead with this external_id or whatsapp_jid
+            existing_lead = None
+            if whatsapp_jid:
+                existing_lead = Lead.query.filter_by(
+                    tenant_id=self.business_id,
+                    whatsapp_jid=whatsapp_jid
+                ).order_by(Lead.updated_at.desc()).first()
+            
+            if not existing_lead:
+                existing_lead = Lead.query.filter_by(
+                    tenant_id=self.business_id,
+                    external_id=lid_identifier
+                ).order_by(Lead.updated_at.desc()).first()
             
             if existing_lead:
                 # Update existing lead
                 existing_lead.updated_at = datetime.utcnow()
+                # 🔥 FIX #3: ALWAYS update reply_jid to latest
+                existing_lead.reply_jid = reply_jid
+                if whatsapp_jid and not existing_lead.whatsapp_jid:
+                    existing_lead.whatsapp_jid = whatsapp_jid
+                if whatsapp_jid_alt and not existing_lead.whatsapp_jid_alt:
+                    existing_lead.whatsapp_jid_alt = whatsapp_jid_alt
+                    
                 if existing_lead.notes:
                     existing_lead.notes += f"\n[WhatsApp @lid]: {message_text[:100]}..."
                 else:
                     existing_lead.notes = f"[WhatsApp @lid]: {message_text[:100]}..."
                 
                 db.session.commit()
-                log.info(f"♻️ Updated existing @lid lead {existing_lead.id} (external_id={lid_identifier})")
+                log.info(f"♻️ Updated existing @lid lead {existing_lead.id} with reply_jid={reply_jid}")
                 return None, existing_lead, False
             else:
                 # Create new lead for @lid
@@ -766,6 +796,9 @@ class CustomerIntelligence:
                 lead.tenant_id = self.business_id
                 lead.external_id = lid_identifier  # Use @lid as unique identifier
                 lead.phone_e164 = None  # No phone number for @lid
+                lead.whatsapp_jid = whatsapp_jid  # 🔥 FIX #3: Store WhatsApp identifier
+                lead.whatsapp_jid_alt = whatsapp_jid_alt  # 🔥 FIX #3: Store alternative identifier
+                lead.reply_jid = reply_jid  # 🔥 FIX #3: Store reply target
                 lead.source = "whatsapp_lid"  # Special source to identify @lid leads
                 lead.status = "new"
                 lead.first_name = extracted_info.get('name') or DEFAULT_LEAD_NAME_WHATSAPP
@@ -774,7 +807,7 @@ class CustomerIntelligence:
                 
                 db.session.add(lead)
                 db.session.commit()
-                log.info(f"🆕 Created new @lid lead (external_id={lid_identifier})")
+                log.info(f"🆕 Created new @lid lead with reply_jid={reply_jid}")
                 return None, lead, True
                 
         except Exception as e:

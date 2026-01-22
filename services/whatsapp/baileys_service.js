@@ -151,6 +151,24 @@ const messageDedup = new Map(); // (tenantId + messageId) -> timestamp to preven
 const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
+const DEDUP_CLEANUP_MS = 600000; // Clean dedup entries older than 10 minutes
+
+// 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  
+  for (const [key, timestamp] of messageDedup.entries()) {
+    if (now - timestamp > DEDUP_CLEANUP_MS) {
+      messageDedup.delete(key);
+      cleaned++;
+    }
+  }
+  
+  if (cleaned > 0) {
+    console.log(`[DEDUP] Cleaned ${cleaned} old entries from dedup map (size: ${messageDedup.size})`);
+  }
+}, 300000); // Run cleanup every 5 minutes
 
 // 🔥 FIX #1: Process message queue periodically
 setInterval(() => {
