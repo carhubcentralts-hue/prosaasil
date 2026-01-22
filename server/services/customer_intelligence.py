@@ -215,6 +215,9 @@ class CustomerIntelligence:
             # נקה מספר טלפון ל-E164
             clean_phone = self._normalize_phone(phone_number)
             
+            # 🔍 TRACE: Log lead upsert for phone call
+            log.info(f"🔍 [LEAD_UPSERT_START] business_id={self.business_id} phone={clean_phone} source=call call_sid={call_sid}")
+            
             # חפש לקוח קיים
             existing_customer = Customer.query.filter_by(
                 business_id=self.business_id,
@@ -229,6 +232,7 @@ class CustomerIntelligence:
                 lead = self._update_or_create_lead_for_existing_customer(
                     existing_customer, call_sid, extracted_info
                 )
+                log.info(f"✅ [LEAD_UPSERT_DONE] lead_id={lead.id if lead else 'N/A'} action=updated phone={clean_phone}")
                 log.info(f"🔍 Found existing customer: {existing_customer.name} (ID: {existing_customer.id})")
                 return existing_customer, lead, False
             else:
@@ -236,6 +240,7 @@ class CustomerIntelligence:
                 customer, lead = self._create_new_customer_and_lead(
                     clean_phone, call_sid, extracted_info
                 )
+                log.info(f"✅ [LEAD_UPSERT_DONE] lead_id={lead.id if lead else 'N/A'} action=created phone={clean_phone}")
                 log.info(f"🆕 Created new customer: {customer.name} (ID: {customer.id})")
                 return customer, lead, True
                 
