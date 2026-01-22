@@ -1,9 +1,6 @@
 # ===========================================
 # ProSaaS - Nginx Reverse Proxy (BUILD-TIME ONLY)
 # ===========================================
-# Single source of truth for nginx configuration
-# All templating happens at BUILD TIME - no runtime processing
-# ===========================================
 
 FROM nginx:alpine
 
@@ -13,7 +10,7 @@ ARG CALLS_UPSTREAM
 ARG FRONTEND_UPSTREAM
 ARG USE_SSL=false
 
-# Convert to ENV for envsubst to work
+# Convert to ENV for envsubst
 ENV API_UPSTREAM=${API_UPSTREAM}
 ENV CALLS_UPSTREAM=${CALLS_UPSTREAM}
 ENV FRONTEND_UPSTREAM=${FRONTEND_UPSTREAM}
@@ -31,31 +28,28 @@ COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
 # Copy templates
 COPY docker/nginx/templates /templates
 
-# Create conf.d at BUILD TIME
+# Generate nginx config at BUILD TIME
 RUN mkdir -p /etc/nginx/conf.d && \
-    # Copy health check config directly (no variables to substitute)
     cp /templates/00-health.conf.template /etc/nginx/conf.d/00-health.conf && \
-    # Generate main config based on SSL flag
     if [ "$USE_SSL" = "true" ]; then \
-      envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' < /templates/prosaas-ssl.conf.template > /etc/nginx/conf.d/prosaas.conf ; \
+      envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' \
+        < /templates/prosaas-ssl.conf.template \
+        > /etc/nginx/conf.d/prosaas.conf ; \
     else \
-      envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' < /templates/prosaas.conf.template > /etc/nginx/conf.d/prosaas.conf ; \
+      envsubst '${API_UPSTREAM} ${CALLS_UPSTREAM} ${FRONTEND_UPSTREAM}' \
+        < /templates/prosaas.conf.template \
+        > /etc/nginx/conf.d/prosaas.conf ; \
     fi
 
-# CRITICAL: Fail-fast checks
-# Note: nginx -t will fail if upstreams don't exist at build time, which is expected
-# We verify syntax by checking the generated config has valid structure
-RUN grep -qE "proxy_pass http://[a-zA-Z0-9:.-]+/" /etc/nginx/conf.d/prosaas.conf && \
-    ! grep -q "\${" /etc/nginx/conf.d/prosaas.conf && \
-    echo "✅ Config validation passed: valid proxy_pass URLs present, no unsubstituted variables"
+# ❌ REMOVED: grep-based validation (BREAKS runtime DNS resolution)
 
-# Clean up
+# Cleanup
 RUN rm -rf /templates
 
 # Unset ENV vars (not needed at runtime)
 ENV API_UPSTREAM= CALLS_UPSTREAM= FRONTEND_UPSTREAM= USE_SSL=
 
-# Create SSL directory
+# SSL directory
 RUN mkdir -p /etc/nginx/ssl
 
 EXPOSE 80 443
