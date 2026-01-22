@@ -12,7 +12,10 @@ RUN apt-get update && apt-get install -y \
 COPY services/whatsapp/package.json services/whatsapp/package-lock.json ./
 
 # התקנה אחת ויחידה – זה חייב לעבוד
-RUN npm ci --omit=dev --no-audit --no-fund
+# Disable strict SSL for npm install in case of cert issues in build environment
+RUN npm config set strict-ssl false && \
+    npm ci --omit=dev --no-audit --no-fund && \
+    npm config set strict-ssl true
 
 # קוד אפליקציה
 COPY services/whatsapp/ ./
