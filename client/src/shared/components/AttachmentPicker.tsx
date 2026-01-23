@@ -147,12 +147,33 @@ export function AttachmentPicker({
         credentials: 'include',
       });
 
+      // Handle 404 gracefully - file might already be deleted
+      if (response.status === 404) {
+        console.log('Attachment already deleted or not found, removing from UI');
+        // Remove from UI anyway since it's effectively gone
+        setAttachments(attachments.filter(att => att.id !== attachmentId));
+        
+        // If this was selected, deselect it
+        if (mode === 'single' && selectedAttachmentId === attachmentId) {
+          onAttachmentSelect(null);
+        } else if (mode === 'multi' && selectedIds.includes(attachmentId)) {
+          const newIds = selectedIds.filter(id => id !== attachmentId);
+          setSelectedIds(newIds);
+          onAttachmentSelect(newIds.length > 0 ? newIds : null);
+        }
+        
+        // Show informative message instead of error
+        setError('הקובץ כבר נמחק');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to delete attachment');
       }
 
-      // Remove from list
+      // Success - remove from list immediately
       setAttachments(attachments.filter(att => att.id !== attachmentId));
       
       // If this was selected, deselect it
