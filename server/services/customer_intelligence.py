@@ -230,10 +230,19 @@ class CustomerIntelligence:
         phone_number: str, 
         call_sid: str, 
         transcription: str = "",
-        conversation_data: Optional[Dict] = None
+        conversation_data: Optional[Dict] = None,
+        caller_name: str = None
     ) -> Tuple[Customer, Lead, bool]:
         """
         זיהוי או יצירת לקוח מתוך שיחה טלפונית
+        🆕 Caller name: Save caller name with smart upsert logic
+        
+        Args:
+            phone_number: E.164 phone number
+            call_sid: Twilio call SID
+            transcription: Call transcription
+            conversation_data: Conversation context
+            caller_name: Caller ID name (if available)
         
         Returns:
             (Customer, Lead, was_created): הלקוח, הליד, והאם נוצר חדש
@@ -262,6 +271,31 @@ class CustomerIntelligence:
                 lead = self._update_or_create_lead_for_existing_customer(
                     existing_customer, call_sid, extracted_info
                 )
+                
+                # 🆕 Name saving: Update lead name from caller_name if available
+                if caller_name and lead:
+                    from server.utils.name_utils import normalize_name, is_name_better
+                    normalized_name = normalize_name(caller_name)
+                    
+                    if normalized_name:
+                        # Check if we should update the name
+                        should_update = is_name_better(
+                            new_name=normalized_name,
+                            old_name=lead.name or "",
+                            new_source='call',
+                            old_source=lead.name_source or ""
+                        )
+                        
+                        if should_update:
+                            lead.name = normalized_name
+                            lead.name_source = 'call'
+                            lead.name_updated_at = datetime.utcnow()
+                            log.info(f"lead_upsert: phone={clean_phone} source=call caller_name=\"{caller_name}\" applied=true reason=name_improved")
+                        else:
+                            log.info(f"lead_upsert: phone={clean_phone} source=call caller_name=\"{caller_name}\" applied=false reason=existing_name_better old_name=\"{lead.name}\" old_source={lead.name_source}")
+                    else:
+                        log.debug(f"lead_upsert: phone={clean_phone} source=call caller_name=\"{caller_name}\" applied=false reason=invalid_name")
+                
                 log.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action=updated phone={clean_phone}")
                 log.info(f"🔍 Found existing customer: {existing_customer.name} (ID: {existing_customer.id})")
                 return existing_customer, lead, False
@@ -270,6 +304,20 @@ class CustomerIntelligence:
                 customer, lead = self._create_new_customer_and_lead(
                     clean_phone, call_sid, extracted_info
                 )
+                
+                # 🆕 Name saving: Update lead name from caller_name if available
+                if caller_name and lead:
+                    from server.utils.name_utils import normalize_name
+                    normalized_name = normalize_name(caller_name)
+                    
+                    if normalized_name:
+                        lead.name = normalized_name
+                        lead.name_source = 'call'
+                        lead.name_updated_at = datetime.utcnow()
+                        log.info(f"lead_upsert: phone={clean_phone} source=call caller_name=\"{caller_name}\" applied=true reason=new_lead")
+                    else:
+                        log.debug(f"lead_upsert: phone={clean_phone} source=call caller_name=\"{caller_name}\" applied=false reason=invalid_name")
+                
                 log.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action=created phone={clean_phone}")
                 log.info(f"🆕 Created new customer: {customer.name} (ID: {customer.id})")
                 return customer, lead, True
