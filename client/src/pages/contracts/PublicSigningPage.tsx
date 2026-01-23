@@ -119,30 +119,52 @@ function PDFSigningView({
   }, [currentPage, file.download_url, pdfInfo]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault(); // Prevent scrolling on touch
     setSignatureDrawing(true);
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    
     const rect = canvas.getBoundingClientRect();
-    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+    // Get coordinates and scale to canvas resolution
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+    
+    // Configure drawing style for smooth, high-quality signatures
+    ctx.strokeStyle = '#1a1a1a'; // Near-black for better appearance
+    ctx.lineWidth = 3.5; // Thicker line for better visibility
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
     ctx.beginPath();
     ctx.moveTo(x, y);
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!signatureDrawing) return;
+    e.preventDefault(); // Prevent scrolling on touch
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    
     const rect = canvas.getBoundingClientRect();
-    const x = 'touches' in e ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
-    const y = 'touches' in e ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
+    // Get coordinates and scale to canvas resolution
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+    
     ctx.lineTo(x, y);
     ctx.stroke();
   };
@@ -179,7 +201,8 @@ function PDFSigningView({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    // Convert screen coordinates to PDF coordinates
+    // Convert screen click coordinates to PDF-sized coordinates for storage
+    // Note: We keep screen coordinate system (top-origin) since iframe displays PDF in screen space
     const pageInfo = pdfInfo?.pages[currentPage];
     if (!pageInfo) return;
     
@@ -188,7 +211,7 @@ function PDFSigningView({
     const scaleX = pageInfo.width / containerWidth;
     const scaleY = pageInfo.height / containerHeight;
     
-    // Use standard screen coordinates (top-origin) - iframe doesn't use PDF bottom-origin
+    // Scale coordinates to match PDF dimensions while keeping top-origin coordinate system
     const pdfX = x * scaleX;
     const pdfY = y * scaleY;
     
@@ -419,7 +442,7 @@ function PDFSigningView({
                   const x = touch.clientX - rect.left;
                   const y = touch.clientY - rect.top;
                   
-                  // Convert screen coordinates to PDF coordinates
+                  // Convert screen tap coordinates to PDF-sized coordinates for storage
                   const pageInfo = pdfInfo?.pages[currentPage];
                   if (!pageInfo) return;
                   
@@ -428,7 +451,7 @@ function PDFSigningView({
                   const scaleX = pageInfo.width / containerWidth;
                   const scaleY = pageInfo.height / containerHeight;
                   
-                  // Use standard screen coordinates (top-origin) - iframe doesn't use PDF bottom-origin
+                  // Scale coordinates to match PDF dimensions while keeping top-origin coordinate system
                   const pdfX = x * scaleX;
                   const pdfY = y * scaleY;
                   
@@ -458,7 +481,7 @@ function PDFSigningView({
               const scaleX = containerWidth / pageInfo.width;
               const scaleY = containerHeight / pageInfo.height;
               
-              // Convert PDF coordinates back to screen coordinates (top-origin)
+              // Scale stored coordinates to current container dimensions for display
               const screenX = sig.x * scaleX;
               const screenY = sig.y * scaleY;
               const screenWidth = sig.width * scaleX;
@@ -570,21 +593,21 @@ function PDFSigningView({
             </div>
             
             <div className="border-2 border-gray-300 rounded-lg bg-white mb-4 shadow-inner">
-              <div className="p-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-300 flex justify-between items-center">
-                <span className="text-sm text-gray-700 font-medium">צייר את חתימתך כאן</span>
+              <div className="p-2 md:p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-300 flex justify-between items-center">
+                <span className="text-sm md:text-base text-gray-700 font-medium">✍️ צייר את חתימתך כאן בעכבר או באצבע</span>
                 <button 
                   onClick={clearSignature} 
-                  className="text-sm text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1 rounded-lg transition-all flex items-center gap-1 font-medium active:scale-95"
+                  className="text-sm text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1 md:py-2 rounded-lg transition-all flex items-center gap-1 font-medium active:scale-95"
                 >
                   <X className="w-4 h-4" />
                   נקה
                 </button>
               </div>
-              <div className="relative">
+              <div className="relative p-2 md:p-4">
                 <canvas
                   ref={canvasRef}
-                  width={450}
-                  height={150}
+                  width={800}
+                  height={300}
                   onMouseDown={startDrawing}
                   onMouseMove={draw}
                   onMouseUp={stopDrawing}
@@ -592,9 +615,20 @@ function PDFSigningView({
                   onTouchStart={startDrawing}
                   onTouchMove={draw}
                   onTouchEnd={stopDrawing}
-                  className="w-full cursor-crosshair touch-none signature-canvas-transparent"
-                  style={{ maxWidth: '100%', height: '150px', display: 'block' }}
+                  className="w-full border border-gray-200 rounded cursor-crosshair touch-none bg-white signature-canvas-transparent"
+                  style={{ 
+                    maxWidth: '100%', 
+                    height: 'auto',
+                    aspectRatio: '8 / 3',
+                    minHeight: '200px',
+                    display: 'block' 
+                  }}
                 />
+                {!currentSignatureData && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-gray-400 text-sm md:text-base">
+                    <span className="bg-white bg-opacity-70 px-3 py-2 rounded">התחל לצייר כדי ליצור חתימה...</span>
+                  </div>
+                )}
               </div>
             </div>
 
