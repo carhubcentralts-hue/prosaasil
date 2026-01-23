@@ -315,7 +315,7 @@ def create_app():
     })
     
     # ✅ DB RESILIENCE: Log pool configuration for troubleshooting
-    logger.info(f"[DB_POOL] pool_pre_ping=True pool_recycle=300s (Neon-optimized)")
+    logger.info(f"[DB_POOL] pool_pre_ping=True pool_recycle=60s (forced refresh)")  # QA: Fixed log to match actual value
     
     # 1) Flask bootstrap - ProxyFix for Replit's reverse proxy
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -331,6 +331,14 @@ def create_app():
     # Default: True for production (HTTPS required)
     # Set COOKIE_SECURE=false for HTTP-only deployments (not recommended for production!)
     cookie_secure = os.getenv("COOKIE_SECURE", "true").lower() != "false"
+    
+    # P3 Security: Enforce secure cookies in production
+    is_production = os.getenv('PRODUCTION', '0') == '1'
+    if is_production and not cookie_secure:
+        logger.error("❌ SECURITY: PRODUCTION=1 requires COOKIE_SECURE=true (HTTPS only)")
+        logger.error("Set COOKIE_SECURE=false only for development/testing")
+        raise ValueError("Production mode requires secure cookies (HTTPS)")
+    
     cookie_samesite = 'None' if cookie_secure else 'Lax'  # SameSite=None requires Secure
     
     if not cookie_secure:
@@ -347,6 +355,15 @@ def create_app():
         REMEMBER_COOKIE_SAMESITE=cookie_samesite,
         REMEMBER_COOKIE_HTTPONLY=True,
     )
+    
+    # P3 Security: Log session configuration
+    session_lifetime = app.config.get('PERMANENT_SESSION_LIFETIME', timedelta(hours=8))
+    if isinstance(session_lifetime, timedelta):
+        session_hours = session_lifetime.total_seconds() / 3600
+    else:
+        session_hours = session_lifetime / 3600 if session_lifetime else 8
+    
+    logger.info(f"[SESSION] Secure={cookie_secure}, HttpOnly=True, SameSite={cookie_samesite}, Lifetime={session_hours}h")
     
     # SeaSurf CSRF Cookie Settings - MUST match session settings!
     app.config.update(

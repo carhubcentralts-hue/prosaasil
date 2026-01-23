@@ -34,6 +34,21 @@ services:
     volumes:
       # Only mount SSL certificates (read-only)
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    # P3-4: Docker hardening - read-only filesystem
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
     # Add production service dependencies
     depends_on:
       prosaas-api:
@@ -95,6 +110,11 @@ services:
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
+    # P3-4: Docker hardening - more permissive for Playwright but still secure
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -154,6 +174,15 @@ services:
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
+    # P3-4: Docker hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -221,6 +250,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
+      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide)
+      MAX_CONCURRENT_CALLS: 15
       # 🔥 TTS WARMUP: Optional - disable TTS warmup if needed (does not affect DB)
       # Set to "true" to skip TTS client warmup (useful for faster deployments)
       DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
@@ -229,6 +260,15 @@ services:
       # 🔥 LOGGING - Production mode (minimal logs)
       LOG_LEVEL: INFO
       PYTHONUNBUFFERED: 1
+    # P3-4: Docker hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     # 🔥 DNS FIX: Use external DNS to prevent transient failures
     dns:
       - 1.1.1.1
@@ -298,6 +338,14 @@ services:
   # ===========================================
   frontend:
     depends_on: []
+    # P3-4: Docker hardening - read-only filesystem
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:

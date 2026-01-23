@@ -1391,14 +1391,19 @@ def sync_receipts():
         
         logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}, force={force}")
         
-        # Use Redis Queue if available, otherwise fall back to threading
-        if RQ_AVAILABLE and receipts_queue:
+        # P3-2: Feature flag for RQ usage (default: enabled)
+        use_rq = os.getenv('USE_RQ_FOR_RECEIPTS', '1') == '1'
+        
+        # Use Redis Queue if available AND feature flag enabled, otherwise fall back to threading
+        if use_rq and RQ_AVAILABLE and receipts_queue:
             # Enqueue job to Redis queue for worker processing
             # CRITICAL: Use string reference to ensure worker can resolve the function
             # This prevents import path mismatches between API and Worker
             
             logger.info(f"🔔 ENQUEUEING JOB: Preparing to enqueue sync job to 'default' queue...")
             
+            # P3-3: Enhanced RQ configuration with retries and backoff
+            from rq import Retry
             job = receipts_queue.enqueue(
                 'server.jobs.gmail_sync_job.sync_gmail_receipts_job',  # String reference for RQ
                 business_id=business_id,
@@ -1407,9 +1412,10 @@ def sync_receipts():
                 from_date=from_date,
                 to_date=to_date,
                 months_back=months_back,
-                job_timeout='1h',  # Max 1 hour for sync
+                job_timeout='1h',  # Max 1 hour for sync (3600 seconds)
                 result_ttl=3600,  # Keep result for 1 hour
                 failure_ttl=86400,  # Keep failure info for 24 hours
+                retry=Retry(max=3, interval=[30, 120, 600]),  # P3-3: Retry 3 times with backoff (30s, 2m, 10m)
             )
             
             # Store metadata for stuck job detection

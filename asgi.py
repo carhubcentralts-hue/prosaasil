@@ -377,6 +377,18 @@ async def ws_twilio_media(websocket: WebSocket):
                 handler.run()
                 print("[REALTIME] run_handler: handler.run() completed normally", flush=True)
                 twilio_log.info("[REALTIME] run_handler: handler.run() completed normally")
+            except RuntimeError as capacity_error:
+                # P2+Calls: Handle capacity overflow gracefully
+                if "Over capacity" in str(capacity_error):
+                    error_msg = str(capacity_error)
+                    print(f"[CALLS_OVER_CAPACITY] {error_msg}", flush=True)
+                    twilio_log.warning(f"[CALLS_OVER_CAPACITY] {error_msg}")
+                    # Close connection gracefully - no stuck sessions
+                else:
+                    # Other RuntimeError - log and re-raise
+                    twilio_log.exception(f"[REALTIME] MediaStreamHandler RuntimeError: {capacity_error}")
+                    import traceback
+                    twilio_log.error(f"[REALTIME] Full traceback:\n{traceback.format_exc()}")
             except Exception as e:
                 twilio_log.exception(f"[REALTIME] MediaStreamHandler error: {e}")
                 import traceback

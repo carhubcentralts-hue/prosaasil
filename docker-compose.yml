@@ -230,7 +230,7 @@ services:
   # No external port exposure
   # ===========================================
   n8n:
-    image: n8nio/n8n:2.3.1
+    image: n8nio/n8n:2.5.1
     restart: unless-stopped
     env_file:
       - .env
@@ -361,6 +361,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
+      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide)
+      MAX_CONCURRENT_CALLS: 50
       # 🔥 SCHEDULERS: Disable schedulers in calls service (only worker should run them)
       ENABLE_SCHEDULERS: "false"
       # 🔥 LOGGING - Development mode (full logs)

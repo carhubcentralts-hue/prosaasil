@@ -10572,6 +10572,15 @@ class MediaStreamHandler:
             self.realtime_failed = True
             self._realtime_failure_reason = f"RUN_EXCEPTION: {type(e).__name__}"
         finally:
+            # 🔥 P3-1: Release capacity slot in finally block (always executes)
+            call_sid = getattr(self, 'call_sid', None)
+            if call_sid:
+                try:
+                    from server.services.calls_capacity import release_call_slot
+                    release_call_slot(call_sid)
+                except Exception as cap_err:
+                    logger.error(f"Failed to release capacity slot in finally: {cap_err}")
+            
             # 🔥 BUILD 169: Enhanced disconnect logging
             session_id = getattr(self, '_call_session_id', 'N/A')
             call_duration = time.time() - getattr(self, 'call_start_time', time.time())
