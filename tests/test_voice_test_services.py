@@ -19,19 +19,23 @@ class TestTTSProvider:
         assert all("name" in v for v in voices)
     
     def test_get_available_voices_gemini(self):
-        """Test getting Gemini voices"""
-        from server.services.tts_provider import get_available_voices, GEMINI_TTS_VOICES
+        """Test getting Gemini voices returns list format"""
+        from server.services.tts_provider import get_available_voices
         
         voices = get_available_voices("gemini")
-        assert len(voices) == len(GEMINI_TTS_VOICES)
-        assert all("id" in v for v in voices)
+        # May be empty if no GEMINI_API_KEY, but should be a list
+        assert isinstance(voices, list)
+        if len(voices) > 0:
+            assert all("id" in v for v in voices)
     
     def test_get_available_voices_unknown_provider(self):
         """Test getting voices for unknown provider defaults to OpenAI"""
-        from server.services.tts_provider import get_available_voices, OPENAI_TTS_VOICES
+        from server.services.tts_provider import get_available_voices
         
         voices = get_available_voices("unknown")
-        assert len(voices) == len(OPENAI_TTS_VOICES)
+        # Should return OpenAI voices as fallback
+        assert isinstance(voices, list)
+        assert len(voices) > 0
     
     def test_get_default_voice_openai(self):
         """Test default voice for OpenAI returns a valid voice"""

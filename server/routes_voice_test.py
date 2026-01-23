@@ -284,7 +284,7 @@ def get_tts_voices():
                 "name": "OpenAI",
                 "label": "OpenAI TTS",
                 "mode": "production",
-                "voices": tts_provider.OPENAI_TTS_VOICES,
+                "voices": tts_provider.get_available_voices("openai"),
                 "available": True
             }
         ]
