@@ -122,13 +122,13 @@ export function EnhancedPDFViewer({
 
   // Handle iframe load events
   const handleIframeLoad = () => {
-    console.log('[PDF_VIEWER] PDF iframe loaded successfully');
+    console.log('[PDF_VIEWER] PDF iframe loaded successfully, URL:', pdfUrl);
     setIframeLoaded(true);
     setIframeError(false);
   };
 
   const handleIframeError = () => {
-    console.error('[PDF_VIEWER] PDF iframe failed to load');
+    console.error('[PDF_VIEWER] PDF iframe failed to load, URL:', pdfUrl);
     setIframeError(true);
     setIframeLoaded(false);
   };
