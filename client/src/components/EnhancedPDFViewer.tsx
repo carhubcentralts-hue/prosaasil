@@ -257,7 +257,7 @@ export function EnhancedPDFViewer({
         <>
           <iframe
             ref={iframeRef}
-            key={`${pdfUrl}-${currentPage}-${zoom}-${zoomMode}`}
+            key={pdfUrl}
             src={getIframeSrc()}
             className="absolute inset-0 w-full h-full"
             title="PDF Preview"

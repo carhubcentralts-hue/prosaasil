@@ -82,6 +82,10 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
+  // Use ref to persist URL across re-renders to prevent iframe reset bug
+  const previewUrlRef = React.useRef<string | null>(null);
+  const textContentRef = React.useRef<string | null>(null);
+
   const canPreview = file.mime_type === 'application/pdf' || 
                      file.mime_type.startsWith('image/') || 
                      file.mime_type.startsWith('text/') ||
@@ -89,11 +93,31 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
 
   const isTextFile = file.mime_type.startsWith('text/') || file.mime_type === 'application/json';
 
+  // Debug: Log when previewUrl changes to help diagnose issues
+  React.useEffect(() => {
+    if (previewUrl) {
+      logger.debug('[FilePreviewItem] previewUrl set:', previewUrl);
+    } else if (showPreview) {
+      logger.warn('[FilePreviewItem] previewUrl is null while showPreview is true - this indicates the bug');
+    }
+  }, [previewUrl, showPreview]);
+
   const handlePreviewToggle = async () => {
     if (showPreview) {
       setShowPreview(false);
       return;
     }
+
+    // Guard: if URL already cached, use it instead of re-fetching
+    if (previewUrlRef.current) {
+      setPreviewUrl(previewUrlRef.current);
+      if (textContentRef.current) {
+        setTextContent(textContentRef.current);
+      }
+      setShowPreview(true);
+      return;
+    }
+
     setLoadingPreview(true);
     try {
       const response = await fetch(`/api/contracts/${contractId}/files/${file.id}/download`, {
@@ -101,6 +125,8 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
       });
       if (response.ok) {
         const data = await response.json();
+        // Cache in ref to persist across re-renders
+        previewUrlRef.current = data.url;
         setPreviewUrl(data.url);
         
         // For text files, fetch the content
@@ -109,6 +135,8 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
             const textResponse = await fetch(data.url);
             if (textResponse.ok) {
               const text = await textResponse.text();
+              // Cache in ref to persist across re-renders
+              textContentRef.current = text;
               setTextContent(text);
             }
           } catch (err) {
@@ -175,6 +203,7 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
         <div className="border-t border-gray-200 p-4 bg-white">
           {file.mime_type === 'application/pdf' ? (
             <iframe 
+              key={`pdf-${file.id}`}
               src={`${previewUrl}#view=FitH`} 
               className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px] rounded-lg border border-gray-300" 
               title={file.filename}
