@@ -344,6 +344,7 @@ services:
       - /tmp
       - /var/cache/nginx
       - /var/run
+      - /etc/nginx/conf.d  # For envsubst scripts in nginx:alpine base image
     security_opt:
       - no-new-privileges:true
     cap_drop:
