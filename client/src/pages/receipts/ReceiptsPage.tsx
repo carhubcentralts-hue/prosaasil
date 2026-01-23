@@ -1036,8 +1036,8 @@ export function ReceiptsPage() {
       // Check if there's an active sync run on page load/refresh
       try {
         const latestSyncRes = await axios.get('/api/receipts/sync/latest');
-        if (latestSyncRes.data.success && latestSyncRes.data.sync_run) {
-          const run = latestSyncRes.data.sync_run;
+        if (latestSyncRes.data.success && latestSyncRes.data.last_run) {
+          const run = latestSyncRes.data.last_run;
           
           // If sync is still running, restore the UI state
           if (run.status === 'running' || run.status === 'paused') {
@@ -1045,8 +1045,15 @@ export function ReceiptsPage() {
             setActiveSyncRunId(run.id);
             setSyncing(true);
             setSyncInProgress(true);
-            setSyncProgress(run.progress);
+            
+            // Set progress from counters
+            if (run.counters) {
+              setSyncProgress(run.counters);
+            }
             setSyncProgressPercentage(run.progress_percentage || 0);
+            
+            // CRITICAL: Save sync_run_id to localStorage for future refreshes
+            localStorage.setItem('activeSyncRunId', run.id.toString());
             
             // Restore from localStorage if available
             const storedSyncDates = localStorage.getItem('activeSyncDates');
@@ -1062,6 +1069,38 @@ export function ReceiptsPage() {
           } else {
             // Sync completed/failed - clear localStorage
             localStorage.removeItem('activeSyncDates');
+            localStorage.removeItem('activeSyncRunId');
+          }
+        } else {
+          // FALLBACK: Check localStorage for stored sync_run_id
+          const storedSyncRunId = localStorage.getItem('activeSyncRunId');
+          if (storedSyncRunId) {
+            console.log('📍 Found stored sync_run_id in localStorage, checking status:', storedSyncRunId);
+            try {
+              const syncRunRes = await axios.get(`/api/receipts/sync/status?run_id=${storedSyncRunId}`);
+              if (syncRunRes.data.success && syncRunRes.data.sync_run) {
+                const run = syncRunRes.data.sync_run;
+                if (run.status === 'running' || run.status === 'paused') {
+                  console.log('📍 Restoring sync from localStorage:', run);
+                  setActiveSyncRunId(run.id);
+                  setSyncing(true);
+                  setSyncInProgress(true);
+                  
+                  if (run.progress) {
+                    setSyncProgress(run.progress);
+                  }
+                  setSyncProgressPercentage(run.progress_percentage || 0);
+                } else {
+                  // Sync is done - clear localStorage
+                  localStorage.removeItem('activeSyncDates');
+                  localStorage.removeItem('activeSyncRunId');
+                }
+              }
+            } catch (err) {
+              console.error('Failed to check stored sync_run_id:', err);
+              // Clear invalid localStorage
+              localStorage.removeItem('activeSyncRunId');
+            }
           }
         }
       } catch (err) {
@@ -1137,8 +1176,9 @@ export function ReceiptsPage() {
             setSyncProgressPercentage(0);
             setCancelling(false);
             
-            // Clear localStorage when sync completes
+            // CRITICAL: Clear BOTH localStorage items when sync completes
             localStorage.removeItem('activeSyncDates');
+            localStorage.removeItem('activeSyncRunId');
             
             // Refresh data - trigger via state change
             setPage(p => p); // This triggers a re-fetch via the effect
@@ -1259,6 +1299,14 @@ export function ReceiptsPage() {
         headers: { Authorization: `Bearer ${user?.token}` }
       });
       console.log('🔔 Sync response:', response.status, response.data);
+      
+      // CRITICAL: Check if response includes sync_run_id and save it to localStorage
+      if (response.data.sync_run_id) {
+        const syncRunId = response.data.sync_run_id;
+        setActiveSyncRunId(syncRunId);
+        localStorage.setItem('activeSyncRunId', syncRunId.toString());
+        console.log('📍 Saved sync_run_id to localStorage:', syncRunId);
+      }
 
       // Backend now returns 202 Accepted immediately
       if (response.status === 202) {
