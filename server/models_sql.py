@@ -1733,3 +1733,69 @@ class ReceiptSyncRun(db.Model):
         db.CheckConstraint("mode IN ('full', 'full_backfill', 'incremental')", name='chk_receipt_sync_mode'),
         db.CheckConstraint("status IN ('running', 'paused', 'completed', 'failed', 'cancelled')", name='chk_receipt_sync_status'),
     )
+
+
+class BackgroundJob(db.Model):
+    """
+    Background Jobs tracking for heavy batch operations
+    Supports stable, resumable batch processing with progress tracking
+    
+    Features:
+    - Multi-tenant isolation (business_id)
+    - Job status tracking (queued/running/paused/completed/failed/cancelled)
+    - Progress tracking (total/processed/succeeded/failed_count)
+    - Cursor-based resumability for interrupted jobs
+    - Prevents concurrent jobs per business (unique partial index)
+    
+    Use cases:
+    - delete_receipts_all: Batch delete all receipts with progress
+    """
+    __tablename__ = "background_jobs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    requested_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
+    # Job identification
+    job_type = db.Column(db.String(64), nullable=False)  # e.g., 'delete_receipts_all'
+    
+    # Progress tracking
+    status = db.Column(db.String(32), nullable=False, default='queued')  # queued|running|paused|completed|failed|cancelled
+    total = db.Column(db.Integer, default=0)  # Total items to process
+    processed = db.Column(db.Integer, default=0)  # Items processed so far
+    succeeded = db.Column(db.Integer, default=0)  # Items successfully processed
+    failed_count = db.Column(db.Integer, default=0)  # Items that failed
+    
+    # Error tracking
+    last_error = db.Column(db.Text, nullable=True)  # Last error message
+    
+    # Resumability - stores state for continuing interrupted jobs
+    cursor = db.Column(db.Text, nullable=True)  # JSON string storing position (e.g., {"last_id": 12345})
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = db.Column(db.DateTime, nullable=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("background_jobs", lazy="dynamic"))
+    requested_by = db.relationship("User", backref=db.backref("requested_jobs", lazy="dynamic"))
+    
+    # Computed property for progress percentage
+    @property
+    def percent(self):
+        """Calculate completion percentage"""
+        if self.total == 0:
+            return 0.0
+        return round((self.processed / self.total) * 100, 1)
+    
+    # Indexes and constraints
+    # Note: Unique partial index is created in migration (idx_background_jobs_unique_active)
+    # to prevent concurrent jobs of same type per business
+    __table_args__ = (
+        db.Index('idx_background_jobs_business_type_status', 'business_id', 'job_type', 'status'),
+        db.Index('idx_background_jobs_created_at', 'created_at'),
+        db.CheckConstraint("status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')", name='chk_job_status'),
+        db.CheckConstraint("job_type IN ('delete_receipts_all')", name='chk_job_type'),
+    )
