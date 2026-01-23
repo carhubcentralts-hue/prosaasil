@@ -33,10 +33,11 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [pdfReady, setPdfReady] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -46,62 +47,6 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     loadSignatureFields();
     loadPdfInfo();
   }, [token, file.id]);
-  
-  // Load PDF properly as blob and create ObjectURL
-  useEffect(() => {
-    if (!file.download_url) {
-      setLoading(false);
-      return;
-    }
-
-    const loadPdf = async () => {
-      setLoading(true);
-      try {
-        console.log('[PDF_LOAD] Fetching PDF from:', file.download_url);
-        
-        // Fetch the actual PDF as a blob
-        const pdfResponse = await fetch(file.download_url, {
-          credentials: 'include',
-        });
-        
-        if (!pdfResponse.ok) {
-          throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
-        }
-        
-        const contentType = pdfResponse.headers.get('content-type');
-        console.log('[PDF_LOAD] PDF Content-Type:', contentType);
-        
-        const blob = await pdfResponse.blob();
-        
-        // Validate it's actually a PDF
-        if (!blob.type.includes('pdf') && !contentType?.includes('pdf')) {
-          console.error('[PDF_LOAD] Not a PDF! Blob type:', blob.type, 'Content-Type:', contentType);
-          throw new Error(`Expected PDF but got ${blob.type || contentType || 'unknown type'}`);
-        }
-        
-        console.log('[PDF_LOAD] PDF blob loaded, size:', blob.size);
-        
-        // Create ObjectURL from blob
-        const objectUrl = URL.createObjectURL(blob);
-        setPdfObjectUrl(objectUrl);
-        
-        console.log('[PDF_LOAD] PDF loaded successfully');
-      } catch (err) {
-        console.error('[PDF_LOAD] Error loading PDF:', err);
-        onError(err instanceof Error ? err.message : 'שגיאה בטעינת PDF');
-      }
-    };
-    
-    loadPdf();
-    
-    // Cleanup: revoke ObjectURL when component unmounts
-    return () => {
-      if (pdfObjectUrl) {
-        console.log('[PDF_LOAD] Revoking ObjectURL');
-        URL.revokeObjectURL(pdfObjectUrl);
-      }
-    };
-  }, [file.download_url]);
   
   const loadSignatureFields = async () => {
     try {
@@ -117,16 +62,35 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
   const loadPdfInfo = async () => {
     try {
+      console.log('[PDF_LOAD_START] Loading PDF info for file:', file.id);
       const response = await fetch(`/api/contracts/sign/${token}/pdf-info/${file.id}`);
       if (response.ok) {
         const data = await response.json();
         setTotalPages(data.page_count || 1);
+        console.log('[PDF_LOAD_SUCCESS] PDF info loaded, pages:', data.page_count);
+      } else {
+        console.error('[PDF_LOAD_ERROR] Failed to load PDF info:', response.status);
+        setPdfError('שגיאה בטעינת מידע על PDF');
       }
     } catch (err) {
-      console.error('Error loading PDF info:', err);
+      console.error('[PDF_LOAD_ERROR] Error loading PDF info:', err);
+      setPdfError('שגיאה בטעינת מידע על PDF');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle iframe load events
+  const handleIframeLoad = () => {
+    console.log('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
+    setPdfReady(true);
+    setPdfError(null);
+  };
+
+  const handleIframeError = () => {
+    console.error('[PDF_LOAD_ERROR] PDF iframe failed to load');
+    setPdfError('שגיאה בטעינת PDF');
+    setPdfReady(false);
   };
 
   // Initialize canvas
@@ -140,7 +104,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     }
   }, []);
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     setIsDrawing(true);
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -149,23 +113,14 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     if (!ctx) return;
     
     const rect = canvas.getBoundingClientRect();
-    
-    // Safe touch event handling
-    let x: number, y: number;
-    if ('touches' in e) {
-      if (e.touches.length === 0) return;
-      x = e.touches[0].clientX - rect.left;
-      y = e.touches[0].clientY - rect.top;
-    } else {
-      x = e.clientX - rect.left;
-      y = e.clientY - rect.top;
-    }
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     
     ctx.beginPath();
     ctx.moveTo(x, y);
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
     
     const canvas = canvasRef.current;
@@ -175,17 +130,8 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     if (!ctx) return;
     
     const rect = canvas.getBoundingClientRect();
-    
-    // Safe touch event handling
-    let x: number, y: number;
-    if ('touches' in e) {
-      if (e.touches.length === 0) return;
-      x = e.touches[0].clientX - rect.left;
-      y = e.touches[0].clientY - rect.top;
-    } else {
-      x = e.clientX - rect.left;
-      y = e.clientY - rect.top;
-    }
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
@@ -265,11 +211,27 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="mr-3 text-gray-600">טוען מסמך...</span>
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+          <p className="text-gray-600">טוען מסמך...</p>
+        </div>
       </div>
     );
   }
+
+  if (pdfError) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <p className="text-red-600 font-medium mb-2">שגיאה בטעינת PDF</p>
+          <p className="text-gray-600 text-sm">{pdfError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't allow signing if PDF is not ready
+  const canSign = pdfReady && signatureData && signatureFields.length > 0;
 
   return (
     <div className="space-y-4">
@@ -296,13 +258,10 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
             ref={canvasRef}
             width={600}
             height={150}
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            onTouchStart={startDrawing}
-            onTouchMove={draw}
-            onTouchEnd={stopDrawing}
+            onPointerDown={startDrawing}
+            onPointerMove={draw}
+            onPointerUp={stopDrawing}
+            onPointerLeave={stopDrawing}
             className="w-full cursor-crosshair touch-none"
             style={{ maxWidth: '100%', height: '150px', display: 'block' }}
           />
@@ -334,30 +293,36 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
         {/* PDF with Signature Field Overlays */}
         <div className="relative border-2 border-gray-300 rounded-lg bg-white overflow-hidden">
-          {loading ? (
+          {!file.download_url ? (
             <div className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px] flex items-center justify-center bg-gray-50">
-              <div className="text-center">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                <p className="text-gray-600">טוען PDF...</p>
-              </div>
+              <p className="text-red-600">לא נמצא URL של PDF</p>
             </div>
-          ) : pdfObjectUrl ? (
-            <iframe
-              ref={iframeRef}
-              key={`${pdfObjectUrl}-${currentPage}`}
-              src={`${pdfObjectUrl}#page=${currentPage}&view=FitH`}
-              className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
-              title={file.filename}
-              style={{ border: 'none', display: 'block' }}
-            />
           ) : (
-            <div className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px] flex items-center justify-center bg-gray-50">
-              <p className="text-red-600">לא ניתן לטעון PDF</p>
-            </div>
+            <>
+              <iframe
+                ref={iframeRef}
+                key={`${file.download_url}-${currentPage}`}
+                src={`${file.download_url}#page=${currentPage}&view=FitH`}
+                className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
+                title={file.filename}
+                style={{ border: 'none', display: 'block' }}
+                onLoad={handleIframeLoad}
+                onError={handleIframeError}
+              />
+              {/* Show loading overlay until PDF is ready */}
+              {!pdfReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                    <p className="text-gray-600 text-sm">טוען PDF...</p>
+                  </div>
+                </div>
+              )}
+            </>
           )}
           
-          {/* Overlay showing where signatures will be placed - only show when PDF is loaded */}
-          {pdfObjectUrl && !loading && (
+          {/* Overlay showing where signatures will be placed - only show when PDF is ready */}
+          {pdfReady && file.download_url && (
             <div className="absolute inset-0 pointer-events-none">
               {getCurrentPageFields().map((field, index) => (
                 <div
@@ -379,8 +344,8 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
           )}
         </div>
 
-        {/* Info about signature fields */}
-        {signatureFields.length > 0 && (
+        {/* Info about signature fields - only show when PDF is ready */}
+        {pdfReady && signatureFields.length > 0 && (
           <div className="bg-green-50 rounded-lg p-3 border border-green-200">
             <p className="text-sm text-green-800">
               <strong>✓</strong> המסמך מכיל {signatureFields.length} אזורי חתימה מסומנים.
@@ -389,10 +354,18 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
           </div>
         )}
         
-        {signatureFields.length === 0 && (
+        {pdfReady && signatureFields.length === 0 && (
           <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
             <p className="text-sm text-yellow-800">
               <strong>⚠</strong> לא נמצאו אזורי חתימה מוגדרים במסמך. פנה לשולח המסמך.
+            </p>
+          </div>
+        )}
+
+        {!pdfReady && !pdfError && (
+          <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+            <p className="text-sm text-blue-800">
+              <strong>ℹ</strong> ממתין לטעינת המסמך לפני סימון אזורי החתימה...
             </p>
           </div>
         )}
@@ -416,12 +389,18 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
         
         <Button
           onClick={handleSubmit}
-          disabled={signing || !signatureData || signatureFields.length === 0}
+          disabled={signing || !canSign}
           className="w-full flex items-center justify-center gap-3 text-lg py-4 shadow-lg"
         >
           <CheckCircle className="w-6 h-6" />
           {signing ? (
             'חותם על המסמך...'
+          ) : !pdfReady ? (
+            'ממתין לטעינת PDF...'
+          ) : !signatureData ? (
+            'יש לצייר חתימה תחילה'
+          ) : signatureFields.length === 0 ? (
+            'לא נמצאו אזורי חתימה'
           ) : (
             `חתום על המסמך (${signatureFields.length} ${signatureFields.length === 1 ? 'חתימה' : 'חתימות'})`
           )}
