@@ -210,11 +210,40 @@ function saveQueueToDisk() {
 // Auto-save every 30 seconds
 setInterval(saveQueueToDisk, 30000);
 
-const messageDedup = new Map(); // (tenantId:wa_message_id) -> timestamp to prevent duplicates
+const messageDedup = new Map(); // (tenantId:remoteJid:message_id) -> timestamp to prevent duplicates
 const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
 const DEDUP_CLEANUP_MS = 600000; // Clean dedup entries older than 10 minutes
+const DEDUP_CLEANUP_HOUR_MS = 3600000; // 1 hour for dedup entry retention
+const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
+
+// 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [key, timestamp] of messageDedup.entries()) {
+    if (now - timestamp > DEDUP_CLEANUP_MS) {
+      messageDedup.delete(key);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`[CLEANUP] Removed ${cleaned} old dedup entries (size: ${messageDedup.size})`);
+  }
+}, DEDUP_CLEANUP_MS);
+
+// Helper function to check if a message has actual content
+function hasTextContent(msgObj) {
+  return !!(
+    msgObj.conversation ||
+    msgObj.extendedTextMessage?.text ||
+    msgObj.imageMessage?.caption ||
+    msgObj.videoMessage?.caption ||
+    msgObj.audioMessage ||
+    msgObj.documentMessage
+  );
+}
 
 // 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
 setInterval(() => {
@@ -1538,16 +1567,7 @@ async function startSession(tenantId, forceRelink = false) {
           
           // 🔥 FIX: Filter out non-message events (protocol messages, empty messages, etc.)
           const msgObj = msg.message || {};
-          const hasTextContent = !!(
-            msgObj.conversation ||
-            msgObj.extendedTextMessage?.text ||
-            msgObj.imageMessage?.caption ||
-            msgObj.videoMessage?.caption ||
-            msgObj.audioMessage ||
-            msgObj.documentMessage
-          );
-          
-          if (!hasTextContent) {
+          if (!hasTextContent(msgObj)) {
             console.log(`[${tenantId}] ⏭️ Skipping non-message event ${messageId} - no text content`);
             continue;
           }
@@ -1564,12 +1584,12 @@ async function startSession(tenantId, forceRelink = false) {
           messageDedup.set(dedupKey, Date.now());
           newMessages.push(msg);
           
-          // Clean old dedup entries (keep last 1 hour = 3600000ms)
+          // Clean old dedup entries (keep last hour = DEDUP_CLEANUP_HOUR_MS)
           // This is sufficient to prevent duplicates while allowing memory cleanup
-          if (messageDedup.size > 1000) {
+          if (messageDedup.size > DEDUP_MAX_SIZE) {
             const now = Date.now();
             for (const [key, timestamp] of messageDedup.entries()) {
-              if (now - timestamp > 3600000) {  // 1 hour
+              if (now - timestamp > DEDUP_CLEANUP_HOUR_MS) {
                 messageDedup.delete(key);
               }
             }
