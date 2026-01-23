@@ -1433,11 +1433,24 @@ def process_single_receipt_message(
         try:
             # Acquire semaphore before Playwright screenshot
             with playwright_semaphore:
-                screenshot_attachment_id = generate_email_screenshot(
+                screenshot_result = generate_email_screenshot(
                     email_html=email_html_snippet,
                     business_id=business_id,
                     receipt_id=None
                 )
+                
+                # Handle both tuple (id, error_msg) and single id returns
+                screenshot_attachment_id = None
+                screenshot_warning = None
+                if screenshot_result:
+                    if isinstance(screenshot_result, tuple):
+                        screenshot_attachment_id, screenshot_warning = screenshot_result
+                        logger.warning(f"⚠️ Screenshot generated with warning: {screenshot_warning}")
+                        # Store warning for preview_failure_reason
+                        if not preview_error_msg:
+                            preview_error_msg = screenshot_warning
+                    else:
+                        screenshot_attachment_id = screenshot_result
                 
                 if screenshot_attachment_id:
                     if not attachment_processed:
@@ -2832,14 +2845,26 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 logger.info(f"📄 Generating HTML snapshot as PDF with Playwright for receipt {receipt_id or 'unknown'}")
                 
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=True)
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--disable-blink-features=AutomationControlled',
+                            '--no-first-run',
+                            '--no-default-browser-check',
+                            '--disable-extensions'
+                        ]
+                    )
                     page = browser.new_page(viewport={'width': 800, 'height': 1200})
                     
-                    # Set HTML content
-                    page.set_content(email_html)
+                    # Set HTML content directly (not navigating to URL - avoids blocking)
+                    page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
                     
-                    # Wait for content to load
-                    page.wait_for_load_state('networkidle')
+                    # Wait for content to load with timeout
+                    try:
+                        page.wait_for_load_state('networkidle', timeout=15000)  # 15 second timeout
+                    except Exception as wait_error:
+                        logger.warning(f"networkidle timeout, proceeding anyway: {wait_error}")
+                        # Continue anyway - content may still be usable
                     
                     # Create temp PDF file - CRITICAL: Must be PDF, not PNG (Rule 3)
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
@@ -2904,6 +2929,17 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                         attachment.file_size = file_size
                         db.session.commit()
                         
+                        # Check for suspiciously small PDF (< 5KB indicates empty/blocked page)
+                        MIN_PDF_SIZE = 5 * 1024  # 5KB threshold
+                        if file_size < MIN_PDF_SIZE:
+                            logger.warning(
+                                f"⚠️ Small PDF detected ({file_size} bytes < {MIN_PDF_SIZE} bytes) - "
+                                f"likely empty/blocked page. Attachment ID: {attachment.id}"
+                            )
+                            # Return attachment_id but also return error info in tuple
+                            # This allows caller to save preview_failure_reason
+                            return (attachment.id, f"PDF too small ({file_size} bytes) - likely empty/blocked page")
+                        
                         logger.info(f"✅ Email snapshot PDF generated with Playwright: attachment_id={attachment.id}, size={file_size}")
                         return attachment.id
                         
@@ -2917,10 +2953,22 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     logger.info(f"📄 Fallback: Generating PNG then converting to PDF")
                     
                     with sync_playwright() as p:
-                        browser = p.chromium.launch(headless=True)
+                        browser = p.chromium.launch(
+                            headless=True,
+                            args=[
+                                '--disable-blink-features=AutomationControlled',
+                                '--no-first-run',
+                                '--no-default-browser-check',
+                                '--disable-extensions'
+                            ]
+                        )
                         page = browser.new_page(viewport={'width': 800, 'height': 1200})
-                        page.set_content(email_html)
-                        page.wait_for_load_state('networkidle')
+                        page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
+                        
+                        try:
+                            page.wait_for_load_state('networkidle', timeout=15000)
+                        except Exception as wait_error:
+                            logger.warning(f"networkidle timeout in fallback, proceeding: {wait_error}")
                         
                         # Take PNG screenshot
                         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
@@ -2972,6 +3020,16 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                             attachment.storage_path = storage_key
                             attachment.file_size = file_size
                             db.session.commit()
+                            
+                            # Check for suspiciously small PDF (< 5KB indicates empty/blocked page)
+                            MIN_PDF_SIZE = 5 * 1024  # 5KB threshold
+                            if file_size < MIN_PDF_SIZE:
+                                logger.warning(
+                                    f"⚠️ Small PDF detected ({file_size} bytes < {MIN_PDF_SIZE} bytes) - "
+                                    f"likely empty/blocked page. Attachment ID: {attachment.id}"
+                                )
+                                # Return attachment_id but also return error info in tuple
+                                return (attachment.id, f"PDF too small ({file_size} bytes) - likely empty/blocked page")
                             
                             logger.info(f"✅ Email snapshot PDF generated via PNG conversion: attachment_id={attachment.id}, size={file_size}")
                             return attachment.id

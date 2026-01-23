@@ -1036,12 +1036,20 @@ def sync_receipts():
     - from_date: Start date in YYYY-MM-DD format (optional, overrides mode)
     - to_date: End date in YYYY-MM-DD format (optional)
     - months_back: Number of months to go back for full_backfill (default: 36)
+    - force: true to perform HARD PURGE before rescan (default: false)
     
     Date range examples:
     - {"mode": "full_backfill", "months_back": 60} - Sync last 60 months (5 years)
     - {"from_date": "2023-01-01", "to_date": "2023-12-31"} - Sync all of 2023
     - {"from_date": "2020-01-01"} - Sync from 2020 onwards
     - {"to_date": "2024-12-31"} - Sync everything up to end of 2024
+    
+    Force Rescan Mode (force=true):
+    - Performs HARD DELETE of all receipts in date range (including soft-deleted)
+    - Deletes related attachments and previews
+    - Clears Redis locks
+    - Rescans from scratch (no duplicate detection)
+    - Prevents UniqueConstraint violations
     
     This fetches new emails that may contain receipts and processes them.
     Returns immediately with status - sync happens synchronously.
@@ -1105,6 +1113,7 @@ def sync_receipts():
     from_date = data.get('from_date', None)  # NEW: Support custom date range
     to_date = data.get('to_date', None)      # NEW: Support custom date range
     months_back = data.get('months_back', 36)  # NEW: Support configurable backfill depth
+    force = data.get('force', False)  # NEW: Force rescan with hard purge
     
     # Determine effective months_back (disabled if custom dates are used)
     months_back_effective = None if (from_date or to_date) else months_back
@@ -1146,6 +1155,138 @@ def sync_receipts():
     # Import sync service
     try:
         from server.services.gmail_sync_service import sync_gmail_receipts
+        
+        # FORCE RESCAN: Perform HARD PURGE if force=true
+        # 🔒 MASTER INSTRUCTION SAFETY RULES:
+        # ✅ Delete ONLY: source='gmail' receipts in date range
+        # ✅ Delete ONLY: attachments with purpose='receipt_source' OR 'receipt_preview'
+        # ✅ DB-driven: Query DB first, then delete by IDs (never by path/prefix)
+        # 🚫 NEVER: Delete generic attachments, contracts, CRM files
+        # 🚫 NEVER: Delete by storage path or folder
+        # 🚫 NEVER: Delete attachments without verifying purpose field
+        if force:
+            logger.info(f"🔥 FORCE RESCAN: Performing hard purge for business_id={business_id}")
+            
+            # Build date range filters
+            purge_filters = [
+                Receipt.business_id == business_id,
+                Receipt.source == 'gmail'
+            ]
+            
+            # Determine date range for purge
+            if from_date or to_date:
+                # Use specified date range
+                if from_date:
+                    from_date_dt = datetime.strptime(from_date, '%Y-%m-%d')
+                    purge_filters.append(Receipt.received_at >= from_date_dt)
+                    logger.info(f"🔥 PURGE: from_date={from_date}")
+                
+                if to_date:
+                    to_date_dt = datetime.strptime(to_date, '%Y-%m-%d')
+                    # Make to_date inclusive by adding 1 day
+                    to_date_end = to_date_dt + timedelta(days=1)
+                    purge_filters.append(Receipt.received_at < to_date_end)
+                    logger.info(f"🔥 PURGE: to_date={to_date}")
+            elif mode == 'full_backfill':
+                # For full backfill, purge based on months_back
+                cutoff_date = datetime.now() - timedelta(days=months_back * 30)
+                purge_filters.append(Receipt.received_at >= cutoff_date)
+                logger.info(f"🔥 PURGE: full_backfill mode, months_back={months_back}")
+            # else: incremental mode - no purge needed (force shouldn't be used with incremental)
+            
+            try:
+                # Query receipts to be deleted (including soft-deleted ones)
+                receipts_to_delete = Receipt.query.filter(*purge_filters).all()
+                receipt_ids = [r.id for r in receipts_to_delete]
+                attachment_ids_to_verify = []
+                preview_ids_to_verify = []
+                
+                # Collect attachment IDs for verification and deletion
+                for receipt in receipts_to_delete:
+                    if receipt.attachment_id:
+                        attachment_ids_to_verify.append(receipt.attachment_id)
+                    if receipt.preview_attachment_id:
+                        preview_ids_to_verify.append(receipt.preview_attachment_id)
+                
+                # Combine all attachment IDs
+                all_attachment_ids = list(set(attachment_ids_to_verify + preview_ids_to_verify))
+                
+                logger.info(
+                    f"🔥 PURGE: Found {len(receipt_ids)} receipts to delete, "
+                    f"{len(all_attachment_ids)} total attachment IDs to verify"
+                )
+                
+                # 🔒 SAFETY GUARDRAILS: Verify attachments before deletion
+                safe_to_delete_ids = []
+                if all_attachment_ids:
+                    # Query attachments with safety filters
+                    attachments_to_verify = Attachment.query.filter(
+                        Attachment.id.in_(all_attachment_ids)
+                    ).all()
+                    
+                    for att in attachments_to_verify:
+                        # CRITICAL: Only delete attachments that are receipt-related
+                        if att.purpose in ('receipt_source', 'receipt_preview'):
+                            safe_to_delete_ids.append(att.id)
+                            logger.debug(f"✅ SAFE: attachment {att.id} purpose={att.purpose}")
+                        else:
+                            # CRITICAL: Don't delete non-receipt attachments
+                            logger.error(
+                                f"🚫 BLOCKED: Attempted to delete non-receipt attachment! "
+                                f"ID={att.id}, purpose={att.purpose}, filename={att.filename_original}"
+                            )
+                            # This should never happen, but if it does, abort the purge
+                            raise ValueError(
+                                f"Safety violation: Attempted to delete attachment with purpose='{att.purpose}'. "
+                                f"Only 'receipt_source' and 'receipt_preview' are allowed."
+                            )
+                    
+                    logger.info(
+                        f"🔒 GUARDRAILS: Verified {len(safe_to_delete_ids)} attachments are safe to delete "
+                        f"(out of {len(all_attachment_ids)} total)"
+                    )
+                
+                # Delete in transaction
+                if receipt_ids:
+                    # Safety check: Verify all receipts are from Gmail
+                    # (redundant with query filter, but provides additional safety layer)
+                    assert all(r.source == 'gmail' for r in receipts_to_delete), \
+                        "Safety violation: Attempted to delete non-Gmail receipt"
+                    
+                    logger.info(f"🔥 PURGE: Starting deletion in transaction...")
+                    
+                    # Delete receipts (hard delete)
+                    deleted_receipts = Receipt.query.filter(Receipt.id.in_(receipt_ids)).delete(synchronize_session=False)
+                    logger.info(f"  → Deleted {deleted_receipts} receipts")
+                    
+                    # Delete verified safe attachments only
+                    if safe_to_delete_ids:
+                        deleted_attachments = Attachment.query.filter(
+                            Attachment.id.in_(safe_to_delete_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  → Deleted {deleted_attachments} attachments")
+                    
+                    db.session.commit()
+                    logger.info(
+                        f"✅ PURGE COMPLETE: Deleted {deleted_receipts} receipts and "
+                        f"{len(safe_to_delete_ids)} attachments (all verified safe)"
+                    )
+                else:
+                    logger.info(f"✅ PURGE: No receipts found in range - nothing to delete")
+                
+                # Clear Redis lock if exists (to allow fresh sync)
+                if RQ_AVAILABLE and redis_conn:
+                    lock_key = f"receipt_sync_lock:{business_id}"
+                    redis_conn.delete(lock_key)
+                    logger.info(f"✅ PURGE: Cleared Redis lock")
+                    
+            except Exception as purge_error:
+                logger.error(f"❌ PURGE FAILED: {purge_error}", exc_info=True)
+                db.session.rollback()
+                return jsonify({
+                    "success": False,
+                    "error": f"Purge failed: {str(purge_error)}"
+                }), 500
         
         # Check for existing running sync (prevent double-click)
         existing_run = ReceiptSyncRun.query.filter_by(
@@ -1248,7 +1389,7 @@ def sync_receipts():
                     "status": "locked"
                 }), 409
         
-        logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}")
+        logger.info(f"🔔 STARTING SYNC: mode={mode}, from_date={from_date}, to_date={to_date}, max_messages={max_messages}, force={force}")
         
         # Use Redis Queue if available, otherwise fall back to threading
         if RQ_AVAILABLE and receipts_queue:
