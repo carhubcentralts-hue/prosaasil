@@ -39,49 +39,35 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [scale, setScale] = useState(1.0);
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [pageViewport, setPageViewport] = useState<pdfjsLib.PageViewport | null>(null);
-  const [presignedUrl, setPresignedUrl] = useState<string | null>(null);
   
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch presigned URL for PDF (avoids CORS/auth issues with pdf.js)
+  // Load PDF directly from backend proxy endpoint (avoids CORS issues)
+  // Using /api/contracts/{id}/pdf which serves the file through the backend
+  // This eliminates CORS problems with R2 signed URLs
   useEffect(() => {
-    const fetchPresignedUrl = async () => {
+    const loadPdf = async () => {
       try {
-        const response = await fetch(`/api/contracts/${contractId}/pdf_url`, {
-          credentials: 'include',
+        // Use backend proxy endpoint instead of direct R2 URL
+        const pdfUrl = `/api/contracts/${contractId}/pdf`;
+        logger.debug('Loading PDF from proxy endpoint:', pdfUrl);
+
+        const loadingTask = pdfjsLib.getDocument({
+          url: pdfUrl,
+          withCredentials: true, // Include auth cookies
         });
-        if (response.ok) {
-          const data = await response.json();
-          setPresignedUrl(data.url);
-          logger.debug('Presigned URL fetched for PDF:', data.url);
-        } else {
-          logger.error('Failed to fetch presigned URL:', response.status);
-          setError('Failed to load PDF URL');
-        }
+        
+        const loadedPdf = await loadingTask.promise;
+        setPdf(loadedPdf);
+        logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
       } catch (err) {
-        logger.error('Error fetching presigned URL:', err);
-        setError('Failed to load PDF URL');
+        logger.error('Error loading PDF:', err);
+        setError('Failed to load PDF document');
       }
     };
 
-    fetchPresignedUrl();
+    loadPdf();
   }, [contractId]);
-
-  // Load PDF to get page dimensions using presigned URL
-  useEffect(() => {
-    if (!presignedUrl) return;
-
-    const loadingTask = pdfjsLib.getDocument(presignedUrl);
-    loadingTask.promise
-      .then((loadedPdf) => {
-        setPdf(loadedPdf);
-        logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
-      })
-      .catch((err) => {
-        logger.error('Error loading PDF:', err);
-        setError('Failed to load PDF document');
-      });
-  }, [presignedUrl]);
 
   // Get viewport for current page
   useEffect(() => {
