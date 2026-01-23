@@ -29,6 +29,7 @@ const AdminPromptsOverviewPage = lazy(() => import('../pages/Admin/AdminPromptsO
 const BusinessPromptsSelector = lazy(() => import('../pages/Admin/BusinessPromptsSelector').then(m => ({ default: m.BusinessPromptsSelector })));
 const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').then(m => ({ default: m.AdminSupportPage })));
 const BusinessMinutesPage = lazy(() => import('../pages/Admin/BusinessMinutesPage').then(m => ({ default: m.BusinessMinutesPage })));
+const PromptStudioPage = lazy(() => import('../pages/Admin/PromptStudioPage').then(m => ({ default: m.PromptStudioPage })));
 const CalendarPage = lazy(() => import('../pages/Calendar/CalendarPage').then(m => ({ default: m.CalendarPage })));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
@@ -142,6 +143,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['system_admin']}>
               <BusinessPromptsSelector />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="admin/prompt-studio"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+              <Suspense fallback={<PageLoader />}>
+                <PromptStudioPage />
+              </Suspense>
             </RoleGuard>
           }
         />

@@ -36,6 +36,11 @@ class Business(db.Model):
     webhook_secret = db.Column(db.String(128), unique=True, nullable=True)  # Format: wh_n8n_<random_hex>
     # Voice Library - per-business voice selection for Realtime phone calls
     voice_id = db.Column(db.String(32), nullable=False, default="ash")  # OpenAI Realtime voice (alloy, ash, etc.)
+    # TTS Provider selection for voice testing (OpenAI or Gemini)
+    tts_provider = db.Column(db.String(32), default="openai")  # "openai" | "gemini" - TTS provider choice
+    tts_voice_id = db.Column(db.String(64), default="alloy")  # TTS voice ID (varies by provider)
+    tts_language = db.Column(db.String(16), default="he-IL")  # TTS language code
+    tts_speed = db.Column(db.Float, default=1.0)  # TTS speaking speed (0.5 - 2.0)
     # Company registration info
     company_id = db.Column(db.String(50), nullable=True)  # Israeli company registration number (ח.פ)
     # Page-level permissions - which pages/modules are enabled for this business

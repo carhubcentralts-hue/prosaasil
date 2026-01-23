@@ -4809,6 +4809,74 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  receipts table does not exist - skipping Migration 97")
         
+        # ============================================================================
+        # Migration 98: Voice Tester - Add TTS provider fields to business table
+        # ============================================================================
+        # Adds TTS provider selection fields for voice testing feature
+        # - tts_provider: "openai" | "gemini" - Which TTS provider to use
+        # - tts_voice_id: Voice ID for the selected provider
+        # - tts_language: Language code (default: he-IL)
+        # - tts_speed: Speaking speed (0.5 - 2.0, default: 1.0)
+        checkpoint("Migration 98: Adding TTS provider fields to business table")
+        if check_table_exists('business'):
+            try:
+                # Add tts_provider column if missing
+                if not check_column_exists('business', 'tts_provider'):
+                    checkpoint("  → Adding tts_provider column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business
+                        ADD COLUMN tts_provider VARCHAR(32) DEFAULT 'openai'
+                    """))
+                    checkpoint("  ✅ tts_provider column added (default: 'openai')")
+                    migrations_applied.append('add_business_tts_provider')
+                else:
+                    checkpoint("  ℹ️ tts_provider column already exists")
+                
+                # Add tts_voice_id column if missing
+                if not check_column_exists('business', 'tts_voice_id'):
+                    checkpoint("  → Adding tts_voice_id column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business
+                        ADD COLUMN tts_voice_id VARCHAR(64) DEFAULT 'alloy'
+                    """))
+                    checkpoint("  ✅ tts_voice_id column added (default: 'alloy')")
+                    migrations_applied.append('add_business_tts_voice_id')
+                else:
+                    checkpoint("  ℹ️ tts_voice_id column already exists")
+                
+                # Add tts_language column if missing
+                if not check_column_exists('business', 'tts_language'):
+                    checkpoint("  → Adding tts_language column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business
+                        ADD COLUMN tts_language VARCHAR(16) DEFAULT 'he-IL'
+                    """))
+                    checkpoint("  ✅ tts_language column added (default: 'he-IL')")
+                    migrations_applied.append('add_business_tts_language')
+                else:
+                    checkpoint("  ℹ️ tts_language column already exists")
+                
+                # Add tts_speed column if missing
+                if not check_column_exists('business', 'tts_speed'):
+                    checkpoint("  → Adding tts_speed column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business
+                        ADD COLUMN tts_speed FLOAT DEFAULT 1.0
+                    """))
+                    checkpoint("  ✅ tts_speed column added (default: 1.0)")
+                    migrations_applied.append('add_business_tts_speed')
+                else:
+                    checkpoint("  ℹ️ tts_speed column already exists")
+                
+                checkpoint("✅ Migration 98 completed - TTS provider fields added")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 98 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️  business table does not exist - skipping Migration 98")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
