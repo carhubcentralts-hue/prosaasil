@@ -11,6 +11,7 @@ import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import { AudioPlayer } from '../../shared/components/AudioPlayer';
 import { LeadNavigationArrows } from '../../shared/components/LeadNavigationArrows';
 import { AttachmentPicker } from '../../shared/components/AttachmentPicker';
+import { AttachedFilesDisplay } from '../../shared/components/AttachedFilesDisplay';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -4104,14 +4105,13 @@ function EmailTab({ lead }: EmailTabProps) {
               />
               
               {attachmentIds.length > 0 && (
-                <div className="mt-3 bg-white border border-green-300 rounded-lg p-3">
-                  <div className="flex items-center gap-2 text-sm text-green-800">
-                    <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    ✅ {attachmentIds.length} קבצים מצורפים - מוכנים לשליחה!
-                  </div>
-                </div>
+                <AttachedFilesDisplay
+                  attachmentIds={attachmentIds}
+                  onRemove={(id) => {
+                    setAttachmentIds(attachmentIds.filter(aid => aid !== id));
+                  }}
+                  className="mt-3"
+                />
               )}
             </div>
 
