@@ -913,10 +913,12 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
         # Try generic patterns without currency symbol (only if no currency detected)
         generic_patterns = [
             r'(?:total|amount due|balance|subtotal|grand total)[:\s]+([\d,]+\.?\d*)',
+            r'(?:total|amount|balance)[:\s]*\n+\s*([\d,]+\.?\d*)',  # NEW: Multi-line support
+            r'([\d,]+\.?\d*)\s+(?:total|amount)',  # NEW: Reversed patterns like "100 Total"
         ]
         
         for pattern in generic_patterns:
-            match = re.search(pattern, pdf_text, re.IGNORECASE)
+            match = re.search(pattern, pdf_text, re.IGNORECASE | re.MULTILINE)
             if match:
                 try:
                     amount_str = match.group(1).replace(',', '')
@@ -931,6 +933,7 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
                             # Don't assume - leave as None
                             data['currency'] = None
                         amount_found = True
+                        logger.info(f"Amount extracted via generic pattern: {amount_val}")
                         break
                 except (ValueError, IndexError):
                     pass
@@ -950,10 +953,16 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
                     data['amount'] = amount_val
                     data['currency'] = detected_currency
                     amount_found = True
-                    logger.info(f"Fallback: Extracted amount {amount_val} {detected_currency} from receipt")
+                    logger.info(f"Fallback: Extracted amount {amount_val} {detected_currency} from receipt (last resort)")
                     break
             except (ValueError, IndexError):
                 pass
+    
+    # Log extraction result for debugging
+    if amount_found:
+        logger.info(f"✅ Amount extraction successful: {data['amount']} {data['currency']} from {from_domain}")
+    else:
+        logger.warning(f"⚠️ Amount extraction failed for receipt from {from_domain}. Currency detected: {detected_currency}")
     
     # Extract invoice number
     inv_match = re.search(r'(?:invoice|receipt|חשבונית|קבלה)\s*#?\s*:?\s*(\d+)', pdf_text, re.IGNORECASE)
@@ -3310,7 +3319,13 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
 
 def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int = None) -> Optional[int]:
     """
-    Generate a PDF screenshot from email HTML content
+    Generate a PDF screenshot from email HTML content with BULLETPROOF error handling
+    
+    This function uses the SAME robust approach as PNG generation:
+    - Content verification before capture
+    - Multiple fallback strategies
+    - Progressive timeouts
+    - Comprehensive error handling
     
     MASTER INSTRUCTION COMPLIANCE:
     - ALWAYS generates PDF (not PNG) - Rule 3
@@ -3326,6 +3341,33 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
     Returns:
         Attachment ID if successful, None otherwise
     """
+    # Validate input
+    if not email_html or not email_html.strip():
+        logger.error("Cannot generate PDF screenshot from empty HTML")
+        return None
+    
+    # Sanitize HTML (same as PNG function)
+    try:
+        if '<html' not in email_html.lower():
+            email_html = f'<html><head><meta charset="UTF-8"></head><body>{email_html}</body></html>'
+        
+        # Add fallback styling
+        if '<style' not in email_html.lower():
+            style_tag = '''<style>
+                * { max-width: 100% !important; }
+                body { font-family: Arial, sans-serif; padding: 20px; background: white; }
+                img { display: block; max-width: 100%; height: auto; }
+            </style>'''
+            
+            if '<head>' in email_html:
+                email_html = email_html.replace('<head>', f'<head>{style_tag}')
+            elif '<html>' in email_html.lower():
+                email_html = email_html.replace('<html>', f'<html><head>{style_tag}</head>', 1)
+            else:
+                email_html = f'{style_tag}{email_html}'
+    except Exception as e:
+        logger.warning(f"HTML sanitization failed: {e}, using original")
+    
     try:
         # Method 1: Try using Playwright to generate PDF directly
         if PLAYWRIGHT_AVAILABLE:
@@ -3336,32 +3378,112 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 logger.info(f"📄 Generating HTML snapshot as PDF with Playwright for receipt {receipt_id or 'unknown'}")
                 
                 with sync_playwright() as p:
+                    # Launch with robust settings (same as PNG)
                     browser = p.chromium.launch(
                         headless=True,
                         args=[
+                            # Automation flags
                             '--disable-blink-features=AutomationControlled',
                             '--no-first-run',
                             '--no-default-browser-check',
-                            '--disable-extensions'
+                            '--disable-extensions',
+                            # Container/Docker stability flags
+                            '--disable-dev-shm-usage',
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            # Resource management flags
+                            '--disable-gpu',
                         ]
                     )
-                    page = browser.new_page(viewport={'width': 800, 'height': 1200})
                     
-                    # Set HTML content directly (not navigating to URL - avoids blocking)
-                    page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
+                    page = browser.new_page(
+                        viewport={'width': 800, 'height': 1200},
+                        ignore_https_errors=True
+                    )
                     
-                    # Wait for content to load with timeout
+                    page.emulate_media(media='screen')
+                    
+                    # Progressive loading with fallbacks (same as PNG)
                     try:
-                        page.wait_for_load_state('networkidle', timeout=15000)  # 15 second timeout
-                    except Exception as wait_error:
-                        logger.warning(f"networkidle timeout, proceeding anyway: {wait_error}")
-                        # Continue anyway - content may still be usable
+                        page.set_content(email_html, wait_until='networkidle', timeout=30000)
+                    except Exception as e:
+                        logger.warning(f"networkidle failed: {e}, trying domcontentloaded")
+                        try:
+                            page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
+                        except Exception as e2:
+                            logger.warning(f"domcontentloaded failed: {e2}, trying without wait")
+                            page.set_content(email_html, timeout=30000)
                     
-                    # Create temp PDF file - CRITICAL: Must be PDF, not PNG (Rule 3)
+                    # Wait for resources (best effort)
+                    try:
+                        page.wait_for_load_state('networkidle', timeout=10000)
+                    except:
+                        pass
+                    
+                    try:
+                        page.evaluate("() => document.fonts && document.fonts.ready", timeout=5000)
+                    except:
+                        pass
+                    
+                    try:
+                        page.wait_for_timeout(1500)
+                    except:
+                        pass
+                    
+                    # CRITICAL: Verify content loaded (same as PNG)
+                    logger.info("Verifying content loaded for PDF generation...")
+                    try:
+                        content_check = page.evaluate("""
+                            () => {
+                                const body = document.body;
+                                if (!body) return { loaded: false, reason: 'no body' };
+                                const textContent = (body.innerText || body.textContent || '').trim();
+                                const textLength = textContent.length;
+                                const visibleElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                                    const style = window.getComputedStyle(el);
+                                    return style.display !== 'none' && style.visibility !== 'hidden';
+                                }).length;
+                                const hasContent = textLength > 30 || visibleElements > 5;
+                                return { loaded: hasContent, textLength: textLength, visibleElements: visibleElements };
+                            }
+                        """, timeout=5000)
+                        
+                        logger.info(f"Content check for PDF: {content_check}")
+                        
+                        if not content_check.get('loaded'):
+                            logger.warning(f"Content not fully loaded, waiting additional 3 seconds...")
+                            page.wait_for_timeout(3000)
+                    except Exception as e:
+                        logger.warning(f"Content verification failed: {e}, proceeding anyway")
+                    
+                    # Inject CSS for better rendering
+                    try:
+                        page.add_style_tag(content="""
+                            body {
+                                max-width: 100%;
+                                background: white !important;
+                                color: black !important;
+                                font-size: 14px;
+                                padding: 20px;
+                            }
+                            img {
+                                max-width: 100% !important;
+                                height: auto !important;
+                                display: block;
+                            }
+                            table {
+                                max-width: 100% !important;
+                                border-collapse: collapse;
+                            }
+                        """)
+                    except Exception as e:
+                        logger.debug(f"CSS injection failed: {e}")
+                    
+                    # Create temp PDF file
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                         pdf_path = tmp.name
                     
-                    # Generate PDF directly (not screenshot)
+                    # Generate PDF directly
                     page.pdf(
                         path=pdf_path,
                         format='A4',
