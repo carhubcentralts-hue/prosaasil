@@ -1248,7 +1248,8 @@ def sync_receipts():
                 
                 # Delete in transaction
                 if receipt_ids:
-                    # Assert safety before deletion
+                    # Safety check: Verify all receipts are from Gmail
+                    # (redundant with query filter, but provides additional safety layer)
                     assert all(r.source == 'gmail' for r in receipts_to_delete), \
                         "Safety violation: Attempted to delete non-Gmail receipt"
                     

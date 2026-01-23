@@ -2847,7 +2847,12 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 with sync_playwright() as p:
                     browser = p.chromium.launch(
                         headless=True,
-                        args=['--disable-blink-features=AutomationControlled']  # Avoid detection
+                        args=[
+                            '--disable-blink-features=AutomationControlled',
+                            '--no-first-run',
+                            '--no-default-browser-check',
+                            '--disable-extensions'
+                        ]
                     )
                     page = browser.new_page(viewport={'width': 800, 'height': 1200})
                     
@@ -2950,7 +2955,12 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     with sync_playwright() as p:
                         browser = p.chromium.launch(
                             headless=True,
-                            args=['--disable-blink-features=AutomationControlled']
+                            args=[
+                                '--disable-blink-features=AutomationControlled',
+                                '--no-first-run',
+                                '--no-default-browser-check',
+                                '--disable-extensions'
+                            ]
                         )
                         page = browser.new_page(viewport={'width': 800, 'height': 1200})
                         page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
