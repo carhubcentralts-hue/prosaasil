@@ -125,9 +125,9 @@ server {
         proxy_connect_timeout 10s;
     }
 
-    # Static assets - proxy to prosaasil-frontend with caching
+    # Static assets - proxy to frontend with caching
     location /assets {
-        proxy_pass http://prosaasil-frontend:80;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -139,7 +139,7 @@ server {
     
     # Disable caching for index.html to ensure updates are visible
     location = /index.html {
-        proxy_pass http://prosaasil-frontend:80;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -149,9 +149,9 @@ server {
         add_header Expires "0" always;
     }
 
-    # All other requests - proxy to prosaasil-frontend (SPA routing)
+    # All other requests - proxy to frontend (SPA routing)
     location / {
-        proxy_pass http://prosaasil-frontend:80;
+        proxy_pass http://frontend:80;
         
         proxy_http_version 1.1;
         proxy_set_header Host $host;
