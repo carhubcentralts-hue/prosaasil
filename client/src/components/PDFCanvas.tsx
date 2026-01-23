@@ -63,7 +63,11 @@ export function PDFCanvas({
 
     logger.debug('[PDF_CANVAS] Loading PDF from:', pdfUrl);
 
-    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+    // Load PDF with credentials if it's a backend URL
+    const loadingTask = pdfjsLib.getDocument({
+      url: pdfUrl,
+      withCredentials: pdfUrl.startsWith('/api/'), // Include auth cookies for backend endpoints
+    });
     
     loadingTask.promise
       .then((loadedPdf) => {

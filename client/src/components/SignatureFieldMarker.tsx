@@ -39,49 +39,35 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [scale, setScale] = useState(1.0);
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [pageViewport, setPageViewport] = useState<pdfjsLib.PageViewport | null>(null);
-  const [presignedUrl, setPresignedUrl] = useState<string | null>(null);
   
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch presigned URL for PDF (avoids CORS/auth issues with pdf.js)
+  // Load PDF directly from backend proxy endpoint (avoids CORS issues)
+  // Using /api/contracts/{id}/pdf which serves the file through the backend
+  // This eliminates CORS problems with R2 signed URLs
   useEffect(() => {
-    const fetchPresignedUrl = async () => {
+    const loadPdf = async () => {
       try {
-        const response = await fetch(`/api/contracts/${contractId}/pdf_url`, {
-          credentials: 'include',
+        // Use backend proxy endpoint instead of direct R2 URL
+        const pdfUrl = `/api/contracts/${contractId}/pdf`;
+        logger.debug('Loading PDF from proxy endpoint:', pdfUrl);
+
+        const loadingTask = pdfjsLib.getDocument({
+          url: pdfUrl,
+          withCredentials: true, // Include auth cookies
         });
-        if (response.ok) {
-          const data = await response.json();
-          setPresignedUrl(data.url);
-          logger.debug('Presigned URL fetched for PDF:', data.url);
-        } else {
-          logger.error('Failed to fetch presigned URL:', response.status);
-          setError('Failed to load PDF URL');
-        }
+        
+        const loadedPdf = await loadingTask.promise;
+        setPdf(loadedPdf);
+        logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
       } catch (err) {
-        logger.error('Error fetching presigned URL:', err);
-        setError('Failed to load PDF URL');
+        logger.error('Error loading PDF:', err);
+        setError('Failed to load PDF document');
       }
     };
 
-    fetchPresignedUrl();
+    loadPdf();
   }, [contractId]);
-
-  // Load PDF to get page dimensions using presigned URL
-  useEffect(() => {
-    if (!presignedUrl) return;
-
-    const loadingTask = pdfjsLib.getDocument(presignedUrl);
-    loadingTask.promise
-      .then((loadedPdf) => {
-        setPdf(loadedPdf);
-        logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
-      })
-      .catch((err) => {
-        logger.error('Error loading PDF:', err);
-        setError('Failed to load PDF document');
-      });
-  }, [presignedUrl]);
 
   // Get viewport for current page
   useEffect(() => {
@@ -136,14 +122,16 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
     if (!canvasContainerRef.current || !signatureMarkingMode || !pageViewport) return;
     
     const rect = canvasContainerRef.current.getBoundingClientRect();
     
-    // Get click position in pixels relative to canvas
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    // Get click position in pixels relative to canvas (PointerEvent has clientX/clientY)
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+    const clickX = clientX - rect.left;
+    const clickY = clientY - rect.top;
     
     // Convert to PDF units (0-1 relative to page dimensions)
     const pdfX = clickX / pageViewport.width;
@@ -182,13 +170,16 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
   };
 
-  const handleFieldMouseDown = (e: React.MouseEvent, field: SignatureField, handle?: string) => {
+  const handleFieldMouseDown = (e: React.MouseEvent | React.PointerEvent, field: SignatureField, handle?: string) => {
     e.stopPropagation();
     if (!canvasContainerRef.current || !pageViewport) return;
     
     const rect = canvasContainerRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / pageViewport.width;
-    const y = (e.clientY - rect.top) / pageViewport.height;
+    // PointerEvent has clientX/clientY directly, no need to check touches
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+    const x = (clientX - rect.left) / pageViewport.width;
+    const y = (clientY - rect.top) / pageViewport.height;
     
     if (handle) {
       setIsResizing(handle);
@@ -207,12 +198,15 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     setSelectedFieldId(field.id);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
     if (!canvasContainerRef.current || !dragStart || !selectedFieldId || !pageViewport) return;
     
     const rect = canvasContainerRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / pageViewport.width;
-    const y = (e.clientY - rect.top) / pageViewport.height;
+    // PointerEvent has clientX/clientY directly
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+    const x = (clientX - rect.left) / pageViewport.width;
+    const y = (clientY - rect.top) / pageViewport.height;
     
     const dx = x - dragStart.x;
     const dy = y - dragStart.y;
@@ -324,6 +318,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             height: `${height}px`,
           }}
           onMouseDown={(e) => handleFieldMouseDown(e, field)}
+          onPointerDown={(e) => handleFieldMouseDown(e, field)}
         >
           {/* Field Label */}
           <div className="absolute -top-7 right-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-t-lg shadow-md whitespace-nowrap">
@@ -348,18 +343,22 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
               <div 
                 className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
+                onPointerDown={(e) => handleFieldMouseDown(e, field, 'tr')}
               />
               <div 
                 className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
+                onPointerDown={(e) => handleFieldMouseDown(e, field, 'tl')}
               />
               <div 
                 className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
+                onPointerDown={(e) => handleFieldMouseDown(e, field, 'br')}
               />
               <div 
                 className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
                 onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
+                onPointerDown={(e) => handleFieldMouseDown(e, field, 'bl')}
               />
             </>
           )}
@@ -428,9 +427,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
 
             {/* PDF Canvas with Overlay */}
             <div className="flex-1 relative min-h-0">
-              {presignedUrl ? (
+              {pdf ? (
                 <PDFCanvas
-                  pdfUrl={presignedUrl}
+                  pdfUrl={`/api/contracts/${contractId}/pdf`}
                   currentPage={currentPage}
                   onPageChange={setCurrentPage}
                   onTotalPagesChange={setTotalPages}
@@ -444,9 +443,13 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     <div
                       className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair pointer-events-auto' : 'cursor-default pointer-events-none'}`}
                       onClick={handleCanvasClick}
+                      onPointerDown={handleCanvasClick}
                       onMouseMove={handleMouseMove}
+                      onPointerMove={handleMouseMove}
                       onMouseUp={handleMouseUp}
+                      onPointerUp={handleMouseUp}
                       onMouseLeave={handleMouseUp}
+                      onPointerLeave={handleMouseUp}
                       style={{
                         width: `${pageViewport.width}px`,
                         height: `${pageViewport.height}px`,

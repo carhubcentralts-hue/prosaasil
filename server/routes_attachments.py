@@ -643,3 +643,120 @@ def delete_attachment(attachment_id):
         logger.error(f"Error deleting attachment {attachment_id}: {e}", exc_info=True)
         db.session.rollback()
         return jsonify({'error': 'Failed to delete attachment'}), 500
+
+
+@attachments_bp.route('/<int:attachment_id>/file', methods=['GET'])
+@require_api_auth
+def proxy_attachment_file(attachment_id):
+    """
+    Proxy attachment file through backend to avoid CORS issues
+    
+    This endpoint:
+    1. Downloads file from R2 storage backend
+    2. Serves it with proper CORS headers
+    3. Sets correct Content-Type and Content-Disposition headers
+    4. Works for PDFs, images, and all other file types
+    
+    Benefits:
+    - No CORS issues when loading PDFs in iframe or pdf.js
+    - No need for presigned R2 URLs on client side
+    - All files served from same origin (https://prosaas.pro)
+    - Proper caching headers for performance
+    
+    Query params:
+        - inline: Optional, if '1' or 'true', use inline disposition (default for PDFs)
+    
+    Response:
+        - 200: File content with proper headers
+        - 403: Permission denied
+        - 404: Not found
+        - 500: Server error
+    """
+    try:
+        business_id = get_current_business_id()
+        
+        if not business_id:
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Get attachment with business_id check for security
+        attachment = Attachment.query.filter_by(
+            id=attachment_id,
+            business_id=business_id,
+            is_deleted=False
+        ).first()
+        
+        if not attachment:
+            return jsonify({'error': 'Attachment not found'}), 404
+        
+        # Get file from storage (works with both Local and R2)
+        attachment_service = get_attachment_service()
+        try:
+            filename, mime_type, file_bytes = attachment_service.open_file(
+                attachment.storage_path,
+                filename=attachment.filename_original,
+                mime_type=attachment.mime_type
+            )
+        except FileNotFoundError:
+            logger.error(f"File not found in storage: {attachment.storage_path}")
+            return jsonify({'error': 'File not found in storage'}), 404
+        except Exception as storage_err:
+            logger.error(f"Failed to retrieve file from storage: {storage_err}", exc_info=True)
+            return jsonify({'error': 'Failed to retrieve file'}), 500
+        
+        # Determine Content-Disposition
+        # For PDFs and images, use 'inline' to allow browser viewing
+        # For other files, use 'attachment' to trigger download
+        inline_param = request.args.get('inline', '')
+        is_pdf = 'pdf' in mime_type.lower()
+        is_image = mime_type.startswith('image/')
+        
+        if inline_param in ('1', 'true') or is_pdf or is_image:
+            disposition = 'inline'
+        else:
+            disposition = 'attachment'
+        
+        # Log audit (for monitoring/debugging)
+        logger.info(f"[ATTACHMENT_PROXY] attachment_id={attachment_id} business_id={business_id} "
+                   f"filename={filename} mime_type={mime_type} size={len(file_bytes)} disposition={disposition}")
+        
+        # Create response with file bytes
+        from flask import make_response
+        response = make_response(file_bytes)
+        
+        # Set headers
+        response.headers['Content-Type'] = mime_type
+        response.headers['Content-Disposition'] = f'{disposition}; filename="{filename}"'
+        response.headers['Content-Length'] = str(len(file_bytes))
+        
+        # CORS headers - allow only from trusted origins for security
+        # In production, only allow requests from the application domain
+        origin = request.headers.get('Origin', '')
+        
+        # Define allowed origins (update based on deployment)
+        ALLOWED_ORIGINS = [
+            'https://prosaas.pro',
+            'https://www.prosaas.pro',
+            'http://localhost:5173',  # Development
+            'http://localhost:3000',  # Development
+        ]
+        
+        # Check if origin is in allowlist
+        if origin and any(origin.startswith(allowed) for allowed in ALLOWED_ORIGINS):
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        elif not origin:
+            # No origin header means same-origin request, which is always allowed
+            # Don't set CORS headers for same-origin requests
+            pass
+        else:
+            # Origin not in allowlist - don't set CORS headers
+            logger.warning(f"[ATTACHMENT_PROXY] Request from untrusted origin blocked: {origin}")
+        
+        # Cache headers - cache for 1 hour (files are immutable by ID)
+        response.headers['Cache-Control'] = 'private, max-age=3600'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error proxying attachment {attachment_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to proxy file'}), 500
