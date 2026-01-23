@@ -2845,14 +2845,21 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 logger.info(f"📄 Generating HTML snapshot as PDF with Playwright for receipt {receipt_id or 'unknown'}")
                 
                 with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=True)
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--disable-blink-features=AutomationControlled']  # Avoid detection
+                    )
                     page = browser.new_page(viewport={'width': 800, 'height': 1200})
                     
-                    # Set HTML content
-                    page.set_content(email_html)
+                    # Set HTML content directly (not navigating to URL - avoids blocking)
+                    page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
                     
-                    # Wait for content to load
-                    page.wait_for_load_state('networkidle')
+                    # Wait for content to load with timeout
+                    try:
+                        page.wait_for_load_state('networkidle', timeout=15000)  # 15 second timeout
+                    except Exception as wait_error:
+                        logger.warning(f"networkidle timeout, proceeding anyway: {wait_error}")
+                        # Continue anyway - content may still be usable
                     
                     # Create temp PDF file - CRITICAL: Must be PDF, not PNG (Rule 3)
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
@@ -2941,10 +2948,17 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                     logger.info(f"📄 Fallback: Generating PNG then converting to PDF")
                     
                     with sync_playwright() as p:
-                        browser = p.chromium.launch(headless=True)
+                        browser = p.chromium.launch(
+                            headless=True,
+                            args=['--disable-blink-features=AutomationControlled']
+                        )
                         page = browser.new_page(viewport={'width': 800, 'height': 1200})
-                        page.set_content(email_html)
-                        page.wait_for_load_state('networkidle')
+                        page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
+                        
+                        try:
+                            page.wait_for_load_state('networkidle', timeout=15000)
+                        except Exception as wait_error:
+                            logger.warning(f"networkidle timeout in fallback, proceeding: {wait_error}")
                         
                         # Take PNG screenshot
                         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:

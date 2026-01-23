@@ -1157,6 +1157,13 @@ def sync_receipts():
         from server.services.gmail_sync_service import sync_gmail_receipts
         
         # FORCE RESCAN: Perform HARD PURGE if force=true
+        # 🔒 MASTER INSTRUCTION SAFETY RULES:
+        # ✅ Delete ONLY: source='gmail' receipts in date range
+        # ✅ Delete ONLY: attachments with purpose='receipt_source' OR 'receipt_preview'
+        # ✅ DB-driven: Query DB first, then delete by IDs (never by path/prefix)
+        # 🚫 NEVER: Delete generic attachments, contracts, CRM files
+        # 🚫 NEVER: Delete by storage path or folder
+        # 🚫 NEVER: Delete attachments without verifying purpose field
         if force:
             logger.info(f"🔥 FORCE RESCAN: Performing hard purge for business_id={business_id}")
             
@@ -1191,36 +1198,78 @@ def sync_receipts():
                 # Query receipts to be deleted (including soft-deleted ones)
                 receipts_to_delete = Receipt.query.filter(*purge_filters).all()
                 receipt_ids = [r.id for r in receipts_to_delete]
-                attachment_ids = []
-                preview_ids = []
+                attachment_ids_to_verify = []
+                preview_ids_to_verify = []
                 
-                # Collect attachment IDs for deletion
+                # Collect attachment IDs for verification and deletion
                 for receipt in receipts_to_delete:
                     if receipt.attachment_id:
-                        attachment_ids.append(receipt.attachment_id)
+                        attachment_ids_to_verify.append(receipt.attachment_id)
                     if receipt.preview_attachment_id:
-                        preview_ids.append(receipt.preview_attachment_id)
+                        preview_ids_to_verify.append(receipt.preview_attachment_id)
+                
+                # Combine all attachment IDs
+                all_attachment_ids = list(set(attachment_ids_to_verify + preview_ids_to_verify))
                 
                 logger.info(
                     f"🔥 PURGE: Found {len(receipt_ids)} receipts to delete, "
-                    f"{len(attachment_ids)} attachments, {len(preview_ids)} previews"
+                    f"{len(all_attachment_ids)} total attachment IDs to verify"
                 )
+                
+                # 🔒 SAFETY GUARDRAILS: Verify attachments before deletion
+                safe_to_delete_ids = []
+                if all_attachment_ids:
+                    # Query attachments with safety filters
+                    attachments_to_verify = Attachment.query.filter(
+                        Attachment.id.in_(all_attachment_ids)
+                    ).all()
+                    
+                    for att in attachments_to_verify:
+                        # CRITICAL: Only delete attachments that are receipt-related
+                        if att.purpose in ('receipt_source', 'receipt_preview'):
+                            safe_to_delete_ids.append(att.id)
+                            logger.debug(f"✅ SAFE: attachment {att.id} purpose={att.purpose}")
+                        else:
+                            # CRITICAL: Don't delete non-receipt attachments
+                            logger.error(
+                                f"🚫 BLOCKED: Attempted to delete non-receipt attachment! "
+                                f"ID={att.id}, purpose={att.purpose}, filename={att.filename_original}"
+                            )
+                            # This should never happen, but if it does, abort the purge
+                            raise ValueError(
+                                f"Safety violation: Attempted to delete attachment with purpose='{att.purpose}'. "
+                                f"Only 'receipt_source' and 'receipt_preview' are allowed."
+                            )
+                    
+                    logger.info(
+                        f"🔒 GUARDRAILS: Verified {len(safe_to_delete_ids)} attachments are safe to delete "
+                        f"(out of {len(all_attachment_ids)} total)"
+                    )
                 
                 # Delete in transaction
                 if receipt_ids:
+                    # Assert safety before deletion
+                    assert all(r.source == 'gmail' for r in receipts_to_delete), \
+                        "Safety violation: Attempted to delete non-Gmail receipt"
+                    
+                    logger.info(f"🔥 PURGE: Starting deletion in transaction...")
+                    
                     # Delete receipts (hard delete)
-                    Receipt.query.filter(Receipt.id.in_(receipt_ids)).delete(synchronize_session=False)
+                    deleted_receipts = Receipt.query.filter(Receipt.id.in_(receipt_ids)).delete(synchronize_session=False)
+                    logger.info(f"  → Deleted {deleted_receipts} receipts")
                     
-                    # Delete associated attachments
-                    if attachment_ids:
-                        Attachment.query.filter(Attachment.id.in_(attachment_ids)).delete(synchronize_session=False)
-                    
-                    # Delete preview attachments
-                    if preview_ids:
-                        Attachment.query.filter(Attachment.id.in_(preview_ids)).delete(synchronize_session=False)
+                    # Delete verified safe attachments only
+                    if safe_to_delete_ids:
+                        deleted_attachments = Attachment.query.filter(
+                            Attachment.id.in_(safe_to_delete_ids)
+                        ).delete(synchronize_session=False)
+                        logger.info(f"  → Deleted {deleted_attachments} attachments")
                     
                     db.session.commit()
-                    logger.info(f"✅ PURGE COMPLETE: Deleted {len(receipt_ids)} receipts and their attachments")
+                    logger.info(
+                        f"✅ PURGE COMPLETE: Deleted {deleted_receipts} receipts and "
+                        f"{len(safe_to_delete_ids)} attachments (all verified safe)"
+                    )
                 else:
                     logger.info(f"✅ PURGE: No receipts found in range - nothing to delete")
                 
