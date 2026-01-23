@@ -83,6 +83,10 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   // Use ref to persist URL across re-renders to prevent iframe reset bug
+  // We need both ref AND state because:
+  // - ref persists data across parent component re-renders (prevents data loss)
+  // - state triggers React re-renders when data changes (updates UI)
+  // This dual approach ensures stability while maintaining reactivity
   const previewUrlRef = React.useRef<string | null>(null);
   const textContentRef = React.useRef<string | null>(null);
 
@@ -93,12 +97,14 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
 
   const isTextFile = file.mime_type.startsWith('text/') || file.mime_type === 'application/json';
 
-  // Debug: Log when previewUrl changes to help diagnose issues
+  // Debug: Log when previewUrl changes to help diagnose issues (development only)
   React.useEffect(() => {
-    if (previewUrl) {
-      logger.debug('[FilePreviewItem] previewUrl set:', previewUrl);
-    } else if (showPreview) {
-      logger.warn('[FilePreviewItem] previewUrl is null while showPreview is true - this indicates the bug');
+    if (process.env.NODE_ENV === 'development') {
+      if (previewUrl) {
+        logger.debug('[FilePreviewItem] previewUrl set:', previewUrl);
+      } else if (showPreview) {
+        logger.warn('[FilePreviewItem] previewUrl is null while showPreview is true - this indicates the bug');
+      }
     }
   }, [previewUrl, showPreview]);
 
