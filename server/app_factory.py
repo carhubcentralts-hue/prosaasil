@@ -221,6 +221,20 @@ def create_app():
         logger.info("🔧 MIGRATION_MODE detected - creating minimal app")
         return create_minimal_app()
     
+    # 🔒 P1: Determine production mode for security features
+    is_production_mode = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+    
+    # 🔒 P1: SECRET_KEY Fail-Fast in Production
+    secret_key = os.getenv('SECRET_KEY')
+    if is_production_mode and not secret_key:
+        raise RuntimeError(
+            "PRODUCTION=1 requires SECRET_KEY environment variable. "
+            "Generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        logger.warning("⚠️ Development mode: Using generated SECRET_KEY (not persistent)")
+    
     # GCP credentials setup
     import json
     gcp_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
@@ -273,7 +287,7 @@ def create_app():
     
     # Enterprise Security Configuration
     app.config.update({
-        'SECRET_KEY': os.getenv('SECRET_KEY', secrets.token_hex(32)),
+        'SECRET_KEY': secret_key,
         'DATABASE_URL': DATABASE_URL,
         'SQLALCHEMY_DATABASE_URI': DATABASE_URL,
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
@@ -479,27 +493,59 @@ def create_app():
     
     # CSRF כבר מוגדר למעלה - הסרת כפילות
     
-    # CORS with security restrictions - SECURE: regex patterns work in Flask-CORS
-    # BUILD 143: All origins unified - no more IS_PREVIEW checks
-    # BUILD 177: Support external domains via CORS_ALLOWED_ORIGINS env var
-    cors_origins = [
-        "http://localhost:5000",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8080",
-        r"^https://[\w-]+\.replit\.app$",    # Regex pattern for *.replit.app
-        r"^https://[\w-]+\.replit\.dev$"     # Regex pattern for *.replit.dev
-    ]
-    
-    # Add external origins from environment variable (comma-separated)
-    # Example: CORS_ALLOWED_ORIGINS=https://myapp.contabo.com,https://api.example.com
-    external_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
-    if external_origins:
-        for origin in external_origins.split(","):
-            origin = origin.strip()
-            if origin:
-                cors_origins.append(origin)
-                app.logger.info(f"[CORS] Added external origin: {origin}")
+    # 🔒 P1: CORS with Production Lockdown
+    # In production: Only allow explicitly configured origins
+    # In development: Allow localhost and replit for easier development
+    if is_production_mode:
+        # Production: Strict CORS - only explicit allowed origins
+        cors_origins = []
+        
+        # Add PUBLIC_BASE_URL if configured
+        public_url = os.getenv('PUBLIC_BASE_URL', '').strip()
+        if public_url:
+            cors_origins.append(public_url)
+            logger.info(f"[CORS] Production: Added PUBLIC_BASE_URL: {public_url}")
+        
+        # Add FRONTEND_URL if configured
+        frontend_url = os.getenv('FRONTEND_URL', '').strip()
+        if frontend_url and frontend_url not in cors_origins:
+            cors_origins.append(frontend_url)
+            logger.info(f"[CORS] Production: Added FRONTEND_URL: {frontend_url}")
+        
+        # Add external origins from CORS_ALLOWED_ORIGINS
+        external_origins = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+        if external_origins:
+            for origin in external_origins.split(","):
+                origin = origin.strip()
+                if origin and origin not in cors_origins:
+                    cors_origins.append(origin)
+                    logger.info(f"[CORS] Production: Added external origin: {origin}")
+        
+        # Remove duplicates and empty strings
+        cors_origins = [o for o in set(cors_origins) if o]
+        
+        if not cors_origins:
+            logger.warning("⚠️ Production mode: No CORS origins configured. Set PUBLIC_BASE_URL or CORS_ALLOWED_ORIGINS")
+            cors_origins = [public_url] if public_url else []
+    else:
+        # Development: Allow localhost and replit patterns for easier development
+        cors_origins = [
+            "http://localhost:5000",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8080",
+            r"^https://[\w-]+\.replit\.app$",    # Regex pattern for *.replit.app
+            r"^https://[\w-]+\.replit\.dev$"     # Regex pattern for *.replit.dev
+        ]
+        
+        # Add external origins from environment variable in dev too
+        external_origins = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+        if external_origins:
+            for origin in external_origins.split(","):
+                origin = origin.strip()
+                if origin:
+                    cors_origins.append(origin)
+                    logger.info(f"[CORS] Development: Added external origin: {origin}")
     
     CORS(app, 
          origins=cors_origins,
@@ -957,6 +1003,9 @@ def create_app():
     
     # DEBUG endpoint removed - no longer needed
     
+    # 🔒 P1: Determine production mode for security features
+    is_production_mode = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
+    
     # Database initialization (לפי ההנחיות)
     from server.db import db
     import server.models_sql  # Import models module
@@ -964,9 +1013,21 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
+    # 🔒 P1: Rate Limiting for Security
+    # Initialize rate limiter with Redis for distributed limiting
+    if is_production_mode:
+        try:
+            from server.rate_limiter import init_rate_limiter
+            limiter = init_rate_limiter(app)
+            app.extensions['limiter'] = limiter
+            logger.info("✅ Rate limiting initialized (Redis-backed)")
+        except Exception as e:
+            logger.warning(f"⚠️ Rate limiter initialization failed: {e}")
+    else:
+        logger.info("ℹ️  Development mode - Rate limiting skipped")
+    
     # 🔥 CRITICAL: Validate R2 storage configuration in production
     # This validation runs at startup to fail-fast if R2 is not properly configured
-    is_production_mode = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
     if is_production_mode:
         try:
             logger.info("🔒 Production mode detected - validating R2 storage configuration...")
