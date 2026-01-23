@@ -248,7 +248,7 @@ def _warmup_ai_cache(service: 'AIService'):
     """⚡ Preload cache for ALL active businesses to prevent first-turn latency"""
     try:
         import time
-        from server.models import Business
+        from server.models_sql import Business
         from server.app_factory import get_process_app
         
         start = time.time()
