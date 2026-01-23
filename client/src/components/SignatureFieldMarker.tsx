@@ -40,23 +40,50 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   const [scale, setScale] = useState(1.0);
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [pageViewport, setPageViewport] = useState<pdfjsLib.PageViewport | null>(null);
+  const [presignedUrl, setPresignedUrl] = useState<string | null>(null);
   
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load PDF to get page dimensions
+  // Fetch presigned URL for PDF (avoids CORS/auth issues with pdf.js)
   useEffect(() => {
-    if (!pdfUrl) return;
+    const fetchPresignedUrl = async () => {
+      try {
+        const response = await fetch(`/api/contracts/${contractId}/pdf_url`, {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPresignedUrl(data.url);
+          logger.debug('Presigned URL fetched for PDF:', data.url);
+        } else {
+          logger.error('Failed to fetch presigned URL:', response.status);
+          setError('Failed to load PDF URL');
+        }
+      } catch (err) {
+        logger.error('Error fetching presigned URL:', err);
+        setError('Failed to load PDF URL');
+      }
+    };
 
-    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+    fetchPresignedUrl();
+  }, [contractId]);
+
+  // Load PDF to get page dimensions using presigned URL
+  useEffect(() => {
+    if (!presignedUrl) return;
+
+    const loadingTask = pdfjsLib.getDocument(presignedUrl);
     loadingTask.promise
       .then((loadedPdf) => {
         setPdf(loadedPdf);
-        logger.debug('PDF loaded for signature marking');
+        setTotalPages(loadedPdf.numPages);
+        logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
       })
       .catch((err) => {
         logger.error('Error loading PDF:', err);
+        setError('Failed to load PDF document');
       });
-  }, [pdfUrl]);
+  }, [presignedUrl]);
 
   // Get viewport for current page
   useEffect(() => {
@@ -403,33 +430,42 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
 
             {/* PDF Canvas with Overlay */}
             <div className="flex-1 relative min-h-0">
-              <PDFCanvas
-                pdfUrl={pdfUrl}
-                currentPage={currentPage}
-                onPageChange={setCurrentPage}
-                onTotalPagesChange={setTotalPages}
-                scale={scale}
-                onScaleChange={setScale}
-                containerRef={canvasContainerRef}
-                className="rounded-lg border-2 border-gray-300"
-              >
-                {/* Canvas Overlay for Signature Fields */}
-                {pageViewport && (
-                  <div
-                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair pointer-events-auto' : 'cursor-default pointer-events-none'}`}
-                    onClick={handleCanvasClick}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    style={{
-                      width: `${pageViewport.width}px`,
-                      height: `${pageViewport.height}px`,
-                    }}
-                  >
-                    {renderSignatureFields()}
+              {presignedUrl ? (
+                <PDFCanvas
+                  pdfUrl={presignedUrl}
+                  currentPage={currentPage}
+                  onPageChange={setCurrentPage}
+                  onTotalPagesChange={setTotalPages}
+                  scale={scale}
+                  onScaleChange={setScale}
+                  containerRef={canvasContainerRef}
+                  className="rounded-lg border-2 border-gray-300"
+                >
+                  {/* Canvas Overlay for Signature Fields */}
+                  {pageViewport && (
+                    <div
+                      className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair pointer-events-auto' : 'cursor-default pointer-events-none'}`}
+                      onClick={handleCanvasClick}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                      style={{
+                        width: `${pageViewport.width}px`,
+                        height: `${pageViewport.height}px`,
+                      }}
+                    >
+                      {renderSignatureFields()}
+                    </div>
+                  )}
+                </PDFCanvas>
+              ) : (
+                <div className="flex items-center justify-center h-96 bg-gray-100 rounded-lg border-2 border-gray-300">
+                  <div className="text-center">
+                    <div className="text-gray-500 mb-2">טוען PDF...</div>
+                    {error && <div className="text-red-500 text-sm">{error}</div>}
                   </div>
-                )}
-              </PDFCanvas>
+                </div>
+              )}
             </div>
           </div>
 
