@@ -15,14 +15,14 @@ def load_current_user():
     g.user = session.get('al_user') or session.get('user')
     g.token = session.get('al_token') or session.get('token')
     
-    # Debug logging
+    # Debug logging (debug level only - not in production logs)
     if request.path.startswith('/app/'):
-        logger.info(f"🔍 AUTH CHECK for {request.path}:")
-        logger.info(f"   Session keys: {list(session.keys())}")
-        logger.info(f"   g.user: {g.user}")
-        logger.info(f"   al_user in session: {'al_user' in session}")
+        logger.debug(f"🔍 AUTH CHECK for {request.path}:")
+        logger.debug(f"   Session keys: {list(session.keys())}")
+        logger.debug(f"   g.user: {g.user}")
+        logger.debug(f"   al_user in session: {'al_user' in session}")
         if 'al_user' in session:
-            logger.info(f"   al_user value: {session['al_user']}")
+            logger.debug(f"   al_user value: {session['al_user']}")
     
     return g.user
 
