@@ -11,6 +11,8 @@
 # ===========================================
 # Set upstream variables for runtime DNS resolution
 # This prevents nginx from failing at startup if services aren't ready yet
+# ⚠️ IMPORTANT:
+# upstream names MUST match docker-compose service names
 
 # ===========================================
 # Server Block 1: prosaas.pro
