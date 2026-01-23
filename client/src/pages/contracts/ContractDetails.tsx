@@ -4,6 +4,7 @@ import { formatDate } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
 import { Button } from '../../shared/components/ui/Button';
 import { SignatureFieldMarker, SignatureField } from '../../components/SignatureFieldMarker';
+import { logger } from '../../shared/utils/logger';
 
 interface ContractDetailsProps {
   contractId: number;
@@ -111,14 +112,14 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
               setTextContent(text);
             }
           } catch (err) {
-            console.error('Error loading text content:', err);
+            logger.error('Error loading text content:', err);
           }
         }
         
         setShowPreview(true);
       }
     } catch (err) {
-      console.error('Error loading preview:', err);
+      logger.error('Error loading preview:', err);
     } finally {
       setLoadingPreview(false);
     }
@@ -134,7 +135,7 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
         window.open(data.url, '_blank');
       }
     } catch (err) {
-      console.error('Error downloading file:', err);
+      logger.error('Error downloading file:', err);
     }
   };
 
@@ -212,8 +213,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
   const [editSignerEmail, setEditSignerEmail] = useState('');
   const [showSignatureMarker, setShowSignatureMarker] = useState(false);
   const [signatureFieldCount, setSignatureFieldCount] = useState(0);
-  const [pdfSignedUrl, setPdfSignedUrl] = useState<string | null>(null);
-  const [loadingPdfUrl, setLoadingPdfUrl] = useState(false);
 
   useEffect(() => {
     loadContract();
@@ -251,7 +250,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       const data = await response.json();
       setEvents(data.events || []);
     } catch (err) {
-      console.error('Error loading events:', err);
+      logger.error('Error loading events:', err);
     }
   };
 
@@ -265,32 +264,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
         setSignatureFieldCount(data.fields?.length || 0);
       }
     } catch (err) {
-      console.error('Error loading signature field count:', err);
-    }
-  };
-
-  const loadPdfSignedUrl = async () => {
-    if (!contract?.files || contract.files.length === 0) return;
-    if (contract.files[0].mime_type !== 'application/pdf') return;
-    
-    setLoadingPdfUrl(true);
-    try {
-      const response = await fetch(`/api/contracts/${contractId}/pdf_url`, {
-        credentials: 'include',
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to get PDF URL');
-      }
-      
-      const data = await response.json();
-      setPdfSignedUrl(data.url);
-      console.log('[PDF_URL] Fetched signed URL, expires at:', data.expires_at);
-    } catch (err) {
-      console.error('Error fetching PDF signed URL:', err);
-      setError('שגיאה בטעינת PDF. נסה שוב.');
-    } finally {
-      setLoadingPdfUrl(false);
+      logger.error('Error loading signature field count:', err);
     }
   };
 
@@ -321,7 +295,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       await loadEvents();
       onUpdate();
     } catch (err: any) {
-      console.error('Error uploading file:', err);
+      logger.error('Error uploading file:', err);
       setError(err.message || 'שגיאה בהעלאת קובץ');
     } finally {
       setUploading(false);
@@ -358,7 +332,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       await loadEvents();
       onUpdate();
     } catch (err: any) {
-      console.error('Error sending for signature:', err);
+      logger.error('Error sending for signature:', err);
       setError(err.message || 'שגיאה בשליחה לחתימה');
     } finally {
       setSending(false);
@@ -403,7 +377,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       await loadEvents();
       onUpdate();
     } catch (err: any) {
-      console.error('Error cancelling contract:', err);
+      logger.error('Error cancelling contract:', err);
       setError(err.message || 'שגיאה בביטול חוזה');
     } finally {
       setCancelling(false);
@@ -421,7 +395,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       const data = await response.json();
       window.open(data.url, '_blank');
     } catch (err) {
-      console.error('Error downloading file:', err);
+      logger.error('Error downloading file:', err);
       setError('שגיאה בהורדת קובץ');
     }
   };
@@ -465,7 +439,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       setIsEditing(false);
       onUpdate();
     } catch (err: any) {
-      console.error('Error updating contract:', err);
+      logger.error('Error updating contract:', err);
       setError(err.message || 'שגיאה בעדכון חוזה');
     } finally {
       setSaving(false);
@@ -488,7 +462,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       onUpdate();
       onClose();
     } catch (err: any) {
-      console.error('Error deleting contract:', err);
+      logger.error('Error deleting contract:', err);
       setError(err.message || 'שגיאה במחיקת חוזה');
     } finally {
       setDeleting(false);
@@ -667,7 +641,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                 <Button
                   onClick={() => {
                     setShowSignatureMarker(true);
-                    loadPdfSignedUrl();
                   }}
                   variant="secondary"
                   className="flex items-center gap-2"
@@ -781,15 +754,10 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       {/* Signature Field Marker Modal */}
       {showSignatureMarker && contract.files.length > 0 && (
         <SignatureFieldMarker
-          pdfUrl={
-            contract.files[0].mime_type === 'application/pdf'
-              ? (pdfSignedUrl || `/api/contracts/${contractId}/pdf`)  // Use signed URL if available, fallback to direct endpoint
-              : ''
-          }
+          pdfUrl={`/api/contracts/${contractId}/pdf`}
           contractId={contractId}
           onClose={() => {
             setShowSignatureMarker(false);
-            setPdfSignedUrl(null);  // Clear signed URL when closing
           }}
           onSave={handleSaveSignatureFields}
         />

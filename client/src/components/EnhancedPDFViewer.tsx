@@ -10,6 +10,7 @@ import {
   FitWidth,
   FileText
 } from 'lucide-react';
+import { logger } from '../shared/utils/logger';
 
 export interface PDFViewerProps {
   pdfUrl: string;
@@ -122,13 +123,13 @@ export function EnhancedPDFViewer({
 
   // Handle iframe load events
   const handleIframeLoad = () => {
-    console.log('[PDF_VIEWER] PDF iframe loaded successfully, URL:', pdfUrl);
+    logger.debug('PDF iframe loaded successfully');
     setIframeLoaded(true);
     setIframeError(false);
   };
 
   const handleIframeError = () => {
-    console.error('[PDF_VIEWER] PDF iframe failed to load, URL:', pdfUrl);
+    logger.error('PDF iframe failed to load');
     setIframeError(true);
     setIframeLoaded(false);
   };
