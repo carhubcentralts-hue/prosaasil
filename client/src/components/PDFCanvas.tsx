@@ -284,10 +284,6 @@ export function PDFCanvas({
             <canvas 
               ref={canvasRef} 
               className="shadow-lg bg-white block"
-              style={{
-                // Ensure canvas displays as block to avoid inline spacing issues
-                display: 'block',
-              }}
             />
             {/* Overlay for custom elements (signature boxes, etc.) */}
             {children && canvasRef.current && (
