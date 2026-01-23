@@ -25,5 +25,5 @@ fi
 
 # Create network if it doesn't exist
 echo "🔧 Creating docker network: $NETWORK_NAME"
-docker network create "$NETWORK_NAME" >/dev/null
+docker network create "$NETWORK_NAME"
 echo "✅ Created: $NETWORK_NAME"
