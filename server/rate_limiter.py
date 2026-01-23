@@ -6,14 +6,16 @@ import os
 def get_real_ip():
     """
     Get real client IP from behind proxy (nginx, cloudflare, etc.)
-    Respects X-Forwarded-For header for rate limiting accuracy
+    
+    🔒 P1: Proxy-aware IP detection for rate limiting
+    - Uses Flask's get_remote_address() which respects ProxyFix configuration
+    - ProxyFix is configured in app_factory.py with x_proto=1, x_host=1
+    - This automatically handles X-Forwarded-For correctly
+    
+    Note: If ProxyFix x_for parameter is added later, this will automatically
+    benefit from that configuration.
     """
-    # Trust the rightmost IP in X-Forwarded-For (proxy adds IPs from left to right)
-    # This assumes ProxyFix is configured correctly in app_factory.py
-    if request.headers.get('X-Forwarded-For'):
-        # Get the rightmost IP (closest to the actual client)
-        forwarded_ips = request.headers.get('X-Forwarded-For').split(',')
-        return forwarded_ips[-1].strip()
+    # Flask's get_remote_address() already handles X-Forwarded-For when ProxyFix is configured
     return get_remote_address()
 
 def init_rate_limiter(app: Flask):

@@ -524,9 +524,15 @@ def create_app():
         # Remove duplicates and empty strings
         cors_origins = [o for o in set(cors_origins) if o]
         
+        # 🔒 P1: Fail-fast if no origins configured in production
+        # This prevents silent failures where CORS would block all requests
         if not cors_origins:
-            logger.warning("⚠️ Production mode: No CORS origins configured. Set PUBLIC_BASE_URL or CORS_ALLOWED_ORIGINS")
-            cors_origins = [public_url] if public_url else []
+            logger.error("🚨 CRITICAL: CORS enabled with credentials but no origins configured!")
+            logger.error("   Set PUBLIC_BASE_URL and/or CORS_ALLOWED_ORIGINS in production")
+            raise RuntimeError(
+                "Production requires CORS origins when using credentials. "
+                "Set PUBLIC_BASE_URL or CORS_ALLOWED_ORIGINS environment variables."
+            )
     else:
         # Development: Allow localhost and replit patterns for easier development
         cors_origins = [
@@ -552,13 +558,6 @@ def create_app():
     # - MUST have explicit origins (cannot use '*')
     # - Origins must match exactly (no wildcards in origin strings, only regex patterns)
     # - Browser enforces strict origin matching
-    if is_production_mode and not cors_origins:
-        logger.error("🚨 CRITICAL: CORS enabled with credentials but no origins configured!")
-        logger.error("   Set PUBLIC_BASE_URL and/or CORS_ALLOWED_ORIGINS in production")
-        raise RuntimeError(
-            "Production requires CORS origins when using credentials. "
-            "Set PUBLIC_BASE_URL or CORS_ALLOWED_ORIGINS environment variables."
-        )
     
     CORS(app, 
          origins=cors_origins,
