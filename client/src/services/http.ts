@@ -138,10 +138,11 @@ class HttpClient {
     return this.request<T>(endpoint, { ...options, method: 'GET' });
   }
 
-  async post<T>(endpoint: string, data?: any): Promise<T> {
+  async post<T>(endpoint: string, data?: any, options?: RequestInit): Promise<T> {
     // 🔥 FIX: Don't stringify FormData - pass it directly
     const body = data instanceof FormData ? data : (data ? JSON.stringify(data) : undefined);
     return this.request<T>(endpoint, {
+      ...options,
       method: 'POST',
       body,
     });

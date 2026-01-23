@@ -55,6 +55,7 @@ export function LiveCallCard() {
   const noiseFloorRef = useRef<number>(0);
   const isRecordingRef = useRef<boolean>(false);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   
   // VAD Configuration
   const VAD_SILENCE_THRESHOLD = 700; // ms of silence to trigger end of speech
@@ -105,8 +106,15 @@ export function LiveCallCard() {
 
   /**
    * Stop live call session
+   * ⚠️ CRITICAL: Cancel all pending requests and stop all audio
    */
   const stopSession = () => {
+    // 🔥 Abort any pending HTTP requests (STT, Chat, TTS)
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
     // Stop all audio processing
     if (vadTimeoutRef.current) {
       clearTimeout(vadTimeoutRef.current);
@@ -127,8 +135,10 @@ export function LiveCallCard() {
       audioContextRef.current = null;
     }
     
+    // 🔥 Stop audio playback immediately
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
+      audioPlayerRef.current.src = '';
       audioPlayerRef.current = null;
     }
     
@@ -296,13 +306,18 @@ export function LiveCallCard() {
 
   /**
    * Process audio through STT → Chat → TTS pipeline
+   * ⚠️ CRITICAL: Handles errors and returns to listening or stops cleanly
    */
   const processAudio = async (audioBlob: Blob) => {
+    // Create new abort controller for this processing cycle
+    abortControllerRef.current = new AbortController();
+    
     try {
       // Step 1: STT (Speech-to-Text)
       const transcript = await speechToText(audioBlob);
-      if (!transcript) {
+      if (!transcript || !transcript.trim()) {
         // No speech detected, restart listening
+        console.log('[LIVE_CALL] No speech detected, restarting...');
         restartListening();
         return;
       }
@@ -338,8 +353,31 @@ export function LiveCallCard() {
       
     } catch (err: any) {
       console.error('Processing error:', err);
-      setError(err.message || 'שגיאה בעיבוד השיחה');
-      setState('error');
+      
+      // Check if this was an abort (user stopped session)
+      if (err.name === 'AbortError') {
+        console.log('[LIVE_CALL] Request aborted by user');
+        return; // Don't show error, session already stopped
+      }
+      
+      // Show error but try to recover
+      const errorMessage = err.message || 'שגיאה בעיבוד השיחה';
+      setError(errorMessage);
+      
+      // 🔥 CRITICAL: Return to listening after 3 seconds, or stop if no stream
+      setTimeout(() => {
+        if (mediaStreamRef.current) {
+          console.log('[LIVE_CALL] Recovering from error, restarting listening...');
+          setError('');
+          restartListening();
+        } else {
+          console.log('[LIVE_CALL] Cannot recover, no media stream');
+          setState('idle');
+        }
+      }, 3000);
+    } finally {
+      // Clear abort controller
+      abortControllerRef.current = null;
     }
   };
 
@@ -368,6 +406,7 @@ export function LiveCallCard() {
 
   /**
    * Convert speech to text using OpenAI Whisper
+   * ⚠️ Uses AbortController for cancellation
    */
   const speechToText = async (audioBlob: Blob): Promise<string> => {
     // Convert blob to base64
@@ -376,35 +415,50 @@ export function LiveCallCard() {
       new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
     );
     
-    const response = await http.post<{ text: string; language: string }>('/api/live_call/stt', {
-      audio: base64Audio,
-      format: 'webm'
-    });
+    const response = await http.post<{ text: string; language: string }>(
+      '/api/live_call/stt', 
+      {
+        audio: base64Audio,
+        format: 'webm'
+      },
+      {
+        signal: abortControllerRef.current?.signal
+      }
+    );
     
     return response.text;
   };
 
   /**
    * Chat with OpenAI (brain)
+   * ⚠️ Uses AbortController for cancellation
    */
   const chatWithAI = async (text: string): Promise<string> => {
-    const response = await http.post<{ response: string; conversation_id: string }>('/api/live_call/chat', {
-      text,
-      conversation_history: conversationHistory
-    });
+    const response = await http.post<{ response: string; conversation_id: string }>(
+      '/api/live_call/chat', 
+      {
+        text,
+        conversation_history: conversationHistory
+      },
+      {
+        signal: abortControllerRef.current?.signal
+      }
+    );
     
     return response.response;
   };
 
   /**
    * Convert text to speech and play
+   * ⚠️ Uses AbortController and pauses VAD during playback to prevent echo
    */
   const textToSpeech = async (text: string): Promise<void> => {
     const response = await fetch('/api/live_call/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text }),
+      signal: abortControllerRef.current?.signal
     });
     
     if (!response.ok) {
@@ -414,6 +468,12 @@ export function LiveCallCard() {
     
     const audioBlob = await response.blob();
     const audioUrl = URL.createObjectURL(audioBlob);
+    
+    // 🔥 CRITICAL: Pause VAD monitoring during TTS playback to prevent echo/feedback
+    if (vadTimeoutRef.current) {
+      clearTimeout(vadTimeoutRef.current);
+      vadTimeoutRef.current = null;
+    }
     
     // Play audio
     return new Promise((resolve, reject) => {
