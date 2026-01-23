@@ -739,7 +739,8 @@ export function BusinessAISettings() {
                   value={voiceLibrary.provider}
                   onChange={(e) => handleProviderChange(e.target.value)}
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
-                  dir="rtl"
+                  dir="ltr"
+                  style={{ textAlign: 'center' }}
                   disabled={!voiceLibrary.geminiAvailable && voiceLibrary.provider === 'openai'}
                   data-testid="select-provider"
                 >
@@ -777,11 +778,12 @@ export function BusinessAISettings() {
                   value={voiceLibrary.voiceId}
                   onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
                   className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
-                  dir="rtl"
+                  dir="ltr"
                   style={{
                     minWidth: '320px',
                     whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis'
+                    textOverflow: 'ellipsis',
+                    textAlign: 'center'
                   }}
                   disabled={voiceLibrary.availableVoices.length === 0}
                   data-testid="select-voice"
