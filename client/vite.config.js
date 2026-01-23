@@ -17,7 +17,7 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'es2019',
+    target: 'esnext',
     outDir: './dist',
     assetsDir: 'assets',
     sourcemap: true,

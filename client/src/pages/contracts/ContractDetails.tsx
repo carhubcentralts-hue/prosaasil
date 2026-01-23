@@ -213,8 +213,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
   const [editSignerEmail, setEditSignerEmail] = useState('');
   const [showSignatureMarker, setShowSignatureMarker] = useState(false);
   const [signatureFieldCount, setSignatureFieldCount] = useState(0);
-  const [pdfSignedUrl, setPdfSignedUrl] = useState<string | null>(null);
-  const [loadingPdfUrl, setLoadingPdfUrl] = useState(false);
 
   useEffect(() => {
     loadContract();
@@ -267,31 +265,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       }
     } catch (err) {
       logger.error('Error loading signature field count:', err);
-    }
-  };
-
-  const loadPdfSignedUrl = async () => {
-    if (!contract?.files || contract.files.length === 0) return;
-    if (contract.files[0].mime_type !== 'application/pdf') return;
-    
-    setLoadingPdfUrl(true);
-    try {
-      const response = await fetch(`/api/contracts/${contractId}/pdf_url`, {
-        credentials: 'include',
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to get PDF URL');
-      }
-      
-      const data = await response.json();
-      setPdfSignedUrl(data.url);
-      logger.debug('Fetched PDF signed URL');
-    } catch (err) {
-      logger.error('Error fetching PDF signed URL:', err);
-      setError('שגיאה בטעינת PDF. נסה שוב.');
-    } finally {
-      setLoadingPdfUrl(false);
     }
   };
 
@@ -668,7 +641,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
                 <Button
                   onClick={() => {
                     setShowSignatureMarker(true);
-                    loadPdfSignedUrl();
                   }}
                   variant="secondary"
                   className="flex items-center gap-2"
@@ -782,15 +754,10 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       {/* Signature Field Marker Modal */}
       {showSignatureMarker && contract.files.length > 0 && (
         <SignatureFieldMarker
-          pdfUrl={
-            contract.files[0].mime_type === 'application/pdf'
-              ? (pdfSignedUrl || `/api/contracts/${contractId}/pdf`)  // Use signed URL if available, fallback to direct endpoint
-              : ''
-          }
+          pdfUrl={`/api/contracts/${contractId}/pdf`}
           contractId={contractId}
           onClose={() => {
             setShowSignatureMarker(false);
-            setPdfSignedUrl(null);  // Clear signed URL when closing
           }}
           onSave={handleSaveSignatureFields}
         />

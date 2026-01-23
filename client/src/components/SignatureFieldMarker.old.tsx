@@ -1,22 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Save, Trash2, Eye, Edit3 } from 'lucide-react';
+import { X, Plus, Save, Trash2, Eye, Move, Edit3, Maximize2 } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
-import { PDFCanvas } from './PDFCanvas';
+import { EnhancedPDFViewer } from './EnhancedPDFViewer';
 import { logger } from '../shared/utils/logger';
-import * as pdfjsLib from 'pdfjs-dist';
 
 export interface SignatureField {
   id: string;
   page: number; // 1-based
-  x: number; // PDF units (not pixels) - relative to page width
-  y: number; // PDF units (not pixels) - relative to page height
-  w: number; // PDF units - relative to page width
-  h: number; // PDF units - relative to page height
+  x: number; // 0-1 relative
+  y: number; // 0-1 relative
+  w: number; // 0-1 relative
+  h: number; // 0-1 relative
   required: boolean;
 }
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
+const DEFAULT_TOTAL_PAGES = 10; // Default page count for navigation (user can navigate beyond this)
+const PDF_MIN_HEIGHT_VH = '70vh'; // Minimum height for PDF viewer on mobile
 
 interface SignatureFieldMarkerProps {
   pdfUrl: string;
@@ -25,10 +26,18 @@ interface SignatureFieldMarkerProps {
   onSave: (fields: SignatureField[]) => Promise<void>;
 }
 
+interface Rectangle {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
 export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: SignatureFieldMarkerProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [fields, setFields] = useState<SignatureField[]>([]);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signatureMarkingMode, setSignatureMarkingMode] = useState(false);
@@ -36,48 +45,36 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; fieldX: number; fieldY: number; fieldW: number; fieldH: number } | null>(null);
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
-  const [scale, setScale] = useState(1.0);
-  const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
-  const [pageViewport, setPageViewport] = useState<pdfjsLib.PageViewport | null>(null);
   
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-
-  // Load PDF to get page dimensions
-  useEffect(() => {
-    if (!pdfUrl) return;
-
-    const loadingTask = pdfjsLib.getDocument(pdfUrl);
-    loadingTask.promise
-      .then((loadedPdf) => {
-        setPdf(loadedPdf);
-        logger.debug('PDF loaded for signature marking');
-      })
-      .catch((err) => {
-        logger.error('Error loading PDF:', err);
-      });
-  }, [pdfUrl]);
-
-  // Get viewport for current page
-  useEffect(() => {
-    if (!pdf) return;
-
-    pdf.getPage(currentPage)
-      .then((page) => {
-        const viewport = page.getViewport({ scale });
-        setPageViewport(viewport);
-        logger.debug('Page viewport updated:', viewport.width, 'x', viewport.height);
-      })
-      .catch((err) => {
-        logger.error('Error getting page:', err);
-      });
-  }, [pdf, currentPage, scale]);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   // Load existing signature fields
   useEffect(() => {
     loadSignatureFields();
   }, [contractId]);
 
+  // Set PDF URL directly - the streaming endpoint handles authentication
+  useEffect(() => {
+    if (!pdfUrl) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    
+    logger.debug('Using streaming endpoint for PDF');
+    setPdfObjectUrl(pdfUrl);
+    
+    // Default page count for navigation
+    setTotalPages(DEFAULT_TOTAL_PAGES);
+    setLoading(false);
+    
+    // No cleanup needed - we're using a direct endpoint URL
+  }, [pdfUrl]); // Only run when pdfUrl changes
+  
   const loadSignatureFields = async () => {
     try {
       const response = await fetch(`/api/contracts/${contractId}/signature-fields`, {
@@ -112,23 +109,18 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!canvasContainerRef.current || !signatureMarkingMode || !pageViewport) return;
+    if (!canvasRef.current || !signatureMarkingMode) return;
     
-    const rect = canvasContainerRef.current.getBoundingClientRect();
-    
-    // Get click position in pixels relative to canvas
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-    
-    // Convert to PDF units (0-1 relative to page dimensions)
-    const pdfX = clickX / pageViewport.width;
-    const pdfY = clickY / pageViewport.height;
+    // Get click position relative to canvas
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
 
     // Check if clicking on existing field
     const clickedField = fields.find(f => 
       f.page === currentPage &&
-      pdfX >= f.x && pdfX <= f.x + f.w &&
-      pdfY >= f.y && pdfY <= f.y + f.h
+      x >= f.x && x <= f.x + f.w &&
+      y >= f.y && y <= f.y + f.h
     );
 
     if (clickedField) {
@@ -140,8 +132,8 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     const newField: SignatureField = {
       id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       page: currentPage,
-      x: Math.max(0, Math.min(1 - 0.15, pdfX - 0.075)), // Center the box on click
-      y: Math.max(0, Math.min(1 - 0.08, pdfY - 0.04)),
+      x: Math.max(0, Math.min(1 - 0.15, x - 0.075)), // Center the box on click, ensure it fits
+      y: Math.max(0, Math.min(1 - 0.08, y - 0.04)),
       w: 0.15, // Default width 15%
       h: 0.08, // Default height 8%
       required: true,
@@ -159,11 +151,11 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
 
   const handleFieldMouseDown = (e: React.MouseEvent, field: SignatureField, handle?: string) => {
     e.stopPropagation();
-    if (!canvasContainerRef.current || !pageViewport) return;
+    if (!canvasRef.current) return;
     
-    const rect = canvasContainerRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / pageViewport.width;
-    const y = (e.clientY - rect.top) / pageViewport.height;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
     
     if (handle) {
       setIsResizing(handle);
@@ -183,11 +175,11 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!canvasContainerRef.current || !dragStart || !selectedFieldId || !pageViewport) return;
+    if (!canvasRef.current || !dragStart || !selectedFieldId) return;
     
-    const rect = canvasContainerRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / pageViewport.width;
-    const y = (e.clientY - rect.top) / pageViewport.height;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
     
     const dx = x - dragStart.x;
     const dy = y - dragStart.y;
@@ -210,6 +202,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
         let newH = dragStart.fieldH;
         
         if (isResizing.includes('r')) {
+          newX = dragStart.fieldX;
           newW = Math.max(MIN_FIELD_SIZE, Math.min(1 - dragStart.fieldX, dragStart.fieldW + dx));
         } else if (isResizing.includes('l')) {
           newX = Math.max(0, Math.min(dragStart.fieldX + dragStart.fieldW - MIN_FIELD_SIZE, dragStart.fieldX + dx));
@@ -220,6 +213,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
           newY = Math.max(0, Math.min(dragStart.fieldY + dragStart.fieldH - MIN_FIELD_SIZE, dragStart.fieldY + dy));
           newH = dragStart.fieldH + (dragStart.fieldY - newY);
         } else if (isResizing.includes('b')) {
+          newY = dragStart.fieldY;
           newH = Math.max(MIN_FIELD_SIZE, Math.min(1 - dragStart.fieldY, dragStart.fieldH + dy));
         }
         
@@ -266,76 +260,6 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
 
   const getCurrentPageFields = () => {
     return fields.filter(f => f.page === currentPage);
-  };
-
-  // Render signature field overlay
-  const renderSignatureFields = () => {
-    if (!pageViewport) return null;
-
-    return getCurrentPageFields().map((field, index) => {
-      // Convert PDF units to pixels
-      const left = field.x * pageViewport.width;
-      const top = field.y * pageViewport.height;
-      const width = field.w * pageViewport.width;
-      const height = field.h * pageViewport.height;
-
-      return (
-        <div
-          key={field.id}
-          className={`absolute border-3 transition-all pointer-events-auto ${
-            selectedFieldId === field.id
-              ? 'border-blue-600 bg-blue-200 shadow-xl z-10'
-              : 'border-green-600 bg-green-200 hover:border-green-700'
-          } bg-opacity-40 cursor-move`}
-          style={{
-            left: `${left}px`,
-            top: `${top}px`,
-            width: `${width}px`,
-            height: `${height}px`,
-          }}
-          onMouseDown={(e) => handleFieldMouseDown(e, field)}
-        >
-          {/* Field Label */}
-          <div className="absolute -top-7 right-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-t-lg shadow-md whitespace-nowrap">
-            חתימה #{fields.indexOf(field) + 1}
-          </div>
-          
-          {/* Delete Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              deleteField(field.id);
-            }}
-            className="absolute -top-2 -left-2 bg-red-600 text-white rounded-full p-1.5 hover:bg-red-700 shadow-lg z-20 min-w-[28px] min-h-[28px] flex items-center justify-center"
-            title="מחק שדה"
-          >
-            <X className="w-4 h-4" />
-          </button>
-
-          {/* Resize Handles - Only show when selected */}
-          {selectedFieldId === field.id && (
-            <>
-              <div 
-                className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
-                onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
-              />
-              <div 
-                className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
-                onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
-              />
-              <div 
-                className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
-                onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
-              />
-              <div 
-                className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
-                onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
-              />
-            </>
-          )}
-        </div>
-      );
-    });
   };
 
   return (
@@ -396,35 +320,87 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
               </div>
             )}
 
-            {/* PDF Canvas with Overlay */}
+            {/* Enhanced PDF Viewer with Overlay */}
             <div className="flex-1 relative min-h-0">
-              <PDFCanvas
-                pdfUrl={pdfUrl}
+              <EnhancedPDFViewer
+                pdfUrl={pdfObjectUrl || ''}
                 currentPage={currentPage}
+                totalPages={totalPages}
                 onPageChange={setCurrentPage}
-                onTotalPagesChange={setTotalPages}
-                scale={scale}
-                onScaleChange={setScale}
-                containerRef={canvasContainerRef}
+                loading={loading}
+                error={error || undefined}
                 className="rounded-lg border-2 border-gray-300"
               >
                 {/* Canvas Overlay for Signature Fields */}
-                {pageViewport && (
+                {pdfObjectUrl && !loading && (
                   <div
-                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair pointer-events-auto' : 'cursor-default pointer-events-none'}`}
+                    ref={canvasRef}
+                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair' : 'cursor-default'}`}
                     onClick={handleCanvasClick}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
-                    style={{
-                      width: `${pageViewport.width}px`,
-                      height: `${pageViewport.height}px`,
-                    }}
                   >
-                    {renderSignatureFields()}
+                    {/* Render existing fields on current page */}
+                    {getCurrentPageFields().map((field, index) => (
+                      <div
+                        key={field.id}
+                        className={`absolute border-3 transition-all ${
+                          selectedFieldId === field.id
+                            ? 'border-blue-600 bg-blue-200 shadow-xl z-10'
+                            : 'border-green-600 bg-green-200 hover:border-green-700'
+                        } bg-opacity-40 cursor-move`}
+                        style={{
+                          left: `${field.x * 100}%`,
+                          top: `${field.y * 100}%`,
+                          width: `${field.w * 100}%`,
+                          height: `${field.h * 100}%`,
+                        }}
+                        onMouseDown={(e) => handleFieldMouseDown(e, field)}
+                      >
+                        {/* Field Label */}
+                        <div className="absolute -top-7 right-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-t-lg shadow-md">
+                          חתימה #{fields.indexOf(field) + 1}
+                        </div>
+                        
+                        {/* Delete Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteField(field.id);
+                          }}
+                          className="absolute -top-2 -left-2 bg-red-600 text-white rounded-full p-1.5 hover:bg-red-700 shadow-lg z-20 min-w-[28px] min-h-[28px] flex items-center justify-center"
+                          title="מחק שדה"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+
+                        {/* Resize Handles - Only show when selected */}
+                        {selectedFieldId === field.id && (
+                          <>
+                            <div 
+                              className="absolute -top-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-nw-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'tr')}
+                            />
+                            <div 
+                              className="absolute -top-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-ne-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'tl')}
+                            />
+                            <div 
+                              className="absolute -bottom-2 -right-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-sw-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'br')}
+                            />
+                            <div 
+                              className="absolute -bottom-2 -left-2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-20" 
+                              onMouseDown={(e) => handleFieldMouseDown(e, field, 'bl')}
+                            />
+                          </>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
-              </PDFCanvas>
+              </EnhancedPDFViewer>
             </div>
           </div>
 
