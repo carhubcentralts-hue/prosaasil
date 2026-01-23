@@ -108,17 +108,28 @@ export function PDFCanvas({
     // Cancel any ongoing render
     if (renderTaskRef.current) {
       renderTaskRef.current.cancel();
+      renderTaskRef.current = null;
     }
 
     logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale);
 
     pdf.getPage(currentPage)
       .then((page) => {
-        const viewport = page.getViewport({ scale });
+        // 🔥 FIX: Use devicePixelRatio for sharp rendering on high-DPI displays
+        const pixelRatio = window.devicePixelRatio || 1;
+        const renderScale = scale * pixelRatio;
+        
+        const viewport = page.getViewport({ scale: renderScale });
 
-        // Set canvas dimensions
+        // 🔥 FIX: Set canvas internal size (high resolution)
         canvas.width = viewport.width;
         canvas.height = viewport.height;
+
+        // 🔥 FIX: Set canvas CSS size (display size)
+        const cssWidth = viewport.width / pixelRatio;
+        const cssHeight = viewport.height / pixelRatio;
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
 
         // Render PDF page into canvas
         const renderContext = {
@@ -141,11 +152,13 @@ export function PDFCanvas({
         } else {
           logger.error('[PDF_CANVAS] Error rendering page:', err);
         }
+        renderTaskRef.current = null;
       });
 
     return () => {
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
+        renderTaskRef.current = null;
       }
     };
   }, [pdf, currentPage, scale]);
@@ -292,10 +305,12 @@ export function PDFCanvas({
             {/* Overlay for custom elements (signature boxes, etc.) */}
             {children && canvasRef.current && (
               <div 
-                className="absolute inset-0 pointer-events-none"
+                className="absolute inset-0 pointer-events-auto"
                 style={{
-                  width: `${canvasRef.current.width}px`,
-                  height: `${canvasRef.current.height}px`,
+                  // 🔥 FIX: Use CSS size (offsetWidth/offsetHeight) not canvas internal size
+                  // This ensures signature zones align properly with the displayed PDF
+                  width: canvasRef.current.style.width || `${canvasRef.current.width}px`,
+                  height: canvasRef.current.style.height || `${canvasRef.current.height}px`,
                 }}
               >
                 {children}

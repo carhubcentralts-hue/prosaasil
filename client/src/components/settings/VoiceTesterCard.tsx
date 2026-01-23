@@ -139,30 +139,39 @@ export function VoiceTesterCard({ promptText }: VoiceTesterCardProps) {
   const startSession = async () => {
     setConnectionState('connecting');
     setError('');
+    setAiResponse('');
     
     try {
-      // Get session config from backend
-      const sessionData = await http.post<{
+      // Start actual test call using business settings
+      const callData = await http.post<{
         success: boolean;
-        session_config: any;
-        websocket_url: string;
-        instructions: string;
+        call_sid: string;
+        status: string;
+        message: string;
+        note?: string;
         error?: string;
-      }>('/api/voice_test/session', {
-        prompt: promptText
+      }>('/api/ai/test_call/start', {
+        phone_number: prompt('נא להזין מספר טלפון לבדיקה (בפורמט בינלאומי):') || undefined
       });
       
-      if (!sessionData.success) {
-        throw new Error(sessionData.error || 'Failed to create session');
+      if (!callData.success) {
+        throw new Error(callData.error || 'Failed to start test call');
       }
       
-      // Show instructions for now (full WebRTC implementation would go here)
       setConnectionState('connected');
-      setAiResponse('🎤 סשן בדיקה מוכן!\n\nלבדיקה מלאה עם Realtime API, יש להתחבר ישירות ל-WebSocket.\n\nראה תיעוד: OpenAI Realtime API');
+      setAiResponse(
+        `✅ ${callData.message}\n\n` +
+        `מזהה שיחה: ${callData.call_sid}\n` +
+        `סטטוס: ${callData.status}\n\n` +
+        (callData.note ? `📝 ${callData.note}` : '')
+      );
+      
+      // In production, you would poll for call status here
+      // For now, we'll just show the initial response
       
     } catch (err: any) {
-      console.error('Session start error:', err);
-      setError(err.message || 'שגיאה בהתחברות');
+      console.error('Test call start error:', err);
+      setError(err.message || 'שגיאה בהתחלת שיחת בדיקה');
       setConnectionState('error');
     }
   };
@@ -190,8 +199,8 @@ export function VoiceTesterCard({ promptText }: VoiceTesterCardProps) {
             }`} />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">בדיקת פרומפט בקול</h3>
-            <p className="text-sm text-slate-500">שיחת בדיקה עם ה-AI</p>
+            <h3 className="text-lg font-semibold text-slate-900">בדיקת שיחה חיה</h3>
+            <p className="text-sm text-slate-500">שיחת טלפון אמיתית עם ה-AI</p>
           </div>
         </div>
         <button
@@ -367,10 +376,10 @@ export function VoiceTesterCard({ promptText }: VoiceTesterCardProps) {
         <div className="flex items-start gap-2">
           <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-blue-700">
-            <p className="font-medium">💡 בדיקת פרומפט</p>
+            <p className="font-medium">💡 בדיקת שיחה חיה</p>
             <p className="mt-1">
-              לבדיקה מלאה, השתמש בסימולטור שיחות או בטלפון אמיתי.
-              הגדרות הקול (TTS) משפיעות רק על Preview.
+              כפתור "התחל שיחת בדיקה" יבצע שיחת טלפון אמיתית לפי ההגדרות השמורות:
+              הפרומפט, ספק הקול והקול שנבחרו. השתמש בזה לבדיקת השיחה לפני השקה.
             </p>
           </div>
         </div>
