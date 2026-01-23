@@ -46,6 +46,22 @@ def global_search():
         tenant_id = getattr(g, 'tenant', None)
         user_role = user.get('role') if user else None
         
+        # Helper function to get business features for filtering
+        def get_business_features(business_id=None):
+            """
+            Get enabled features for a business. 
+            TODO: Query actual business features from database when feature flags are implemented.
+            For now, returns all features as enabled.
+            """
+            # Placeholder - in production this should query Business.feature_flags or similar
+            return {
+                'calls': True,
+                'whatsapp': True,
+                'crm': True,
+                'contracts': True,
+                'receipts': True
+            }
+        
         # ✅ CRITICAL: Enforce business isolation for non-system_admin
         if user_role == 'system_admin':
             # System admin can optionally filter by business_id, or search all
@@ -58,6 +74,9 @@ def global_search():
             if not business_id:
                 log.error(f"No business_id for user {user.get('email')} role {user_role}")
                 return jsonify({'error': 'Business context required'}), 401
+        
+        # Get business features for filtering
+        business_features = get_business_features(business_id)
         
         # Get search parameters
         query = request.args.get('q', '').strip()
@@ -314,16 +333,6 @@ def global_search():
                 {'id': 'settings', 'title': 'הגדרות מערכת', 'description': 'הגדרות כלליות ואינטגרציות', 'keywords': ['הגדרות', 'settings', 'קונפיגורציה'], 'path': '/app/settings', 'category': 'הגדרות', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
             ]
             
-            # Get business features (simplified - full implementation would query DB)
-            # For now, we'll assume all features are enabled unless we have specific business data
-            business_features = {
-                'calls': True,
-                'whatsapp': True,
-                'crm': True,
-                'contracts': True,
-                'receipts': True
-            }
-            
             query_lower = query.lower()
             for page in SYSTEM_PAGES:
                 # Check role access
@@ -399,15 +408,6 @@ def global_search():
                 {'id': 'webhook', 'title': 'Webhook', 'description': 'הגדרות Webhook ל-Twilio', 'keywords': ['webhook', 'twilio', 'אינטגרציות'], 'path': '/app/settings?tab=integrations', 'section': 'integrations', 'roles': ['system_admin', 'owner', 'admin'], 'features': []},
                 {'id': 'ai-prompts', 'title': 'AI Prompts', 'description': 'עריכת פרומפטים', 'keywords': ['ai', 'prompts', 'פרומפטים'], 'path': '/app/admin/prompt-studio', 'section': 'ai', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
             ]
-            
-            # Get business features for filtering
-            business_features = {
-                'calls': True,
-                'whatsapp': True,
-                'crm': True,
-                'contracts': True,
-                'receipts': True
-            }
             
             query_lower = query.lower()
             for setting in SYSTEM_SETTINGS:
