@@ -188,8 +188,9 @@ function PDFSigningView({
     const scaleX = pageInfo.width / containerWidth;
     const scaleY = pageInfo.height / containerHeight;
     
+    // Use standard screen coordinates (top-origin) - iframe doesn't use PDF bottom-origin
     const pdfX = x * scaleX;
-    const pdfY = (containerHeight - y) * scaleY; // PDF Y is from bottom
+    const pdfY = y * scaleY;
     
     setPendingPlacement({ pageNumber: currentPage, x: pdfX, y: pdfY });
     setShowSignatureModal(true);
@@ -427,8 +428,9 @@ function PDFSigningView({
                   const scaleX = pageInfo.width / containerWidth;
                   const scaleY = pageInfo.height / containerHeight;
                   
+                  // Use standard screen coordinates (top-origin) - iframe doesn't use PDF bottom-origin
                   const pdfX = x * scaleX;
-                  const pdfY = (containerHeight - y) * scaleY;
+                  const pdfY = y * scaleY;
                   
                   setPendingPlacement({ pageNumber: currentPage, x: pdfX, y: pdfY });
                   setShowSignatureModal(true);
@@ -456,8 +458,9 @@ function PDFSigningView({
               const scaleX = containerWidth / pageInfo.width;
               const scaleY = containerHeight / pageInfo.height;
               
+              // Convert PDF coordinates back to screen coordinates (top-origin)
               const screenX = sig.x * scaleX;
-              const screenY = containerHeight - (sig.y + sig.height) * scaleY;
+              const screenY = sig.y * scaleY;
               const screenWidth = sig.width * scaleX;
               const screenHeight = sig.height * scaleY;
               

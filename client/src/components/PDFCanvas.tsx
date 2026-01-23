@@ -285,12 +285,12 @@ export function PDFCanvas({
               className="shadow-lg bg-white"
             />
             {/* Overlay for custom elements (signature boxes, etc.) */}
-            {children && (
+            {children && canvasRef.current && (
               <div 
                 className="absolute inset-0 pointer-events-none"
                 style={{
-                  width: canvasRef.current?.width || 0,
-                  height: canvasRef.current?.height || 0,
+                  width: `${canvasRef.current.width}px`,
+                  height: `${canvasRef.current.height}px`,
                 }}
               >
                 {children}
