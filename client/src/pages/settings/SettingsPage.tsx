@@ -128,7 +128,7 @@ interface AISettings {
 
 export function SettingsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'security' | 'notifications'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'integrations' | 'security' | 'notifications'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
   // WhatsApp Webhook Secret state
@@ -459,20 +459,6 @@ export function SettingsPage() {
   const handleSave = () => {
     if (activeTab === 'business') {
       saveBusinessMutation.mutate(businessSettings);
-    } else if (activeTab === 'appointments') {
-      // 🔥 BUILD FIXED: Apply user-selected hours to ALL active days (not preserved hours)
-      const opening_hours_json: Record<string, string[][]> = {};
-      const selectedHours = [[defaultHours.opening, defaultHours.closing]]; // Current UI selection
-
-      Object.keys(workingDays).forEach((day) => {
-        if (workingDays[day as keyof typeof workingDays]) {
-          // 🔥 ALWAYS use the hours the user just selected in the UI
-          opening_hours_json[day] = selectedHours;
-        }
-        // ✅ If unchecked, day is removed (not included in opening_hours_json)
-      });
-
-      console.log('💾 Saving opening_hours_json:', opening_hours_json);
 
       saveAppointmentMutation.mutate({
         ...appointmentSettings,
@@ -568,21 +554,6 @@ export function SettingsPage() {
           >
             <Globe className="w-4 h-4 mr-2" />
             הגדרות עסק
-          </button>
-          <button
-            onClick={() => {
-              // Redirect to Prompt Studio instead of showing appointments tab
-              window.location.href = '/app/admin/prompt-studio';
-            }}
-            className={`${
-              activeTab === 'appointments'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-            data-testid="tab-appointments"
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            הגדרות תורים
           </button>
           <button
             onClick={() => setActiveTab('integrations')}
@@ -737,168 +708,6 @@ export function SettingsPage() {
                     </ul>
                   </div>
                 )}
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {activeTab === 'appointments' && (
-          <div className="max-w-2xl space-y-6">
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">הגדרות קביעת תורים</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">מרווח זמן בין תורים</label>
-                  <select
-                    value={appointmentSettings.slot_size_min}
-                    onChange={(e) => setAppointmentSettings({...appointmentSettings, slot_size_min: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    data-testid="select-slot-size"
-                  >
-                    <option value="15">כל 15 דקות (רבע שעה)</option>
-                    <option value="30">כל 30 דקות (חצי שעה)</option>
-                    <option value="45">כל 45 דקות (שלושת רבעי שעה)</option>
-                    <option value="60">כל שעה</option>
-                    <option value="75">כל שעה ורבע (75 דקות)</option>
-                    <option value="90">כל שעה וחצי (90 דקות)</option>
-                    <option value="105">כל שעה ושלושת רבעי (105 דקות)</option>
-                    <option value="120">כל שעתיים (120 דקות)</option>
-                  </select>
-                  <p className="mt-1 text-sm text-gray-500">
-                    קובע כל כמה זמן ניתן לקבוע תור חדש
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <h4 className="font-medium text-gray-900">פתוח 24/7</h4>
-                    <p className="text-sm text-gray-600">אפשר קביעת תורים בכל שעה ביום</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={appointmentSettings.allow_24_7}
-                      onChange={(e) => setAppointmentSettings({...appointmentSettings, allow_24_7: e.target.checked})}
-                      className="sr-only peer"
-                      data-testid="checkbox-247"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">חלון הזמנה (ימים קדימה)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="365"
-                    value={appointmentSettings.booking_window_days}
-                    onChange={(e) => setAppointmentSettings({...appointmentSettings, booking_window_days: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    data-testid="input-booking-window"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    כמה ימים קדימה לקוחות יכולים לקבוע תורים
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">הודעה מוקדמת מינימלית (דקות)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1440"
-                    value={appointmentSettings.min_notice_min}
-                    onChange={(e) => setAppointmentSettings({...appointmentSettings, min_notice_min: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    data-testid="input-min-notice"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    כמה זמן מראש לקוח צריך להודיע לפני תור (0 = ניתן לקבוע מיידית)
-                  </p>
-                </div>
-
-                {!appointmentSettings.allow_24_7 && (
-                  <div className="border-t pt-4 mt-6">
-                    <h4 className="font-medium text-gray-900 mb-4">שעות פעילות</h4>
-                    <p className="text-sm text-gray-500 mb-4">
-                      בחרו את שעות הפעילות המוגדרות ברירת מחדל לכל הימים. ניתן לשנות שעות ספציפיות לכל יום בהגדרות מתקדמות.
-                    </p>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה</label>
-                        <select 
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          value={defaultHours.opening}
-                          onChange={(e) => setDefaultHours({...defaultHours, opening: e.target.value})}
-                          data-testid="select-opening-time"
-                        >
-                          {Array.from({length: 24}, (_, i) => {
-                            const hour = i.toString().padStart(2, '0');
-                            return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
-                          })}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה</label>
-                        <select 
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          value={defaultHours.closing}
-                          onChange={(e) => setDefaultHours({...defaultHours, closing: e.target.value})}
-                          data-testid="select-closing-time"
-                        >
-                          {Array.from({length: 24}, (_, i) => {
-                            const hour = i.toString().padStart(2, '0');
-                            return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
-                          })}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">ימי פעילות</label>
-                      <div className="grid grid-cols-4 gap-2">
-                        {[
-                          { name: 'ראשון', value: 'sun' },
-                          { name: 'שני', value: 'mon' },
-                          { name: 'שלישי', value: 'tue' },
-                          { name: 'רביעי', value: 'wed' },
-                          { name: 'חמישי', value: 'thu' },
-                          { name: 'שישי', value: 'fri' },
-                          { name: 'שבת', value: 'sat' }
-                        ].map((day) => (
-                          <label key={day.value} className="flex items-center space-x-2 space-x-reverse cursor-pointer p-2 border rounded hover:bg-gray-50">
-                            <input
-                              type="checkbox"
-                              checked={workingDays[day.value as keyof typeof workingDays]}
-                              onChange={(e) => setWorkingDays({
-                                ...workingDays,
-                                [day.value]: e.target.checked
-                              })}
-                              className="rounded text-blue-600 focus:ring-blue-500"
-                              data-testid={`checkbox-day-${day.value}`}
-                            />
-                            <span className="text-sm text-gray-700">{day.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-sm text-gray-500">
-                        בחר את הימים שבהם העסק פעיל לקביעת תורים
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t pt-4 mt-6">
-                  <h4 className="font-medium text-gray-900 mb-2">סיכום הגדרות</h4>
-                  <div className="space-y-2 text-sm text-gray-600">
-                    <p>• תורים כל <strong>{appointmentSettings.slot_size_min}</strong> דקות</p>
-                    <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24/7' : 'בשעות מוגדרות'}</strong></p>
-                    <p>• ניתן לקבוע עד <strong>{appointmentSettings.booking_window_days}</strong> ימים קדימה</p>
-                    <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? 'לא נדרשת' : `${appointmentSettings.min_notice_min} דקות`}</strong></p>
-                  </div>
-                </div>
               </div>
             </Card>
           </div>
