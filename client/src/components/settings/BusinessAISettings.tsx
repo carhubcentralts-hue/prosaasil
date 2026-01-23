@@ -42,15 +42,21 @@ interface CallControlSettings {
 
 interface Voice {
   id: string;
-  name: string;
-  label?: string;  // Hebrew label for display
+  provider: string;
+  name?: string;
+  display_he: string;  // Hebrew display name
   gender?: string;
   description?: string;
+  description_he?: string;
 }
 
 interface VoiceLibrarySettings {
+  provider: string;  // "openai" | "gemini"
   voiceId: string;
   availableVoices: Voice[];
+  openaiVoices: Voice[];
+  geminiVoices: Voice[];
+  geminiAvailable: boolean;
   previewText: string;
   isLoadingVoices: boolean;
   isSavingVoice: boolean;
@@ -88,8 +94,12 @@ export function BusinessAISettings() {
   });
   const [businessName, setBusinessName] = useState<string>('');
   const [voiceLibrary, setVoiceLibrary] = useState<VoiceLibrarySettings>({
+    provider: 'openai',
     voiceId: 'ash',
     availableVoices: [],
+    openaiVoices: [],
+    geminiVoices: [],
+    geminiAvailable: false,
     previewText: 'שלום, אני העוזר הדיגיטלי שלכם. אני כאן כדי לעזור לכם בכל שאלה.',
     isLoadingVoices: false,
     isSavingVoice: false,
@@ -235,29 +245,42 @@ export function BusinessAISettings() {
       setVoiceLibrary(prev => ({ ...prev, isLoadingVoices: true }));
       
       try {
-        // Load available voices and current business voice setting
+        // Load unified voice catalog with both OpenAI and Gemini voices
         const [voicesData, aiSettingsData] = await Promise.all([
-          http.get<{ ok: boolean; voices: Voice[]; default_voice: string }>(`/api/system/ai/voices`),
-          http.get<{ ok: boolean; voice_id: string }>(`/api/business/settings/ai`)
+          http.get<{ openai: Voice[]; gemini: Voice[]; gemini_available: boolean }>(`/api/ai/voices`),
+          http.get<{ ok: boolean; voice_id?: string; tts_provider?: string; tts_voice_id?: string }>(`/api/business/settings/ai`)
         ]);
         
-        if (voicesData.ok && aiSettingsData.ok) {
-          // 🔥 FIX: Filter out "cedar" from available voices list (UI only)
-          const filteredVoices = voicesData.voices.filter(v => v.id !== 'cedar');
+        if (voicesData && aiSettingsData.ok) {
+          const openaiVoices = voicesData.openai || [];
+          const geminiVoices = voicesData.gemini || [];
+          const geminiAvailable = voicesData.gemini_available || false;
           
-          // 🔥 FIX: If current voice is cedar, silently replace with ash
-          let currentVoice = aiSettingsData.voice_id || voicesData.default_voice;
-          if (currentVoice === 'cedar') {
-            currentVoice = 'ash';  // Silent fallback to safe voice
-            console.warn('[VOICE_LIBRARY] Business had cedar voice, silently using ash as fallback');
-          }
+          // Determine current provider and voice from saved settings
+          // NEW: Support both old (voice_id) and new (tts_provider + tts_voice_id) formats
+          const currentProvider = aiSettingsData.tts_provider || 'openai';
+          const currentVoiceId = aiSettingsData.tts_voice_id || aiSettingsData.voice_id || 'ash';
+          
+          // Filter available voices based on current provider
+          const availableVoices = currentProvider === 'gemini' ? geminiVoices : openaiVoices;
           
           setVoiceLibrary(prev => ({
             ...prev,
-            availableVoices: filteredVoices,
-            voiceId: currentVoice
+            provider: currentProvider,
+            voiceId: currentVoiceId,
+            availableVoices: availableVoices,
+            openaiVoices: openaiVoices,
+            geminiVoices: geminiVoices,
+            geminiAvailable: geminiAvailable
           }));
-          console.log('✅ Loaded voice library:', { voices: filteredVoices.length, current: currentVoice });
+          
+          console.log('✅ Loaded voice library:', { 
+            provider: currentProvider,
+            voice: currentVoiceId,
+            openai: openaiVoices.length, 
+            gemini: geminiVoices.length,
+            geminiAvailable 
+          });
         }
       } catch (err: any) {
         console.error('❌ Failed to load voice library:', {
@@ -284,17 +307,13 @@ export function BusinessAISettings() {
     setVoiceLibrary(prev => ({ ...prev, isSavingVoice: true }));
     
     try {
-      // 🔥 FIX: Prevent saving cedar from UI (auto-replace with ash)
-      let voiceToSave = voiceLibrary.voiceId;
-      if (voiceToSave === 'cedar') {
-        console.warn('[VOICE_LIBRARY] Attempted to save cedar, auto-replacing with ash');
-        voiceToSave = 'ash';
-        setVoiceLibrary(prev => ({ ...prev, voiceId: 'ash' }));
-      }
-      
-      const result = await http.put<{ ok: boolean; voice_id: string }>(
+      // Save both provider and voice_id
+      const result = await http.put<{ ok: boolean; tts_provider: string; tts_voice_id: string }>(
         `/api/business/settings/ai`,
-        { voice_id: voiceToSave }
+        { 
+          tts_provider: voiceLibrary.provider,
+          tts_voice_id: voiceLibrary.voiceId
+        }
       );
       
       if (result.ok) {
@@ -316,6 +335,22 @@ export function BusinessAISettings() {
     }
   };
 
+  // 🔥 Voice Library: Handle provider change
+  const handleProviderChange = (newProvider: string) => {
+    // Switch available voices based on provider
+    const newAvailableVoices = newProvider === 'gemini' ? voiceLibrary.geminiVoices : voiceLibrary.openaiVoices;
+    
+    // Set default voice for new provider
+    const defaultVoice = newAvailableVoices.length > 0 ? newAvailableVoices[0].id : '';
+    
+    setVoiceLibrary(prev => ({
+      ...prev,
+      provider: newProvider,
+      availableVoices: newAvailableVoices,
+      voiceId: defaultVoice
+    }));
+  };
+
   // 🔥 Voice Library: Play voice preview
   const playVoicePreview = async () => {
     if (voiceLibrary.previewText.length < 5) {
@@ -331,7 +366,7 @@ export function BusinessAISettings() {
     setVoiceLibrary(prev => ({ ...prev, isPlayingPreview: true }));
     
     try {
-      // Call preview API endpoint
+      // Call preview API endpoint with provider and voice_id
       const response = await fetch('/api/ai/tts/preview', {
         method: 'POST',
         headers: {
@@ -340,6 +375,7 @@ export function BusinessAISettings() {
         credentials: 'include',
         body: JSON.stringify({
           text: voiceLibrary.previewText,
+          provider: voiceLibrary.provider,
           voice_id: voiceLibrary.voiceId
         })
       });
@@ -687,6 +723,43 @@ export function BusinessAISettings() {
         </div>
 
         <div className="space-y-6">
+          {/* Provider Selection Dropdown */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              🏢 ספק קול
+            </label>
+            {voiceLibrary.isLoadingVoices ? (
+              <div className="flex items-center gap-2 text-slate-500">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען ספקים...</span>
+              </div>
+            ) : (
+              <>
+                <select
+                  value={voiceLibrary.provider}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 text-base"
+                  dir="rtl"
+                  disabled={!voiceLibrary.geminiAvailable && voiceLibrary.provider === 'openai'}
+                  data-testid="select-provider"
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini" disabled={!voiceLibrary.geminiAvailable}>
+                    Google Gemini {!voiceLibrary.geminiAvailable ? '(חסר GEMINI_API_KEY)' : ''}
+                  </option>
+                </select>
+                {!voiceLibrary.geminiAvailable && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠️ Google Gemini לא זמין - חסר מפתח API
+                  </p>
+                )}
+              </>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              בחר את ספק הקול (המוח תמיד OpenAI, רק הקול משתנה)
+            </p>
+          </div>
+
           {/* Voice Selection Dropdown */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -699,7 +772,7 @@ export function BusinessAISettings() {
               </div>
             ) : (
               <>
-                {/* 🔥 FIX: Voice dropdown with Hebrew labels - RTL for Hebrew text */}
+                {/* Voice dropdown with Hebrew display names */}
                 <select
                   value={voiceLibrary.voiceId}
                   onChange={(e) => setVoiceLibrary(prev => ({ ...prev, voiceId: e.target.value }))}
@@ -710,23 +783,27 @@ export function BusinessAISettings() {
                     whiteSpace: 'nowrap',
                     textOverflow: 'ellipsis'
                   }}
-                  title={voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.label || voiceLibrary.availableVoices.find(v => v.id === voiceLibrary.voiceId)?.name || voiceLibrary.voiceId}
+                  disabled={voiceLibrary.availableVoices.length === 0}
                   data-testid="select-voice"
                 >
-                  {voiceLibrary.availableVoices.map((voice) => (
-                    <option 
-                      key={voice.id} 
-                      value={voice.id} 
-                      title={voice.label || voice.name || voice.id}
-                    >
-                      {voice.label || voice.name || voice.id}
-                    </option>
-                  ))}
+                  {voiceLibrary.availableVoices.length === 0 ? (
+                    <option value="">אין קולות זמינים</option>
+                  ) : (
+                    voiceLibrary.availableVoices.map((voice) => (
+                      <option 
+                        key={voice.id} 
+                        value={voice.id}
+                        title={voice.description_he || voice.description || ''}
+                      >
+                        {voice.display_he || voice.name || voice.id}
+                      </option>
+                    ))
+                  )}
                 </select>
               </>
             )}
             <p className="text-xs text-slate-500 mt-1">
-              הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק (רק קולות Realtime נתמכים)
+              הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק
             </p>
           </div>
 
