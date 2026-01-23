@@ -148,7 +148,14 @@ const menuItems = [
     roles: ['system_admin'],  // ✅ BUILD 180: רק system_admin רואה דקות שיחה לפי עסק
     pageKey: 'admin_business_minutes'
   },
-  // ✅ AI Prompts moved to System Settings → AI tab (BUILD 130)
+  // ✅ AI Prompts moved to Prompt Studio (consolidated from Settings → AI tab)
+  { 
+    icon: Bot, 
+    label: 'סטודיו פרומפטים',
+    to: '/app/admin/prompt-studio',
+    roles: ['system_admin', 'owner', 'admin'],
+    pageKey: 'prompt_studio'
+  },
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 

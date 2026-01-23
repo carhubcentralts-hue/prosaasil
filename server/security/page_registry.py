@@ -238,6 +238,16 @@ PAGE_REGISTRY: Dict[str, PageConfig] = {
         icon="UserCog",
         description="ניהול משתמשי העסק"
     ),
+    "prompt_studio": PageConfig(
+        page_key="prompt_studio",
+        title_he="סטודיו פרומפטים",
+        route="/app/admin/prompt-studio",
+        min_role="admin",
+        category="ai",
+        api_tags=["ai", "prompts", "voice"],
+        icon="Bot",
+        description="יצירה, עריכה ובדיקת פרומפטים לסוכן AI"
+    ),
     
     # System Admin Only Pages (not included in business permissions)
     "admin_dashboard": PageConfig(

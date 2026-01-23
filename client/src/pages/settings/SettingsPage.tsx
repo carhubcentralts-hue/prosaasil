@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2, Link2, Bell } from 'lucide-react';
+import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Plus, Edit, Trash2, Link2, Bell } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
-import { BusinessAISettings } from '@/components/settings/BusinessAISettings';
 import { useAuth } from '@/features/auth/hooks';
 import { 
   isPushSupported, 
@@ -129,7 +128,7 @@ interface AISettings {
 
 export function SettingsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security' | 'notifications'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'security' | 'notifications'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
   // WhatsApp Webhook Secret state
@@ -145,18 +144,8 @@ export function SettingsPage() {
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushSuccess, setPushSuccess] = useState<string | null>(null);
   
-  // ✅ BUILD 130: AI tab restricted to system_admin, owner, admin (not agent)
-  const canEditAIPrompts = user?.role && ['system_admin', 'owner', 'admin'].includes(user.role);
-  
   // ✅ BUILD 140: system_admin without business should not access settings
   const isSystemAdminWithoutBusiness = user?.role === 'system_admin' && !user?.business_id;
-  
-  // ✅ Security: Prevent unauthorized access to AI tab
-  React.useEffect(() => {
-    if (activeTab === 'ai' && !canEditAIPrompts) {
-      setActiveTab('business');
-    }
-  }, [activeTab, canEditAIPrompts]);
   
   // Settings state
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>({
@@ -592,20 +581,6 @@ export function SettingsPage() {
             <Settings className="w-4 h-4 mr-2" />
             הגדרות תורים
           </button>
-          {canEditAIPrompts && (
-            <button
-              onClick={() => setActiveTab('ai')}
-              className={`${
-                activeTab === 'ai'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-              data-testid="tab-ai"
-            >
-              <Bot className="w-4 h-4 mr-2" />
-              הגדרות בינה מלאכותית
-            </button>
-          )}
           <button
             onClick={() => setActiveTab('integrations')}
             className={`${
@@ -923,24 +898,6 @@ export function SettingsPage() {
                 </div>
               </div>
             </Card>
-          </div>
-        )}
-
-        {activeTab === 'ai' && (
-          <div className="max-w-6xl">
-            {canEditAIPrompts ? (
-              <BusinessAISettings />
-            ) : (
-              <Card className="p-6">
-                <div className="text-center py-12">
-                  <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">גישה מוגבלת</h3>
-                  <p className="text-gray-600">
-                    רק מנהלים ובעלי עסקים יכולים לערוך הגדרות בינה מלאכותית
-                  </p>
-                </div>
-              </Card>
-            )}
           </div>
         )}
 
