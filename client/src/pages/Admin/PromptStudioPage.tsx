@@ -12,7 +12,7 @@ import {
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
 import { PromptBuilderWizard } from '../../components/settings/PromptBuilderWizard';
-import { VoiceTesterCard } from '../../components/settings/VoiceTesterCard';
+import { LiveCallCard } from '../../components/settings/LiveCallCard';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
 
 export function PromptStudioPage() {
@@ -79,7 +79,7 @@ export function PromptStudioPage() {
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          בדיקת שיחה חיה
+          שיחה חיה
         </button>
       </div>
 
@@ -113,8 +113,8 @@ export function PromptStudioPage() {
       )}
 
       {activeTab === 'tester' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <VoiceTesterCard />
+        <div className="grid grid-cols-1 gap-6">
+          <LiveCallCard />
         </div>
       )}
 
