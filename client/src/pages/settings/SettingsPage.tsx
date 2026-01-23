@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Plus, Edit, Trash2, Link2, Bell } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/features/auth/hooks';
 import { 
@@ -128,8 +129,24 @@ interface AISettings {
 
 export function SettingsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'business' | 'integrations' | 'security' | 'notifications'>('business');
+  // ✅ URL-based tab navigation for search and refresh persistence
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as 'business' | 'integrations' | 'security' | 'notifications' | null;
+  const [activeTab, setActiveTab] = useState<'business' | 'integrations' | 'security' | 'notifications'>(tabFromUrl || 'business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  
+  // ✅ Sync activeTab with URL
+  useEffect(() => {
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+  
+  // ✅ Update URL when tab changes
+  const handleTabChange = (tab: 'business' | 'integrations' | 'security' | 'notifications') => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
   
   // WhatsApp Webhook Secret state
   const [webhookSecretMasked, setWebhookSecretMasked] = useState<string | null>(null);
@@ -545,7 +562,7 @@ export function SettingsPage() {
       <div className="bg-white border-b border-gray-200 px-6">
         <nav className="flex space-x-8 overflow-x-auto scrollbar-hide" dir="ltr" style={{WebkitOverflowScrolling: 'touch'}}>
           <button
-            onClick={() => setActiveTab('business')}
+            onClick={() => handleTabChange('business')}
             className={`${
               activeTab === 'business'
                 ? 'border-blue-500 text-blue-600'
@@ -556,7 +573,7 @@ export function SettingsPage() {
             הגדרות עסק
           </button>
           <button
-            onClick={() => setActiveTab('integrations')}
+            onClick={() => handleTabChange('integrations')}
             className={`${
               activeTab === 'integrations'
                 ? 'border-blue-500 text-blue-600'
@@ -567,7 +584,7 @@ export function SettingsPage() {
             אינטגרציות
           </button>
           <button
-            onClick={() => setActiveTab('notifications')}
+            onClick={() => handleTabChange('notifications')}
             className={`${
               activeTab === 'notifications'
                 ? 'border-blue-500 text-blue-600'
@@ -579,7 +596,7 @@ export function SettingsPage() {
             התראות
           </button>
           <button
-            onClick={() => setActiveTab('security')}
+            onClick={() => handleTabChange('security')}
             className={`${
               activeTab === 'security'
                 ? 'border-blue-500 text-blue-600'
