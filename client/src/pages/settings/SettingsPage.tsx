@@ -570,7 +570,10 @@ export function SettingsPage() {
             הגדרות עסק
           </button>
           <button
-            onClick={() => setActiveTab('appointments')}
+            onClick={() => {
+              // Redirect to Prompt Studio instead of showing appointments tab
+              window.location.href = '/app/admin/prompt-studio';
+            }}
             className={`${
               activeTab === 'appointments'
                 ? 'border-blue-500 text-blue-600'

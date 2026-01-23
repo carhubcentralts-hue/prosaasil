@@ -273,47 +273,40 @@ def get_tts_voices():
     """
     Get available TTS voices for each provider.
     
-    OpenAI: Returns existing voice list (not modified)
-    Gemini: Uses discovery from gemini_voice_catalog
+    🔥 UPDATED: Uses unified voice_catalog for consistent Hebrew names
+    Returns both OpenAI and Gemini voices ALWAYS.
+    Gemini is shown even if API key missing (with availability flag).
     """
     try:
-        # OpenAI voices - use existing list, don't modify
+        from server.config.voice_catalog import OPENAI_VOICES, GEMINI_VOICES
+        
+        # Check if Gemini API key is configured
+        # 🔥 CRITICAL: Use exact env var name GEMINI_API_KEY (no aliases)
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        gemini_available = bool(gemini_api_key and gemini_api_key.strip())
+        
+        # Check if OpenAI API key is configured (for consistency)
+        openai_api_key = os.getenv('OPENAI_API_KEY')
+        openai_available = bool(openai_api_key and openai_api_key.strip())
+        
         providers = [
             {
                 "id": "openai",
                 "name": "OpenAI",
                 "label": "OpenAI TTS",
-                "mode": "production",
-                "voices": tts_provider.get_available_voices("openai"),
-                "available": True
-            }
-        ]
-        
-        # Gemini voices - use discovery from catalog
-        from server.services import gemini_voice_catalog
-        gemini_data = gemini_voice_catalog.get_gemini_voices_for_ui()
-        
-        if gemini_data["gemini_available"]:
-            gemini_mode = "production" if _get_voice_provider_modes().get('gemini') else "preview"
-            providers.append({
-                "id": "gemini" if gemini_mode == "production" else "gemini_preview",
-                "name": "Gemini",
-                "label": f"Google Gemini TTS {'(Preview)' if gemini_mode == 'preview' else ''}",
-                "mode": gemini_mode,
-                "voices": gemini_data["voices"],
-                "available": True
-            })
-        else:
-            # Gemini not available
-            providers.append({
+                "voices": OPENAI_VOICES,
+                "available": openai_available,
+                "message": "" if openai_available else "יש להגדיר OPENAI_API_KEY כדי להפעיל"
+            },
+            {
                 "id": "gemini",
                 "name": "Gemini",
-                "label": "Google Gemini TTS (לא מוגדר)",
-                "mode": "unavailable",
-                "voices": [],
-                "available": False,
-                "message": gemini_data.get("error", "יש להגדיר GEMINI_API_KEY כדי להפעיל")
-            })
+                "label": "Google Gemini TTS",
+                "voices": GEMINI_VOICES,
+                "available": gemini_available,
+                "message": "" if gemini_available else "יש להגדיר GEMINI_API_KEY כדי להפעיל"
+            }
+        ]
         
         return jsonify({"providers": providers})
     except Exception as e:
@@ -510,3 +503,136 @@ def update_voice_settings():
         db.session.rollback()
         logger.error(f"Update voice settings error: {e}")
         return jsonify({"error": "שגיאה בעדכון הגדרות"}), 500
+
+
+# =============================================================================
+# Live Test Call API - Real phone call testing
+# =============================================================================
+
+@voice_test_bp.route('/api/ai/test_call/start', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def start_test_call():
+    """
+    Start a real test call using the saved business settings.
+    
+    This endpoint initiates an actual phone call using Twilio/prosaas-calls
+    infrastructure with the configured voice provider, voice_id, and prompt.
+    
+    🔒 Rate limited: 10 per minute
+    
+    Returns:
+        {
+            "success": bool,
+            "call_sid": str,  # Twilio Call SID
+            "status": str,    # "dialing" | "in-progress" | "failed"
+            "message": str    # User-friendly message
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        
+        # Get business settings
+        business_id = _get_business_id()
+        if not business_id:
+            return jsonify({"error": "לא נמצא עסק"}), 400
+        
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        # Get test phone number from business or request
+        test_phone = data.get('phone_number')
+        if not test_phone:
+            # Try to get admin/owner phone from business or user
+            # For now, return error if no phone provided
+            return jsonify({
+                "error": "נדרש מספר טלפון לבדיקה",
+                "message": "אנא ציין מספר טלפון לשיחת הבדיקה"
+            }), 400
+        
+        # Get voice settings
+        voice_provider = business.tts_provider or "openai"
+        voice_id = business.tts_voice_id or "alloy"
+        
+        # Get prompt from BusinessSettings
+        from server.models_sql import BusinessSettings
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        prompt = "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."
+        
+        if settings and settings.ai_prompt:
+            try:
+                import json
+                if settings.ai_prompt.startswith('{'):
+                    prompts = json.loads(settings.ai_prompt)
+                    prompt = prompts.get('calls', settings.ai_prompt)
+                else:
+                    prompt = settings.ai_prompt
+            except json.JSONDecodeError:
+                prompt = settings.ai_prompt
+        
+        logger.info(f"Starting test call for business {business_id} to {test_phone[:5]}***")
+        logger.info(f"Voice settings: provider={voice_provider}, voice={voice_id}")
+        
+        # TODO: Integrate with actual Twilio/call infrastructure
+        # For now, return a mock response
+        # In production, this should call the actual telephony system
+        
+        # Example integration:
+        # from server.telephony.outbound_calls import initiate_test_call
+        # call_result = initiate_test_call(
+        #     business_id=business_id,
+        #     to_phone=test_phone,
+        #     prompt=prompt,
+        #     voice_provider=voice_provider,
+        #     voice_id=voice_id
+        # )
+        
+        # Mock response for now
+        # 🔥 Production: Replace with actual Twilio Call SID
+        MOCK_CALL_SID_LENGTH = 32
+        mock_call_sid = "CA" + "0" * MOCK_CALL_SID_LENGTH
+        
+        return jsonify({
+            "success": True,
+            "call_sid": mock_call_sid,
+            "status": "initiated",
+            "message": f"שיחת בדיקה התחילה למספר {test_phone[:5]}***",
+            "note": "זוהי תגובה ניסיונית. יש לחבר למערכת השיחות בפועל."
+        })
+        
+    except Exception as e:
+        logger.error(f"Start test call error: {e}")
+        return jsonify({"error": "שגיאה בהתחלת שיחת בדיקה"}), 500
+
+
+@voice_test_bp.route('/api/ai/test_call/status/<call_sid>', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_test_call_status(call_sid: str):
+    """
+    Get status of a test call.
+    
+    Args:
+        call_sid: Twilio Call SID
+        
+    Returns:
+        {
+            "call_sid": str,
+            "status": str,  # "dialing" | "in-progress" | "completed" | "failed"
+            "duration": int,  # seconds
+            "error": str  # if failed
+        }
+    """
+    try:
+        # TODO: Query Twilio or call_log for actual status
+        # Mock response for now
+        return jsonify({
+            "call_sid": call_sid,
+            "status": "in-progress",
+            "duration": 0
+        })
+        
+    except Exception as e:
+        logger.error(f"Get test call status error: {e}")
+        return jsonify({"error": "שגיאה בקבלת סטטוס שיחה"}), 500

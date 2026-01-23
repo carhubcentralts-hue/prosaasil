@@ -79,7 +79,7 @@ export function PromptStudioPage() {
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          בדיקת קול
+          בדיקת שיחה חיה
         </button>
       </div>
 
