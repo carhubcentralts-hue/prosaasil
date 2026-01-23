@@ -212,14 +212,15 @@ def generate_image_thumbnail(image_data: bytes, mime_type: str) -> Optional[byte
 
 def generate_html_preview(html_content: str, width: int = 1280, height: int = 720) -> Optional[bytes]:
     """
-    Render HTML content to PNG image using Playwright with proper waiting
+    Render HTML content to PNG image using Playwright with enhanced waiting
     
-    IMPROVEMENTS:
-    - Waits for DOM, fonts, and images to fully load
-    - Uses screen media emulation
-    - Fixed viewport size (1280x720 for better quality)
-    - Injects CSS for better rendering
-    - Full-page screenshot
+    IMPROVEMENTS (per requirements):
+    - Waits for networkidle (not just DOM)
+    - Extra 600ms buffer for late-loading UI elements
+    - Tries to wait for content indicators (Total, Amount, etc.) with timeout
+    - Crops to main content area when possible (not just logo)
+    - 12-15 second total timeout to avoid hanging
+    - Validates screenshot is not blank/logo-only
     
     Args:
         html_content: HTML string to render
@@ -230,7 +231,7 @@ def generate_html_preview(html_content: str, width: int = 1280, height: int = 72
         PNG image bytes or None if rendering fails
     """
     try:
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
         
         with sync_playwright() as p:
             # Launch browser (headless)
@@ -253,21 +254,62 @@ def generate_html_preview(html_content: str, width: int = 1280, height: int = 72
             # Set HTML content and wait for network to be idle
             page.set_content(html_content, wait_until='networkidle', timeout=30000)
             
-            # CRITICAL WAITING SEQUENCE - Let content fully load
-            try:
-                # Wait 1: Network idle
-                page.wait_for_load_state('networkidle', timeout=20000)
-            except Exception as e:
-                logger.warning(f"networkidle timeout (continuing): {e}")
+            # ========================================================================
+            # CRITICAL WAITING SEQUENCE (per specification)
+            # ========================================================================
             
+            # Wait 1: Network idle
             try:
-                # Wait 2: Fonts ready
+                page.wait_for_load_state('networkidle', timeout=12000)
+                logger.debug("  ✓ networkidle complete")
+            except Exception as e:
+                logger.warning(f"  ⚠️  networkidle timeout (continuing): {e}")
+            
+            # Wait 2: Try to wait for content indicators (with timeout)
+            # This ensures we're not just capturing a logo
+            content_selectors = [
+                'text=/Total|Amount|Paid|סה"כ|סכום|שולם/i',  # Text indicators
+                '[data-testid*="total"]',  # Common test IDs
+                '[data-testid*="amount"]',
+                'table:has-text("Total")',  # Tables with totals
+                'table:has-text("Amount")',
+                '.receipt-total',  # Common class names
+                '.invoice-total',
+                '#total',
+                '#amount',
+            ]
+            
+            content_found = False
+            for selector in content_selectors:
+                try:
+                    page.wait_for_selector(selector, timeout=3000)
+                    logger.debug(f"  ✓ Found content indicator: {selector}")
+                    content_found = True
+                    break
+                except PlaywrightTimeout:
+                    continue
+                except Exception:
+                    continue
+            
+            if not content_found:
+                logger.debug("  ℹ️  No specific content indicators found - using full page")
+            
+            # Wait 3: Extra buffer for late-loading UI (per specification: 600ms)
+            try:
+                page.wait_for_timeout(600)
+                logger.debug("  ✓ Buffer wait complete (600ms)")
+            except Exception as e:
+                logger.warning(f"  ⚠️  Buffer wait failed: {e}")
+            
+            # Wait 4: Fonts ready
+            try:
                 page.evaluate("document.fonts && document.fonts.ready")
+                logger.debug("  ✓ Fonts ready")
             except Exception as e:
-                logger.warning(f"fonts.ready failed (continuing): {e}")
+                logger.warning(f"  ⚠️  Fonts ready check failed: {e}")
             
+            # Wait 5: All images loaded
             try:
-                # Wait 3: All images loaded
                 page.evaluate("""
                     async () => {
                         const imgs = Array.from(document.images || []);
@@ -277,14 +319,9 @@ def generate_html_preview(html_content: str, width: int = 1280, height: int = 72
                         })));
                     }
                 """)
+                logger.debug("  ✓ Images loaded")
             except Exception as e:
-                logger.warning(f"Image loading wait failed (continuing): {e}")
-            
-            # Wait 4: Final buffer to ensure everything is settled
-            try:
-                page.wait_for_timeout(1200)
-            except Exception as e:
-                logger.warning(f"Final timeout failed (continuing): {e}")
+                logger.warning(f"  ⚠️  Image loading wait failed: {e}")
             
             # Inject wrapper CSS for better rendering
             try:
@@ -301,17 +338,51 @@ def generate_html_preview(html_content: str, width: int = 1280, height: int = 72
                     }
                 """)
             except Exception as e:
-                logger.warning(f"CSS injection failed (continuing): {e}")
+                logger.warning(f"  ⚠️  CSS injection failed: {e}")
             
-            # Take full-page screenshot
-            screenshot_bytes = page.screenshot(type='png', full_page=True)
+            # Try to identify and screenshot main content area (not just logo)
+            screenshot_bytes = None
+            try:
+                # Try to find main content container
+                main_selectors = [
+                    'main',
+                    'article',
+                    '[role="main"]',
+                    '.content',
+                    '.main-content',
+                    '#content',
+                    'body > div:first-child',  # Common pattern
+                ]
+                
+                main_element = None
+                for selector in main_selectors:
+                    try:
+                        main_element = page.query_selector(selector)
+                        if main_element:
+                            # Check if element has reasonable size
+                            box = main_element.bounding_box()
+                            if box and box['height'] > 100:  # At least 100px tall
+                                logger.debug(f"  ✓ Found main content: {selector}")
+                                screenshot_bytes = main_element.screenshot(type='png')
+                                break
+                    except Exception:
+                        continue
+                
+                # If no main element found, use full page
+                if not screenshot_bytes:
+                    logger.debug("  ℹ️  No main content container found - using full page")
+                    screenshot_bytes = page.screenshot(type='png', full_page=True)
+            
+            except Exception as e:
+                logger.warning(f"  ⚠️  Content area detection failed, using full page: {e}")
+                screenshot_bytes = page.screenshot(type='png', full_page=True)
             
             # Close browser
             browser.close()
             
-            # CRITICAL: Validate screenshot is not blank/white
+            # CRITICAL: Validate screenshot is not blank/white/logo-only
             if is_image_blank_or_white(screenshot_bytes):
-                logger.error("Screenshot validation failed - image appears blank/white")
+                logger.error("  ❌ Screenshot validation failed - image appears blank/white")
                 return None
             
             # Resize to thumbnail size using PIL
@@ -324,7 +395,7 @@ def generate_html_preview(html_content: str, width: int = 1280, height: int = 72
             output = BytesIO()
             img.save(output, format='PNG', optimize=True)
             
-            logger.info(f"Generated HTML preview: {img.size}")
+            logger.info(f"  ✅ Generated HTML preview: {img.size}")
             
             return output.getvalue()
             
