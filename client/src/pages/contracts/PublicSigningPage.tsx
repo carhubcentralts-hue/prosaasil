@@ -619,7 +619,6 @@ function PDFSigningView({
                   style={{ 
                     maxWidth: '100%', 
                     height: 'auto',
-                    aspectRatio: '8 / 3',
                     minHeight: '200px',
                     display: 'block' 
                   }}
