@@ -704,11 +704,8 @@ def create_app():
         from server.routes_ai_system import ai_system_bp
         app.register_blueprint(ai_system_bp)
         
-        # Voice Test Blueprint - Prompt voice testing with VAD
-        from server.routes_voice_test import voice_test_bp
-        app.register_blueprint(voice_test_bp)
-        
         # Live Call Blueprint - Browser-based voice chat (Web App only)
+        # 🔥 This is the ONLY voice test interface - uses saved Business settings
         from server.routes_live_call import live_call_bp
         app.register_blueprint(live_call_bp)
         
