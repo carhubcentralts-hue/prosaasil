@@ -157,7 +157,7 @@ def extract_amount_with_vendor_adapter(
                                 f"from {domain_key} (confidence: {result['confidence']})"
                             )
                             return result
-                        except (ValueError, IndexError) as e:
+                        except ValueError as e:
                             logger.debug(f"Failed to parse amount from vendor pattern: {e}")
                             continue
     
@@ -228,7 +228,7 @@ def _extract_amount_generic(text: str) -> Dict:
                     result['currency'] = detected_currency
                     logger.debug(f"Generic extraction: {result['amount']} {result['currency']}")
                     return result
-                except (ValueError, IndexError):
+                except ValueError:
                     continue
     
     return result
@@ -261,7 +261,7 @@ def _extract_amount_from_subject(subject: str) -> Dict:
                 result['currency'] = currency
                 logger.debug(f"Subject extraction: {result['amount']} {result['currency']}")
                 return result
-            except (ValueError, IndexError):
+            except ValueError:
                 continue
     
     return result

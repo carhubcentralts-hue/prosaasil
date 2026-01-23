@@ -728,12 +728,29 @@ def proxy_attachment_file(attachment_id):
         response.headers['Content-Disposition'] = f'{disposition}; filename="{filename}"'
         response.headers['Content-Length'] = str(len(file_bytes))
         
-        # CORS headers - allow from same origin
-        # In production, set to specific domain: https://prosaas.pro
+        # CORS headers - allow only from trusted origins for security
+        # In production, only allow requests from the application domain
         origin = request.headers.get('Origin', '')
-        if origin:
+        
+        # Define allowed origins (update based on deployment)
+        ALLOWED_ORIGINS = [
+            'https://prosaas.pro',
+            'https://www.prosaas.pro',
+            'http://localhost:5173',  # Development
+            'http://localhost:3000',  # Development
+        ]
+        
+        # Check if origin is in allowlist
+        if origin and any(origin.startswith(allowed) for allowed in ALLOWED_ORIGINS):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
+        elif not origin:
+            # No origin header means same-origin request, which is always allowed
+            # Don't set CORS headers for same-origin requests
+            pass
+        else:
+            # Origin not in allowlist - don't set CORS headers
+            logger.warning(f"[ATTACHMENT_PROXY] Request from untrusted origin blocked: {origin}")
         
         # Cache headers - cache for 1 hour (files are immutable by ID)
         response.headers['Cache-Control'] = 'private, max-age=3600'

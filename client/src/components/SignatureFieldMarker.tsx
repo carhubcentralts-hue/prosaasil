@@ -127,9 +127,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     
     const rect = canvasContainerRef.current.getBoundingClientRect();
     
-    // Get click position in pixels relative to canvas (support both mouse and touch)
-    const clientX = 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX || 0;
-    const clientY = 'clientY' in e ? e.clientY : (e as any).touches?.[0]?.clientY || 0;
+    // Get click position in pixels relative to canvas (PointerEvent has clientX/clientY)
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     const clickX = clientX - rect.left;
     const clickY = clientY - rect.top;
     
@@ -175,8 +175,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     if (!canvasContainerRef.current || !pageViewport) return;
     
     const rect = canvasContainerRef.current.getBoundingClientRect();
-    const clientX = 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX || 0;
-    const clientY = 'clientY' in e ? e.clientY : (e as any).touches?.[0]?.clientY || 0;
+    // PointerEvent has clientX/clientY directly, no need to check touches
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     const x = (clientX - rect.left) / pageViewport.width;
     const y = (clientY - rect.top) / pageViewport.height;
     
@@ -201,8 +202,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     if (!canvasContainerRef.current || !dragStart || !selectedFieldId || !pageViewport) return;
     
     const rect = canvasContainerRef.current.getBoundingClientRect();
-    const clientX = 'clientX' in e ? e.clientX : (e as any).touches?.[0]?.clientX || 0;
-    const clientY = 'clientY' in e ? e.clientY : (e as any).touches?.[0]?.clientY || 0;
+    // PointerEvent has clientX/clientY directly
+    const clientX = e.clientX;
+    const clientY = e.clientY;
     const x = (clientX - rect.left) / pageViewport.width;
     const y = (clientY - rect.top) / pageViewport.height;
     
