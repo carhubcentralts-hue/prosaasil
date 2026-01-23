@@ -9,6 +9,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# TTS Default Values (PR#671) - Single source of truth
+DEFAULT_TTS_PROVIDER = "openai"
+DEFAULT_TTS_VOICE_ID = "alloy"
+DEFAULT_TTS_LANGUAGE = "he-IL"
+DEFAULT_TTS_SPEED = 1.0
+DEFAULT_VOICE_ID = "ash"
+
 # REMOVED custom csrf_exempt decorator - using proper @csrf.exempt from SeaSurf only where needed
 
 def normalize_patterns(payload):
@@ -88,7 +95,13 @@ def get_business(business_id):
             "whatsapp_status": "connected",
             "call_status": "ready",
             "created_at": business.created_at.isoformat() if business.created_at else None,
-            "updated_at": business.updated_at.isoformat() if business.updated_at else None
+            "updated_at": business.updated_at.isoformat() if business.updated_at else None,
+            # TTS provider fields for voice testing (PR#671)
+            "tts_provider": business.tts_provider or "openai",
+            "tts_voice_id": business.tts_voice_id or "alloy",
+            "tts_language": business.tts_language or "he-IL",
+            "tts_speed": business.tts_speed or 1.0,
+            "voice_id": business.voice_id or "ash"
         })
     except Exception as e:
         logger.error(f"Error getting business {business_id}: {e}")
@@ -248,7 +261,13 @@ def create_business():
             "call_status": "ready",
             "whatsapp_status": "connected",
             "created_at": business.created_at.isoformat() if business.created_at else None,
-            "updated_at": business.updated_at.isoformat() if business.updated_at else None
+            "updated_at": business.updated_at.isoformat() if business.updated_at else None,
+            # TTS provider fields for voice testing (PR#671)
+            "tts_provider": business.tts_provider or DEFAULT_TTS_PROVIDER,
+            "tts_voice_id": business.tts_voice_id or DEFAULT_TTS_VOICE_ID,
+            "tts_language": business.tts_language or DEFAULT_TTS_LANGUAGE,
+            "tts_speed": business.tts_speed or DEFAULT_TTS_SPEED,
+            "voice_id": business.voice_id or DEFAULT_VOICE_ID
         }), 201
         
     except Exception as e:
@@ -357,6 +376,22 @@ def update_business(business_id):
             
             business.enabled_pages = enabled_pages
         
+        # Update TTS provider fields if provided (PR#671)
+        if 'tts_provider' in data:
+            business.tts_provider = data['tts_provider']
+        
+        if 'tts_voice_id' in data:
+            business.tts_voice_id = data['tts_voice_id']
+        
+        if 'tts_language' in data:
+            business.tts_language = data['tts_language']
+        
+        if 'tts_speed' in data:
+            business.tts_speed = float(data['tts_speed'])
+        
+        if 'voice_id' in data:
+            business.voice_id = data['voice_id']
+        
         business.updated_at = datetime.utcnow()
         db.session.commit()
         
@@ -386,7 +421,13 @@ def update_business(business_id):
             "call_status": "ready",
             "whatsapp_status": "connected",
             "created_at": business.created_at.isoformat() if business.created_at else None,
-            "updated_at": business.updated_at.isoformat() if business.updated_at else None
+            "updated_at": business.updated_at.isoformat() if business.updated_at else None,
+            # TTS provider fields for voice testing (PR#671)
+            "tts_provider": business.tts_provider or DEFAULT_TTS_PROVIDER,
+            "tts_voice_id": business.tts_voice_id or DEFAULT_TTS_VOICE_ID,
+            "tts_language": business.tts_language or DEFAULT_TTS_LANGUAGE,
+            "tts_speed": business.tts_speed or DEFAULT_TTS_SPEED,
+            "voice_id": business.voice_id or DEFAULT_VOICE_ID
         })
         
     except Exception as e:

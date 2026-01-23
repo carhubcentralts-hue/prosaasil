@@ -4877,6 +4877,38 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  business table does not exist - skipping Migration 98")
         
+        # Migration 99: Add recording_mode column to call_log table
+        # ============================================================================
+        # CRITICAL FIX: Missing recording_mode column causes schema drift and breaks
+        # many routes related to calls/recordings/tests
+        # - recording_mode: TEXT - Tracks how recording was initiated
+        #   Values: 'realtime', 'twilio_recording', 'offline_stt', or NULL
+        # - Default: 'realtime' (for existing records)
+        # ============================================================================
+        checkpoint("Migration 99: Adding recording_mode column to call_log table")
+        if check_table_exists('call_log'):
+            try:
+                # Add recording_mode column if missing
+                if not check_column_exists('call_log', 'recording_mode'):
+                    checkpoint("  → Adding recording_mode column...")
+                    db.session.execute(text("""
+                        ALTER TABLE call_log
+                        ADD COLUMN recording_mode TEXT DEFAULT 'realtime'
+                    """))
+                    checkpoint("  ✅ recording_mode column added (default: 'realtime', nullable)")
+                    migrations_applied.append('add_call_log_recording_mode')
+                else:
+                    checkpoint("  ℹ️ recording_mode column already exists")
+                
+                checkpoint("✅ Migration 99 completed - recording_mode column added")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 99 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️  call_log table does not exist - skipping Migration 99")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

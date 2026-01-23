@@ -13,6 +13,7 @@ import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
 import { PromptBuilderWizard } from '../../components/settings/PromptBuilderWizard';
 import { VoiceTesterCard } from '../../components/settings/VoiceTesterCard';
+import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
 
 export function PromptStudioPage() {
   const { user } = useAuth();
@@ -58,7 +59,7 @@ export function PromptStudioPage() {
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          פרומפטים
+          עריכת פרומפטים
         </button>
         <button
           onClick={() => setActiveTab('builder')}
@@ -85,40 +86,8 @@ export function PromptStudioPage() {
       {/* Tab Content */}
       {activeTab === 'prompts' && (
         <div className="space-y-6">
-          {/* Quick Actions Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">פעולות מהירות</h3>
-            <div className="flex flex-wrap gap-4">
-              <button
-                onClick={() => setShowBuilderWizard(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors min-h-[44px]"
-              >
-                <Wand2 className="h-4 w-4" />
-                יצירת פרומפט אוטומטית
-              </button>
-              <button
-                onClick={() => setActiveTab('tester')}
-                className="flex items-center gap-2 px-4 py-2 border border-green-600 text-green-600 rounded-lg hover:bg-green-50 transition-colors min-h-[44px]"
-              >
-                <Mic className="h-4 w-4" />
-                בדיקת פרומפט בקול
-              </button>
-            </div>
-          </div>
-
-          {/* Info Card */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h4 className="font-medium text-blue-900">טיפ: יצירת פרומפט אוטומטי</h4>
-                <p className="text-blue-700 text-sm mt-1">
-                  לחץ על "יצירת פרומפט אוטומטית" כדי לענות על שאלון קצר שיעזור ל-AI ליצור פרומפט מותאם אישית לעסק שלך.
-                  לאחר מכן תוכל לבדוק אותו בקול בכרטיסייה "בדיקת קול".
-                </p>
-              </div>
-            </div>
-          </div>
+          {/* Full Prompt Editing Interface */}
+          <BusinessAISettings />
         </div>
       )}
 
