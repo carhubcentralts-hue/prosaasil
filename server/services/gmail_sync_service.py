@@ -1433,11 +1433,24 @@ def process_single_receipt_message(
         try:
             # Acquire semaphore before Playwright screenshot
             with playwright_semaphore:
-                screenshot_attachment_id = generate_email_screenshot(
+                screenshot_result = generate_email_screenshot(
                     email_html=email_html_snippet,
                     business_id=business_id,
                     receipt_id=None
                 )
+                
+                # Handle both tuple (id, error_msg) and single id returns
+                screenshot_attachment_id = None
+                screenshot_warning = None
+                if screenshot_result:
+                    if isinstance(screenshot_result, tuple):
+                        screenshot_attachment_id, screenshot_warning = screenshot_result
+                        logger.warning(f"⚠️ Screenshot generated with warning: {screenshot_warning}")
+                        # Store warning for preview_failure_reason
+                        if not preview_error_msg:
+                            preview_error_msg = screenshot_warning
+                    else:
+                        screenshot_attachment_id = screenshot_result
                 
                 if screenshot_attachment_id:
                     if not attachment_processed:
@@ -2904,6 +2917,17 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                         attachment.file_size = file_size
                         db.session.commit()
                         
+                        # Check for suspiciously small PDF (< 5KB indicates empty/blocked page)
+                        MIN_PDF_SIZE = 5 * 1024  # 5KB threshold
+                        if file_size < MIN_PDF_SIZE:
+                            logger.warning(
+                                f"⚠️ Small PDF detected ({file_size} bytes < {MIN_PDF_SIZE} bytes) - "
+                                f"likely empty/blocked page. Attachment ID: {attachment.id}"
+                            )
+                            # Return attachment_id but also return error info in tuple
+                            # This allows caller to save preview_failure_reason
+                            return (attachment.id, f"PDF too small ({file_size} bytes) - likely empty/blocked page")
+                        
                         logger.info(f"✅ Email snapshot PDF generated with Playwright: attachment_id={attachment.id}, size={file_size}")
                         return attachment.id
                         
@@ -2972,6 +2996,16 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                             attachment.storage_path = storage_key
                             attachment.file_size = file_size
                             db.session.commit()
+                            
+                            # Check for suspiciously small PDF (< 5KB indicates empty/blocked page)
+                            MIN_PDF_SIZE = 5 * 1024  # 5KB threshold
+                            if file_size < MIN_PDF_SIZE:
+                                logger.warning(
+                                    f"⚠️ Small PDF detected ({file_size} bytes < {MIN_PDF_SIZE} bytes) - "
+                                    f"likely empty/blocked page. Attachment ID: {attachment.id}"
+                                )
+                                # Return attachment_id but also return error info in tuple
+                                return (attachment.id, f"PDF too small ({file_size} bytes) - likely empty/blocked page")
                             
                             logger.info(f"✅ Email snapshot PDF generated via PNG conversion: attachment_id={attachment.id}, size={file_size}")
                             return attachment.id
