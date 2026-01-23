@@ -62,6 +62,12 @@ except (ValueError, TypeError):
 # Semaphore to limit concurrent Playwright instances
 playwright_semaphore = threading.Semaphore(2)  # Max 2 concurrent browsers
 
+# Screenshot viewport configuration
+SCREENSHOT_DEFAULT_WIDTH = 1280
+SCREENSHOT_DEFAULT_HEIGHT = 720
+SCREENSHOT_RETRY_WIDTH = 1920  # Larger viewport for retry attempts
+SCREENSHOT_RETRY_HEIGHT = 1080
+
 
 def strip_null_bytes(obj):
     """
@@ -2863,7 +2869,8 @@ def _convert_png_to_pdf(png_path: str) -> bytes:
 
 
 def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: Optional[int] = None, 
-                                  viewport_width: int = 1280, viewport_height: int = 720,
+                                  viewport_width: int = SCREENSHOT_DEFAULT_WIDTH, 
+                                  viewport_height: int = SCREENSHOT_DEFAULT_HEIGHT,
                                   retry_attempt: int = 0) -> Optional[Tuple[int, int]]:
     """
     Generate a PNG preview from email HTML content with BULLETPROOF error handling
@@ -2902,13 +2909,22 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
             email_html = f'<html><head><meta charset="UTF-8"></head><body>{email_html}</body></html>'
         
         # Add fallback styling to ensure visibility
-        if '<style' not in email_html.lower() and '<head>' in email_html:
-            email_html = email_html.replace('<head>', '''<head>
-                <style>
-                    * { max-width: 100% !important; }
-                    body { font-family: Arial, sans-serif; padding: 20px; background: white; }
-                    img { display: block; max-width: 100%; height: auto; }
-                </style>''')
+        if '<style' not in email_html.lower():
+            style_tag = '''<style>
+                * { max-width: 100% !important; }
+                body { font-family: Arial, sans-serif; padding: 20px; background: white; }
+                img { display: block; max-width: 100%; height: auto; }
+            </style>'''
+            
+            if '<head>' in email_html:
+                # Insert into existing head
+                email_html = email_html.replace('<head>', f'<head>{style_tag}')
+            elif '<html>' in email_html.lower():
+                # Insert after html tag
+                email_html = email_html.replace('<html>', f'<html><head>{style_tag}</head>', 1)
+            else:
+                # Prepend to body content
+                email_html = f'{style_tag}{email_html}'
     except Exception as e:
         logger.warning(f"HTML sanitization failed: {e}, using original")
     
@@ -2927,14 +2943,17 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
             browser = p.chromium.launch(
                 headless=True,
                 args=[
+                    # Automation flags
                     '--disable-blink-features=AutomationControlled',
                     '--no-first-run',
                     '--no-default-browser-check',
                     '--disable-extensions',
-                    '--disable-dev-shm-usage',  # Prevent shared memory issues
-                    '--disable-gpu',  # Disable GPU for stability
+                    # Container/Docker stability flags
+                    '--disable-dev-shm-usage',  # Prevent shared memory issues in containers
                     '--no-sandbox',  # Required in Docker/containerized environments
-                    '--disable-setuid-sandbox'
+                    '--disable-setuid-sandbox',
+                    # Resource management flags
+                    '--disable-gpu',  # Disable GPU for stability
                 ]
             )
             
@@ -3006,6 +3025,82 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
             # Final stabilization wait
             try:
                 page.wait_for_timeout(2000)  # 2 second buffer
+            except:
+                pass
+            
+            # CRITICAL: Verify content actually loaded before screenshot
+            # This prevents capturing empty pages, headers only, or loading screens
+            logger.info("Verifying content loaded...")
+            
+            try:
+                # Check that body has meaningful content
+                content_check = page.evaluate("""
+                    () => {
+                        const body = document.body;
+                        if (!body) return { loaded: false, reason: 'no body' };
+                        
+                        // Get visible text content (excluding scripts/styles)
+                        const textContent = body.innerText || body.textContent || '';
+                        const textLength = textContent.trim().length;
+                        
+                        // Count visible elements
+                        const visibleElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                            const style = window.getComputedStyle(el);
+                            return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+                        }).length;
+                        
+                        // Check for common email content indicators
+                        const hasTables = document.querySelectorAll('table').length > 0;
+                        const hasDivs = document.querySelectorAll('div').length > 3;
+                        const hasParagraphs = document.querySelectorAll('p').length > 0;
+                        const hasImages = document.querySelectorAll('img').length > 0;
+                        
+                        // Must have substantial content
+                        const hasContent = textLength > 50 || hasTables || (hasDivs && hasParagraphs) || hasImages;
+                        
+                        return {
+                            loaded: hasContent && visibleElements > 5,
+                            textLength: textLength,
+                            visibleElements: visibleElements,
+                            hasTables: hasTables,
+                            hasDivs: hasDivs,
+                            hasParagraphs: hasParagraphs,
+                            hasImages: hasImages,
+                            reason: hasContent ? 'ok' : 'insufficient content'
+                        };
+                    }
+                """, timeout=5000)
+                
+                logger.info(f"Content check: {content_check}")
+                
+                # If content not loaded, wait longer
+                if not content_check.get('loaded'):
+                    logger.warning(f"Content not fully loaded ({content_check.get('reason')}), waiting additional 3 seconds...")
+                    page.wait_for_timeout(3000)
+                    
+                    # Check again
+                    content_check2 = page.evaluate("""
+                        () => {
+                            const body = document.body;
+                            const textContent = (body.innerText || body.textContent || '').trim();
+                            return {
+                                loaded: textContent.length > 30,
+                                textLength: textContent.length
+                            };
+                        }
+                    """, timeout=5000)
+                    
+                    logger.info(f"Second content check: {content_check2}")
+                    
+                    if not content_check2.get('loaded'):
+                        logger.warning(f"Content still minimal after wait (text length: {content_check2.get('textLength')})")
+                
+            except Exception as e:
+                logger.warning(f"Content verification failed: {e}, proceeding with screenshot anyway")
+            
+            # Additional wait for dynamic content to settle
+            try:
+                page.wait_for_timeout(1500)  # Extra 1.5s for any dynamic loading
             except:
                 pass
             
@@ -3106,8 +3201,8 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
                 new_width = viewport_width
                 new_height = viewport_height
                 if retry_attempt == 1:
-                    new_width = 1920  # Larger viewport for second retry
-                    new_height = 1080
+                    new_width = SCREENSHOT_RETRY_WIDTH
+                    new_height = SCREENSHOT_RETRY_HEIGHT
                     logger.info(f"Using larger viewport for retry: {new_width}x{new_height}")
                 
                 retry_result = generate_receipt_preview_png(
