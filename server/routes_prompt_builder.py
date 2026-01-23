@@ -230,8 +230,6 @@ def save_generated_prompt():
         # Get or create business settings
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
-        import json
-        
         # Build prompt object
         current_prompts = {}
         if settings and settings.ai_prompt:

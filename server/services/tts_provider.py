@@ -238,9 +238,6 @@ def synthesize_gemini(
         logger.info(f"Gemini TTS: Synthesized {len(audio_bytes)} bytes with voice={voice_id}")
         return audio_bytes, "audio/mpeg"
         
-    except ImportError:
-        logger.error("google-cloud-texttospeech not installed")
-        return None, "Google Cloud TTS not available"
     except Exception as e:
         logger.error(f"Gemini TTS error: {e}")
         return None, str(e)
