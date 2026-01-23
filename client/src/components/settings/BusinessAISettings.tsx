@@ -601,7 +601,7 @@ export function BusinessAISettings() {
         </div>
       </div>
 
-      {/* Smart Call Control Settings - Step 2 Spec */}
+      {/* Smart Call Control Settings - Simplified to call_goal only */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -609,77 +609,12 @@ export function BusinessAISettings() {
           </div>
           <div>
             <h3 className="text-lg font-semibold text-slate-900">הגדרות שליטת שיחה חכמה</h3>
-            <p className="text-sm text-slate-500">הגדרות סיום שיחה וטיפול בשקט מבוסס AI</p>
+            <p className="text-sm text-slate-500">הגדר את מטרת השיחה</p>
           </div>
         </div>
 
         <div className="space-y-6">
-          {/* 🔥 MASTER FIX: Bot Speaks First toggle removed - always enabled (hardcoded in backend) */}
-
-          {/* Auto-End On Goodbye - 🔥 BUILD 327: Simplified - removed auto_end_after_lead_capture */}
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
-            <div>
-              <h4 className="font-medium text-slate-900">👋 סיום אוטומטי כשהלקוח נפרד</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                סיום כשהלקוח אומר "תודה", "ביי", "להתראות"
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.auto_end_on_goodbye}
-                onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_on_goodbye: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-auto-end-goodbye"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-            </label>
-          </div>
-
-          {/* Smart Hangup Toggle */}
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-            <div>
-              <h4 className="font-medium text-slate-900">🧠 סיום שיחה חכם מבוסס AI</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                ה-AI מחליט מתי לסיים שיחה על בסיס הקשר השיחה, לא על מילות מפתח בודדות כמו "לא צריך"
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.smart_hangup_enabled}
-                onChange={(e) => setCallControl(prev => ({ ...prev, smart_hangup_enabled: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-smart-hangup"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-            </label>
-          </div>
-
-          {/* BUILD 309: Confirm Before Hangup Toggle */}
-          <div className="flex items-center justify-between p-4 bg-teal-50 rounded-lg border border-teal-200">
-            <div>
-              <h4 className="font-medium text-slate-900">✅ אישור לפני ניתוק</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                הבוט מבקש אישור מהלקוח לפני שמסיים את השיחה
-              </p>
-              <p className="text-xs text-teal-600 mt-1">
-                מומלץ להפעיל כדי להבטיח שהלקוח מרוצה לפני ניתוק
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.confirm_before_hangup}
-                onChange={(e) => setCallControl(prev => ({ ...prev, confirm_before_hangup: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-confirm-before-hangup"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
-            </label>
-          </div>
-
-          {/* BUILD 309: Call Goal Selection */}
+          {/* Call Goal Selection - ONLY setting to keep */}
           <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
             <h4 className="font-medium text-slate-900 mb-2">🎯 מטרת השיחה</h4>
             <p className="text-sm text-slate-600 mb-3">
@@ -716,73 +651,6 @@ export function BusinessAISettings() {
                 ? 'הבוט יאסוף את הפרטים הנדרשים ויסיים את השיחה' 
                 : 'הבוט ינסה לקבוע פגישה עם הלקוח ביומן העסק'}
             </p>
-          </div>
-
-          {/* Silence Timeout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                <Timer className="inline-block w-4 h-4 ml-1" />
-                זמן שקט לפני שאילת "אתה עדיין שם?"
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="5"
-                  max="30"
-                  value={callControl.silence_timeout_sec}
-                  onChange={(e) => setCallControl(prev => ({ ...prev, silence_timeout_sec: parseInt(e.target.value) }))}
-                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                  data-testid="slider-silence-timeout"
-                />
-                <span className="text-sm font-medium text-slate-700 min-w-[60px] text-center">
-                  {callControl.silence_timeout_sec} שניות
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                אחרי כמה שניות של שקט ה-AI שואל אם הלקוח עדיין בקו
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                מספר אזהרות שקט לפני סיום
-              </label>
-              <select
-                value={callControl.silence_max_warnings}
-                onChange={(e) => setCallControl(prev => ({ ...prev, silence_max_warnings: parseInt(e.target.value) }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                data-testid="select-silence-warnings"
-              >
-                <option value="1">אזהרה 1 - סיום מהיר</option>
-                <option value="2">2 אזהרות - מאוזן (מומלץ)</option>
-                <option value="3">3 אזהרות - סבלני</option>
-              </select>
-              <p className="text-xs text-slate-500 mt-1">
-                כמה פעמים לשאול "אתה שם?" לפני סיום השיחה בנימוס
-              </p>
-            </div>
-          </div>
-
-          {/* 🔥 BUILD 327: Required Lead Fields removed - AI follows prompt instructions */}
-
-          {/* Info box about how it works */}
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" />
-              <div className="text-purple-800">
-                <p className="font-medium">איך זה עובד?</p>
-                <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
-                  <li>ה-AI מנתח את כל השיחה כדי להבין אם הלקוח באמת רוצה לסיים</li>
-                  <li>לא מסיים שיחה רק בגלל "לא תודה" או "אין צורך" בודד</li>
-                  <li>ה-AI עוקב אחר ההוראות בפרומפט לגבי איזה פרטים לאסוף</li>
-                  <li>מזהה שקט ממושך ושואל בנימוס אם הלקוח עדיין בקו</li>
-                </ul>
-                <p className="text-sm mt-3 font-medium text-purple-900">
-                  📤 שים לב: הגדרות אלו חלות רק על שיחות נכנסות. שיחות יוצאות עוקבות רק אחרי הפרומפט שהוגדר בנפרד.
-                </p>
-              </div>
-            </div>
           </div>
 
           {/* Save Button */}
