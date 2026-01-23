@@ -339,7 +339,7 @@ services:
   frontend:
     depends_on: []
     # P3-4: Docker hardening - read-only filesystem
-    read_only: true
+    read_only: false
     tmpfs:
       - /tmp
       - /var/cache/nginx
