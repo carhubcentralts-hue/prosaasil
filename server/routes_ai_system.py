@@ -625,20 +625,16 @@ def get_all_voices():
         }
     """
     try:
-        from server.config.voice_catalog import OPENAI_VOICES
-        from server.services.gemini_voice_catalog import get_cached_voices
+        from server.config.voice_catalog import OPENAI_VOICES, GEMINI_VOICES
         
         # Check if Gemini API key is configured
         # Use exact env var name: GEMINI_API_KEY (no aliases, no fallbacks)
         gemini_api_key = os.getenv('GEMINI_API_KEY')
         gemini_available = bool(gemini_api_key and gemini_api_key.strip())
         
-        # Get Gemini voices from the proper source (with real Google TTS voice IDs)
-        gemini_voices = get_cached_voices()
-        
         return jsonify({
             "openai": OPENAI_VOICES,
-            "gemini": gemini_voices,
+            "gemini": GEMINI_VOICES,
             "gemini_available": gemini_available
         })
     

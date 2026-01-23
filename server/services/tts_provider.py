@@ -86,7 +86,7 @@ def get_default_voice(provider: str) -> str:
         except ImportError:
             return "alloy"
     elif provider == "gemini":
-        return "he-IL-Wavenet-A"
+        return "Puck"  # Default Gemini voice
     else:
         return "alloy"
 
@@ -163,17 +163,16 @@ def synthesize_openai(
 
 def synthesize_gemini(
     text: str,
-    voice_id: str = "he-IL-Wavenet-A",
+    voice_id: str = "Puck",
     language: str = "he-IL",
     speed: float = 1.0
 ) -> Tuple[Optional[bytes], str]:
     """
-    Synthesize speech using Google/Gemini TTS API.
+    Synthesize speech using Gemini Multimodal Live API.
     
     Args:
         text: The text to convert to speech.
-        voice_id: The Google voice ID (e.g., 'he-IL-Wavenet-A').
-                  Invalid voices fall back to 'he-IL-Wavenet-A'.
+        voice_id: The Gemini voice name (e.g., 'Puck', 'Charon', 'Kore').
         language: Language code for synthesis (default 'he-IL').
         speed: Speaking speed from 0.25 to 4.0 (default 1.0).
     
@@ -183,13 +182,15 @@ def synthesize_gemini(
     
     Environment:
         Requires GEMINI_API_KEY to be set.
+    
+    🔥 CRITICAL: Uses Gemini Multimodal Live API, NOT Google Cloud TTS!
     """
     try:
         # Check if Google is disabled
         if os.getenv("DISABLE_GOOGLE", "false").lower() == "true":
             return None, "Google TTS is disabled"
         
-        # 🔐 CRITICAL: Use ONLY GEMINI_API_KEY - no fallback to other names
+        # 🔐 CRITICAL: Use ONLY GEMINI_API_KEY
         gemini_api_key = os.getenv('GEMINI_API_KEY')
         if not gemini_api_key:
             return None, "Gemini TTS unavailable"
@@ -199,94 +200,71 @@ def synthesize_gemini(
             logger.warning(f"[TTS] Invalid language '{language}', falling back to he-IL")
             language = "he-IL"
         
-        # Log that Gemini TTS is enabled (don't log the key value!)
-        logger.info("[VOICE] Gemini TTS enabled")
+        # Log that Gemini TTS is enabled
+        logger.info(f"[VOICE] Gemini TTS enabled with voice={voice_id}")
         
-        # Use Google Cloud TTS with API key
+        # 🔥 Use Gemini Multimodal Live API for TTS
         try:
-            from google.cloud import texttospeech_v1 as texttospeech
-            from google.api_core import client_options
+            import google.generativeai as genai
             
-            # Create client with API key
-            opts = client_options.ClientOptions(
-                api_key=gemini_api_key
-            )
-            client = texttospeech.TextToSpeechClient(client_options=opts)
+            # Configure Gemini API
+            genai.configure(api_key=gemini_api_key)
             
-        except ImportError:
-            # Fallback: Try using REST API directly if google-cloud not installed
-            import requests
+            # 🔥 CRITICAL: Use Gemini 2.0 Flash model with multimodal support
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
             
-            # Validate voice
-            valid_voices = [v["id"] for v in GEMINI_TTS_VOICES]
-            if voice_id not in valid_voices:
-                voice_id = "he-IL-Wavenet-A"
+            # Validate voice - must be a valid Gemini voice
+            valid_voices = [v["id"] for v in GEMINI_TTS_VOICES] if GEMINI_TTS_VOICES else ["Puck", "Charon", "Kore"]
+            if voice_id not in valid_voices and valid_voices:
+                logger.warning(f"[TTS] Invalid Gemini voice '{voice_id}', falling back to Puck")
+                voice_id = "Puck"
             
-            # Clamp speed
+            # Clamp speed to valid range
             speed = max(0.25, min(4.0, speed))
             
-            # Google TTS REST API endpoint
-            url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={gemini_api_key}"
-            
-            payload = {
-                "input": {"text": text},
-                "voice": {
-                    "languageCode": language,
-                    "name": voice_id
-                },
-                "audioConfig": {
-                    "audioEncoding": "MP3",
-                    "speakingRate": speed
+            # Generate speech using Gemini
+            # Note: Gemini API returns audio content directly
+            response = model.generate_content(
+                contents=[{
+                    "parts": [{
+                        "text": text
+                    }]
+                }],
+                generation_config={
+                    "response_modalities": ["audio"],
+                    "speech_config": {
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": voice_id
+                            }
+                        }
+                    }
                 }
-            }
+            )
             
-            response = requests.post(url, json=payload, timeout=30)
+            # Extract audio from response
+            if not response or not hasattr(response, 'parts'):
+                return None, "No audio generated from Gemini"
             
-            if response.status_code != 200:
-                error_msg = response.json().get('error', {}).get('message', 'Unknown error')
-                logger.error(f"Gemini TTS API error: {error_msg}")
-                return None, f"Gemini TTS error: {error_msg}"
+            # Get audio data from response
+            audio_bytes = None
+            for part in response.parts:
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    audio_bytes = part.inline_data.data
+                    break
             
-            import base64
-            audio_content = response.json().get('audioContent', '')
-            if not audio_content:
-                return None, "No audio content in response"
+            if not audio_bytes:
+                return None, "No audio data in Gemini response"
             
-            audio_bytes = base64.b64decode(audio_content)
             logger.info(f"Gemini TTS: Synthesized {len(audio_bytes)} bytes with voice={voice_id}")
             return audio_bytes, "audio/mpeg"
-        
-        # Using google-cloud library
-        # Validate voice - must be a valid Hebrew voice
-        valid_voices = [v["id"] for v in GEMINI_TTS_VOICES]
-        if voice_id not in valid_voices:
-            voice_id = "he-IL-Wavenet-A"
-        
-        # Clamp speed to valid range
-        speed = max(0.25, min(4.0, speed))
-        
-        # Configure synthesis
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-        voice_selection = texttospeech.VoiceSelectionParams(
-            language_code=language,
-            name=voice_id
-        )
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=speed
-        )
-        
-        # Synthesize speech
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice_selection,
-            audio_config=audio_config
-        )
-        
-        audio_bytes = response.audio_content
-        
-        logger.info(f"Gemini TTS: Synthesized {len(audio_bytes)} bytes with voice={voice_id}")
-        return audio_bytes, "audio/mpeg"
+            
+        except ImportError:
+            logger.error("[TTS][GEMINI] google-generativeai not installed")
+            return None, "Gemini SDK not available"
+        except Exception as api_error:
+            logger.exception(f"[TTS][GEMINI] API error: {api_error}")
+            return None, f"Gemini API error: {str(api_error)}"
         
     except Exception as e:
         # 🔒 Security: Log full error server-side, return generic message to client

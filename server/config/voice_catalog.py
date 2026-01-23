@@ -316,28 +316,15 @@ def get_voice_by_id(voice_id: str, provider: str = None):
     Get voice metadata by ID.
     If provider is specified, search only that provider.
     Otherwise search all providers.
-    
-    🔥 CRITICAL: For Gemini, uses real Google TTS voices from gemini_voice_catalog
     """
     voices_to_search = []
     
     if provider == "openai":
         voices_to_search = OPENAI_VOICES
     elif provider == "gemini":
-        # Use real Gemini voices from gemini_voice_catalog (not the old static list)
-        try:
-            from server.services.gemini_voice_catalog import get_cached_voices
-            voices_to_search = get_cached_voices()
-        except ImportError:
-            voices_to_search = GEMINI_VOICES  # Fallback to static if import fails
+        voices_to_search = GEMINI_VOICES
     else:
-        # Search all providers
-        voices_to_search = OPENAI_VOICES
-        try:
-            from server.services.gemini_voice_catalog import get_cached_voices
-            voices_to_search = voices_to_search + get_cached_voices()
-        except ImportError:
-            voices_to_search = voices_to_search + GEMINI_VOICES
+        voices_to_search = OPENAI_VOICES + GEMINI_VOICES
     
     for voice in voices_to_search:
         if voice["id"] == voice_id:
@@ -351,12 +338,7 @@ def get_voices_by_provider(provider: str):
     if provider == "openai":
         return OPENAI_VOICES
     elif provider == "gemini":
-        # Use real Gemini voices from gemini_voice_catalog
-        try:
-            from server.services.gemini_voice_catalog import get_cached_voices
-            return get_cached_voices()
-        except ImportError:
-            return GEMINI_VOICES  # Fallback to static if import fails
+        return GEMINI_VOICES
     else:
         return []
 
