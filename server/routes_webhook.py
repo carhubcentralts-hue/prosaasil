@@ -10,6 +10,7 @@ from threading import Thread
 import time
 from server.services.n8n_integration import n8n_whatsapp_incoming, n8n_whatsapp_outgoing
 from server.services.whatsapp_session_service import update_session_activity
+from server.utils.whatsapp_utils import extract_inbound_text, generate_trace_id
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +102,7 @@ def _process_whatsapp_with_cleanup(tenant_id: str, messages: list):
 def _process_whatsapp_fast(tenant_id: str, messages: list):
     """⚡ FAST background processor - typing first, then response"""
     process_start = time.time()
-    logger.info(f"🚀 [WA_START] Processing {len(messages)} WhatsApp messages for tenant={tenant_id}")
-    logger.info(f"🚀 [WA_START] Processing {len(messages)} messages")
+    logger.info(f"🚀 [FLASK_WEBHOOK_IN] tenant={tenant_id} messages={len(messages)}")
     
     try:
         from server.services.business_resolver import resolve_business_with_fallback
@@ -132,19 +132,31 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
             
             for msg in messages:
                 jid = None  # Initialize to avoid unbound variable error
+                trace_id = None  # Initialize trace_id for logging
                 try:
                     # Parse message
                     from_jid = msg.get('key', {}).get('remoteJid', '')
+                    message_id = msg.get('key', {}).get('id', '')
                     phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
-                    message_content = msg.get('message', {})
-                    message_text = (
-                        message_content.get('conversation', '') or
-                        message_content.get('extendedTextMessage', {}).get('text', '') or
-                        ''
-                    )
                     
-                    if not phone_number or not message_text:
+                    # 🔍 TRACE: Generate unified trace ID
+                    trace_id = generate_trace_id(business_id, from_jid, message_id)
+                    logger.info(f"📨 [BAILEYS_IN] trace_id={trace_id} from={from_jid[:30]}")
+                    
+                    # 📝 Extract text from message (supports all formats)
+                    message_text, message_format = extract_inbound_text(msg)
+                    
+                    if not phone_number:
+                        logger.warning(f"⚠️ [SKIP_REASON] no_phone trace_id={trace_id}")
                         continue
+                    
+                    if not message_text:
+                        # Get message keys for debugging
+                        message_keys = list(msg.get('message', {}).keys())
+                        logger.info(f"⚠️ [SKIP_REASON] empty_text trace_id={trace_id} format={message_format} keys={message_keys}")
+                        continue
+                    
+                    logger.info(f"📝 [TEXT_EXTRACTED] trace_id={trace_id} format={message_format} len={len(message_text)}")
                     
                     jid = f"{phone_number}@s.whatsapp.net"
                     typing_started = False
@@ -192,7 +204,12 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         
                         # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
                         lookup_start = time.time()
-                        customer, lead, _ = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
+                        logger.info(f"🔍 [LEAD_UPSERT_START] trace_id={trace_id} phone={phone_number}")
+                        customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
+                        action = "created" if was_created else "updated"
+                        # Log with normalized phone from lead
+                        normalized_phone = lead.phone_e164 if lead else phone_number
+                        logger.info(f"✅ [LEAD_UPSERT_DONE] trace_id={trace_id} lead_id={lead.id if lead else 'N/A'} action={action} phone={normalized_phone}")
                         logger.info(f"⏱️ customer lookup took: {time.time() - lookup_start:.2f}s")
                         
                         # ⚡ STEP 3: Extract last 10 messages for better context (FIXED from 4)
@@ -209,8 +226,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         
                         # ⚡ STEP 4: Agent SDK response with FULL automation (appointments, leads, WhatsApp)
                         ai_start = time.time()
-                        logger.info(f"🤖 [WA_AI_START] Calling generate_response_with_agent for business={business_id}")
-                        logger.info(f"🤖 [WA_AI_START] Calling AgentKit for business={business_id}, message='{message_text[:50]}...'")
+                        logger.info(f"🤖 [AGENTKIT_START] trace_id={trace_id} business_id={business_id} message='{message_text[:50]}...'")
                         
                         ai_service = get_ai_service()
                         ai_response = None  # Initialize to catch any issues
@@ -225,7 +241,8 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                                     'customer_name': customer.name,
                                     'phone_number': phone_number,
                                     'previous_messages': previous_messages,
-                                    'channel': 'whatsapp'
+                                    'channel': 'whatsapp',
+                                    'trace_id': trace_id
                                 },
                                 channel='whatsapp',
                                 is_first_turn=(len(previous_messages) == 0)  # First message = no history
@@ -234,34 +251,32 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             
                             # 🔥 CRITICAL CHECK: Verify response is not None/empty
                             if not ai_response:
-                                logger.warning(f"⚠️ [WA_AI_EMPTY] Agent returned empty response!")
+                                logger.warning(f"⚠️ [AGENTKIT_EMPTY] trace_id={trace_id} response=None")
                                 ai_response = "סליחה, לא הבנתי. אפשר לנסח מחדש?"
                             
-                            logger.info(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s: '{ai_response[:100]}...'")
-                            logger.info(f"⏱️ AI Agent response took: {ai_time:.2f}s")
+                            logger.info(f"✅ [AGENTKIT_DONE] trace_id={trace_id} latency_ms={ai_time*1000:.0f} response_len={len(ai_response)}")
                         except Exception as ai_error:
                             ai_time = time.time() - ai_start
-                            logger.error(f"❌ [WA_AI_ERROR] Agent failed after {ai_time:.2f}s: {ai_error}")
-                            logger.error(f"❌ Agent error after {ai_time:.2f}s: {ai_error}")
+                            logger.error(f"❌ [AGENTKIT_ERROR] trace_id={trace_id} latency_ms={ai_time*1000:.0f} error={ai_error}")
                             import traceback
-                            traceback.print_exc()
+                            logger.error(f"❌ [AGENTKIT_ERROR] trace_id={trace_id} stack={traceback.format_exc()}")
                             # Fallback response
                             ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
                         
                         # ⚡ STEP 5: Send response
-                        logger.info(f"📤 [WA_SEND_START] About to send response to {jid[:20]}... (len={len(ai_response)})")
+                        logger.info(f"📤 [SEND_ATTEMPT] trace_id={trace_id} to={jid[:30]} len={len(ai_response)}")
                         send_start = time.time()
                         
                         try:
                             send_result = wa_service.send_message(jid, ai_response)
-                            logger.info(f"✅ [WA_SEND_OK] Sent successfully: {send_result}")
+                            send_time = time.time() - send_start
+                            logger.info(f"✅ [SEND_RESULT] trace_id={trace_id} status={send_result.get('status')} latency_ms={send_time*1000:.0f}")
                         except Exception as send_error:
-                            logger.error(f"❌ [WA_SEND_ERROR] Failed to send: {send_error}")
-                            logger.error(f"❌ WhatsApp send failed: {send_error}")
+                            send_time = time.time() - send_start
+                            logger.error(f"❌ [SEND_ERROR] trace_id={trace_id} error={send_error} latency_ms={send_time*1000:.0f}")
                             import traceback
-                            traceback.print_exc()
+                            logger.error(f"❌ [SEND_ERROR] trace_id={trace_id} stack={traceback.format_exc()}")
                             send_result = {"status": "error", "error": str(send_error)}
-                        logger.info(f"⏱️ send_message took: {time.time() - send_start:.2f}s")
                         logger.info(f"⏱️ TOTAL processing: {time.time() - process_start:.2f}s")
                         
                         # ⚡ STEP 6: Save to DB AFTER response sent (async logging)

@@ -82,6 +82,9 @@ def _leads_upsert_impl(input: UpsertLeadInput) -> UpsertLeadOutput:
             else:
                 phone = '+972' + phone
         
+        # 🔍 TRACE: Log upsert start
+        logger.info(f"🔍 [LEAD_UPSERT_START] business_id={input.business_id} phone={phone} source={input.source}")
+        
         # Search for existing lead
         existing_lead = Lead.query.filter_by(
             tenant_id=input.business_id,
@@ -134,7 +137,7 @@ def _leads_upsert_impl(input: UpsertLeadInput) -> UpsertLeadOutput:
             lead.last_contact_at = now
             lead.updated_at = now
             
-            logger.info(f"Updated existing lead #{lead.id} for phone {phone}")
+            logger.info(f"✅ [LEAD_UPSERT_DONE] lead_id={lead.id} action=updated phone={phone}")
             
         else:
             # Create new lead
@@ -166,7 +169,7 @@ def _leads_upsert_impl(input: UpsertLeadInput) -> UpsertLeadOutput:
             )
             db.session.add(activity)
             
-            logger.info(f"Created new lead #{lead.id} for phone {phone}")
+            logger.info(f"✅ [LEAD_UPSERT_DONE] lead_id={lead.id} action=created phone={phone}")
         
         db.session.commit()
         

@@ -378,3 +378,140 @@ def debug_routes():
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+
+@health_bp.route('/health/whatsapp', methods=['GET'])
+def health_whatsapp():
+    """
+    WhatsApp Integration Health Check
+    בדיקת בריאות אינטגרציית WhatsApp
+    
+    Checks:
+    - Baileys service connectivity
+    - Agent Kit configuration
+    - Database connectivity
+    """
+    import requests
+    
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "components": {}
+    }
+    
+    # Check Baileys connectivity
+    try:
+        baileys_url = os.getenv('BAILEYS_BASE_URL', 'http://baileys:3300')
+        response = requests.get(f"{baileys_url}/healthz", timeout=3)
+        results["components"]["baileys_connected"] = response.status_code == 200
+        results["components"]["baileys_url"] = baileys_url
+    except Exception as e:
+        results["components"]["baileys_connected"] = False
+        results["components"]["baileys_error"] = str(e)[:100]
+    
+    # Check AgentKit configuration
+    try:
+        from server.services.ai_service import _ensure_agent_modules_loaded, AGENTS_ENABLED
+        agents_loaded = _ensure_agent_modules_loaded()
+        results["components"]["agentkit_configured"] = agents_loaded and AGENTS_ENABLED
+        results["components"]["agentkit_loaded"] = agents_loaded
+        results["components"]["agentkit_enabled"] = AGENTS_ENABLED
+    except Exception as e:
+        results["components"]["agentkit_configured"] = False
+        results["components"]["agentkit_error"] = str(e)[:100]
+    
+    # Check database
+    try:
+        from server.db import db
+        from sqlalchemy import text
+        db.session.execute(text('SELECT 1'))
+        results["components"]["db_ok"] = True
+    except Exception as e:
+        results["components"]["db_ok"] = False
+        results["components"]["db_error"] = str(e)[:100]
+    
+    # Overall status
+    all_ok = all([
+        results["components"].get("baileys_connected", False),
+        results["components"].get("agentkit_configured", False),
+        results["components"].get("db_ok", False)
+    ])
+    
+    results["status"] = "healthy" if all_ok else "degraded"
+    status_code = 200 if all_ok else 503
+    
+    return jsonify(results), status_code
+
+
+@health_bp.route('/health/agentkit', methods=['GET'])
+def health_agentkit():
+    """
+    Agent Kit Health Check with Dry-Run Test
+    בדיקת בריאות Agent Kit עם הרצה ניסיונית
+    
+    Tests:
+    - Agent modules loading
+    - Basic agent functionality (dry-run)
+    - Latency measurement
+    """
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
+    }
+    
+    # Check 1: Module loading
+    try:
+        from server.services.ai_service import _ensure_agent_modules_loaded, AGENTS_ENABLED, _agent_load_error
+        
+        agents_loaded = _ensure_agent_modules_loaded()
+        results["checks"]["modules_loaded"] = agents_loaded
+        results["checks"]["agents_enabled"] = AGENTS_ENABLED
+        
+        if not agents_loaded and _agent_load_error:
+            results["checks"]["load_error"] = str(_agent_load_error)[:200]
+    except Exception as e:
+        results["checks"]["modules_loaded"] = False
+        results["checks"]["module_error"] = str(e)[:100]
+        results["status"] = "unhealthy"
+        return jsonify(results), 503
+    
+    # Check 2: Dry-run test (only if modules loaded)
+    if agents_loaded and AGENTS_ENABLED:
+        try:
+            start_time = time.time()
+            
+            # Try to get an agent instance (without actually running it)
+            from server.agent_tools import get_agent
+            
+            # Use a test business_id and channel
+            test_business_id = 1
+            test_channel = "whatsapp"
+            
+            agent = get_agent(business_id=test_business_id, channel=test_channel)
+            
+            latency_ms = int((time.time() - start_time) * 1000)
+            
+            results["checks"]["dry_run"] = "ok"
+            results["checks"]["agent_created"] = agent is not None
+            results["checks"]["latency_ms"] = latency_ms
+            
+            # Get available tools
+            if agent and hasattr(agent, 'tools'):
+                results["checks"]["tools_count"] = len(agent.tools)
+        except Exception as e:
+            results["checks"]["dry_run"] = "failed"
+            results["checks"]["dry_run_error"] = str(e)[:200]
+            import traceback
+            results["checks"]["dry_run_stack"] = traceback.format_exc()[:500]
+    else:
+        results["checks"]["dry_run"] = "skipped"
+        results["checks"]["reason"] = "agents not enabled"
+    
+    # Overall status
+    if results["checks"].get("modules_loaded") and results["checks"].get("dry_run") in ["ok", "skipped"]:
+        results["status"] = "healthy"
+        status_code = 200
+    else:
+        results["status"] = "unhealthy"
+        status_code = 503
+    
+    return jsonify(results), status_code
