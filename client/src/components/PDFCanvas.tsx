@@ -16,7 +16,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.js/pdf.worker.min.js';
 
 // Constants
 const MIN_CONTAINER_WIDTH_FOR_RENDER = 200; // Minimum container width before rendering PDF (px)
-const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas
 const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay (signature fields, etc.)
 
 export interface PDFCanvasProps {

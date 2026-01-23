@@ -17,7 +17,6 @@ export interface SignatureField {
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
-const MIN_CONTAINER_WIDTH = 200; // Minimum container width for PDF rendering (px)
 const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields
 const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field
 
@@ -298,7 +297,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
           key={field.id}
           className={`absolute border-3 transition-all ${
             selectedFieldId === field.id
-              ? 'border-blue-600 bg-blue-200 shadow-xl z-10'
+              ? 'border-blue-600 bg-blue-200 shadow-xl'
               : 'border-green-600 bg-green-200 hover:border-green-700'
           } bg-opacity-40 cursor-move`}
           style={{
