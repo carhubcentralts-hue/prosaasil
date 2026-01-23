@@ -4893,9 +4893,9 @@ def apply_migrations():
                     checkpoint("  → Adding recording_mode column...")
                     db.session.execute(text("""
                         ALTER TABLE call_log
-                        ADD COLUMN recording_mode TEXT NOT NULL DEFAULT 'realtime'
+                        ADD COLUMN recording_mode TEXT DEFAULT 'realtime'
                     """))
-                    checkpoint("  ✅ recording_mode column added (default: 'realtime')")
+                    checkpoint("  ✅ recording_mode column added (default: 'realtime', nullable)")
                     migrations_applied.append('add_call_log_recording_mode')
                 else:
                     checkpoint("  ℹ️ recording_mode column already exists")
