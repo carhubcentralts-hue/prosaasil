@@ -240,7 +240,7 @@ def get_ai_service():
     global _global_ai_service
     if _global_ai_service is None:
         _global_ai_service = AIService()
-        # ⚡ Warmup will be called separately by app_factory after app is ready
+        # ⚡ Warmup will be called separately by lazy_services after app is ready
     return _global_ai_service
 
 def _warmup_ai_cache(service: 'AIService'):
