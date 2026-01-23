@@ -867,6 +867,7 @@ export function ReceiptsPage() {
     errors_count?: number;
   } | null>(null);
   const [syncProgressPercentage, setSyncProgressPercentage] = useState<number>(0);
+  const [cancelling, setCancelling] = useState(false);
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -1068,6 +1069,7 @@ export function ReceiptsPage() {
             setSyncing(false);
             setSyncProgress(null);
             setSyncProgressPercentage(0);
+            setCancelling(false);
             
             // Clear localStorage when sync completes
             localStorage.removeItem('activeSyncDates');
@@ -1093,6 +1095,10 @@ export function ReceiptsPage() {
         }
       } catch (err) {
         console.error('Failed to fetch sync progress:', err);
+        // Show error to user if polling fails
+        const errorMsg = '⚠️ שגיאה בקבלת מצב הסנכרון. הסנכרון ממשיך ברקע.';
+        setError(errorMsg);
+        setTimeout(() => setError(null), 5000);
       }
     };
     
@@ -1230,17 +1236,21 @@ export function ReceiptsPage() {
   
   // Handle cancel sync
   const handleCancelSync = useCallback(async () => {
-    if (!activeSyncRunId) return;
+    if (!activeSyncRunId || cancelling) return;
     
     try {
+      setCancelling(true);
       await axios.post(`/api/receipts/sync/${activeSyncRunId}/cancel`);
       setError('⏸️ מבטל סנכרון...');
       // The polling will detect the cancelled status and update UI
     } catch (err: unknown) {
       const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to cancel sync';
       setError(errorMsg);
+    } finally {
+      // Keep cancelling state true until polling detects the cancelled status
+      // This prevents multiple cancel requests
     }
-  }, [activeSyncRunId]);
+  }, [activeSyncRunId, cancelling]);
   
   // Handle mark receipt
   const handleMark = async (receiptId: number, status: string) => {
@@ -1637,12 +1647,12 @@ export function ReceiptsPage() {
                 </div>
                 <button
                   onClick={handleCancelSync}
-                  disabled={!activeSyncRunId}
+                  disabled={!activeSyncRunId || cancelling}
                   className="flex items-center px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors font-medium text-sm min-h-[44px] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
                   title="עצור סנכרון"
                 >
                   <X className="w-4 h-4 ml-1" />
-                  <span className="hidden sm:inline">ביטול</span>
+                  <span className="hidden sm:inline">{cancelling ? 'מבטל...' : 'ביטול'}</span>
                 </button>
               </div>
               

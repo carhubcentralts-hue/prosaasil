@@ -2933,6 +2933,28 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
             
             png_size = len(png_data)
             
+            # CRITICAL: Validate screenshot is not blank/white before checking size
+            from server.services.receipt_preview_service import is_image_blank_or_white
+            
+            if is_image_blank_or_white(png_data):
+                logger.error(f"❌ Screenshot validation failed - image appears blank/white (size: {png_size} bytes)")
+                
+                # Retry once if this is the first attempt
+                if retry_attempt == 0:
+                    logger.info("🔄 Retrying screenshot with longer timeout...")
+                    return generate_receipt_preview_png(
+                        email_html=email_html,
+                        business_id=business_id,
+                        receipt_id=receipt_id,
+                        viewport_width=viewport_width,
+                        viewport_height=viewport_height,
+                        retry_attempt=1
+                    )
+                else:
+                    # Second attempt also blank - give up
+                    logger.error("❌ Screenshot still blank after retry - giving up")
+                    return None
+            
             # Check for suspiciously small PNG (< 10KB indicates likely empty/blocked page)
             MIN_PNG_SIZE = 10 * 1024  # 10KB threshold
             if png_size < MIN_PNG_SIZE and retry_attempt == 0:
