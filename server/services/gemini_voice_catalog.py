@@ -3,13 +3,19 @@ Gemini Voice Catalog - Discovery and management of Google TTS voices
 
 🔒 CRITICAL RULES:
 1. OpenAI voices are NOT managed here - don't touch them
-2. Voice IDs must come from official Google API discovery, not guessed
-3. Hebrew labels are for UI display only
+2. API discovery if available; static fallback if not
+3. Hebrew labels are for UI display only - voice_id unchanged
 
 This module handles:
-- Discovering available Gemini/Google TTS voices via API
+- Discovering available Gemini/Google TTS voices via API (if available)
+- Falling back to static GEMINI_STATIC_VOICES if API fails
 - Providing Hebrew display names for UI
-- Caching discovered voices
+- Caching discovered voices (24-hour TTL)
+
+🛡️ FALLBACK STRATEGY:
+- Try API discovery first (texttospeech.googleapis.com/v1/voices)
+- If API fails → use GEMINI_STATIC_VOICES (known working voices from Google docs)
+- This ensures the system never breaks due to API issues
 """
 import os
 import logging
@@ -23,8 +29,23 @@ logger = logging.getLogger(__name__)
 _voice_cache: Dict = {
     "voices": [],
     "last_updated": None,
-    "cache_duration_hours": 24
+    "cache_duration_hours": 24,
+    "source": None  # "api" or "static"
 }
+
+# 🛡️ STATIC FALLBACK: Known working Hebrew voices from Google Cloud TTS docs
+# Used when API discovery fails - ensures system always works
+GEMINI_STATIC_VOICES: List[Dict] = [
+    {"id": "he-IL-Wavenet-A", "name": "Wavenet A", "language": "he-IL", "gender": "FEMALE"},
+    {"id": "he-IL-Wavenet-B", "name": "Wavenet B", "language": "he-IL", "gender": "MALE"},
+    {"id": "he-IL-Wavenet-C", "name": "Wavenet C", "language": "he-IL", "gender": "FEMALE"},
+    {"id": "he-IL-Wavenet-D", "name": "Wavenet D", "language": "he-IL", "gender": "MALE"},
+    {"id": "he-IL-Standard-A", "name": "Standard A", "language": "he-IL", "gender": "FEMALE"},
+    {"id": "he-IL-Standard-B", "name": "Standard B", "language": "he-IL", "gender": "MALE"},
+    {"id": "he-IL-Standard-C", "name": "Standard C", "language": "he-IL", "gender": "FEMALE"},
+    {"id": "he-IL-Standard-D", "name": "Standard D", "language": "he-IL", "gender": "MALE"},
+    {"id": "he-IL-Standard-E", "name": "Standard E", "language": "he-IL", "gender": "FEMALE"},
+]
 
 # Hebrew labels for known Google Hebrew voices
 # These are applied ONLY for UI display, the actual voice_id sent to API is unchanged
@@ -206,12 +227,14 @@ def get_cached_voices() -> List[Dict]:
         if cache_age < timedelta(hours=_voice_cache["cache_duration_hours"]):
             return _voice_cache["voices"]
     
-    # Refresh cache
+    # Refresh cache - try API discovery first
     voices, error = discover_voices_via_api()
     
     if voices:
         _voice_cache["voices"] = voices
         _voice_cache["last_updated"] = datetime.now()
+        _voice_cache["source"] = "api"
+        logger.info(f"[VOICE] Using API-discovered voices ({len(voices)} voices)")
         return voices
     
     # Return old cache if discovery failed but we have cached data
@@ -219,8 +242,36 @@ def get_cached_voices() -> List[Dict]:
         logger.warning("Voice discovery failed, using cached data")
         return _voice_cache["voices"]
     
-    # No cache and discovery failed - return empty
-    return []
+    # 🛡️ FALLBACK: Use static voice list if API discovery fails
+    # This ensures the system always works even if API is unavailable
+    logger.warning(f"[VOICE] API discovery failed ({error}), using static fallback")
+    fallback_voices = _get_static_fallback_voices()
+    _voice_cache["voices"] = fallback_voices
+    _voice_cache["last_updated"] = datetime.now()
+    _voice_cache["source"] = "static"
+    return fallback_voices
+
+
+def _get_static_fallback_voices() -> List[Dict]:
+    """
+    Get static fallback voices with Hebrew labels applied.
+    Used when API discovery fails.
+    """
+    voices = []
+    for voice in GEMINI_STATIC_VOICES:
+        voice_id = voice["id"]
+        label_info = HEBREW_VOICE_LABELS.get(voice_id, {})
+        voices.append({
+            "id": voice_id,
+            "name": voice.get("name", voice_id),
+            "language": voice.get("language", "he-IL"),
+            "gender": voice.get("gender", "NEUTRAL"),
+            "display_he": label_info.get("display_he", voice_id),
+            "tags_he": label_info.get("tags_he", []),
+            "provider": "gemini",
+            "source": "static"  # Mark as static for debugging
+        })
+    return voices
 
 
 def get_gemini_voices_for_ui() -> Dict:

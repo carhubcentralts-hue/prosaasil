@@ -139,6 +139,25 @@ class TestTTSProvider:
             assert "display_he" in info
             assert "tags_he" in info
             assert "he-IL" in voice_id  # Should be Hebrew voices
+    
+    def test_gemini_static_fallback_exists(self):
+        """Test static fallback voices exist for when API fails"""
+        from server.services.gemini_voice_catalog import GEMINI_STATIC_VOICES, _get_static_fallback_voices
+        
+        # Should have static voices defined
+        assert len(GEMINI_STATIC_VOICES) > 0
+        
+        # Check structure
+        for voice in GEMINI_STATIC_VOICES:
+            assert "id" in voice
+            assert "he-IL" in voice["id"]
+        
+        # Test fallback function works
+        fallback = _get_static_fallback_voices()
+        assert len(fallback) == len(GEMINI_STATIC_VOICES)
+        for voice in fallback:
+            assert "display_he" in voice
+            assert "provider" in voice
 
 
 class TestVADLogic:
