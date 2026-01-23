@@ -26,9 +26,11 @@ THUMBNAIL_MAX_HEIGHT = 512  # Max height for thumbnails
 THUMBNAIL_QUALITY = 85  # JPEG quality for thumbnails
 
 # Content validation thresholds
-MIN_CONTENT_VARIANCE = 50  # Minimum pixel variance for non-blank image (raised from 10)
-MIN_UNIQUE_COLORS = 50  # Minimum unique colors for non-blank image (raised from 10)
-MIN_EDGE_MEAN = 3.0  # Minimum edge detection mean (raised from 1.0)
+# These are intentionally LOW to avoid rejecting legitimate receipts
+# Better to save a blank receipt and mark it for review than to lose a real receipt
+MIN_CONTENT_VARIANCE = 5  # Very low threshold - only reject pure white/black images
+MIN_UNIQUE_COLORS = 5  # Very low threshold - only reject solid color images
+MIN_EDGE_MEAN = 0.5  # Very low threshold - only reject images with absolutely no edges
 
 
 def is_image_blank_or_white(image_data: bytes) -> bool:
@@ -144,10 +146,10 @@ def generate_pdf_thumbnail(pdf_data: bytes) -> Optional[bytes]:
         
         thumbnail_bytes = output.getvalue()
         
-        # Validate thumbnail is not blank
+        # Check if thumbnail might be blank and log warning
+        # But still return it - better to have something than nothing
         if is_image_blank_or_white(thumbnail_bytes):
-            logger.warning("PDF thumbnail appears blank/white - may indicate empty PDF")
-            return None
+            logger.warning("PDF thumbnail may be blank/low quality - saved but flagged for review")
         
         logger.info(f"Generated PDF thumbnail: {img.size}")
         
@@ -191,10 +193,10 @@ def generate_image_thumbnail(image_data: bytes, mime_type: str) -> Optional[byte
         
         thumbnail_bytes = output.getvalue()
         
-        # Validate thumbnail is not blank
+        # Check if thumbnail might be blank and log warning
+        # But still return it - better to have something than nothing
         if is_image_blank_or_white(thumbnail_bytes):
-            logger.warning("Image thumbnail appears blank/white - may indicate corrupt image")
-            return None
+            logger.warning("Image thumbnail may be blank/low quality - saved but flagged for review")
         
         logger.info(f"Generated image thumbnail: {img.size}")
         

@@ -1443,25 +1443,25 @@ def process_single_receipt_message(
                                 preview_data = generate_image_thumbnail(att_data, att['mime_type'])
                             
                             if preview_data:
-                                # CRITICAL: Validate preview is not blank BEFORE saving
-                                from server.services.receipt_preview_service import is_image_blank_or_white
-                                
-                                if is_image_blank_or_white(preview_data):
-                                    logger.warning(f"⚠️ Preview appears blank/white - rejecting")
-                                    preview_error_msg = f"Preview validation failed - blank/white image"
-                                    preview_data = None
-                                else:
-                                    preview_attachment_id = save_preview_attachment(
-                                        preview_data=preview_data,
-                                        business_id=business_id,
-                                        original_filename=att['filename'] or 'receipt',
-                                        purpose='receipt_preview'
-                                    )
-                                    if preview_attachment_id:
-                                        preview_generated = True
+                                # Save preview even if it might be blank - better to have something than nothing
+                                # User can review and decide if it's valid
+                                preview_attachment_id = save_preview_attachment(
+                                    preview_data=preview_data,
+                                    business_id=business_id,
+                                    original_filename=att['filename'] or 'receipt',
+                                    purpose='receipt_preview'
+                                )
+                                if preview_attachment_id:
+                                    preview_generated = True
+                                    
+                                    # Check if preview looks blank and log warning for review
+                                    from server.services.receipt_preview_service import is_image_blank_or_white
+                                    if is_image_blank_or_white(preview_data):
+                                        logger.warning(f"⚠️ Preview may be blank/low quality - saved but flagged for review")
+                                        preview_error_msg = f"Preview may be blank - needs review"
+                                    else:
                                         logger.info(f"✅ Preview generated from first attachment")
-                            
-                            if not preview_data:
+                            else:
                                 logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
                                 preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
                     except Exception as preview_err:
@@ -1497,13 +1497,11 @@ def process_single_receipt_message(
                     preview_attachment_id, preview_file_size = preview_result
                     preview_generated = True
                     
-                    # Check if preview is suspiciously small
+                    # Check if preview is suspiciously small but still save it
                     MIN_PREVIEW_SIZE = 10 * 1024  # 10KB threshold
                     if preview_file_size < MIN_PREVIEW_SIZE:
                         preview_error_msg = f"Preview small ({preview_file_size} bytes) - may indicate blocked/empty content"
-                        logger.warning(f"⚠️ {preview_error_msg}")
-                        # Mark as not generated if too small - likely useless
-                        preview_generated = False
+                        logger.warning(f"⚠️ {preview_error_msg} - saved but flagged for review")
                     else:
                         logger.info(f"✅ PNG preview generated successfully: {preview_file_size} bytes")
                     
@@ -1558,7 +1556,7 @@ def process_single_receipt_message(
             logger.warning(f"⚠️ PARTIAL SAVE: {saved_count}/{total_count} attachments saved")
     
     # CRITICAL: Only skip if email is completely empty (no HTML, no attachments)
-    # OR if validation failed critically (no preview AND no amount)
+    # Otherwise ALWAYS create record (Rule 7)
     if not attachment_processed and not email_html_snippet and not all_attachments:
         logger.info(f"⏭️ Skipping completely empty email (no HTML, no attachments)")
         result['skipped'] += 1
@@ -1571,17 +1569,6 @@ def process_single_receipt_message(
         subject=metadata.get('subject', ''),
         metadata=metadata
     )
-    
-    # CRITICAL NEW VALIDATION: Don't save receipts that have NOTHING useful
-    # If validation failed AND no amount extracted, this receipt is useless - skip it
-    if validation_failed and not extracted.get('amount'):
-        logger.error(
-            f"❌ SKIPPING USELESS RECEIPT: validation failed AND no amount extracted. "
-            f"preview_generated={preview_generated}, has_amount={bool(extracted.get('amount'))}, "
-            f"validation_errors={validation_errors}"
-        )
-        result['skipped'] += 1
-        return None
     
     # Parse received date
     received_at = None
@@ -2996,36 +2983,14 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
             
             png_size = len(png_data)
             
-            # CRITICAL: Validate screenshot is not blank/white before checking size
+            # Check if screenshot might be blank and retry if first attempt
             from server.services.receipt_preview_service import is_image_blank_or_white
             
-            if is_image_blank_or_white(png_data):
-                logger.error(f"❌ Screenshot validation failed - image appears blank/white (size: {png_size} bytes)")
-                
-                # Retry once if this is the first attempt
-                if retry_attempt == 0:
-                    logger.info("🔄 Retrying screenshot with longer timeout...")
-                    return generate_receipt_preview_png(
-                        email_html=email_html,
-                        business_id=business_id,
-                        receipt_id=receipt_id,
-                        viewport_width=viewport_width,
-                        viewport_height=viewport_height,
-                        retry_attempt=1
-                    )
-                else:
-                    # Second attempt also blank - give up
-                    logger.error("❌ Screenshot still blank after retry - giving up")
-                    return None
-            
-            # Check for suspiciously small PNG (< 10KB indicates likely empty/blocked page)
-            MIN_PNG_SIZE = 10 * 1024  # 10KB threshold
-            if png_size < MIN_PNG_SIZE and retry_attempt == 0:
-                logger.warning(
-                    f"⚠️ Small PNG detected ({png_size} bytes < {MIN_PNG_SIZE} bytes) on first attempt - retrying with longer timeout"
-                )
+            is_blank = is_image_blank_or_white(png_data)
+            if is_blank and retry_attempt == 0:
+                logger.warning(f"⚠️ Screenshot may be blank (size: {png_size} bytes) - retrying with longer timeout...")
                 # Retry once with longer timeout
-                return generate_receipt_preview_png(
+                retry_result = generate_receipt_preview_png(
                     email_html=email_html,
                     business_id=business_id,
                     receipt_id=receipt_id,
@@ -3033,7 +2998,33 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
                     viewport_height=viewport_height,
                     retry_attempt=1
                 )
+                # If retry succeeded, use it. Otherwise continue and save what we have
+                if retry_result:
+                    return retry_result
+                else:
+                    logger.warning("🔄 Retry also produced blank screenshot - saving original attempt for review")
             
+            # Check for suspiciously small PNG and retry if first attempt
+            MIN_PNG_SIZE = 10 * 1024  # 10KB threshold
+            if png_size < MIN_PNG_SIZE and retry_attempt == 0:
+                logger.warning(
+                    f"⚠️ Small PNG detected ({png_size} bytes < {MIN_PNG_SIZE} bytes) on first attempt - retrying with longer timeout"
+                )
+                # Retry once with longer timeout
+                retry_result = generate_receipt_preview_png(
+                    email_html=email_html,
+                    business_id=business_id,
+                    receipt_id=receipt_id,
+                    viewport_width=viewport_width,
+                    viewport_height=viewport_height,
+                    retry_attempt=1
+                )
+                # If retry succeeded and is larger, use it. Otherwise continue with what we have
+                if retry_result:
+                    return retry_result
+            
+            # Save the screenshot even if it might be blank - better to have something for review
+            # than to have nothing at all
             if png_data:
                 # Save to storage as PNG preview
                 from server.services.attachment_service import get_attachment_service
