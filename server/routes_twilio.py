@@ -36,6 +36,31 @@ twilio_bp = Blueprint("twilio", __name__)
 # Backwards-compatible alias used by pre-deploy smoke checks / older imports.
 routes_twilio_bp = twilio_bp
 
+@csrf.exempt
+@twilio_bp.route("/health/details", methods=["GET"])
+def health_details():
+    """
+    P3-1: Calls capacity health endpoint
+    Returns current active calls count and capacity limit
+    """
+    try:
+        from server.services.calls_capacity import get_active_calls_count, MAX_ACTIVE_CALLS
+        active_calls = get_active_calls_count()
+        
+        return jsonify({
+            "status": "ok",
+            "active_calls": active_calls,
+            "max_calls": MAX_ACTIVE_CALLS,
+            "capacity_available": MAX_ACTIVE_CALLS - active_calls,
+            "at_capacity": active_calls >= MAX_ACTIVE_CALLS
+        }), 200
+    except Exception as e:
+        logger.error(f"Health details error: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
 def _twiml(vr: VoiceResponse) -> Response:
     """
     ✅ תיקון Error 12100: החזרת TwiML תקין עם Twilio SDK
@@ -478,6 +503,49 @@ def incoming_call():
             if business:
                 business_id = business.id
     
+    # 🔥 P3-1: GLOBAL CAPACITY CHECK (before business-specific limits)
+    # Check system-wide call capacity to prevent overload
+    try:
+        from server.services.calls_capacity import try_acquire_call_slot
+        if not try_acquire_call_slot(call_sid):
+            # At capacity - reject gracefully with Hebrew message
+            logger.warning(f"📵 INCOMING_CALL REJECTED: System at capacity call_sid={call_sid}")
+            vr = VoiceResponse()
+            vr.say(
+                "המערכת עמוסה כרגע. אנא נסו שוב בעוד מספר דקות או שלחו לנו הודעה בוואטסאפ.",
+                language="he-IL",
+                voice="Google.he-IL-Wavenet-C"
+            )
+            vr.hangup()
+            
+            # Log rejection event to DB if possible
+            try:
+                if call_sid and from_number:
+                    from server.tasks_recording import normalize_call_direction
+                    fallback_to = to_number or (business.phone_e164 if business else None) or "unknown"
+                    normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "unknown"
+                    
+                    call_log = CallLog(
+                        call_sid=call_sid,
+                        from_number=from_number,
+                        to_number=fallback_to,
+                        business_id=business_id,
+                        direction=normalized_direction,
+                        twilio_direction=twilio_direction if twilio_direction else None,
+                        call_status="rejected_capacity",
+                        status="rejected_capacity"
+                    )
+                    db.session.add(call_log)
+                    db.session.commit()
+            except Exception as db_err:
+                logger.error(f"Failed to log capacity rejection: {db_err}")
+                db.session.rollback()
+            
+            return _twiml(vr)
+    except Exception as e:
+        # Capacity check failed - fail open (allow call)
+        logger.error(f"⚠️ Capacity check failed: {e} - allowing call")
+    
     # BUILD 174: Check inbound call concurrency limits
     if business_id:
         try:
@@ -488,6 +556,14 @@ def incoming_call():
                 vr = VoiceResponse()
                 vr.say(reject_message, language="he-IL", voice="Google.he-IL-Wavenet-C")
                 vr.hangup()
+                
+                # 🔥 P3-1: Release capacity slot since we're rejecting
+                try:
+                    from server.services.calls_capacity import release_call_slot
+                    release_call_slot(call_sid)
+                except Exception:
+                    pass
+                
                 return _twiml(vr)
         except Exception as e:
             logger.error(f"⚠️ Call limit check failed: {e} - allowing call")
@@ -1270,6 +1346,13 @@ def call_status():
             "parent_call_sid": parent_call_sid
         })
         if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled", "ended"]:
+            # 🔥 P3-1: Release capacity slot on terminal call status
+            try:
+                from server.services.calls_capacity import release_call_slot
+                release_call_slot(call_sid)
+            except Exception as cap_err:
+                logger.error(f"Failed to release capacity slot: {cap_err}")
+            
             # ✅ BUILD 106: Save with duration and direction
             # 🔥 NEW: Pass twilio_direction and parent_call_sid for proper tracking
             # 🔥 FIX: Added 'ended' to handle media_ws_ai.py finally block status updates
