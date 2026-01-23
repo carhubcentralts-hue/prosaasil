@@ -1522,6 +1522,9 @@ def process_single_receipt_message(
     else:
         received_at = datetime.now(timezone.utc)
     
+    # Initialize flags (CRITICAL: Must be initialized before any conditional that might reference them)
+    needs_review = False
+    
     # Determine status based on validation and confidence
     # CRITICAL: Validation failure forces incomplete status (Rule 6/7/10)
     if validation_failed:
@@ -1706,7 +1709,8 @@ def process_single_receipt_message(
 
 
 def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_messages: int = None, 
-                       from_date: str = None, to_date: str = None, months_back: int = 36) -> dict:
+                       from_date: str = None, to_date: str = None, months_back: int = 36,
+                       heartbeat_callback=None, sync_run=None) -> dict:
     """
     Sync receipts from Gmail for a business with monthly backfill and full pagination
     
@@ -1727,6 +1731,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         from_date: Start date for sync in YYYY-MM-DD format (optional, ALWAYS overrides mode)
         to_date: End date for sync in YYYY-MM-DD format (optional, ALWAYS overrides mode)
         months_back: Number of months to go back for full_backfill (default 36 = 3 years)
+        heartbeat_callback: Optional callback function to update heartbeat during long-running sync
+        sync_run: Optional existing ReceiptSyncRun record (if not provided, a new one will be created)
         
     Returns:
         Sync results with detailed counters
@@ -1752,23 +1758,36 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
     from_date_obj = datetime.strptime(from_date, '%Y-%m-%d').date() if from_date else None
     to_date_obj = datetime.strptime(to_date, '%Y-%m-%d').date() if to_date else None
     
-    # Create sync run record with initial heartbeat and full context
-    now_utc = datetime.now(timezone.utc)
-    sync_run = ReceiptSyncRun(
-        business_id=business_id,
-        mode=mode,
-        from_date=from_date_obj,
-        to_date=to_date_obj,
-        months_back=months_back,
-        run_to_completion=run_to_completion,  # Explicitly set (not None)
-        max_seconds_per_run=max_seconds,
-        status='running',
-        last_heartbeat_at=now_utc  # Initialize heartbeat
-    )
-    db.session.add(sync_run)
-    db.session.commit()
-    
-    logger.info(f"🔍 RUN_START: run_id={sync_run.id}, started_at={now_utc.isoformat()}, run_to_completion={run_to_completion}, max_seconds={max_seconds}")
+    # Use existing sync_run or create a new one
+    # CRITICAL: Only create if not provided to avoid duplicates
+    if sync_run is None:
+        # Create sync run record with initial heartbeat and full context
+        now_utc = datetime.now(timezone.utc)
+        sync_run = ReceiptSyncRun(
+            business_id=business_id,
+            mode=mode,
+            from_date=from_date_obj,
+            to_date=to_date_obj,
+            months_back=months_back,
+            run_to_completion=run_to_completion,  # Explicitly set (not None)
+            max_seconds_per_run=max_seconds,
+            status='running',
+            last_heartbeat_at=now_utc  # Initialize heartbeat
+        )
+        db.session.add(sync_run)
+        db.session.commit()
+        
+        logger.info(f"🔍 RUN_START: run_id={sync_run.id}, started_at={now_utc.isoformat()}, run_to_completion={run_to_completion}, max_seconds={max_seconds}")
+    else:
+        # Update existing sync_run with parameters (job may have created it with minimal info)
+        sync_run.from_date = from_date_obj
+        sync_run.to_date = to_date_obj
+        sync_run.months_back = months_back
+        sync_run.run_to_completion = run_to_completion
+        sync_run.max_seconds_per_run = max_seconds
+        db.session.commit()
+        
+        logger.info(f"🔍 RUN_CONTINUE: Using existing run_id={sync_run.id}, run_to_completion={run_to_completion}, max_seconds={max_seconds}")
 
     
     result = {
@@ -1968,6 +1987,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         if receipt and result['saved_receipts'] % 20 == 0:
                             sync_run.updated_at = datetime.now(timezone.utc)
                             db.session.commit()
+                            # Call heartbeat callback if provided
+                            if heartbeat_callback:
+                                heartbeat_callback()
                         
                     except Exception as e:
                         # Per-message error handling: rollback and continue to next message
@@ -2178,6 +2200,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             if result['saved_receipts'] % 20 == 0:
                                 sync_run.updated_at = datetime.now(timezone.utc)
                                 db.session.commit()
+                                # Call heartbeat callback if provided
+                                if heartbeat_callback:
+                                    heartbeat_callback()
                             
                         except Exception as e:
                             # Per-message error handling: rollback and continue to next message
@@ -2388,6 +2413,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         if result['new_count'] % 20 == 0:
                             sync_run.updated_at = datetime.now(timezone.utc)
                             db.session.commit()
+                            # Call heartbeat callback if provided
+                            if heartbeat_callback:
+                                heartbeat_callback()
                         
                     except Exception as e:
                         # Per-message error handling: rollback and continue to next message

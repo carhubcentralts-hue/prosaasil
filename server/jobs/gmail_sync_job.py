@@ -142,6 +142,7 @@ def sync_gmail_receipts_job(
         
         # Call the actual sync service with heartbeat callback (if supported)
         # Note: heartbeat_callback is optional - only used if sync service supports it
+        # CRITICAL: Pass sync_run to avoid creating duplicate records
         try:
             result = sync_gmail_receipts(
                 business_id=business_id,
@@ -150,7 +151,8 @@ def sync_gmail_receipts_job(
                 from_date=from_date,
                 to_date=to_date,
                 months_back=months_back,
-                heartbeat_callback=update_heartbeat
+                heartbeat_callback=update_heartbeat,
+                sync_run=sync_run  # Pass existing sync_run to avoid duplicates
             )
         except TypeError:
             # Fallback if heartbeat_callback not supported
@@ -161,7 +163,8 @@ def sync_gmail_receipts_job(
                 max_messages=max_messages,
                 from_date=from_date,
                 to_date=to_date,
-                months_back=months_back
+                months_back=months_back,
+                sync_run=sync_run  # Pass existing sync_run to avoid duplicates
             )
         
         # Update sync run with results
