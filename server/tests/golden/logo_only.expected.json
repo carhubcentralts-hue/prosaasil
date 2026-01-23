@@ -1,0 +1,9 @@
+{
+  "vendor": null,
+  "amount": null,
+  "currency": null,
+  "date": null,
+  "invoice_number": null,
+  "preview_should_be_valid": false,
+  "expected_error": "preview_logo_only"
+}
