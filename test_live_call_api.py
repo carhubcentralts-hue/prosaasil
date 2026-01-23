@@ -7,6 +7,35 @@ import json
 import base64
 from unittest.mock import Mock, patch, MagicMock
 from io import BytesIO
+from server.app_factory import create_app
+from server.db import db as _db
+
+
+@pytest.fixture
+def app():
+    """Create test Flask application"""
+    app = create_app()
+    app.config['TESTING'] = True
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    app.config['SECRET_KEY'] = 'test-secret-key'
+    
+    with app.app_context():
+        _db.create_all()
+        yield app
+        _db.session.remove()
+        _db.drop_all()
+
+
+@pytest.fixture
+def db(app):
+    """Database fixture"""
+    return _db
+
+
+@pytest.fixture
+def client(app):
+    """Create test client"""
+    return app.test_client()
 
 
 def test_live_call_stt_missing_audio(client, auth_headers):
@@ -283,7 +312,12 @@ def business(app, db):
     business = Business(
         id=1,
         name='Test Business',
-        business_name='Test'
+        business_type='general',
+        tts_provider='openai',
+        tts_voice_id='alloy',
+        tts_speed=1.0,
+        tts_language='he-IL',
+        voice_id='alloy'
     )
     db.session.add(business)
     db.session.commit()
@@ -291,26 +325,21 @@ def business(app, db):
 
 
 @pytest.fixture
-def business_settings(app, db, business):
-    """Create test business settings"""
-    from server.models_sql import BusinessSettings
-    settings = BusinessSettings(
-        business_id=business.id,
-        tts_provider='openai',
-        voice_id='alloy',
-        tts_speed=1.0,
-        tts_language='he-IL'
-    )
-    db.session.add(settings)
-    db.session.commit()
-    return settings
+def business_settings(business):
+    """Return business as business_settings for backward compatibility"""
+    return business
 
 
 @pytest.fixture
-def auth_headers(app, business):
-    """Create authenticated request headers"""
-    with app.test_request_context():
-        from flask import session
-        session['business_id'] = business.id
-        session['user_id'] = 1
-        return {'X-CSRFToken': 'test-token'}
+def auth_headers(app, client, business):
+    """Create authenticated request headers with proper session"""
+    # Use session_transaction to set session for test client
+    with client.session_transaction() as sess:
+        # Set session in the format expected by require_api_auth
+        sess['user'] = {
+            'id': 1,
+            'business_id': business.id,
+            'role': 'owner',
+            'email': 'test@test.com'
+        }
+    return {}
