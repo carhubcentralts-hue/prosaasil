@@ -929,6 +929,26 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
                 except (ValueError, IndexError):
                     pass
     
+    # LAST RESORT: If still no amount and we have detected currency, find any reasonable number
+    if not amount_found and detected_currency:
+        # Look for any number that looks like an amount (between 1 and 1,000,000)
+        fallback_pattern = r'\b([\d,]+\.?\d{0,2})\b'
+        matches = re.finditer(fallback_pattern, pdf_text)
+        
+        for match in matches:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                amount_val = float(amount_str)
+                # Only use if amount is reasonable (between 1 and 1M)
+                if 1.0 < amount_val < 1000000:
+                    data['amount'] = amount_val
+                    data['currency'] = detected_currency
+                    amount_found = True
+                    logger.info(f"Fallback: Extracted amount {amount_val} {detected_currency} from receipt")
+                    break
+            except (ValueError, IndexError):
+                pass
+    
     # Extract invoice number
     inv_match = re.search(r'(?:invoice|receipt|חשבונית|קבלה)\s*#?\s*:?\s*(\d+)', pdf_text, re.IGNORECASE)
     if inv_match:
@@ -1130,6 +1150,27 @@ def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
                         break
                 except (ValueError, IndexError):
                     pass
+    
+    # LAST RESORT: If still no amount and we have detected currency, find any reasonable number
+    if not amount_found and detected_currency:
+        # Look for any number that looks like an amount (between 1 and 1,000,000)
+        fallback_pattern = r'\b([\d,]+\.?\d{0,2})\b'
+        matches = re.finditer(fallback_pattern, text)
+        
+        for match in matches:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                amount_val = float(amount_str)
+                # Only use if amount is reasonable (between 1 and 1M)
+                if 1.0 < amount_val < 1000000:
+                    data['amount'] = amount_val
+                    data['currency'] = detected_currency
+                    data['amount_raw'] = match.group(0)
+                    amount_found = True
+                    logger.info(f"Fallback: Extracted amount {amount_val} {detected_currency} from HTML")
+                    break
+            except (ValueError, IndexError):
+                pass
     
     return data
 
