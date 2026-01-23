@@ -1293,11 +1293,15 @@ def process_single_receipt_message(
         result['skipped'] += 1  # Keep for backward compatibility
         return None
     
-    # Extract full HTML content
+    # Extract full HTML content for preview generation
+    # Keep truncated version for database storage
+    email_html_full = extract_email_html_full(message)
     email_html_snippet = extract_email_html(message)
     # CRITICAL: Strip NULL bytes to prevent PostgreSQL crashes
     if email_html_snippet:
         email_html_snippet = strip_null_bytes(email_html_snippet)
+    if email_html_full:
+        email_html_full = strip_null_bytes(email_html_full)
     attachment_id = None
     preview_attachment_id = None
     pdf_text = ''
@@ -1424,51 +1428,42 @@ def process_single_receipt_message(
         logger.info(f"✅ RULE 5: Saved {len(saved_attachments)} attachments: {saved_attachments}")
     
     # ==================================================================================
-    # MASTER INSTRUCTION RULE 2: SCREENSHOT MANDATORY FOR ALL PROCESSED EMAILS
+    # CRITICAL: PNG PREVIEW GENERATION WITH FULL HTML
     # ==================================================================================
-    # Every processed email MUST have a screenshot/snapshot PDF (Rule 2)
-    # This is NON-NEGOTIABLE - if screenshot fails, email should NOT be marked as processed
+    # Generate PNG preview (not PDF) from FULL HTML (not truncated snippet)
+    # This ensures previews are never empty due to truncated content
     
-    if email_html_snippet and not preview_generated:
+    if email_html_full and not preview_generated:
         try:
             # Acquire semaphore before Playwright screenshot
             with playwright_semaphore:
-                screenshot_result = generate_email_screenshot(
-                    email_html=email_html_snippet,
+                preview_result = generate_receipt_preview_png(
+                    email_html=email_html_full,  # Use FULL HTML, not truncated snippet!
                     business_id=business_id,
                     receipt_id=None
                 )
                 
-                # Handle both tuple (id, error_msg) and single id returns
-                screenshot_attachment_id = None
-                screenshot_warning = None
-                if screenshot_result:
-                    if isinstance(screenshot_result, tuple):
-                        screenshot_attachment_id, screenshot_warning = screenshot_result
-                        logger.warning(f"⚠️ Screenshot generated with warning: {screenshot_warning}")
-                        # Store warning for preview_failure_reason
-                        if not preview_error_msg:
-                            preview_error_msg = screenshot_warning
-                    else:
-                        screenshot_attachment_id = screenshot_result
-                
-                if screenshot_attachment_id:
-                    if not attachment_processed:
-                        # No attachment - screenshot IS the attachment
-                        attachment_id = screenshot_attachment_id
-                        attachment_processed = True
-                    # Screenshot is always the preview (shows email context)
-                    preview_attachment_id = screenshot_attachment_id
+                if preview_result:
+                    preview_attachment_id, preview_file_size = preview_result
                     preview_generated = True
-                    logger.info(f"✅ Email snapshot PDF generated successfully")
+                    
+                    # Check if preview is suspiciously small
+                    MIN_PREVIEW_SIZE = 10 * 1024  # 10KB threshold
+                    if preview_file_size < MIN_PREVIEW_SIZE:
+                        preview_error_msg = f"Preview small ({preview_file_size} bytes) - may indicate blocked/empty content"
+                        logger.warning(f"⚠️ {preview_error_msg}")
+                    else:
+                        logger.info(f"✅ PNG preview generated successfully: {preview_file_size} bytes")
+                    
                     time.sleep(0.1)  # Small delay after Playwright
                 else:
-                    # CRITICAL: Screenshot generation failed - this violates Rule 2
-                    logger.error(f"❌ RULE 2 VIOLATION: Screenshot mandatory but generation failed!")
-                    preview_error_msg = "Screenshot generation failed - mandatory requirement not met"
+                    # Preview generation failed
+                    logger.error(f"❌ Preview generation failed for receipt")
+                    preview_error_msg = "PNG preview generation failed"
+                    
         except Exception as e:
             preview_error_msg = str(e)[:ERROR_MESSAGE_MAX_LENGTH]
-            logger.error(f"❌ RULE 2 VIOLATION: Screenshot generation exception: {e}")
+            logger.error(f"❌ Preview generation exception: {e}", exc_info=True)
     
     # ==================================================================================
     # MASTER INSTRUCTION RULE 8: VALIDATION CHECK
@@ -2817,6 +2812,200 @@ def _convert_png_to_pdf(png_path: str) -> bytes:
             os.unlink(pdf_path)
 
 
+def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: int = None, 
+                                  viewport_width: int = 1280, viewport_height: int = 720,
+                                  retry_attempt: int = 0) -> Optional[Tuple[int, int]]:
+    """
+    Generate a PNG preview from email HTML content with proper waiting for content to load
+    
+    This function implements the CRITICAL requirements for receipt previews:
+    1. Uses FULL HTML (not truncated snippet)
+    2. Waits properly for DOM, fonts, and images to load
+    3. Always generates PNG (not PDF) for previews
+    4. Implements retry logic for empty/small results
+    5. Improves screenshot quality
+    
+    Args:
+        email_html: FULL HTML content of the email (not truncated!)
+        business_id: Business ID for storage
+        receipt_id: Receipt ID for logging (optional)
+        viewport_width: Viewport width (default 1280 for better quality)
+        viewport_height: Viewport height (default 720)
+        retry_attempt: Current retry attempt number (0 = first attempt)
+        
+    Returns:
+        Tuple of (attachment_id, file_size) if successful, None otherwise
+    """
+    if not PLAYWRIGHT_AVAILABLE:
+        logger.error("Playwright not available - cannot generate PNG preview")
+        return None
+    
+    try:
+        import tempfile
+        import os
+        
+        logger.info(f"📸 Generating PNG preview with Playwright for receipt {receipt_id or 'unknown'} (attempt {retry_attempt + 1})")
+        
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--disable-extensions'
+                ]
+            )
+            
+            # Fixed viewport for consistent rendering
+            page = browser.new_page(viewport={'width': viewport_width, 'height': viewport_height})
+            
+            # CRITICAL: Emulate screen media (not print)
+            page.emulate_media(media='screen')
+            
+            # Set HTML content and wait for network to be idle
+            timeout_ms = 45000 if retry_attempt > 0 else 30000  # Longer timeout on retry
+            page.set_content(email_html, wait_until='networkidle', timeout=timeout_ms)
+            
+            # CRITICAL WAITING SEQUENCE - Let content fully load
+            try:
+                # Wait 1: Network idle
+                page.wait_for_load_state('networkidle', timeout=20000)
+            except Exception as e:
+                logger.warning(f"networkidle timeout (continuing): {e}")
+            
+            try:
+                # Wait 2: Fonts ready
+                page.evaluate("document.fonts && document.fonts.ready")
+            except Exception as e:
+                logger.warning(f"fonts.ready failed (continuing): {e}")
+            
+            try:
+                # Wait 3: All images loaded
+                page.evaluate("""
+                    async () => {
+                        const imgs = Array.from(document.images || []);
+                        await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
+                            img.addEventListener('load', res);
+                            img.addEventListener('error', res);
+                        })));
+                    }
+                """)
+            except Exception as e:
+                logger.warning(f"Image loading wait failed (continuing): {e}")
+            
+            # Wait 4: Final buffer to ensure everything is settled
+            try:
+                page.wait_for_timeout(1200)
+            except Exception as e:
+                logger.warning(f"Final timeout failed (continuing): {e}")
+            
+            # Inject wrapper CSS for better rendering
+            try:
+                page.add_style_tag(content="""
+                    body {
+                        max-width: 100%;
+                        background: white !important;
+                        font-size: 14px;
+                        padding: 20px;
+                    }
+                    img {
+                        max-width: 100% !important;
+                        height: auto !important;
+                    }
+                """)
+            except Exception as e:
+                logger.warning(f"CSS injection failed (continuing): {e}")
+            
+            # Take full-page PNG screenshot
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+                screenshot_path = tmp.name
+            
+            page.screenshot(path=screenshot_path, full_page=True, type='png')
+            browser.close()
+            
+            # Read the PNG
+            with open(screenshot_path, 'rb') as f:
+                png_data = f.read()
+            
+            # Clean up temp file
+            os.unlink(screenshot_path)
+            
+            png_size = len(png_data)
+            
+            # Check for suspiciously small PNG (< 10KB indicates likely empty/blocked page)
+            MIN_PNG_SIZE = 10 * 1024  # 10KB threshold
+            if png_size < MIN_PNG_SIZE and retry_attempt == 0:
+                logger.warning(
+                    f"⚠️ Small PNG detected ({png_size} bytes < {MIN_PNG_SIZE} bytes) on first attempt - retrying with longer timeout"
+                )
+                # Retry once with longer timeout
+                return generate_receipt_preview_png(
+                    email_html=email_html,
+                    business_id=business_id,
+                    receipt_id=receipt_id,
+                    viewport_width=viewport_width,
+                    viewport_height=viewport_height,
+                    retry_attempt=1
+                )
+            
+            if png_data:
+                # Save to storage as PNG preview
+                from server.services.attachment_service import get_attachment_service
+                from server.models_sql import Attachment
+                from server.db import db
+                from werkzeug.datastructures import FileStorage
+                from io import BytesIO
+                
+                attachment_service = get_attachment_service()
+                
+                file_storage = FileStorage(
+                    stream=BytesIO(png_data),
+                    filename='receipt_preview.png',
+                    content_type='image/png'
+                )
+                
+                # Create attachment record
+                attachment = Attachment(
+                    business_id=business_id,
+                    filename_original='receipt_preview.png',
+                    mime_type='image/png',
+                    file_size=0,
+                    storage_path='',
+                    purpose='receipt_preview',  # This is the preview, not source!
+                    origin_module='receipts',
+                    channel_compatibility={'email': True, 'whatsapp': True, 'broadcast': True}
+                )
+                db.session.add(attachment)
+                db.session.flush()
+                
+                # Save file
+                storage_key, file_size = attachment_service.save_file(
+                    file=file_storage,
+                    business_id=business_id,
+                    attachment_id=attachment.id,
+                    purpose='receipt_preview'
+                )
+                
+                attachment.storage_path = storage_key
+                attachment.file_size = file_size
+                db.session.commit()
+                
+                if file_size < MIN_PNG_SIZE:
+                    logger.warning(
+                        f"⚠️ Small PNG preview ({file_size} bytes) - may indicate blocked/empty content. "
+                        f"Attachment ID: {attachment.id}"
+                    )
+                else:
+                    logger.info(f"✅ PNG preview generated successfully: attachment_id={attachment.id}, size={file_size} bytes")
+                
+                return (attachment.id, file_size)
+                
+    except Exception as e:
+        logger.error(f"PNG preview generation failed: {e}", exc_info=True)
+        return None
+
+
 def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int = None) -> Optional[int]:
     """
     Generate a PDF screenshot from email HTML content
@@ -3182,15 +3371,18 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
         return None
 
 
-def extract_email_html(message: dict) -> str:
+def extract_email_html_full(message: dict) -> str:
     """
-    Extract HTML content from Gmail message for preview generation
+    Extract FULL HTML content from Gmail message for Playwright rendering
+    
+    CRITICAL: Returns COMPLETE HTML without truncation
+    This is used for generating previews - truncation causes empty PDFs!
     
     Args:
         message: Gmail message object
         
     Returns:
-        HTML snippet (first 10KB for database efficiency)
+        Full HTML content (not truncated)
     """
     def find_html_part(parts):
         """Recursively find HTML part"""
@@ -3224,9 +3416,25 @@ def extract_email_html(message: dict) -> str:
     if 'parts' in payload:
         html = find_html_part(payload['parts'])
         if html:
-            # Limit to 10KB for database efficiency
-            return html[:10000]
+            # Return FULL HTML - no truncation!
+            return html
     
     # Fallback to plain text or snippet
     snippet = message.get('snippet', '')
-    return f"<div>{snippet}</div>"[:10000] if snippet else ""
+    return f"<div>{snippet}</div>" if snippet else ""
+
+
+def extract_email_html(message: dict) -> str:
+    """
+    Extract HTML content from Gmail message for database storage
+    
+    Args:
+        message: Gmail message object
+        
+    Returns:
+        HTML snippet (first 10KB for database efficiency)
+    """
+    # Get full HTML then truncate for database
+    full_html = extract_email_html_full(message)
+    # Limit to 10KB for database efficiency
+    return full_html[:10000] if full_html else ""
