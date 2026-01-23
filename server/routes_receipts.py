@@ -23,7 +23,7 @@ Security:
 from flask import Blueprint, jsonify, request, g, redirect, url_for, session, current_app
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
-from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun
+from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun, BackgroundJob
 from server.db import db
 from datetime import datetime, timezone, timedelta
 import logging
@@ -1021,6 +1021,324 @@ def purge_all_receipts():
             "success": False,
             "error": f"Purge failed: {str(e)}"
         }), 500
+
+
+@receipts_bp.route('/delete_all', methods=['POST'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def delete_all_receipts():
+    """
+    Start a background job to delete all receipts for the current business
+    
+    This endpoint:
+    - Creates a BackgroundJob record
+    - Enqueues job to maintenance queue
+    - Returns immediately with job_id for progress tracking
+    
+    Returns:
+    - job_id: Job ID for tracking progress
+    - status: Initial status (queued)
+    - total: Total receipts to delete
+    
+    Security:
+    - Admin/owner permission required
+    - Rate limited (max 1 request per minute per business)
+    - Only one active job per business allowed
+    """
+    from server.models_sql import BackgroundJob
+    from server.rate_limiter import rate_limit
+    
+    business_id = get_current_business_id()
+    user_id = get_current_user_id()
+    
+    # Check admin/owner permission
+    role = get_current_user_role()
+    if role not in ['system_admin', 'owner', 'admin']:
+        return jsonify({
+            "success": False,
+            "error": "Owner or admin permission required"
+        }), 403
+    
+    # Rate limiting: max 1 delete_all per minute per business
+    rate_limit_key = f"delete_all_receipts:{business_id}"
+    if hasattr(rate_limit, 'check'):
+        allowed, retry_after = rate_limit.check(rate_limit_key, limit=1, period=60)
+        if not allowed:
+            return jsonify({
+                "success": False,
+                "error": f"Too many requests. Try again in {retry_after} seconds."
+            }), 429
+    
+    try:
+        # Check for existing active job
+        existing_job = BackgroundJob.query.filter(
+            BackgroundJob.business_id == business_id,
+            BackgroundJob.job_type == 'delete_receipts_all',
+            BackgroundJob.status.in_(['queued', 'running', 'paused'])
+        ).first()
+        
+        if existing_job:
+            # Return existing job info
+            return jsonify({
+                "success": True,
+                "job_id": existing_job.id,
+                "status": existing_job.status,
+                "total": existing_job.total,
+                "processed": existing_job.processed,
+                "message": "Job already in progress"
+            }), 200
+        
+        # Count total receipts to delete
+        total_receipts = Receipt.query.filter_by(
+            business_id=business_id,
+            is_deleted=False
+        ).count()
+        
+        if total_receipts == 0:
+            return jsonify({
+                "success": True,
+                "message": "No receipts to delete",
+                "total": 0
+            }), 200
+        
+        # Create new job
+        job = BackgroundJob(
+            business_id=business_id,
+            requested_by_user_id=user_id,
+            job_type='delete_receipts_all',
+            status='queued',
+            total=total_receipts,
+            processed=0,
+            succeeded=0,
+            failed_count=0
+        )
+        db.session.add(job)
+        db.session.commit()
+        
+        logger.info(f"Created delete_all job {job.id} for business {business_id} ({total_receipts} receipts)")
+        
+        # Enqueue to RQ maintenance queue
+        if RQ_AVAILABLE and redis_conn:
+            try:
+                # Use 'maintenance' queue for batch operations (lower priority)
+                maintenance_queue = Queue('maintenance', connection=redis_conn)
+                from server.jobs.delete_receipts_job import delete_receipts_batch_job
+                
+                rq_job = maintenance_queue.enqueue(
+                    delete_receipts_batch_job,
+                    job.id,  # Pass job_id as first argument
+                    job_timeout='1h'  # 1 hour max per job execution
+                )
+                logger.info(f"Enqueued job {job.id} to maintenance queue: {rq_job.id}")
+            except Exception as e:
+                logger.error(f"Failed to enqueue job: {e}")
+                job.status = 'failed'
+                job.last_error = f"Failed to enqueue: {str(e)}"
+                db.session.commit()
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to start background job. Please try again."
+                }), 500
+        else:
+            logger.warning("RQ not available - job created but not enqueued")
+            job.last_error = "RQ not available"
+            db.session.commit()
+            return jsonify({
+                "success": False,
+                "error": "Background worker not available. Please contact support."
+            }), 503
+        
+        log_audit('delete_all_start', 'receipts', job.id, {'total': total_receipts})
+        
+        return jsonify({
+            "success": True,
+            "job_id": job.id,
+            "status": job.status,
+            "total": job.total,
+            "message": f"Delete job started for {total_receipts} receipts"
+        }), 202
+    
+    except Exception as e:
+        logger.error(f"Failed to create delete_all job: {e}", exc_info=True)
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": f"Failed to start delete job: {str(e)}"
+        }), 500
+
+
+@receipts_bp.route('/jobs/<int:job_id>', methods=['GET'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def get_job_status(job_id):
+    """
+    Get status of a background job
+    
+    Returns:
+    - job_id: Job ID
+    - status: Current status (queued/running/paused/completed/failed/cancelled)
+    - total: Total items to process
+    - processed: Items processed so far
+    - succeeded: Items successfully processed
+    - failed_count: Items that failed
+    - percent: Completion percentage (0-100)
+    - last_error: Last error message (if any)
+    - created_at: When job was created
+    - started_at: When job started (if started)
+    - finished_at: When job finished (if finished)
+    """
+    from server.models_sql import BackgroundJob
+    
+    business_id = get_current_business_id()
+    
+    # Load job with business_id check for multi-tenant isolation
+    job = BackgroundJob.query.filter_by(
+        id=job_id,
+        business_id=business_id
+    ).first()
+    
+    if not job:
+        return jsonify({
+            "success": False,
+            "error": "Job not found"
+        }), 404
+    
+    return jsonify({
+        "success": True,
+        "job_id": job.id,
+        "job_type": job.job_type,
+        "status": job.status,
+        "total": job.total,
+        "processed": job.processed,
+        "succeeded": job.succeeded,
+        "failed_count": job.failed_count,
+        "percent": job.percent,
+        "last_error": job.last_error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None
+    })
+
+
+@receipts_bp.route('/jobs/<int:job_id>/cancel', methods=['POST'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def cancel_job(job_id):
+    """
+    Cancel a running job
+    
+    Sets status to 'cancelled' - worker will stop on next batch
+    """
+    from server.models_sql import BackgroundJob
+    
+    business_id = get_current_business_id()
+    
+    # Load job with business_id check
+    job = BackgroundJob.query.filter_by(
+        id=job_id,
+        business_id=business_id
+    ).first()
+    
+    if not job:
+        return jsonify({
+            "success": False,
+            "error": "Job not found"
+        }), 404
+    
+    # Can only cancel queued/running/paused jobs
+    if job.status not in ['queued', 'running', 'paused']:
+        return jsonify({
+            "success": False,
+            "error": f"Cannot cancel job with status '{job.status}'"
+        }), 400
+    
+    job.status = 'cancelled'
+    job.finished_at = datetime.utcnow()
+    job.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    log_audit('cancel_job', 'background_job', job_id)
+    
+    return jsonify({
+        "success": True,
+        "message": "Job cancelled",
+        "status": job.status
+    })
+
+
+@receipts_bp.route('/jobs/<int:job_id>/resume', methods=['POST'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def resume_job(job_id):
+    """
+    Resume a paused job
+    
+    Re-enqueues the job to continue from where it left off
+    """
+    from server.models_sql import BackgroundJob
+    
+    business_id = get_current_business_id()
+    
+    # Load job with business_id check
+    job = BackgroundJob.query.filter_by(
+        id=job_id,
+        business_id=business_id
+    ).first()
+    
+    if not job:
+        return jsonify({
+            "success": False,
+            "error": "Job not found"
+        }), 404
+    
+    # Can only resume paused jobs
+    if job.status != 'paused':
+        return jsonify({
+            "success": False,
+            "error": f"Cannot resume job with status '{job.status}'"
+        }), 400
+    
+    # Update status back to queued
+    job.status = 'queued'
+    job.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    # Re-enqueue
+    if RQ_AVAILABLE and redis_conn:
+        try:
+            maintenance_queue = Queue('maintenance', connection=redis_conn)
+            from server.jobs.delete_receipts_job import delete_receipts_batch_job
+            
+            rq_job = maintenance_queue.enqueue(
+                delete_receipts_batch_job,
+                job.id,  # Pass job_id as first argument
+                job_timeout='1h'
+            )
+            logger.info(f"Re-enqueued job {job.id}: {rq_job.id}")
+        except Exception as e:
+            logger.error(f"Failed to re-enqueue job: {e}")
+            job.status = 'paused'  # Revert to paused
+            db.session.commit()
+            return jsonify({
+                "success": False,
+                "error": "Failed to resume job. Please try again."
+            }), 500
+    else:
+        job.status = 'paused'  # Revert to paused
+        db.session.commit()
+        return jsonify({
+            "success": False,
+            "error": "Background worker not available"
+        }), 503
+    
+    log_audit('resume_job', 'background_job', job_id)
+    
+    return jsonify({
+        "success": True,
+        "message": "Job resumed",
+        "status": job.status
+    })
 
 
 @receipts_bp.route('/sync', methods=['POST'])

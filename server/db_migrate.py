@@ -4909,6 +4909,80 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  call_log table does not exist - skipping Migration 99")
         
+        # ============================================================================
+        # Migration 100: Background Jobs Table for Stable Batch Operations
+        # ============================================================================
+        # Implements background job management for heavy operations like delete-all
+        # Features:
+        # - Multi-tenant isolation (business_id)
+        # - Job status tracking (queued/running/paused/completed/failed/cancelled)
+        # - Progress tracking (total/processed/succeeded/failed_count)
+        # - Cursor-based resumability for interrupted jobs
+        # - Prevents concurrent jobs per business (unique constraint)
+        # ============================================================================
+        checkpoint("Migration 100: Creating background_jobs table for stable batch operations")
+        if not check_table_exists('background_jobs'):
+            try:
+                checkpoint("  → Creating background_jobs table...")
+                db.session.execute(text("""
+                    CREATE TABLE background_jobs (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        job_type VARCHAR(64) NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'queued',
+                        total INTEGER DEFAULT 0,
+                        processed INTEGER DEFAULT 0,
+                        succeeded INTEGER DEFAULT 0,
+                        failed_count INTEGER DEFAULT 0,
+                        last_error TEXT,
+                        cursor TEXT,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        started_at TIMESTAMP,
+                        finished_at TIMESTAMP,
+                        requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                        CONSTRAINT chk_job_status CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'cancelled')),
+                        CONSTRAINT chk_job_type CHECK (job_type IN ('delete_receipts_all'))
+                    )
+                """))
+                checkpoint("  ✅ background_jobs table created")
+                migrations_applied.append('create_background_jobs_table')
+                
+                # Add indexes for performance
+                checkpoint("  → Creating indexes...")
+                
+                # Index for finding active jobs per business
+                db.session.execute(text("""
+                    CREATE INDEX idx_background_jobs_business_type_status 
+                    ON background_jobs(business_id, job_type, status)
+                """))
+                checkpoint("  ✅ idx_background_jobs_business_type_status created")
+                
+                # Index for job history queries
+                db.session.execute(text("""
+                    CREATE INDEX idx_background_jobs_created_at 
+                    ON background_jobs(created_at DESC)
+                """))
+                checkpoint("  ✅ idx_background_jobs_created_at created")
+                
+                # Add unique constraint to prevent duplicate active jobs
+                checkpoint("  → Creating unique constraint...")
+                db.session.execute(text("""
+                    CREATE UNIQUE INDEX idx_background_jobs_unique_active 
+                    ON background_jobs(business_id, job_type) 
+                    WHERE status IN ('queued', 'running', 'paused')
+                """))
+                checkpoint("  ✅ idx_background_jobs_unique_active created (prevents concurrent jobs)")
+                
+                checkpoint("✅ Migration 100 completed - background_jobs table ready")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 100 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️  background_jobs table already exists - skipping Migration 100")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
