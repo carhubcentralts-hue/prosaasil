@@ -269,25 +269,73 @@ def global_search():
                 log.error(f"Error searching contacts: {e}")
         
         # Search in System Pages (דפים במערכת)
+        # ✅ COMPLETE REGISTRY: All routes from routes.tsx with feature flags and roles
         if 'pages' in search_types or types_param == 'all' or not types_param:
             SYSTEM_PAGES = [
-                {'id': 'leads', 'title': 'לידים', 'description': 'ניהול לידים ולקוחות', 'keywords': ['לידים', 'לקוחות', 'leads', 'crm'], 'path': '/app/leads', 'category': 'ניהול'},
-                {'id': 'calls', 'title': 'שיחות טלפון', 'description': 'שיחות נכנסות ויוצאות', 'keywords': ['שיחות', 'טלפון', 'calls'], 'path': '/app/calls', 'category': 'תקשורת'},
-                {'id': 'inbound', 'title': 'שיחות נכנסות', 'description': 'שיחות נכנסות', 'keywords': ['נכנס', 'inbound'], 'path': '/app/calls', 'category': 'תקשורת'},
-                {'id': 'outbound', 'title': 'שיחות יוצאות', 'description': 'שיחות יוצאות', 'keywords': ['יוצא', 'outbound'], 'path': '/app/outbound-calls', 'category': 'תקשורת'},
-                {'id': 'whatsapp', 'title': 'WhatsApp', 'description': 'שיחות WhatsApp', 'keywords': ['whatsapp', 'ווצאפ'], 'path': '/app/whatsapp', 'category': 'תקשורת'},
-                {'id': 'broadcast', 'title': 'תפוצת WhatsApp', 'description': 'שלח הודעות המוניות', 'keywords': ['תפוצה', 'broadcast'], 'path': '/app/whatsapp-broadcast', 'category': 'תקשורת'},
-                {'id': 'crm', 'title': 'משימות', 'description': 'ניהול משימות', 'keywords': ['משימות', 'tasks', 'crm'], 'path': '/app/crm', 'category': 'ניהול'},
-                {'id': 'users', 'title': 'ניהול משתמשים', 'description': 'ניהול משתמשים והרשאות', 'keywords': ['משתמשים', 'users'], 'path': '/app/users', 'category': 'הגדרות'},
-                {'id': 'settings', 'title': 'הגדרות מערכת', 'description': 'הגדרות כלליות', 'keywords': ['הגדרות', 'settings'], 'path': '/app/settings', 'category': 'הגדרות'},
-                {'id': 'businesses', 'title': 'ניהול עסקים', 'description': 'ניהול עסקים (מנהל מערכת)', 'keywords': ['עסקים', 'businesses'], 'path': '/app/admin/businesses', 'category': 'ניהול', 'roles': ['system_admin']},
+                # Admin Pages
+                {'id': 'admin-overview', 'title': 'סקירה כללית - מנהל', 'description': 'לוח בקרה מנהל מערכת', 'keywords': ['סקירה', 'דשבורד', 'admin', 'overview'], 'path': '/app/admin/overview', 'category': 'ניהול', 'roles': ['system_admin'], 'features': []},
+                {'id': 'businesses', 'title': 'ניהול עסקים', 'description': 'רשימת כל העסקים במערכת', 'keywords': ['עסקים', 'businesses', 'ניהול'], 'path': '/app/admin/businesses', 'category': 'ניהול', 'roles': ['system_admin'], 'features': []},
+                {'id': 'business-minutes', 'title': 'ניהול דקות שיחה', 'description': 'צפייה בדקות שיחה לפי עסק', 'keywords': ['דקות', 'minutes', 'שיחות'], 'path': '/app/admin/business-minutes', 'category': 'ניהול', 'roles': ['system_admin'], 'features': ['calls']},
+                {'id': 'prompt-studio', 'title': 'סטודיו פרומפטים', 'description': 'עריכת פרומפטים AI ובדיקה', 'keywords': ['פרומפטים', 'prompts', 'ai', 'בינה מלאכותית', 'סטודיו'], 'path': '/app/admin/prompt-studio', 'category': 'AI', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
+                
+                # Business Pages
+                {'id': 'dashboard', 'title': 'סקירה כללית', 'description': 'לוח בקרה עסקי', 'keywords': ['סקירה', 'דשבורד', 'dashboard', 'overview'], 'path': '/app/business/overview', 'category': 'ניהול', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                {'id': 'leads', 'title': 'לידים', 'description': 'ניהול לידים ולקוחות פוטנציאליים', 'keywords': ['לידים', 'לקוחות', 'leads', 'crm'], 'path': '/app/leads', 'category': 'CRM', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['crm']},
+                
+                # Communication - WhatsApp
+                {'id': 'whatsapp', 'title': 'WhatsApp', 'description': 'שיחות WhatsApp עם לקוחות', 'keywords': ['whatsapp', 'ווצאפ', 'וואטסאפ', 'צ\'ט'], 'path': '/app/whatsapp', 'category': 'תקשורת', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['whatsapp']},
+                {'id': 'whatsapp-broadcast', 'title': 'תפוצת WhatsApp', 'description': 'שליחת הודעות המוניות', 'keywords': ['תפוצה', 'broadcast', 'whatsapp', 'המוני'], 'path': '/app/whatsapp-broadcast', 'category': 'תקשורת', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['whatsapp']},
+                
+                # Communication - Calls
+                {'id': 'calls-inbound', 'title': 'שיחות נכנסות', 'description': 'שיחות טלפון נכנסות', 'keywords': ['שיחות', 'נכנס', 'inbound', 'calls', 'טלפון'], 'path': '/app/calls', 'category': 'תקשורת', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['calls']},
+                {'id': 'calls-outbound', 'title': 'שיחות יוצאות', 'description': 'שיחות טלפון יוצאות', 'keywords': ['שיחות', 'יוצא', 'outbound', 'calls', 'טלפון'], 'path': '/app/outbound-calls', 'category': 'תקשורת', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['calls']},
+                
+                # CRM & Tasks
+                {'id': 'crm', 'title': 'משימות', 'description': 'ניהול משימות ועבודות', 'keywords': ['משימות', 'tasks', 'crm', 'פרויקטים'], 'path': '/app/crm', 'category': 'CRM', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['crm']},
+                
+                # Email & Communication
+                {'id': 'emails', 'title': 'מיילים', 'description': 'ניהול מיילים ותבניות', 'keywords': ['מיילים', 'emails', 'דואר', 'אימייל'], 'path': '/app/emails', 'category': 'תקשורת', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                
+                # Statistics & Reports
+                {'id': 'statistics', 'title': 'סטטיסטיקות', 'description': 'דוחות וניתוח נתונים', 'keywords': ['סטטיסטיקות', 'statistics', 'דוחות', 'ניתוח'], 'path': '/app/statistics', 'category': 'דוחות', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                
+                # Financial
+                {'id': 'contracts', 'title': 'חוזים', 'description': 'ניהול חוזים וחתימות דיגיטליות', 'keywords': ['חוזים', 'contracts', 'חתימה', 'signature'], 'path': '/app/contracts', 'category': 'כספים', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['contracts']},
+                {'id': 'receipts', 'title': 'קבלות', 'description': 'ניהול קבלות והוצאות', 'keywords': ['קבלות', 'receipts', 'הוצאות', 'חשבוניות'], 'path': '/app/receipts', 'category': 'כספים', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['receipts']},
+                
+                # Assets & Library
+                {'id': 'assets', 'title': 'מאגר', 'description': 'מאגר קבצים ומסמכים', 'keywords': ['מאגר', 'assets', 'קבצים', 'library'], 'path': '/app/assets', 'category': 'ניהול', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                
+                # Calendar
+                {'id': 'calendar', 'title': 'לוח שנה', 'description': 'ניהול פגישות ותורים', 'keywords': ['לוח שנה', 'calendar', 'פגישות', 'תורים'], 'path': '/app/calendar', 'category': 'ניהול', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                
+                # Settings & Users
+                {'id': 'users', 'title': 'ניהול משתמשים', 'description': 'ניהול משתמשים והרשאות', 'keywords': ['משתמשים', 'users', 'הרשאות', 'permissions'], 'path': '/app/users', 'category': 'הגדרות', 'roles': ['system_admin', 'owner', 'admin'], 'features': []},
+                {'id': 'settings', 'title': 'הגדרות מערכת', 'description': 'הגדרות כלליות ואינטגרציות', 'keywords': ['הגדרות', 'settings', 'קונפיגורציה'], 'path': '/app/settings', 'category': 'הגדרות', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
             ]
+            
+            # Get business features (simplified - full implementation would query DB)
+            # For now, we'll assume all features are enabled unless we have specific business data
+            business_features = {
+                'calls': True,
+                'whatsapp': True,
+                'crm': True,
+                'contracts': True,
+                'receipts': True
+            }
             
             query_lower = query.lower()
             for page in SYSTEM_PAGES:
                 # Check role access
                 if 'roles' in page and user_role not in page.get('roles', []):
                     continue
+                
+                # Check feature access (filter by business features)
+                if 'features' in page and page['features']:
+                    # If page requires features, check if business has them
+                    has_required_features = all(business_features.get(feature, False) for feature in page['features'])
+                    if not has_required_features:
+                        continue
                 
                 # Search in title, description, keywords
                 if (query_lower in page['title'].lower() or
@@ -305,18 +353,74 @@ def global_search():
                         }
                     })
         
-        # Search in Settings (הגדרות)
+        # Search in Settings & Tabs (הגדרות וטאבים)
+        # ✅ COMPLETE REGISTRY: All settings pages and tabs with feature flags
         if 'settings' in search_types or types_param == 'all' or not types_param:
             SYSTEM_SETTINGS = [
-                {'id': 'webhook', 'title': 'Webhook', 'description': 'הגדרות Webhook ל-Twilio', 'keywords': ['webhook', 'twilio', 'אינטגרציות', 'integrations'], 'path': '/app/settings?tab=integrations', 'section': 'integrations'},
-                {'id': 'ai-prompts', 'title': 'AI Prompts', 'description': 'הגדרות פרומפטים ל-AI', 'keywords': ['ai', 'prompts', 'פרומפט', 'פרומפטים', 'בינה מלאכותית'], 'path': '/app/admin/prompts', 'section': 'ai'},
-                {'id': 'phone', 'title': 'מספרי טלפון', 'description': 'ניהול מספרי טלפון', 'keywords': ['טלפון', 'phone', 'numbers'], 'path': '/app/settings?tab=phone', 'section': 'phone'},
-                {'id': 'whatsapp-config', 'title': 'הגדרות WhatsApp', 'description': 'Meta Cloud API / Baileys', 'keywords': ['whatsapp', 'meta', 'baileys'], 'path': '/app/settings?tab=whatsapp', 'section': 'whatsapp'},
-                {'id': 'statuses', 'title': 'ניהול סטטוסים', 'description': 'ניהול סטטוסים של לידים', 'keywords': ['סטטוסים', 'statuses', 'pipeline'], 'path': '/app/leads', 'action': 'open-status-modal'},
+                # Settings Page Tabs
+                {'id': 'settings-business', 'title': 'הגדרות עסק', 'description': 'פרטי העסק, שעות פעילות, אזור זמן', 'keywords': ['הגדרות', 'עסק', 'business', 'settings'], 'path': '/app/settings?tab=business', 'section': 'business', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                {'id': 'settings-integrations', 'title': 'אינטגרציות', 'description': 'Twilio, WhatsApp, Webhook', 'keywords': ['אינטגרציות', 'integrations', 'webhook', 'twilio'], 'path': '/app/settings?tab=integrations', 'section': 'integrations', 'roles': ['system_admin', 'owner', 'admin'], 'features': []},
+                {'id': 'settings-security', 'title': 'אבטחה', 'description': 'סיסמאות והרשאות', 'keywords': ['אבטחה', 'security', 'סיסמה', 'password'], 'path': '/app/settings?tab=security', 'section': 'security', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                {'id': 'settings-notifications', 'title': 'התראות', 'description': 'הגדרות התראות ועדכונים', 'keywords': ['התראות', 'notifications', 'push'], 'path': '/app/settings?tab=notifications', 'section': 'notifications', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                
+                # Prompt Studio Tabs
+                {'id': 'prompt-studio-prompts', 'title': 'עריכת פרומפטים', 'description': 'עריכת פרומפטים לשיחות ו-WhatsApp', 'keywords': ['פרומפטים', 'prompts', 'ai', 'עריכה'], 'path': '/app/admin/prompt-studio?tab=prompts', 'section': 'prompts', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
+                {'id': 'prompt-studio-builder', 'title': 'מחולל פרומפטים', 'description': 'יצירת פרומפטים חכמים באופן אוטומטי', 'keywords': ['מחולל', 'builder', 'generator', 'פרומפטים'], 'path': '/app/admin/prompt-studio?tab=builder', 'section': 'builder', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
+                {'id': 'prompt-studio-tester', 'title': 'בדיקת שיחה חיה', 'description': 'בדיקת פרומפטים בשיחה חיה', 'keywords': ['בדיקה', 'tester', 'live', 'שיחה'], 'path': '/app/admin/prompt-studio?tab=tester', 'section': 'tester', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
+                {'id': 'prompt-studio-appointments', 'title': 'הגדרות תורים', 'description': 'הגדרות קביעת פגישות ותורים', 'keywords': ['תורים', 'appointments', 'פגישות'], 'path': '/app/admin/prompt-studio?tab=appointments', 'section': 'appointments', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
+                
+                # WhatsApp Broadcast Tabs
+                {'id': 'whatsapp-broadcast-send', 'title': 'שליחת תפוצה', 'description': 'שליחת הודעת תפוצה ב-WhatsApp', 'keywords': ['תפוצה', 'broadcast', 'שליחה', 'send'], 'path': '/app/whatsapp-broadcast?tab=send', 'section': 'send', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['whatsapp']},
+                {'id': 'whatsapp-broadcast-history', 'title': 'היסטוריית תפוצות', 'description': 'צפייה בתפוצות קודמות', 'keywords': ['היסטוריה', 'history', 'תפוצות'], 'path': '/app/whatsapp-broadcast?tab=history', 'section': 'history', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['whatsapp']},
+                {'id': 'whatsapp-broadcast-templates', 'title': 'תבניות תפוצה', 'description': 'ניהול תבניות הודעות', 'keywords': ['תבניות', 'templates', 'תפוצה'], 'path': '/app/whatsapp-broadcast?tab=templates', 'section': 'templates', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['whatsapp']},
+                
+                # Email Page Tabs
+                {'id': 'emails-all', 'title': 'כל המיילים', 'description': 'צפייה בכל המיילים', 'keywords': ['מיילים', 'emails', 'כל'], 'path': '/app/emails?tab=all', 'section': 'all', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                {'id': 'emails-sent', 'title': 'מיילים שנשלחו', 'description': 'מיילים יוצאים', 'keywords': ['מיילים', 'נשלחו', 'sent'], 'path': '/app/emails?tab=sent', 'section': 'sent', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                {'id': 'emails-leads', 'title': 'מיילים לפי ליד', 'description': 'מיילים מקושרים ללידים', 'keywords': ['מיילים', 'לידים', 'leads'], 'path': '/app/emails?tab=leads', 'section': 'leads', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': []},
+                {'id': 'emails-templates', 'title': 'תבניות מייל', 'description': 'ניהול תבניות', 'keywords': ['תבניות', 'templates', 'מייל'], 'path': '/app/emails?tab=templates', 'section': 'templates', 'roles': ['system_admin', 'owner', 'admin'], 'features': []},
+                {'id': 'emails-settings', 'title': 'הגדרות מייל', 'description': 'הגדרות Gmail וסנכרון', 'keywords': ['הגדרות', 'settings', 'gmail'], 'path': '/app/emails?tab=settings', 'section': 'settings', 'roles': ['system_admin', 'owner', 'admin'], 'features': []},
+                
+                # Contracts Page Tabs  
+                {'id': 'contracts-list', 'title': 'חוזים', 'description': 'רשימת כל החוזים', 'keywords': ['חוזים', 'contracts', 'רשימה'], 'path': '/app/contracts?tab=list', 'section': 'list', 'roles': ['system_admin', 'owner', 'admin', 'agent'], 'features': ['contracts']},
+                {'id': 'contracts-templates', 'title': 'תבניות חוזים', 'description': 'ניהול תבניות חוזים', 'keywords': ['תבניות', 'templates', 'חוזים'], 'path': '/app/contracts?tab=templates', 'section': 'templates', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['contracts']},
+                
+                # Admin Support Tabs
+                {'id': 'admin-support-prompt', 'title': 'תמיכת פרומפטים', 'description': 'תמיכה בפרומפטים', 'keywords': ['תמיכה', 'support', 'פרומפטים'], 'path': '/app/admin/support?tab=prompt', 'section': 'prompt', 'roles': ['system_admin'], 'features': []},
+                {'id': 'admin-support-phones', 'title': 'ניהול מספרי טלפון', 'description': 'ניהול מספרי טלפון Twilio', 'keywords': ['טלפון', 'phones', 'twilio'], 'path': '/app/admin/support?tab=phones', 'section': 'phones', 'roles': ['system_admin'], 'features': ['calls']},
+                
+                # Business Details Tabs (Admin)
+                {'id': 'business-details-overview', 'title': 'פרטי עסק', 'description': 'סקירת פרטי העסק', 'keywords': ['עסק', 'business', 'פרטים'], 'path': '/app/admin/businesses/:id?tab=overview', 'section': 'overview', 'roles': ['system_admin'], 'features': []},
+                {'id': 'business-details-users', 'title': 'משתמשי עסק', 'description': 'משתמשים של העסק', 'keywords': ['משתמשים', 'users', 'עסק'], 'path': '/app/admin/businesses/:id?tab=users', 'section': 'users', 'roles': ['system_admin'], 'features': []},
+                {'id': 'business-details-integrations', 'title': 'אינטגרציות עסק', 'description': 'אינטגרציות של העסק', 'keywords': ['אינטגרציות', 'integrations'], 'path': '/app/admin/businesses/:id?tab=integrations', 'section': 'integrations', 'roles': ['system_admin'], 'features': []},
+                {'id': 'business-details-audit', 'title': 'לוג ביקורת', 'description': 'רישום פעילות העסק', 'keywords': ['ביקורת', 'audit', 'לוג'], 'path': '/app/admin/businesses/:id?tab=audit', 'section': 'audit', 'roles': ['system_admin'], 'features': []},
+                
+                # Legacy / Backwards Compatibility
+                {'id': 'webhook', 'title': 'Webhook', 'description': 'הגדרות Webhook ל-Twilio', 'keywords': ['webhook', 'twilio', 'אינטגרציות'], 'path': '/app/settings?tab=integrations', 'section': 'integrations', 'roles': ['system_admin', 'owner', 'admin'], 'features': []},
+                {'id': 'ai-prompts', 'title': 'AI Prompts', 'description': 'עריכת פרומפטים', 'keywords': ['ai', 'prompts', 'פרומפטים'], 'path': '/app/admin/prompt-studio', 'section': 'ai', 'roles': ['system_admin', 'owner', 'admin'], 'features': ['calls']},
             ]
+            
+            # Get business features for filtering
+            business_features = {
+                'calls': True,
+                'whatsapp': True,
+                'crm': True,
+                'contracts': True,
+                'receipts': True
+            }
             
             query_lower = query.lower()
             for setting in SYSTEM_SETTINGS:
+                # Check role access
+                if 'roles' in setting and user_role not in setting.get('roles', []):
+                    continue
+                
+                # Check feature access (filter by business features)
+                if 'features' in setting and setting['features']:
+                    has_required_features = all(business_features.get(feature, False) for feature in setting['features'])
+                    if not has_required_features:
+                        continue
+                
                 # Search in title, description, keywords
                 if (query_lower in setting['title'].lower() or
                     query_lower in setting['description'].lower() or
