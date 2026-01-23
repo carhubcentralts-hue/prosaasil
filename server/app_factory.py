@@ -708,6 +708,10 @@ def create_app():
         from server.routes_voice_test import voice_test_bp
         app.register_blueprint(voice_test_bp)
         
+        # Live Call Blueprint - Browser-based voice chat (Web App only)
+        from server.routes_live_call import live_call_bp
+        app.register_blueprint(live_call_bp)
+        
         # Prompt Builder Blueprint - AI-powered prompt generation
         from server.routes_prompt_builder import prompt_builder_bp
         app.register_blueprint(prompt_builder_bp)
