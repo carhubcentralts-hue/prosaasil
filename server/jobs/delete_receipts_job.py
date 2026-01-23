@@ -90,6 +90,21 @@ def delete_receipts_batch_job(job_id: int):
         
         try:
             while True:
+                # CRITICAL: Check if job was cancelled
+                db.session.refresh(job)  # Reload job from DB to get latest status
+                if job.status == 'cancelled':
+                    logger.info(f"🛑 Job {job_id} was cancelled - stopping")
+                    job.finished_at = datetime.utcnow()
+                    job.updated_at = datetime.utcnow()
+                    db.session.commit()
+                    return {
+                        "success": True,
+                        "cancelled": True,
+                        "message": "Job was cancelled by user",
+                        "processed": job.processed,
+                        "total": job.total
+                    }
+                
                 # Check runtime limit
                 elapsed = time.time() - start_time
                 if elapsed > MAX_RUNTIME_SECONDS:

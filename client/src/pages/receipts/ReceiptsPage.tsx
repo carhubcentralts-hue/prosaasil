@@ -1028,7 +1028,7 @@ export function ReceiptsPage() {
     }
   }, [user?.token, fetchStats]);
   
-  // Initial load - load status, stats, and check for active sync
+  // Initial load - load status, stats, and check for active sync AND delete jobs
   useEffect(() => {
     const initializeAndCheckSync = async () => {
       await doInitialFetch();
@@ -1066,6 +1066,49 @@ export function ReceiptsPage() {
         }
       } catch (err) {
         console.error('Failed to check for active sync:', err);
+      }
+      
+      // CRITICAL: Check for active delete job on page load/refresh
+      try {
+        // Check localStorage for active delete job
+        const storedDeleteJobId = localStorage.getItem('activeDeleteJobId');
+        if (storedDeleteJobId) {
+          const jobId = parseInt(storedDeleteJobId, 10);
+          console.log('📍 Found stored delete job ID on page load:', jobId);
+          
+          // Fetch current job status
+          const jobRes = await axios.get(`/api/receipts/jobs/${jobId}`);
+          if (jobRes.data.success) {
+            const job = jobRes.data;
+            
+            // If job is still active, restore UI state
+            if (job.status === 'running' || job.status === 'paused' || job.status === 'queued') {
+              console.log('📍 Restoring active delete job:', job);
+              setDeleteJobId(jobId);
+              setShowDeleteProgress(true);
+              setDeleteProgress({
+                status: job.status,
+                total: job.total,
+                processed: job.processed,
+                succeeded: job.succeeded,
+                failed_count: job.failed_count,
+                percent: job.percent,
+                last_error: job.last_error
+              });
+              
+              // Start polling
+              deleteProgressRef.current = { active: true, jobId };
+              pollDeleteProgress(jobId);
+            } else {
+              // Job completed/failed - clear localStorage
+              localStorage.removeItem('activeDeleteJobId');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check for active delete job:', err);
+        // Clear localStorage if job fetch fails
+        localStorage.removeItem('activeDeleteJobId');
       }
     };
     
@@ -1399,6 +1442,9 @@ export function ReceiptsPage() {
           percent: 0
         });
         
+        // CRITICAL: Store job ID in localStorage for persistence across refresh
+        localStorage.setItem('activeDeleteJobId', jobId.toString());
+        
         // Start polling for progress
         deleteProgressRef.current = { active: true, jobId };
         pollDeleteProgress(jobId);
@@ -1435,6 +1481,8 @@ export function ReceiptsPage() {
         // Check if job is complete
         if (progress.status === 'completed') {
           deleteProgressRef.current.active = false;
+          // CRITICAL: Clear localStorage when job completes
+          localStorage.removeItem('activeDeleteJobId');
           // Wait a bit to show 100% before closing
           setTimeout(() => {
             setShowDeleteProgress(false);
@@ -1446,11 +1494,15 @@ export function ReceiptsPage() {
           return;
         } else if (progress.status === 'failed') {
           deleteProgressRef.current.active = false;
+          // CRITICAL: Clear localStorage when job fails
+          localStorage.removeItem('activeDeleteJobId');
           alert(`מחיקה נכשלה: ${progress.last_error || 'שגיאה לא ידועה'}`);
           setShowDeleteProgress(false);
           return;
         } else if (progress.status === 'cancelled') {
           deleteProgressRef.current.active = false;
+          // CRITICAL: Clear localStorage when job is cancelled
+          localStorage.removeItem('activeDeleteJobId');
           alert('מחיקה בוטלה');
           setShowDeleteProgress(false);
           return;
@@ -1476,6 +1528,8 @@ export function ReceiptsPage() {
       });
       
       deleteProgressRef.current.active = false;
+      // CRITICAL: Clear localStorage when job is cancelled
+      localStorage.removeItem('activeDeleteJobId');
       alert('מחיקה בוטלה');
       setShowDeleteProgress(false);
       fetchReceipts();
