@@ -4719,6 +4719,96 @@ def apply_migrations():
         
         checkpoint("✅ Migration 96 completed - WhatsApp Prompt-Only Mode + Lead Name Tracking")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 97: Add unique constraint to receipts to prevent duplicates
+        # ═══════════════════════════════════════════════════════════════════════
+        if check_table_exists('receipts'):
+            checkpoint("🔧 Running Migration 97: Add unique constraint to receipts")
+            
+            try:
+                # Check if unique index already exists
+                index_exists = db.session.execute(text("""
+                    SELECT COUNT(*) 
+                    FROM pg_indexes 
+                    WHERE indexname = 'uq_receipts_business_gmail_message'
+                """)).scalar() > 0
+                
+                if not index_exists:
+                    checkpoint("  → Creating unique index for Gmail message IDs...")
+                    
+                    # First, check for existing duplicates and clean them up
+                    checkpoint("  → Checking for existing duplicates...")
+                    result = db.session.execute(text("""
+                        SELECT 
+                            business_id,
+                            gmail_message_id,
+                            COUNT(*) as count
+                        FROM receipts
+                        WHERE is_deleted = FALSE 
+                        AND gmail_message_id IS NOT NULL
+                        GROUP BY business_id, gmail_message_id
+                        HAVING COUNT(*) > 1
+                    """))
+                    
+                    duplicates = result.fetchall()
+                    if duplicates:
+                        checkpoint(f"  ⚠️  Found {len(duplicates)} duplicate Gmail message IDs")
+                        checkpoint("  → Marking older duplicates as deleted...")
+                        
+                        for dup in duplicates:
+                            business_id, gmail_message_id, count = dup
+                            # Keep the newest one, soft-delete the rest
+                            db.session.execute(text("""
+                                UPDATE receipts
+                                SET is_deleted = TRUE, deleted_at = NOW()
+                                WHERE business_id = :business_id
+                                AND gmail_message_id = :gmail_message_id
+                                AND is_deleted = FALSE
+                                AND id NOT IN (
+                                    SELECT id FROM receipts
+                                    WHERE business_id = :business_id
+                                    AND gmail_message_id = :gmail_message_id
+                                    AND is_deleted = FALSE
+                                    ORDER BY created_at DESC
+                                    LIMIT 1
+                                )
+                            """), {
+                                'business_id': business_id,
+                                'gmail_message_id': gmail_message_id
+                            })
+                        
+                        checkpoint(f"  ✅ Cleaned up {len(duplicates)} duplicate sets")
+                    else:
+                        checkpoint("  ✅ No duplicates found")
+                    
+                    # Now create the unique index
+                    # This is a partial unique index that only applies to:
+                    # - Non-deleted receipts (is_deleted = FALSE)
+                    # - Receipts with gmail_message_id (NOT NULL)
+                    # This allows:
+                    # 1. Multiple NULL gmail_message_ids (for manual/upload receipts)
+                    # 2. Multiple deleted receipts with same gmail_message_id
+                    # 3. But prevents duplicate active receipts from same Gmail message
+                    db.session.execute(text("""
+                        CREATE UNIQUE INDEX uq_receipts_business_gmail_message 
+                        ON receipts(business_id, gmail_message_id)
+                        WHERE is_deleted = FALSE AND gmail_message_id IS NOT NULL
+                    """))
+                    
+                    checkpoint("  ✅ Created unique constraint for receipts")
+                    migrations_applied.append('add_receipts_unique_constraint')
+                else:
+                    checkpoint("  ℹ️  Unique index already exists - skipping")
+                
+                checkpoint("✅ Migration 97 completed - Receipts unique constraint added")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 97 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️  receipts table does not exist - skipping Migration 97")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

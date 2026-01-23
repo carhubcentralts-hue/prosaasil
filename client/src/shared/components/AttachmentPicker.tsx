@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, X, Image, FileText, Video, File, Paperclip } from 'lucide-react';
+import { Upload, X, Image, FileText, Video, File, Paperclip, Trash2 } from 'lucide-react';
 
 interface Attachment {
   id: number;
@@ -132,6 +132,42 @@ export function AttachmentPicker({
       setError(err.message || 'Failed to upload file');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDelete = async (attachmentId: number) => {
+    // Confirm deletion
+    if (!window.confirm('האם אתה בטוח שברצונך למחוק קובץ זה? פעולה זו אינה ניתנת לביטול.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/attachments/${attachmentId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete attachment');
+      }
+
+      // Remove from list
+      setAttachments(attachments.filter(att => att.id !== attachmentId));
+      
+      // If this was selected, deselect it
+      if (mode === 'single' && selectedAttachmentId === attachmentId) {
+        onAttachmentSelect(null);
+      } else if (mode === 'multi' && selectedIds.includes(attachmentId)) {
+        const newIds = selectedIds.filter(id => id !== attachmentId);
+        setSelectedIds(newIds);
+        onAttachmentSelect(newIds.length > 0 ? newIds : null);
+      }
+
+      setError(null);
+    } catch (err: any) {
+      console.error('Error deleting attachment:', err);
+      setError(err.message || 'Failed to delete attachment');
     }
   };
 
@@ -337,6 +373,20 @@ export function AttachmentPicker({
                         </svg>
                       </div>
                     )}
+                    
+                    {/* Delete button - top right */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent card selection
+                        handleDelete(att.id);
+                      }}
+                      className="absolute top-1 right-1 p-1.5 bg-red-500 hover:bg-red-600 rounded-full transition-colors shadow-lg border-2 border-white group"
+                      title="מחק קובץ"
+                      aria-label={`מחק ${att.filename}`}
+                    >
+                      <Trash2 className="w-4 h-4 text-white" />
+                    </button>
                   </button>
                 );
                 })}
