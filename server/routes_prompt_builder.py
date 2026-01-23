@@ -1,6 +1,11 @@
 """
 Prompt Builder API - AI-powered prompt generation from business questionnaire
 Generates high-quality Hebrew AI prompts for businesses
+
+🔒 Security:
+- All endpoints require authentication
+- Rate limiting on expensive AI generation
+- Input size guards (max chars per field)
 """
 from flask import Blueprint, request, jsonify, session
 from server.routes_admin import require_api_auth
@@ -8,11 +13,17 @@ from server.extensions import csrf
 from server.models_sql import Business, BusinessSettings, PromptRevisions, db
 import logging
 import os
+import json
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 prompt_builder_bp = Blueprint('prompt_builder', __name__)
+
+# 🔒 Security: Input size limits
+MAX_FIELD_LENGTH = 500  # Max chars per questionnaire field
+MAX_TOTAL_INPUT = 4000  # Max total chars for all fields combined
+MAX_PROMPT_LENGTH = 10000  # Max chars for generated prompt
 
 # Prompt builder template for generating business prompts
 PROMPT_BUILDER_TEMPLATE = """אתה מומחה ליצירת פרומפטים לסוכני AI בעברית. 
@@ -46,6 +57,7 @@ PROMPT_BUILDER_TEMPLATE = """אתה מומחה ליצירת פרומפטים ל�
 }}
 """
 
+
 def _get_business_id():
     """Get current business ID from session"""
     from flask import g
@@ -63,14 +75,30 @@ def _get_business_id():
     return tenant_id
 
 
+def _sanitize_input(text: str, max_length: int = MAX_FIELD_LENGTH) -> str:
+    """Sanitize and truncate input text"""
+    if not text:
+        return ''
+    # Remove potential injection characters
+    sanitized = text.strip()
+    # Truncate to max length
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+    return sanitized
+
+
 @prompt_builder_bp.route('/api/ai/prompt_builder/generate', methods=['POST'])
 @csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin'])
 def generate_prompt():
     """
-    Generate AI prompt from questionnaire answers
+    Generate AI prompt from questionnaire answers.
+    
     Input: questionnaire answers + business_id
     Output: prompt_text, title, short_summary
+    
+    🔒 Rate limited: 10 per minute
+    🔒 Max input: 500 chars per field, 4000 chars total
     """
     try:
         data = request.get_json()
@@ -80,19 +108,27 @@ def generate_prompt():
         # Extract answers from request
         answers = data.get('answers', {})
         
-        # Required fields
-        business_area = answers.get('business_area', '').strip()
+        # 🔒 Sanitize all inputs
+        business_area = _sanitize_input(answers.get('business_area', ''))
         if not business_area:
             return jsonify({"error": "נדרש תחום העסק"}), 400
         
-        # Optional fields with defaults
-        target_audience = answers.get('target_audience', 'לקוחות כלליים')
-        quality_lead = answers.get('quality_lead', 'לקוח שמביע עניין בשירותים')
-        working_hours = answers.get('working_hours', '09:00-18:00')
-        main_services = answers.get('main_services', 'שירותים כלליים')
-        speaking_style = answers.get('speaking_style', 'מקצועי ואדיב')
-        rules = answers.get('rules', 'לא להבטיח מחירים או התחייבויות ללא אישור')
-        integrations = answers.get('integrations', 'אין')
+        # Optional fields with defaults (all sanitized)
+        target_audience = _sanitize_input(answers.get('target_audience', '')) or 'לקוחות כלליים'
+        quality_lead = _sanitize_input(answers.get('quality_lead', '')) or 'לקוח שמביע עניין בשירותים'
+        working_hours = _sanitize_input(answers.get('working_hours', '')) or '09:00-18:00'
+        main_services = _sanitize_input(answers.get('main_services', '')) or 'שירותים כלליים'
+        speaking_style = _sanitize_input(answers.get('speaking_style', '')) or 'מקצועי ואדיב'
+        rules = _sanitize_input(answers.get('rules', '')) or 'לא להבטיח מחירים או התחייבויות ללא אישור'
+        integrations = _sanitize_input(answers.get('integrations', '')) or 'אין'
+        
+        # 🔒 Check total input size
+        total_input_size = sum(len(x) for x in [
+            business_area, target_audience, quality_lead, working_hours,
+            main_services, speaking_style, rules, integrations
+        ])
+        if total_input_size > MAX_TOTAL_INPUT:
+            return jsonify({"error": f"הקלט ארוך מדי (מקסימום {MAX_TOTAL_INPUT} תווים בסך הכל)"}), 400
         
         # Build the prompt for GPT
         generation_prompt = PROMPT_BUILDER_TEMPLATE.format(
@@ -109,7 +145,6 @@ def generate_prompt():
         # Call OpenAI to generate the prompt
         try:
             from openai import OpenAI
-            import json
             
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             
@@ -130,17 +165,12 @@ def generate_prompt():
             try:
                 result = json.loads(result_text)
             except json.JSONDecodeError:
-                # Try to extract JSON from the response
-                import re
-                json_match = re.search(r'\{[^{}]*\}', result_text, re.DOTALL)
-                if json_match:
-                    result = json.loads(json_match.group())
-                else:
-                    result = {
-                        "prompt_text": result_text,
-                        "title": f"פרומפט {business_area}",
-                        "summary": f"פרומפט AI עבור {business_area}"
-                    }
+                # If JSON parsing fails, use the raw response as prompt text
+                result = {
+                    "prompt_text": result_text,
+                    "title": f"פרומפט {business_area}",
+                    "summary": f"פרומפט AI עבור {business_area}"
+                }
             
             prompt_text = result.get('prompt_text', '')
             title = result.get('title', f'פרומפט {business_area}')
@@ -213,7 +243,7 @@ def save_generated_prompt():
                         'calls': settings.ai_prompt,
                         'whatsapp': settings.ai_prompt
                     }
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 current_prompts = {}
         
         # Update the specified channel

@@ -84,6 +84,21 @@ class TestTTSProvider:
         assert audio_bytes is None
         assert "required" in error.lower()
     
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "DISABLE_GOOGLE": "false"}, clear=False)
+    def test_is_gemini_available_with_key(self):
+        """Test is_gemini_available returns True when GEMINI_API_KEY is set"""
+        from server.services.tts_provider import is_gemini_available
+        
+        assert is_gemini_available() is True
+    
+    @patch.dict(os.environ, {"DISABLE_GOOGLE": "true"}, clear=False)
+    def test_is_gemini_available_when_disabled(self):
+        """Test is_gemini_available returns False when Google is disabled"""
+        from server.services.tts_provider import is_gemini_available
+        
+        # Even with key, should be False if disabled
+        assert is_gemini_available() is False
+    
     @patch.dict(os.environ, {"DISABLE_GOOGLE": "true"})
     def test_synthesize_gemini_disabled(self):
         """Test Gemini TTS when Google is disabled"""

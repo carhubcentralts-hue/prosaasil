@@ -64,4 +64,7 @@ RATE_LIMITS = {
     'api_authenticated': "100 per minute", # Authenticated API endpoints (general)
     'search': "30 per minute",             # Search operations
     'export': "10 per minute",             # Data export (resource intensive)
+    'prompt_builder': "10 per minute",     # AI prompt generation (expensive)
+    'voice_test': "30 per minute",         # Voice testing endpoints
+    'tts_preview': "20 per minute",        # TTS preview (resource intensive)
 }
