@@ -28,7 +28,7 @@ services:
       n8n:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 10

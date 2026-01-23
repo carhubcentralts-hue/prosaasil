@@ -103,8 +103,58 @@ curl http://localhost:5000/health
 # Check Baileys health
 curl http://localhost:3300/health
 
-# Check frontend
+# Check frontend (nginx)
 curl http://localhost/health
+
+# Or from inside nginx container
+docker exec nginx wget -qO- http://localhost/health
+```
+
+### Important: Nginx Health Check
+
+The nginx service uses **wget** for healthchecks (not curl). This is because:
+- nginx:alpine base image includes wget by default
+- Dockerfile.nginx ensures wget is available
+- Health endpoint at `/health` returns immediately (no backend dependency)
+
+This ensures nginx becomes healthy within 20 seconds of startup.
+
+### Image Split: Light vs Heavy
+
+ProSaaS uses **two different backend images** for optimal resource usage:
+
+1. **Dockerfile.backend.light** - Used by API and Calls services
+   - No Playwright/Chromium installation
+   - Smaller image size (~400MB less)
+   - Faster startup time
+   - Lower memory footprint
+   - Lower attack surface
+
+2. **Dockerfile.backend** - Used by Worker service only
+   - Includes Playwright/Chromium
+   - Required for Gmail receipt sync (HTML screenshots)
+   - Required for receipt previews
+   - Handles all heavy background processing
+
+**Why this split?**
+- API and Calls services don't need browser automation
+- Worker service handles all receipt processing via RQ queues
+- Reduces memory usage by ~300-500MB per service instance
+- Faster deployment and scaling for API/Calls
+
+**Verification:**
+```bash
+# Check image sizes
+docker images | grep prosaas
+
+# Verify services are running
+docker compose ps
+
+# Check that worker has Playwright
+docker exec worker python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright available')"
+
+# Check that api/calls don't have Playwright (should fail gracefully)
+docker exec prosaas-api python -c "try: from playwright.sync_api import sync_playwright; print('❌ Should not have Playwright'); except ImportError: print('✅ No Playwright (expected)')"
 ```
 
 ### Production with Managed Database
