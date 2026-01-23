@@ -2,7 +2,25 @@
 
 ## Required Network Creation
 
-Before running `docker compose up`, you **MUST** create the external network:
+Before running `docker compose up`, you **MUST** create the external network.
+
+### Automated Setup (Recommended)
+
+Use the provided script to ensure the network exists:
+
+```bash
+# Run the network setup script
+./scripts/ensure_docker_network.sh
+```
+
+This script will:
+- Check if the network exists
+- Create it if needed
+- Support custom network names via `DOCKER_NETWORK_NAME` environment variable
+
+### Manual Setup
+
+Alternatively, create the network manually:
 
 ```bash
 docker network create prosaas-net || true
@@ -31,7 +49,10 @@ This configuration:
 
 ### Development
 ```bash
-# Create network (one time)
+# Create network using the script (recommended)
+./scripts/ensure_docker_network.sh
+
+# Or manually
 docker network create prosaas-net || true
 
 # Start services
@@ -40,11 +61,29 @@ docker compose up -d
 
 ### Production
 ```bash
-# Create network (one time)
+# Create network using the script (recommended)
+./scripts/ensure_docker_network.sh
+
+# Or manually
 docker network create prosaas-net || true
 
 # Start production services
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Custom Network Name
+
+If you want to use a custom network name:
+
+```bash
+# Set environment variable
+export DOCKER_NETWORK_NAME=custom-net
+
+# Run the script
+./scripts/ensure_docker_network.sh
+
+# Start services (the network name is read from .env or environment)
+docker compose up -d
 ```
 
 ## Troubleshooting
