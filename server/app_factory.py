@@ -547,12 +547,29 @@ def create_app():
                     cors_origins.append(origin)
                     logger.info(f"[CORS] Development: Added external origin: {origin}")
     
+    # 🔒 P1: CORS Configuration with Credentials
+    # When supports_credentials=True (required for cookies/sessions):
+    # - MUST have explicit origins (cannot use '*')
+    # - Origins must match exactly (no wildcards in origin strings, only regex patterns)
+    # - Browser enforces strict origin matching
+    if is_production_mode and not cors_origins:
+        logger.error("🚨 CRITICAL: CORS enabled with credentials but no origins configured!")
+        logger.error("   Set PUBLIC_BASE_URL and/or CORS_ALLOWED_ORIGINS in production")
+        raise RuntimeError(
+            "Production requires CORS origins when using credentials. "
+            "Set PUBLIC_BASE_URL or CORS_ALLOWED_ORIGINS environment variables."
+        )
+    
     CORS(app, 
          origins=cors_origins,
-         supports_credentials=True,
+         supports_credentials=True,  # Required for session cookies
          allow_headers=["Content-Type", "Authorization", "X-CSRFToken", "HX-Request"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     )
+    
+    logger.info(f"[CORS] Configured with {len(cors_origins)} allowed origin(s)")
+    if is_production_mode:
+        logger.info(f"[CORS] Production mode: {', '.join([o for o in cors_origins if not o.startswith('r\"')])}")
     
     # ⚡ CRITICAL FIX: Register essential API blueprints FIRST (before all other blueprints)
     # This ensures dashboard, business, notifications, etc. work even if other blueprints fail

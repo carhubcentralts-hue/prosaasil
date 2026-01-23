@@ -1,5 +1,14 @@
 # P1 CSRF Exemptions Audit Summary
 
+## 🔒 Golden Rule
+
+**Every internal endpoint that uses session cookies AND modifies state (POST/PUT/PATCH/DELETE) MUST have CSRF protection.**
+
+Exemptions are ONLY for:
+1. **External webhooks** (Twilio, WhatsApp, n8n) - cannot send CSRF tokens
+2. **Authentication endpoints** (login, logout) - establish session before token available
+3. **Internal APIs with secret authentication** (validated via X-Internal-Token header)
+
 ## Overview
 
 Analyzed 76 CSRF exemptions in the codebase using automated audit script.

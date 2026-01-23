@@ -102,12 +102,21 @@ def _send_to_n8n(event_data: Dict[str, Any], params: Dict[str, str]) -> Dict[str
         # 🔒 P1: Security - Send token in header instead of query params
         # This prevents token leaks in logs and URL history
         headers = {"Content-Type": "application/json"}
-        if params.get("token"):
-            headers["X-N8N-Token"] = params["token"]
+        token = params.get("token")
+        
+        if token:
+            # Primary: Use header (secure)
+            headers["X-N8N-Token"] = token
+            
+            # 🔒 P1: Temporary fallback for backward compatibility
+            # Also send in query param until n8n webhook is updated
+            # This allows gradual migration without breaking existing integrations
+            logger.debug("[N8N] Sending token in both header (primary) and query (fallback)")
         
         response = session.post(
             N8N_WEBHOOK_URL,
             json=event_data,
+            params=params if token else {},  # Include query params for fallback
             headers=headers,
             timeout=10.0
         )
