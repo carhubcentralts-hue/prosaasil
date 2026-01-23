@@ -1522,6 +1522,9 @@ def process_single_receipt_message(
     else:
         received_at = datetime.now(timezone.utc)
     
+    # Initialize flags (CRITICAL: Must be initialized before any conditional that might reference them)
+    needs_review = False
+    
     # Determine status based on validation and confidence
     # CRITICAL: Validation failure forces incomplete status (Rule 6/7/10)
     if validation_failed:
@@ -1706,7 +1709,8 @@ def process_single_receipt_message(
 
 
 def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_messages: int = None, 
-                       from_date: str = None, to_date: str = None, months_back: int = 36) -> dict:
+                       from_date: str = None, to_date: str = None, months_back: int = 36,
+                       heartbeat_callback=None) -> dict:
     """
     Sync receipts from Gmail for a business with monthly backfill and full pagination
     
@@ -1727,6 +1731,7 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         from_date: Start date for sync in YYYY-MM-DD format (optional, ALWAYS overrides mode)
         to_date: End date for sync in YYYY-MM-DD format (optional, ALWAYS overrides mode)
         months_back: Number of months to go back for full_backfill (default 36 = 3 years)
+        heartbeat_callback: Optional callback function to update heartbeat during long-running sync
         
     Returns:
         Sync results with detailed counters
@@ -1968,6 +1973,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         if receipt and result['saved_receipts'] % 20 == 0:
                             sync_run.updated_at = datetime.now(timezone.utc)
                             db.session.commit()
+                            # Call heartbeat callback if provided
+                            if heartbeat_callback:
+                                heartbeat_callback()
                         
                     except Exception as e:
                         # Per-message error handling: rollback and continue to next message
@@ -2178,6 +2186,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             if result['saved_receipts'] % 20 == 0:
                                 sync_run.updated_at = datetime.now(timezone.utc)
                                 db.session.commit()
+                                # Call heartbeat callback if provided
+                                if heartbeat_callback:
+                                    heartbeat_callback()
                             
                         except Exception as e:
                             # Per-message error handling: rollback and continue to next message
@@ -2388,6 +2399,9 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         if result['new_count'] % 20 == 0:
                             sync_run.updated_at = datetime.now(timezone.utc)
                             db.session.commit()
+                            # Call heartbeat callback if provided
+                            if heartbeat_callback:
+                                heartbeat_callback()
                         
                     except Exception as e:
                         # Per-message error handling: rollback and continue to next message
