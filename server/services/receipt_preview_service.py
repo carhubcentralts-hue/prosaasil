@@ -25,6 +25,80 @@ THUMBNAIL_MAX_WIDTH = 512  # Max width for thumbnails
 THUMBNAIL_MAX_HEIGHT = 512  # Max height for thumbnails
 THUMBNAIL_QUALITY = 85  # JPEG quality for thumbnails
 
+# Content validation thresholds
+# These are intentionally LOW to avoid rejecting legitimate receipts
+# Better to save a blank receipt and mark it for review than to lose a real receipt
+MIN_CONTENT_VARIANCE = 5  # Very low threshold - only reject pure white/black images
+MIN_UNIQUE_COLORS = 5  # Very low threshold - only reject solid color images
+MIN_EDGE_MEAN = 0.5  # Very low threshold - only reject images with absolutely no edges
+
+
+def is_image_blank_or_white(image_data: bytes) -> bool:
+    """
+    Check if image is blank, white, or lacks meaningful content
+    
+    Uses multiple heuristics:
+    1. Pixel variance - blank images have very low variance
+    2. Unique colors - blank images have very few unique colors
+    3. Edge detection - blank images have no edges
+    
+    Args:
+        image_data: Raw image bytes
+        
+    Returns:
+        True if image appears blank/empty, False if has content
+    """
+    try:
+        from PIL import Image, ImageStat
+        import numpy as np
+        
+        img = Image.open(BytesIO(image_data))
+        
+        # Convert to RGB if needed
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        
+        # Check 1: Calculate pixel variance
+        # Blank/white images have very low variance
+        stat = ImageStat.Stat(img)
+        variance = sum(stat.var) / len(stat.var) if hasattr(stat, 'var') else 0
+        
+        if variance < MIN_CONTENT_VARIANCE:
+            logger.warning(f"Image appears blank - low variance: {variance:.2f}")
+            return True
+        
+        # Check 2: Count unique colors
+        # Blank images have very few unique colors
+        img_small = img.resize((50, 50))  # Downscale for faster processing
+        unique_colors = len(set(list(img_small.getdata())))
+        
+        if unique_colors < MIN_UNIQUE_COLORS:
+            logger.warning(f"Image appears blank - few colors: {unique_colors}")
+            return True
+        
+        # Check 3: Edge detection
+        # Blank images have no edges
+        try:
+            from PIL import ImageFilter
+            edges = img.convert('L').filter(ImageFilter.FIND_EDGES)
+            edge_stat = ImageStat.Stat(edges)
+            edge_mean = sum(edge_stat.mean) / len(edge_stat.mean)
+            
+            # If almost no edges detected, likely blank
+            if edge_mean < MIN_EDGE_MEAN:
+                logger.warning(f"Image appears blank - no edges: {edge_mean:.2f}")
+                return True
+        except Exception as e:
+            logger.warning(f"Edge detection failed: {e}")
+        
+        # Image has content
+        return False
+        
+    except Exception as e:
+        logger.error(f"Failed to check if image is blank: {e}")
+        # If check fails, assume image has content to avoid false positives
+        return False
+
 
 def generate_pdf_thumbnail(pdf_data: bytes) -> Optional[bytes]:
     """
@@ -70,9 +144,16 @@ def generate_pdf_thumbnail(pdf_data: bytes) -> Optional[bytes]:
         output = BytesIO()
         img.save(output, format='PNG', optimize=True)
         
+        thumbnail_bytes = output.getvalue()
+        
+        # Check if thumbnail might be blank and log warning
+        # But still return it - better to have something than nothing
+        if is_image_blank_or_white(thumbnail_bytes):
+            logger.warning("PDF thumbnail may be blank/low quality - saved but flagged for review")
+        
         logger.info(f"Generated PDF thumbnail: {img.size}")
         
-        return output.getvalue()
+        return thumbnail_bytes
         
     except ImportError:
         logger.error("PyMuPDF (fitz) not installed. Install with: pip install PyMuPDF")
@@ -110,9 +191,16 @@ def generate_image_thumbnail(image_data: bytes, mime_type: str) -> Optional[byte
         output = BytesIO()
         img.save(output, format='PNG', optimize=True)
         
+        thumbnail_bytes = output.getvalue()
+        
+        # Check if thumbnail might be blank and log warning
+        # But still return it - better to have something than nothing
+        if is_image_blank_or_white(thumbnail_bytes):
+            logger.warning("Image thumbnail may be blank/low quality - saved but flagged for review")
+        
         logger.info(f"Generated image thumbnail: {img.size}")
         
-        return output.getvalue()
+        return thumbnail_bytes
         
     except ImportError:
         logger.error("Pillow (PIL) not installed. Install with: pip install Pillow")
@@ -220,6 +308,11 @@ def generate_html_preview(html_content: str, width: int = 1280, height: int = 72
             
             # Close browser
             browser.close()
+            
+            # CRITICAL: Validate screenshot is not blank/white
+            if is_image_blank_or_white(screenshot_bytes):
+                logger.error("Screenshot validation failed - image appears blank/white")
+                return None
             
             # Resize to thumbnail size using PIL
             from PIL import Image

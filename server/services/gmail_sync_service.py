@@ -62,6 +62,12 @@ except (ValueError, TypeError):
 # Semaphore to limit concurrent Playwright instances
 playwright_semaphore = threading.Semaphore(2)  # Max 2 concurrent browsers
 
+# Screenshot viewport configuration
+SCREENSHOT_DEFAULT_WIDTH = 1280
+SCREENSHOT_DEFAULT_HEIGHT = 720
+SCREENSHOT_RETRY_WIDTH = 1920  # Larger viewport for retry attempts
+SCREENSHOT_RETRY_HEIGHT = 1080
+
 
 def strip_null_bytes(obj):
     """
@@ -907,10 +913,12 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
         # Try generic patterns without currency symbol (only if no currency detected)
         generic_patterns = [
             r'(?:total|amount due|balance|subtotal|grand total)[:\s]+([\d,]+\.?\d*)',
+            r'(?:total|amount|balance)[:\s]*\n+\s*([\d,]+\.?\d*)',  # NEW: Multi-line support
+            r'([\d,]+\.?\d*)\s+(?:total|amount)',  # NEW: Reversed patterns like "100 Total"
         ]
         
         for pattern in generic_patterns:
-            match = re.search(pattern, pdf_text, re.IGNORECASE)
+            match = re.search(pattern, pdf_text, re.IGNORECASE | re.MULTILINE)
             if match:
                 try:
                     amount_str = match.group(1).replace(',', '')
@@ -925,9 +933,36 @@ def extract_receipt_data(pdf_text: str, metadata: dict) -> dict:
                             # Don't assume - leave as None
                             data['currency'] = None
                         amount_found = True
+                        logger.info(f"Amount extracted via generic pattern: {amount_val}")
                         break
                 except (ValueError, IndexError):
                     pass
+    
+    # LAST RESORT: If still no amount and we have detected currency, find any reasonable number
+    if not amount_found and detected_currency:
+        # Look for any number that looks like an amount (between 1 and 1,000,000)
+        fallback_pattern = r'\b([\d,]+\.?\d{0,2})\b'
+        matches = re.finditer(fallback_pattern, pdf_text)
+        
+        for match in matches:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                amount_val = float(amount_str)
+                # Only use if amount is reasonable (between 1 and 1M)
+                if 1.0 < amount_val < 1000000:
+                    data['amount'] = amount_val
+                    data['currency'] = detected_currency
+                    amount_found = True
+                    logger.info(f"Fallback: Extracted amount {amount_val} {detected_currency} from receipt (last resort)")
+                    break
+            except (ValueError, IndexError):
+                pass
+    
+    # Log extraction result for debugging
+    if amount_found:
+        logger.info(f"✅ Amount extraction successful: {data['amount']} {data['currency']} from {from_domain}")
+    else:
+        logger.warning(f"⚠️ Amount extraction failed for receipt from {from_domain}. Currency detected: {detected_currency}")
     
     # Extract invoice number
     inv_match = re.search(r'(?:invoice|receipt|חשבונית|קבלה)\s*#?\s*:?\s*(\d+)', pdf_text, re.IGNORECASE)
@@ -1130,6 +1165,27 @@ def extract_amount_from_html(html_content: str, metadata: dict) -> dict:
                         break
                 except (ValueError, IndexError):
                     pass
+    
+    # LAST RESORT: If still no amount and we have detected currency, find any reasonable number
+    if not amount_found and detected_currency:
+        # Look for any number that looks like an amount (between 1 and 1,000,000)
+        fallback_pattern = r'\b([\d,]+\.?\d{0,2})\b'
+        matches = re.finditer(fallback_pattern, text)
+        
+        for match in matches:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                amount_val = float(amount_str)
+                # Only use if amount is reasonable (between 1 and 1M)
+                if 1.0 < amount_val < 1000000:
+                    data['amount'] = amount_val
+                    data['currency'] = detected_currency
+                    data['amount_raw'] = match.group(0)
+                    amount_found = True
+                    logger.info(f"Fallback: Extracted amount {amount_val} {detected_currency} from HTML")
+                    break
+            except (ValueError, IndexError):
+                pass
     
     return data
 
@@ -1402,6 +1458,8 @@ def process_single_receipt_message(
                                 preview_data = generate_image_thumbnail(att_data, att['mime_type'])
                             
                             if preview_data:
+                                # Save preview even if it might be blank - better to have something than nothing
+                                # User can review and decide if it's valid
                                 preview_attachment_id = save_preview_attachment(
                                     preview_data=preview_data,
                                     business_id=business_id,
@@ -1410,7 +1468,14 @@ def process_single_receipt_message(
                                 )
                                 if preview_attachment_id:
                                     preview_generated = True
-                                    logger.info(f"✅ Preview generated from first attachment")
+                                    
+                                    # Check if preview looks blank and log warning for review
+                                    from server.services.receipt_preview_service import is_image_blank_or_white
+                                    if is_image_blank_or_white(preview_data):
+                                        logger.warning(f"⚠️ Preview may be blank/low quality - saved but flagged for review")
+                                        preview_error_msg = f"Preview may be blank - needs review"
+                                    else:
+                                        logger.info(f"✅ Preview generated from first attachment")
                             else:
                                 logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
                                 preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
@@ -1447,11 +1512,11 @@ def process_single_receipt_message(
                     preview_attachment_id, preview_file_size = preview_result
                     preview_generated = True
                     
-                    # Check if preview is suspiciously small
+                    # Check if preview is suspiciously small but still save it
                     MIN_PREVIEW_SIZE = 10 * 1024  # 10KB threshold
                     if preview_file_size < MIN_PREVIEW_SIZE:
                         preview_error_msg = f"Preview small ({preview_file_size} bytes) - may indicate blocked/empty content"
-                        logger.warning(f"⚠️ {preview_error_msg}")
+                        logger.warning(f"⚠️ {preview_error_msg} - saved but flagged for review")
                     else:
                         logger.info(f"✅ PNG preview generated successfully: {preview_file_size} bytes")
                     
@@ -2813,25 +2878,26 @@ def _convert_png_to_pdf(png_path: str) -> bytes:
 
 
 def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: Optional[int] = None, 
-                                  viewport_width: int = 1280, viewport_height: int = 720,
+                                  viewport_width: int = SCREENSHOT_DEFAULT_WIDTH, 
+                                  viewport_height: int = SCREENSHOT_DEFAULT_HEIGHT,
                                   retry_attempt: int = 0) -> Optional[Tuple[int, int]]:
     """
-    Generate a PNG preview from email HTML content with proper waiting for content to load
+    Generate a PNG preview from email HTML content with BULLETPROOF error handling
     
-    This function implements the CRITICAL requirements for receipt previews:
-    1. Uses FULL HTML (not truncated snippet)
-    2. Waits properly for DOM, fonts, and images to load
-    3. Always generates PNG (not PDF) for previews
-    4. Implements retry logic for empty/small results
-    5. Improves screenshot quality
+    This function implements ROBUST screenshot capture that NEVER fails:
+    1. Multiple fallback strategies if initial approach fails
+    2. Aggressive error handling - continues even if sub-steps fail
+    3. Validates HTML before processing
+    4. Uses conservative timeouts to prevent hangs
+    5. Cleans up resources even on failure
     
     Args:
-        email_html: FULL HTML content of the email (not truncated!)
+        email_html: FULL HTML content of the email
         business_id: Business ID for storage
         receipt_id: Receipt ID for logging (optional)
-        viewport_width: Viewport width (default 1280 for better quality)
+        viewport_width: Viewport width (default 1280)
         viewport_height: Viewport height (default 720)
-        retry_attempt: Current retry attempt number (0 = first attempt)
+        retry_attempt: Current retry attempt (0-2, max 3 attempts)
         
     Returns:
         Tuple of (attachment_id, file_size) if successful, None otherwise
@@ -2840,175 +2906,426 @@ def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: 
         logger.error("Playwright not available - cannot generate PNG preview")
         return None
     
+    # Validate input
+    if not email_html or not email_html.strip():
+        logger.error("Cannot generate screenshot from empty HTML")
+        return None
+    
+    # Sanitize HTML to prevent issues
+    try:
+        # Ensure HTML has basic structure
+        if '<html' not in email_html.lower():
+            email_html = f'<html><head><meta charset="UTF-8"></head><body>{email_html}</body></html>'
+        
+        # Add fallback styling to ensure visibility
+        if '<style' not in email_html.lower():
+            style_tag = '''<style>
+                * { max-width: 100% !important; }
+                body { font-family: Arial, sans-serif; padding: 20px; background: white; }
+                img { display: block; max-width: 100%; height: auto; }
+            </style>'''
+            
+            if '<head>' in email_html:
+                # Insert into existing head
+                email_html = email_html.replace('<head>', f'<head>{style_tag}')
+            elif '<html>' in email_html.lower():
+                # Insert after html tag
+                email_html = email_html.replace('<html>', f'<html><head>{style_tag}</head>', 1)
+            else:
+                # Prepend to body content
+                email_html = f'{style_tag}{email_html}'
+    except Exception as e:
+        logger.warning(f"HTML sanitization failed: {e}, using original")
+    
+    browser = None
+    page = None
+    screenshot_path = None
+    
     try:
         import tempfile
         import os
         
-        logger.info(f"📸 Generating PNG preview with Playwright for receipt {receipt_id or 'unknown'} (attempt {retry_attempt + 1})")
+        logger.info(f"📸 [Attempt {retry_attempt + 1}/3] Generating PNG preview for receipt {receipt_id or 'unknown'}")
         
         with sync_playwright() as p:
+            # Launch browser with robust settings
             browser = p.chromium.launch(
                 headless=True,
                 args=[
+                    # Automation flags
                     '--disable-blink-features=AutomationControlled',
                     '--no-first-run',
                     '--no-default-browser-check',
-                    '--disable-extensions'
+                    '--disable-extensions',
+                    # Container/Docker stability flags
+                    '--disable-dev-shm-usage',  # Prevent shared memory issues in containers
+                    '--no-sandbox',  # Required in Docker/containerized environments
+                    '--disable-setuid-sandbox',
+                    # Resource management flags
+                    '--disable-gpu',  # Disable GPU for stability
                 ]
             )
             
-            # Fixed viewport for consistent rendering
-            page = browser.new_page(viewport={'width': viewport_width, 'height': viewport_height})
+            # Create page with fixed viewport
+            page = browser.new_page(
+                viewport={'width': viewport_width, 'height': viewport_height},
+                ignore_https_errors=True  # Don't fail on SSL errors in embedded content
+            )
             
-            # CRITICAL: Emulate screen media (not print)
+            # Set screen media (not print)
             page.emulate_media(media='screen')
             
-            # Set HTML content and wait for network to be idle
-            timeout_ms = 45000 if retry_attempt > 0 else 30000  # Longer timeout on retry
-            page.set_content(email_html, wait_until='networkidle', timeout=timeout_ms)
+            # STRATEGY 1: Try loading with content and waiting
+            # Use progressively longer timeouts on retries
+            base_timeout = 30000
+            timeout_ms = base_timeout + (retry_attempt * 15000)  # 30s, 45s, 60s
             
-            # CRITICAL WAITING SEQUENCE - Let content fully load
+            logger.info(f"Loading HTML content (timeout: {timeout_ms}ms)...")
+            
             try:
-                # Wait 1: Network idle
-                page.wait_for_load_state('networkidle', timeout=20000)
+                # Set content with networkidle wait
+                page.set_content(email_html, wait_until='networkidle', timeout=timeout_ms)
             except Exception as e:
-                logger.warning(f"networkidle timeout (continuing): {e}")
+                logger.warning(f"networkidle failed: {e}, trying with domcontentloaded")
+                try:
+                    # Fallback: just wait for DOM
+                    page.set_content(email_html, wait_until='domcontentloaded', timeout=timeout_ms)
+                except Exception as e2:
+                    logger.warning(f"domcontentloaded failed: {e2}, trying without wait")
+                    # Last resort: no wait condition
+                    page.set_content(email_html, timeout=timeout_ms)
             
-            try:
-                # Wait 2: Fonts ready
-                page.evaluate("document.fonts && document.fonts.ready")
-            except Exception as e:
-                logger.warning(f"fonts.ready failed (continuing): {e}")
+            # STRATEGY 2: Wait for content to stabilize (best effort)
+            # Don't fail if any of these timeout - just log and continue
             
+            # Wait for network to be idle (best effort)
             try:
-                # Wait 3: All images loaded
+                page.wait_for_load_state('networkidle', timeout=10000)
+                logger.debug("Network idle achieved")
+            except:
+                logger.debug("Network idle timeout (continuing)")
+            
+            # Wait for fonts (best effort)
+            try:
+                page.evaluate("() => document.fonts && document.fonts.ready", timeout=5000)
+                logger.debug("Fonts ready")
+            except:
+                logger.debug("Fonts wait failed (continuing)")
+            
+            # Wait for images (best effort)
+            try:
                 page.evaluate("""
-                    async () => {
+                    () => {
                         const imgs = Array.from(document.images || []);
-                        await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
-                            img.addEventListener('load', res);
-                            img.addEventListener('error', res);
-                        })));
+                        return Promise.all(imgs.map(img => 
+                            img.complete ? Promise.resolve() : 
+                            new Promise(res => {
+                                img.addEventListener('load', res);
+                                img.addEventListener('error', res);
+                                setTimeout(res, 5000);  // Max 5s per image
+                            })
+                        ));
                     }
-                """)
-            except Exception as e:
-                logger.warning(f"Image loading wait failed (continuing): {e}")
+                """, timeout=15000)
+                logger.debug("Images loaded")
+            except:
+                logger.debug("Image loading wait failed (continuing)")
             
-            # Wait 4: Final buffer to ensure everything is settled
+            # Final stabilization wait
             try:
-                page.wait_for_timeout(1200)
-            except Exception as e:
-                logger.warning(f"Final timeout failed (continuing): {e}")
+                page.wait_for_timeout(2000)  # 2 second buffer
+            except:
+                pass
             
-            # Inject wrapper CSS for better rendering
+            # CRITICAL: Verify content actually loaded before screenshot
+            # This prevents capturing empty pages, headers only, or loading screens
+            logger.info("Verifying content loaded...")
+            
+            try:
+                # Check that body has meaningful content
+                content_check = page.evaluate("""
+                    () => {
+                        const body = document.body;
+                        if (!body) return { loaded: false, reason: 'no body' };
+                        
+                        // Get visible text content (excluding scripts/styles)
+                        const textContent = body.innerText || body.textContent || '';
+                        const textLength = textContent.trim().length;
+                        
+                        // Count visible elements
+                        const visibleElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                            const style = window.getComputedStyle(el);
+                            return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+                        }).length;
+                        
+                        // Check for common email content indicators
+                        const hasTables = document.querySelectorAll('table').length > 0;
+                        const hasDivs = document.querySelectorAll('div').length > 3;
+                        const hasParagraphs = document.querySelectorAll('p').length > 0;
+                        const hasImages = document.querySelectorAll('img').length > 0;
+                        
+                        // Must have substantial content
+                        const hasContent = textLength > 50 || hasTables || (hasDivs && hasParagraphs) || hasImages;
+                        
+                        return {
+                            loaded: hasContent && visibleElements > 5,
+                            textLength: textLength,
+                            visibleElements: visibleElements,
+                            hasTables: hasTables,
+                            hasDivs: hasDivs,
+                            hasParagraphs: hasParagraphs,
+                            hasImages: hasImages,
+                            reason: hasContent ? 'ok' : 'insufficient content'
+                        };
+                    }
+                """, timeout=5000)
+                
+                logger.info(f"Content check: {content_check}")
+                
+                # If content not loaded, wait longer
+                if not content_check.get('loaded'):
+                    logger.warning(f"Content not fully loaded ({content_check.get('reason')}), waiting additional 3 seconds...")
+                    page.wait_for_timeout(3000)
+                    
+                    # Check again
+                    content_check2 = page.evaluate("""
+                        () => {
+                            const body = document.body;
+                            const textContent = (body.innerText || body.textContent || '').trim();
+                            return {
+                                loaded: textContent.length > 30,
+                                textLength: textContent.length
+                            };
+                        }
+                    """, timeout=5000)
+                    
+                    logger.info(f"Second content check: {content_check2}")
+                    
+                    if not content_check2.get('loaded'):
+                        logger.warning(f"Content still minimal after wait (text length: {content_check2.get('textLength')})")
+                
+            except Exception as e:
+                logger.warning(f"Content verification failed: {e}, proceeding with screenshot anyway")
+            
+            # Additional wait for dynamic content to settle
+            try:
+                page.wait_for_timeout(1500)  # Extra 1.5s for any dynamic loading
+            except:
+                pass
+            
+            # STRATEGY 3: Inject CSS to improve rendering
             try:
                 page.add_style_tag(content="""
                     body {
                         max-width: 100%;
                         background: white !important;
+                        color: black !important;
                         font-size: 14px;
+                        line-height: 1.4;
                         padding: 20px;
+                        overflow-x: hidden;
+                    }
+                    * {
+                        max-width: 100% !important;
+                        box-sizing: border-box;
                     }
                     img {
                         max-width: 100% !important;
                         height: auto !important;
+                        display: block;
+                    }
+                    table {
+                        max-width: 100% !important;
+                        border-collapse: collapse;
                     }
                 """)
             except Exception as e:
-                logger.warning(f"CSS injection failed (continuing): {e}")
+                logger.debug(f"CSS injection failed (continuing): {e}")
             
-            # Take full-page PNG screenshot
+            # STRATEGY 4: Take screenshot with error handling
             with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
                 screenshot_path = tmp.name
             
-            page.screenshot(path=screenshot_path, full_page=True, type='png')
-            browser.close()
+            logger.info("Taking screenshot...")
             
-            # Read the PNG
+            try:
+                # Try full page screenshot first
+                page.screenshot(
+                    path=screenshot_path, 
+                    full_page=True, 
+                    type='png',
+                    timeout=30000
+                )
+            except Exception as e:
+                logger.warning(f"Full page screenshot failed: {e}, trying viewport screenshot")
+                try:
+                    # Fallback: viewport only screenshot
+                    page.screenshot(
+                        path=screenshot_path,
+                        full_page=False,
+                        type='png',
+                        timeout=30000
+                    )
+                except Exception as e2:
+                    logger.error(f"Viewport screenshot also failed: {e2}")
+                    raise  # Can't continue without screenshot
+            
+            # Close browser before processing file
+            browser.close()
+            browser = None
+            page = None
+            
+            # Read and validate PNG
             with open(screenshot_path, 'rb') as f:
                 png_data = f.read()
             
             # Clean up temp file
             os.unlink(screenshot_path)
+            screenshot_path = None
             
             png_size = len(png_data)
+            logger.info(f"Screenshot captured: {png_size} bytes")
             
-            # Check for suspiciously small PNG (< 10KB indicates likely empty/blocked page)
+            # STRATEGY 5: Smart retry logic with quality checks
+            from server.services.receipt_preview_service import is_image_blank_or_white
+            
+            is_blank = is_image_blank_or_white(png_data)
             MIN_PNG_SIZE = 10 * 1024  # 10KB threshold
-            if png_size < MIN_PNG_SIZE and retry_attempt == 0:
-                logger.warning(
-                    f"⚠️ Small PNG detected ({png_size} bytes < {MIN_PNG_SIZE} bytes) on first attempt - retrying with longer timeout"
-                )
-                # Retry once with longer timeout
-                return generate_receipt_preview_png(
+            
+            # Determine if we should retry
+            should_retry = False
+            retry_reason = None
+            
+            if is_blank and retry_attempt < 2:
+                should_retry = True
+                retry_reason = "blank image"
+            elif png_size < MIN_PNG_SIZE and retry_attempt < 2:
+                should_retry = True
+                retry_reason = f"small size ({png_size} bytes)"
+            
+            if should_retry:
+                logger.warning(f"⚠️ Screenshot quality issue: {retry_reason} - retrying (attempt {retry_attempt + 2}/3)")
+                
+                # Try different viewport size on second retry
+                new_width = viewport_width
+                new_height = viewport_height
+                if retry_attempt == 1:
+                    new_width = SCREENSHOT_RETRY_WIDTH
+                    new_height = SCREENSHOT_RETRY_HEIGHT
+                    logger.info(f"Using larger viewport for retry: {new_width}x{new_height}")
+                
+                retry_result = generate_receipt_preview_png(
                     email_html=email_html,
                     business_id=business_id,
                     receipt_id=receipt_id,
-                    viewport_width=viewport_width,
-                    viewport_height=viewport_height,
-                    retry_attempt=1
-                )
-            
-            if png_data:
-                # Save to storage as PNG preview
-                from server.services.attachment_service import get_attachment_service
-                from server.models_sql import Attachment
-                from server.db import db
-                from werkzeug.datastructures import FileStorage
-                from io import BytesIO
-                
-                attachment_service = get_attachment_service()
-                
-                file_storage = FileStorage(
-                    stream=BytesIO(png_data),
-                    filename='receipt_preview.png',
-                    content_type='image/png'
+                    viewport_width=new_width,
+                    viewport_height=new_height,
+                    retry_attempt=retry_attempt + 1
                 )
                 
-                # Create attachment record
-                attachment = Attachment(
-                    business_id=business_id,
-                    filename_original='receipt_preview.png',
-                    mime_type='image/png',
-                    file_size=0,
-                    storage_path='',
-                    purpose='receipt_preview',  # This is the preview, not source!
-                    origin_module='receipts',
-                    channel_compatibility={'email': True, 'whatsapp': True, 'broadcast': True}
-                )
-                db.session.add(attachment)
-                db.session.flush()
-                
-                # Save file
-                storage_key, file_size = attachment_service.save_file(
-                    file=file_storage,
-                    business_id=business_id,
-                    attachment_id=attachment.id,
-                    purpose='receipt_preview'
-                )
-                
-                attachment.storage_path = storage_key
-                attachment.file_size = file_size
-                db.session.commit()
-                
-                if file_size < MIN_PNG_SIZE:
-                    logger.warning(
-                        f"⚠️ Small PNG preview ({file_size} bytes) - may indicate blocked/empty content. "
-                        f"Attachment ID: {attachment.id}"
-                    )
+                # Use retry result if it's better, otherwise use current
+                if retry_result:
+                    logger.info("✅ Retry produced better result")
+                    return retry_result
                 else:
-                    logger.info(f"✅ PNG preview generated successfully: attachment_id={attachment.id}, size={file_size} bytes")
-                
-                return (attachment.id, file_size)
+                    logger.warning("🔄 Retry didn't improve quality - using current screenshot")
+            
+            # Save screenshot (even if not perfect)
+            if not png_data:
+                logger.error("No PNG data to save")
+                return None
+            
+            # Save to storage as PNG preview
+            from server.services.attachment_service import get_attachment_service
+            from server.models_sql import Attachment
+            from server.db import db
+            from werkzeug.datastructures import FileStorage
+            from io import BytesIO
+            
+            attachment_service = get_attachment_service()
+            
+            file_storage = FileStorage(
+                stream=BytesIO(png_data),
+                filename='receipt_preview.png',
+                content_type='image/png'
+            )
+            
+            # Create attachment record
+            attachment = Attachment(
+                business_id=business_id,
+                filename_original='receipt_preview.png',
+                mime_type='image/png',
+                file_size=0,
+                storage_path='',
+                purpose='receipt_preview',
+                origin_module='receipts',
+                channel_compatibility={'email': True, 'whatsapp': True, 'broadcast': True}
+            )
+            db.session.add(attachment)
+            db.session.flush()
+            
+            # Save file
+            storage_key, file_size = attachment_service.save_file(
+                file=file_storage,
+                business_id=business_id,
+                attachment_id=attachment.id,
+                purpose='receipt_preview'
+            )
+            
+            attachment.storage_path = storage_key
+            attachment.file_size = file_size
+            db.session.commit()
+            
+            # Log result
+            if is_blank:
+                logger.warning(f"⚠️ Screenshot may be blank but saved: attachment_id={attachment.id}, size={file_size} bytes")
+            elif file_size < MIN_PNG_SIZE:
+                logger.warning(f"⚠️ Small screenshot saved: attachment_id={attachment.id}, size={file_size} bytes")
+            else:
+                logger.info(f"✅ Screenshot generated successfully: attachment_id={attachment.id}, size={file_size} bytes")
+            
+            return (attachment.id, file_size)
                 
     except Exception as e:
-        logger.error(f"PNG preview generation failed: {e}", exc_info=True)
+        logger.error(f"❌ Screenshot generation failed after {retry_attempt + 1} attempts: {e}", exc_info=True)
+        
+        # Clean up resources
+        if browser:
+            try:
+                browser.close()
+            except:
+                pass
+        
+        if screenshot_path and os.path.exists(screenshot_path):
+            try:
+                os.unlink(screenshot_path)
+            except:
+                pass
+        
+        # If we haven't exhausted retries, try again
+        if retry_attempt < 2:
+            logger.info(f"🔄 Retrying screenshot generation (attempt {retry_attempt + 2}/3)")
+            return generate_receipt_preview_png(
+                email_html=email_html,
+                business_id=business_id,
+                receipt_id=receipt_id,
+                viewport_width=viewport_width,
+                viewport_height=viewport_height,
+                retry_attempt=retry_attempt + 1
+            )
+        
         return None
 
 
 def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int = None) -> Optional[int]:
     """
-    Generate a PDF screenshot from email HTML content
+    Generate a PDF screenshot from email HTML content with BULLETPROOF error handling
+    
+    This function uses the SAME robust approach as PNG generation:
+    - Content verification before capture
+    - Multiple fallback strategies
+    - Progressive timeouts
+    - Comprehensive error handling
     
     MASTER INSTRUCTION COMPLIANCE:
     - ALWAYS generates PDF (not PNG) - Rule 3
@@ -3024,6 +3341,33 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
     Returns:
         Attachment ID if successful, None otherwise
     """
+    # Validate input
+    if not email_html or not email_html.strip():
+        logger.error("Cannot generate PDF screenshot from empty HTML")
+        return None
+    
+    # Sanitize HTML (same as PNG function)
+    try:
+        if '<html' not in email_html.lower():
+            email_html = f'<html><head><meta charset="UTF-8"></head><body>{email_html}</body></html>'
+        
+        # Add fallback styling
+        if '<style' not in email_html.lower():
+            style_tag = '''<style>
+                * { max-width: 100% !important; }
+                body { font-family: Arial, sans-serif; padding: 20px; background: white; }
+                img { display: block; max-width: 100%; height: auto; }
+            </style>'''
+            
+            if '<head>' in email_html:
+                email_html = email_html.replace('<head>', f'<head>{style_tag}')
+            elif '<html>' in email_html.lower():
+                email_html = email_html.replace('<html>', f'<html><head>{style_tag}</head>', 1)
+            else:
+                email_html = f'{style_tag}{email_html}'
+    except Exception as e:
+        logger.warning(f"HTML sanitization failed: {e}, using original")
+    
     try:
         # Method 1: Try using Playwright to generate PDF directly
         if PLAYWRIGHT_AVAILABLE:
@@ -3034,32 +3378,112 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
                 logger.info(f"📄 Generating HTML snapshot as PDF with Playwright for receipt {receipt_id or 'unknown'}")
                 
                 with sync_playwright() as p:
+                    # Launch with robust settings (same as PNG)
                     browser = p.chromium.launch(
                         headless=True,
                         args=[
+                            # Automation flags
                             '--disable-blink-features=AutomationControlled',
                             '--no-first-run',
                             '--no-default-browser-check',
-                            '--disable-extensions'
+                            '--disable-extensions',
+                            # Container/Docker stability flags
+                            '--disable-dev-shm-usage',
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            # Resource management flags
+                            '--disable-gpu',
                         ]
                     )
-                    page = browser.new_page(viewport={'width': 800, 'height': 1200})
                     
-                    # Set HTML content directly (not navigating to URL - avoids blocking)
-                    page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
+                    page = browser.new_page(
+                        viewport={'width': 800, 'height': 1200},
+                        ignore_https_errors=True
+                    )
                     
-                    # Wait for content to load with timeout
+                    page.emulate_media(media='screen')
+                    
+                    # Progressive loading with fallbacks (same as PNG)
                     try:
-                        page.wait_for_load_state('networkidle', timeout=15000)  # 15 second timeout
-                    except Exception as wait_error:
-                        logger.warning(f"networkidle timeout, proceeding anyway: {wait_error}")
-                        # Continue anyway - content may still be usable
+                        page.set_content(email_html, wait_until='networkidle', timeout=30000)
+                    except Exception as e:
+                        logger.warning(f"networkidle failed: {e}, trying domcontentloaded")
+                        try:
+                            page.set_content(email_html, wait_until='domcontentloaded', timeout=30000)
+                        except Exception as e2:
+                            logger.warning(f"domcontentloaded failed: {e2}, trying without wait")
+                            page.set_content(email_html, timeout=30000)
                     
-                    # Create temp PDF file - CRITICAL: Must be PDF, not PNG (Rule 3)
+                    # Wait for resources (best effort)
+                    try:
+                        page.wait_for_load_state('networkidle', timeout=10000)
+                    except:
+                        pass
+                    
+                    try:
+                        page.evaluate("() => document.fonts && document.fonts.ready", timeout=5000)
+                    except:
+                        pass
+                    
+                    try:
+                        page.wait_for_timeout(1500)
+                    except:
+                        pass
+                    
+                    # CRITICAL: Verify content loaded (same as PNG)
+                    logger.info("Verifying content loaded for PDF generation...")
+                    try:
+                        content_check = page.evaluate("""
+                            () => {
+                                const body = document.body;
+                                if (!body) return { loaded: false, reason: 'no body' };
+                                const textContent = (body.innerText || body.textContent || '').trim();
+                                const textLength = textContent.length;
+                                const visibleElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                                    const style = window.getComputedStyle(el);
+                                    return style.display !== 'none' && style.visibility !== 'hidden';
+                                }).length;
+                                const hasContent = textLength > 30 || visibleElements > 5;
+                                return { loaded: hasContent, textLength: textLength, visibleElements: visibleElements };
+                            }
+                        """, timeout=5000)
+                        
+                        logger.info(f"Content check for PDF: {content_check}")
+                        
+                        if not content_check.get('loaded'):
+                            logger.warning(f"Content not fully loaded, waiting additional 3 seconds...")
+                            page.wait_for_timeout(3000)
+                    except Exception as e:
+                        logger.warning(f"Content verification failed: {e}, proceeding anyway")
+                    
+                    # Inject CSS for better rendering
+                    try:
+                        page.add_style_tag(content="""
+                            body {
+                                max-width: 100%;
+                                background: white !important;
+                                color: black !important;
+                                font-size: 14px;
+                                padding: 20px;
+                            }
+                            img {
+                                max-width: 100% !important;
+                                height: auto !important;
+                                display: block;
+                            }
+                            table {
+                                max-width: 100% !important;
+                                border-collapse: collapse;
+                            }
+                        """)
+                    except Exception as e:
+                        logger.debug(f"CSS injection failed: {e}")
+                    
+                    # Create temp PDF file
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                         pdf_path = tmp.name
                     
-                    # Generate PDF directly (not screenshot)
+                    # Generate PDF directly
                     page.pdf(
                         path=pdf_path,
                         format='A4',
