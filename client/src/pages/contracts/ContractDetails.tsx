@@ -791,7 +791,6 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       {/* Signature Field Marker Modal */}
       {showSignatureMarker && contract.files.length > 0 && (
         <SignatureFieldMarker
-          pdfUrl={`/api/contracts/${contractId}/pdf`}
           contractId={contractId}
           onClose={() => {
             setShowSignatureMarker(false);

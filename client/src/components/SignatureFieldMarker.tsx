@@ -19,13 +19,12 @@ export interface SignatureField {
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
 
 interface SignatureFieldMarkerProps {
-  pdfUrl: string;
   contractId: number;
   onClose: () => void;
   onSave: (fields: SignatureField[]) => Promise<void>;
 }
 
-export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: SignatureFieldMarkerProps) {
+export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureFieldMarkerProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [fields, setFields] = useState<SignatureField[]>([]);
@@ -76,7 +75,6 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     loadingTask.promise
       .then((loadedPdf) => {
         setPdf(loadedPdf);
-        setTotalPages(loadedPdf.numPages);
         logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
       })
       .catch((err) => {
@@ -462,7 +460,6 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
                 <div className="flex items-center justify-center h-96 bg-gray-100 rounded-lg border-2 border-gray-300">
                   <div className="text-center">
                     <div className="text-gray-500 mb-2">טוען PDF...</div>
-                    {error && <div className="text-red-500 text-sm">{error}</div>}
                   </div>
                 </div>
               )}
