@@ -19,8 +19,8 @@ Real-time voice conversation directly in browser using WebAudio
 - Chat: OpenAI for brain (always)
 - TTS: OpenAI or Gemini (based on saved settings)
 """
-from flask import Blueprint, request, jsonify, Response, current_app
-from server.routes_admin import require_api_auth
+from flask import Blueprint, request, jsonify, Response, current_app, g
+from server.auth_api import require_api_auth
 from server.extensions import csrf
 from server.utils.api_guard import api_handler
 from server.models_sql import Business, BusinessSettings, db
@@ -146,9 +146,9 @@ def live_call_chat():
             return jsonify({'error': 'Text too long'}), 413
         
         # Get business settings for prompt
-        business_id = session.get('business_id')
+        business_id = g.business_id
         if not business_id:
-            return jsonify({'error': 'Business not found'}), 404
+            return jsonify({'error': 'missing_business_id'}), 401
         
         business = db.session.query(Business).filter_by(id=business_id).first()
         if not business:
@@ -233,9 +233,9 @@ def live_call_tts():
             return jsonify({'error': 'Text too long'}), 413
         
         # Get business settings for voice configuration
-        business_id = session.get('business_id')
+        business_id = g.business_id
         if not business_id:
-            return jsonify({'error': 'Business not found'}), 404
+            return jsonify({'error': 'missing_business_id'}), 401
         
         business = db.session.query(Business).filter_by(id=business_id).first()
         if not business:

@@ -205,6 +205,18 @@ def warmup_services_async():
                 log.warning(f"WARMUP_AGENT_FAILED: {e}")
                 import traceback
                 traceback.print_exc()
+        
+        # 🔥 CRITICAL: Warmup AIService cache for business prompts
+        logger.info("  🔥 Warming AIService cache...")
+        try:
+            from server.services.ai_service import get_ai_service, _warmup_ai_cache
+            ai_service = get_ai_service()
+            _warmup_ai_cache(ai_service)
+            logger.info("    ✅ AIService cache warmed successfully")
+            log.info("WARMUP_AI_CACHE_OK")
+        except Exception as e:
+            logger.warning(f"    ⚠️ AIService cache warmup failed (non-critical): {e}")
+            log.warning(f"WARMUP_AI_CACHE_WARN: {e}")
             
         logger.info("✅ Service warmup thread completed")
         log.info("🔥 Service warmup completed")

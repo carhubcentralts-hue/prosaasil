@@ -240,15 +240,14 @@ def get_ai_service():
     global _global_ai_service
     if _global_ai_service is None:
         _global_ai_service = AIService()
-        # ⚡ CRITICAL: Warmup cache at startup
-        _warmup_ai_cache(_global_ai_service)
+        # ⚡ Warmup will be called separately by lazy_services after app is ready
     return _global_ai_service
 
 def _warmup_ai_cache(service: 'AIService'):
     """⚡ Preload cache for ALL active businesses to prevent first-turn latency"""
     try:
         import time
-        from server.models import Business
+        from server.models_sql import Business
         from server.app_factory import get_process_app
         
         start = time.time()
