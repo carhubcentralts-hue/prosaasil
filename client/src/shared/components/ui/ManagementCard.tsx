@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
 import { http } from '../../../services/http';
+import { logger } from '../../utils/logger';
 
 interface ManagementCardProps {
   title: string;
@@ -93,6 +94,12 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
 
   useEffect(() => {
     const fetchRealData = async () => {
+      // Only fetch admin data if user is system_admin
+      if (user?.role !== 'system_admin') {
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         
@@ -105,7 +112,7 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         setUserCount(user?.role === 'admin' ? 5 : (businessData as any).total * 3);
         
       } catch (error) {
-        console.error('Error fetching management stats:', error);
+        logger.error('Error fetching management stats:', error);
         // Fallback to 0 if API fails
         setBusinessCount(0);
         setUserCount(0);

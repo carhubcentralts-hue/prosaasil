@@ -4,6 +4,7 @@ import { formatDate } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
 import { Button } from '../../shared/components/ui/Button';
 import { SignatureFieldMarker, SignatureField } from '../../components/SignatureFieldMarker';
+import { logger } from '../../shared/utils/logger';
 
 interface ContractDetailsProps {
   contractId: number;
@@ -111,14 +112,14 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
               setTextContent(text);
             }
           } catch (err) {
-            console.error('Error loading text content:', err);
+            logger.error('Error loading text content:', err);
           }
         }
         
         setShowPreview(true);
       }
     } catch (err) {
-      console.error('Error loading preview:', err);
+      logger.error('Error loading preview:', err);
     } finally {
       setLoadingPreview(false);
     }
@@ -134,7 +135,7 @@ function FilePreviewItem({ file, contractId, formatFileSize }: {
         window.open(data.url, '_blank');
       }
     } catch (err) {
-      console.error('Error downloading file:', err);
+      logger.error('Error downloading file:', err);
     }
   };
 
@@ -251,7 +252,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       const data = await response.json();
       setEvents(data.events || []);
     } catch (err) {
-      console.error('Error loading events:', err);
+      logger.error('Error loading events:', err);
     }
   };
 
@@ -265,7 +266,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
         setSignatureFieldCount(data.fields?.length || 0);
       }
     } catch (err) {
-      console.error('Error loading signature field count:', err);
+      logger.error('Error loading signature field count:', err);
     }
   };
 
@@ -285,9 +286,9 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       
       const data = await response.json();
       setPdfSignedUrl(data.url);
-      console.log('[PDF_URL] Fetched signed URL, expires at:', data.expires_at);
+      logger.debug('Fetched PDF signed URL');
     } catch (err) {
-      console.error('Error fetching PDF signed URL:', err);
+      logger.error('Error fetching PDF signed URL:', err);
       setError('שגיאה בטעינת PDF. נסה שוב.');
     } finally {
       setLoadingPdfUrl(false);
@@ -321,7 +322,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       await loadEvents();
       onUpdate();
     } catch (err: any) {
-      console.error('Error uploading file:', err);
+      logger.error('Error uploading file:', err);
       setError(err.message || 'שגיאה בהעלאת קובץ');
     } finally {
       setUploading(false);
@@ -358,7 +359,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       await loadEvents();
       onUpdate();
     } catch (err: any) {
-      console.error('Error sending for signature:', err);
+      logger.error('Error sending for signature:', err);
       setError(err.message || 'שגיאה בשליחה לחתימה');
     } finally {
       setSending(false);
@@ -403,7 +404,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       await loadEvents();
       onUpdate();
     } catch (err: any) {
-      console.error('Error cancelling contract:', err);
+      logger.error('Error cancelling contract:', err);
       setError(err.message || 'שגיאה בביטול חוזה');
     } finally {
       setCancelling(false);
@@ -421,7 +422,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       const data = await response.json();
       window.open(data.url, '_blank');
     } catch (err) {
-      console.error('Error downloading file:', err);
+      logger.error('Error downloading file:', err);
       setError('שגיאה בהורדת קובץ');
     }
   };
@@ -465,7 +466,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       setIsEditing(false);
       onUpdate();
     } catch (err: any) {
-      console.error('Error updating contract:', err);
+      logger.error('Error updating contract:', err);
       setError(err.message || 'שגיאה בעדכון חוזה');
     } finally {
       setSaving(false);
@@ -488,7 +489,7 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
       onUpdate();
       onClose();
     } catch (err: any) {
-      console.error('Error deleting contract:', err);
+      logger.error('Error deleting contract:', err);
       setError(err.message || 'שגיאה במחיקת חוזה');
     } finally {
       setDeleting(false);

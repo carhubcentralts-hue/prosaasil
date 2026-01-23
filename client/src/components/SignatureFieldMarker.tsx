@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Plus, Save, Trash2, Eye, Move, Edit3, Maximize2 } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
 import { EnhancedPDFViewer } from './EnhancedPDFViewer';
+import { logger } from '../shared/utils/logger';
 
 export interface SignatureField {
   id: string;
@@ -64,7 +65,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
     setLoading(true);
     setError(null);
     
-    console.log('[PDF_LOAD] Using streaming endpoint:', pdfUrl);
+    logger.debug('Using streaming endpoint for PDF');
     setPdfObjectUrl(pdfUrl);
     
     // Default page count for navigation
@@ -84,7 +85,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
         setFields(data.fields || []);
       }
     } catch (err) {
-      console.error('Error loading signature fields:', err);
+      logger.error('Error loading signature fields:', err);
     }
   };
 
