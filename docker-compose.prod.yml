@@ -320,7 +320,7 @@ services:
 networks:
   prosaas-net:
     external: true
-    name: prosaas-net
+    name: ${DOCKER_NETWORK_NAME:-prosaas-net}
 
 # ===========================================
 # Volumes (shared)

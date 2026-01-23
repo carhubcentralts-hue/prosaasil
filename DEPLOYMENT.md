@@ -64,7 +64,21 @@ cp .env.example .env
 nano .env
 ```
 
-### Step 2: Build & Run
+### Step 2: Setup Docker Network
+
+ProSaaS uses an external Docker network for service communication. Before starting the services, ensure the network exists:
+
+```bash
+# Create the Docker network (if it doesn't exist)
+./scripts/ensure_docker_network.sh
+
+# Or with a custom network name
+DOCKER_NETWORK_NAME=custom-net ./scripts/ensure_docker_network.sh
+```
+
+This step is **required** before running `docker compose up` for the first time.
+
+### Step 3: Build & Run
 
 ```bash
 # Build all images
