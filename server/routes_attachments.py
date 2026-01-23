@@ -543,10 +543,21 @@ def delete_attachment(attachment_id):
     """
     Soft delete attachment (admin only)
     
+    DELETION STRATEGY (best-effort):
+    1. Find attachment by id + business_id (permissions check)
+    2. Soft delete in DB FIRST (is_deleted=True, deleted_at=now())
+    3. After DB commit: try to delete from R2 in best-effort mode
+       - If R2 file not found → ignore (file already gone, that's OK)
+       - If other R2 error → log but still return success
+    4. Return 200 OK with detailed status
+    
+    IMPORTANT: DB deletion always succeeds if record exists and belongs to business.
+    R2 deletion is best-effort only. This ensures UI can always remove items.
+    
     Response:
-        - 200: Deleted successfully
+        - 200: Deleted successfully (includes R2 status)
         - 403: Permission denied
-        - 404: Not found
+        - 404: Not found or access denied
     """
     try:
         business_id = get_current_business_id()
@@ -559,29 +570,73 @@ def delete_attachment(attachment_id):
         if not check_admin_permission():
             return jsonify({'error': 'Admin permission required'}), 403
         
-        # Get attachment
+        # Get attachment - NOTE: Don't filter by is_deleted=False
+        # This allows deleting already-soft-deleted records (idempotent)
         attachment = Attachment.query.filter_by(
             id=attachment_id,
-            business_id=business_id,
-            is_deleted=False
+            business_id=business_id
         ).first()
         
         if not attachment:
-            return jsonify({'error': 'Attachment not found'}), 404
+            # 404 only if record doesn't exist or doesn't belong to business
+            return jsonify({'error': 'Attachment not found or access denied'}), 404
         
-        # Soft delete
-        attachment.is_deleted = True
-        attachment.deleted_at = datetime.utcnow()
-        attachment.deleted_by = user_id
+        # Store info for response
+        storage_path = attachment.storage_path
+        filename = attachment.filename_original
+        was_already_deleted = attachment.is_deleted
+        
+        # STEP 1: Soft delete in DB (always succeeds)
+        if not attachment.is_deleted:
+            attachment.is_deleted = True
+            attachment.deleted_at = datetime.utcnow()
+            attachment.deleted_by = user_id
         
         db.session.commit()
+        db_deleted = True
         
         # Log audit
-        log_audit('delete', attachment.id, {'filename': attachment.filename_original})
+        log_audit('delete', attachment.id, {
+            'filename': filename,
+            'was_already_deleted': was_already_deleted
+        })
         
+        # STEP 2: Try to delete from R2 (best-effort only)
+        r2_deleted = False
+        r2_error = None
+        
+        try:
+            attachment_service = get_attachment_service()
+            
+            # Check if file exists in storage
+            if attachment_service.file_exists(storage_path):
+                # Try to delete from R2
+                r2_deleted = attachment_service.delete_file(storage_path)
+                if r2_deleted:
+                    logger.info(f"[ATTACHMENT_DELETE] R2 file deleted: {storage_path}")
+                else:
+                    logger.warning(f"[ATTACHMENT_DELETE] R2 deletion returned False: {storage_path}")
+            else:
+                # File doesn't exist in R2 - that's OK, consider it deleted
+                logger.info(f"[ATTACHMENT_DELETE] R2 file not found (already deleted): {storage_path}")
+                r2_deleted = True  # Consider it successfully deleted since it's gone
+                
+        except Exception as r2_err:
+            # Log error but don't fail the request
+            r2_error = str(r2_err)
+            logger.warning(f"[ATTACHMENT_DELETE] R2 deletion failed (non-critical): {r2_error}")
+            # If error contains "not found" or "404", treat as success
+            if 'not found' in r2_error.lower() or '404' in r2_error or 'nosuchkey' in r2_error.lower():
+                r2_deleted = True
+        
+        # Always return success if DB record was deleted
         return jsonify({
-            'message': 'Attachment deleted successfully',
-            'id': attachment_id
+            'success': True,
+            'id': attachment_id,
+            'db_deleted': db_deleted,
+            'r2_deleted': r2_deleted,
+            'was_already_deleted': was_already_deleted,
+            'message': 'Attachment deleted successfully'
         }), 200
         
     except Exception as e:
