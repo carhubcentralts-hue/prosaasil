@@ -45,6 +45,7 @@ export function PDFCanvas({
   const [error, setError] = useState<string | null>(null);
   const [internalScale, setInternalScale] = useState(1.0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   
   const scale = externalScale ?? internalScale;
   const handleScaleChange = onScaleChange ?? setInternalScale;
@@ -53,7 +54,7 @@ export function PDFCanvas({
   const containerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
 
-  // Load PDF document
+  // Load PDF document - memoize to prevent double fetch
   useEffect(() => {
     if (!pdfUrl) return;
 
@@ -95,7 +96,29 @@ export function PDFCanvas({
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdfUrl, onTotalPagesChange]);
+  }, [pdfUrl]); // Remove onTotalPagesChange from deps to prevent double fetch
+
+  // ResizeObserver to handle container size changes
+  useEffect(() => {
+    const container = containerRef?.current || containerDivRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        logger.debug('[PDF_CANVAS] Container resized, width:', width);
+        setContainerWidth(width);
+      }
+    });
+
+    resizeObserver.observe(container);
+    // Set initial width
+    setContainerWidth(container.clientWidth);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [containerRef]);
 
   // Render current page
   useEffect(() => {
@@ -105,13 +128,19 @@ export function PDFCanvas({
     const context = canvas.getContext('2d');
     if (!context) return;
 
+    // Don't render if container is too small (waiting for layout)
+    if (containerWidth < 200) {
+      logger.debug('[PDF_CANVAS] Container too small, waiting for layout. Width:', containerWidth);
+      return;
+    }
+
     // Cancel any ongoing render
     if (renderTaskRef.current) {
       renderTaskRef.current.cancel();
       renderTaskRef.current = null;
     }
 
-    logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale);
+    logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', containerWidth);
 
     pdf.getPage(currentPage)
       .then((page) => {
@@ -130,6 +159,8 @@ export function PDFCanvas({
         const cssHeight = viewport.height / pixelRatio;
         canvas.style.width = `${cssWidth}px`;
         canvas.style.height = `${cssHeight}px`;
+
+        logger.debug('[PDF_CANVAS] Canvas size - internal:', canvas.width, 'x', canvas.height, 'display:', cssWidth, 'x', cssHeight);
 
         // Render PDF page into canvas
         const renderContext = {
@@ -161,7 +192,7 @@ export function PDFCanvas({
         renderTaskRef.current = null;
       }
     };
-  }, [pdf, currentPage, scale]);
+  }, [pdf, currentPage, scale, containerWidth]);
 
   const handleZoomIn = () => {
     const newScale = Math.min(3.0, scale + 0.25);
@@ -276,8 +307,11 @@ export function PDFCanvas({
       ref={containerRef || containerDivRef}
       className={`relative flex-1 bg-gray-100 rounded-lg overflow-auto ${className}`}
       style={{
-        // Use minHeight only in fullscreen, otherwise let flex layout handle height
-        ...(isFullscreen ? { minHeight: '100vh' } : {}),
+        // 🔥 FIX: Always set minHeight to prevent height: 0 in flex layouts
+        minHeight: isFullscreen ? '100vh' : '70vh',
+        // Ensure proper positioning
+        position: 'relative',
+        width: '100%',
       }}
     >
       {loading ? (
@@ -301,16 +335,25 @@ export function PDFCanvas({
             <canvas 
               ref={canvasRef} 
               className="shadow-lg bg-white block"
+              style={{
+                // 🔥 FIX: Ensure canvas is always displayed properly
+                display: 'block',
+                maxWidth: '100%',
+              }}
             />
             {/* Overlay for custom elements (signature boxes, etc.) */}
             {children && canvasRef.current && (
               <div 
-                className="absolute inset-0 pointer-events-auto"
+                className="absolute inset-0"
                 style={{
                   // 🔥 FIX: Use CSS size (offsetWidth/offsetHeight) not canvas internal size
                   // This ensures signature zones align properly with the displayed PDF
                   width: canvasRef.current.style.width || `${canvasRef.current.width}px`,
                   height: canvasRef.current.style.height || `${canvasRef.current.height}px`,
+                  // 🔥 FIX: Default to pointer-events none, let children override
+                  pointerEvents: 'none',
+                  // 🔥 FIX: Ensure proper z-index layering
+                  zIndex: 2,
                 }}
               >
                 {children}

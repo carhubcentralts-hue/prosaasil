@@ -37,52 +37,43 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [dragStart, setDragStart] = useState<{ x: number; y: number; fieldX: number; fieldY: number; fieldW: number; fieldH: number } | null>(null);
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   const [scale, setScale] = useState(1.0);
-  const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+  // Remove duplicate PDF loading - PDFCanvas will handle it
   const [pageViewport, setPageViewport] = useState<pdfjsLib.PageViewport | null>(null);
   
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load PDF directly from backend proxy endpoint (avoids CORS issues)
-  // Using /api/contracts/{id}/pdf which serves the file through the backend
-  // This eliminates CORS problems with R2 signed URLs
+  // Get viewport for current page - compute from canvas instead of loading PDF twice
   useEffect(() => {
-    const loadPdf = async () => {
+    // Wait for canvas to be rendered by PDFCanvas component
+    const updateViewport = async () => {
       try {
-        // Use backend proxy endpoint instead of direct R2 URL
+        // Load PDF temporarily just to get viewport dimensions
         const pdfUrl = `/api/contracts/${contractId}/pdf`;
-        logger.debug('Loading PDF from proxy endpoint:', pdfUrl);
-
         const loadingTask = pdfjsLib.getDocument({
           url: pdfUrl,
-          withCredentials: true, // Include auth cookies
+          withCredentials: true,
         });
         
         const loadedPdf = await loadingTask.promise;
-        setPdf(loadedPdf);
-        logger.debug('PDF loaded for signature marking, pages:', loadedPdf.numPages);
+        const page = await loadedPdf.getPage(currentPage);
+        
+        // Use devicePixelRatio like PDFCanvas does
+        const pixelRatio = window.devicePixelRatio || 1;
+        const renderScale = scale * pixelRatio;
+        const viewport = page.getViewport({ scale: renderScale });
+        
+        // Adjust viewport for CSS size (display size)
+        const cssViewport = page.getViewport({ scale: scale });
+        setPageViewport(cssViewport);
+        
+        logger.debug('[SignatureFieldMarker] Page viewport updated:', cssViewport.width, 'x', cssViewport.height);
       } catch (err) {
-        logger.error('Error loading PDF:', err);
-        setError('Failed to load PDF document');
+        logger.error('[SignatureFieldMarker] Error getting page viewport:', err);
       }
     };
 
-    loadPdf();
-  }, [contractId]);
-
-  // Get viewport for current page
-  useEffect(() => {
-    if (!pdf) return;
-
-    pdf.getPage(currentPage)
-      .then((page) => {
-        const viewport = page.getViewport({ scale });
-        setPageViewport(viewport);
-        logger.debug('Page viewport updated:', viewport.width, 'x', viewport.height);
-      })
-      .catch((err) => {
-        logger.error('Error getting page:', err);
-      });
-  }, [pdf, currentPage, scale]);
+    updateViewport();
+  }, [contractId, currentPage, scale]);
 
   // Load existing signature fields
   useEffect(() => {
@@ -306,7 +297,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
       return (
         <div
           key={field.id}
-          className={`absolute border-3 transition-all pointer-events-auto ${
+          className={`absolute border-3 transition-all ${
             selectedFieldId === field.id
               ? 'border-blue-600 bg-blue-200 shadow-xl z-10'
               : 'border-green-600 bg-green-200 hover:border-green-700'
@@ -316,6 +307,9 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             top: `${top}px`,
             width: `${width}px`,
             height: `${height}px`,
+            // 🔥 FIX: Ensure fields receive pointer events
+            pointerEvents: 'auto',
+            zIndex: selectedFieldId === field.id ? 10 : 5,
           }}
           onMouseDown={(e) => handleFieldMouseDown(e, field)}
           onPointerDown={(e) => handleFieldMouseDown(e, field)}
@@ -427,45 +421,40 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
 
             {/* PDF Canvas with Overlay */}
             <div className="flex-1 relative min-h-0">
-              {pdf ? (
-                <PDFCanvas
-                  pdfUrl={`/api/contracts/${contractId}/pdf`}
-                  currentPage={currentPage}
-                  onPageChange={setCurrentPage}
-                  onTotalPagesChange={setTotalPages}
-                  scale={scale}
-                  onScaleChange={setScale}
-                  containerRef={canvasContainerRef}
-                  className="rounded-lg border-2 border-gray-300"
-                >
-                  {/* Canvas Overlay for Signature Fields */}
-                  {pageViewport && (
-                    <div
-                      className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair pointer-events-auto' : 'cursor-default pointer-events-none'}`}
-                      onClick={handleCanvasClick}
-                      onPointerDown={handleCanvasClick}
-                      onMouseMove={handleMouseMove}
-                      onPointerMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onPointerUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
-                      onPointerLeave={handleMouseUp}
-                      style={{
-                        width: `${pageViewport.width}px`,
-                        height: `${pageViewport.height}px`,
-                      }}
-                    >
-                      {renderSignatureFields()}
-                    </div>
-                  )}
-                </PDFCanvas>
-              ) : (
-                <div className="flex items-center justify-center h-96 bg-gray-100 rounded-lg border-2 border-gray-300">
-                  <div className="text-center">
-                    <div className="text-gray-500 mb-2">טוען PDF...</div>
+              <PDFCanvas
+                pdfUrl={`/api/contracts/${contractId}/pdf`}
+                currentPage={currentPage}
+                onPageChange={setCurrentPage}
+                onTotalPagesChange={setTotalPages}
+                scale={scale}
+                onScaleChange={setScale}
+                containerRef={canvasContainerRef}
+                className="rounded-lg border-2 border-gray-300"
+              >
+                {/* Canvas Overlay for Signature Fields */}
+                {pageViewport && (
+                  <div
+                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair' : 'cursor-default'}`}
+                    onClick={handleCanvasClick}
+                    onPointerDown={handleCanvasClick}
+                    onMouseMove={handleMouseMove}
+                    onPointerMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onPointerUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onPointerLeave={handleMouseUp}
+                    style={{
+                      // 🔥 FIX: Set proper size and pointer-events
+                      width: `${pageViewport.width}px`,
+                      height: `${pageViewport.height}px`,
+                      pointerEvents: signatureMarkingMode ? 'auto' : 'none',
+                      zIndex: 2,
+                    }}
+                  >
+                    {renderSignatureFields()}
                   </div>
-                </div>
-              )}
+                )}
+              </PDFCanvas>
             </div>
           </div>
 
