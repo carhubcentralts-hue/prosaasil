@@ -4983,6 +4983,98 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  background_jobs table already exists - skipping Migration 100")
         
+        # ============================================================================
+        # Migration 101: Enhanced Receipt Processing Fields
+        # ============================================================================
+        # Adds new fields for comprehensive receipt processing:
+        # - preview_image_key: Direct R2 storage key for preview images (mandatory)
+        # - preview_source: Tracking where preview came from (email_html|attachment_pdf|attachment_image|receipt_url|html_fallback)
+        # - extraction_status: Separate status for extraction process (pending|processing|success|needs_review|failed)
+        # - extraction_error: Detailed error message for failed extractions
+        # ============================================================================
+        checkpoint("Migration 101: Adding enhanced receipt processing fields")
+        if check_table_exists('receipts'):
+            try:
+                # Add preview_image_key column
+                if not check_column_exists('receipts', 'preview_image_key'):
+                    checkpoint("  → Adding preview_image_key column...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN preview_image_key VARCHAR(512)
+                    """))
+                    checkpoint("  ✅ preview_image_key column added")
+                    migrations_applied.append('add_preview_image_key')
+                else:
+                    checkpoint("  ℹ️  preview_image_key column already exists")
+                
+                # Add preview_source column with enum constraint
+                if not check_column_exists('receipts', 'preview_source'):
+                    checkpoint("  → Adding preview_source column...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN preview_source VARCHAR(32)
+                    """))
+                    checkpoint("  → Adding preview_source constraint...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_preview_source 
+                        CHECK (preview_source IN ('email_html', 'attachment_pdf', 'attachment_image', 'receipt_url', 'html_fallback'))
+                    """))
+                    checkpoint("  ✅ preview_source column added with constraint")
+                    migrations_applied.append('add_preview_source')
+                else:
+                    checkpoint("  ℹ️  preview_source column already exists")
+                
+                # Add extraction_status column with enum constraint
+                if not check_column_exists('receipts', 'extraction_status'):
+                    checkpoint("  → Adding extraction_status column...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN extraction_status VARCHAR(32) DEFAULT 'pending'
+                    """))
+                    checkpoint("  → Adding extraction_status constraint...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD CONSTRAINT chk_extraction_status 
+                        CHECK (extraction_status IN ('pending', 'processing', 'success', 'needs_review', 'failed'))
+                    """))
+                    checkpoint("  ✅ extraction_status column added with constraint")
+                    migrations_applied.append('add_extraction_status')
+                else:
+                    checkpoint("  ℹ️  extraction_status column already exists")
+                
+                # Add extraction_error column
+                if not check_column_exists('receipts', 'extraction_error'):
+                    checkpoint("  → Adding extraction_error column...")
+                    db.session.execute(text("""
+                        ALTER TABLE receipts 
+                        ADD COLUMN extraction_error TEXT
+                    """))
+                    checkpoint("  ✅ extraction_error column added")
+                    migrations_applied.append('add_extraction_error')
+                else:
+                    checkpoint("  ℹ️  extraction_error column already exists")
+                
+                # Add index for extraction_status for filtering queries
+                if not check_index_exists('idx_receipts_extraction_status'):
+                    checkpoint("  → Creating idx_receipts_extraction_status index...")
+                    db.session.execute(text("""
+                        CREATE INDEX idx_receipts_extraction_status 
+                        ON receipts(extraction_status)
+                    """))
+                    checkpoint("  ✅ idx_receipts_extraction_status index created")
+                else:
+                    checkpoint("  ℹ️  idx_receipts_extraction_status index already exists")
+                
+                checkpoint("✅ Migration 101 completed - Enhanced receipt processing fields ready")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 101 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️  receipts table does not exist - skipping Migration 101")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

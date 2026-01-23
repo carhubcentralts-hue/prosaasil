@@ -1651,6 +1651,14 @@ class Receipt(db.Model):
     preview_status = db.Column(db.String(20), nullable=False, default='pending')  # pending|generated|failed|not_available|skipped
     preview_failure_reason = db.Column(db.Text, nullable=True)  # Error message if preview generation failed
     
+    # Enhanced preview tracking (Migration 101)
+    preview_image_key = db.Column(db.String(512), nullable=True)  # Direct R2 storage key for preview image (mandatory after processing)
+    preview_source = db.Column(db.String(32), nullable=True)  # email_html|attachment_pdf|attachment_image|receipt_url|html_fallback
+    
+    # Extraction tracking (Migration 101)
+    extraction_status = db.Column(db.String(32), nullable=False, default='pending')  # pending|processing|success|needs_review|failed
+    extraction_error = db.Column(db.Text, nullable=True)  # Detailed error message for failed extractions
+    
     # Soft delete
     is_deleted = db.Column(db.Boolean, default=False, index=True)
     deleted_at = db.Column(db.DateTime, nullable=True)

@@ -1,0 +1,8 @@
+{
+  "vendor": "Stripe",
+  "amount": 34.40,
+  "currency": "EUR",
+  "date": "2025-12-22",
+  "invoice_number": "ch_3QR4x2L9vK2QMnzE1XYZ1234",
+  "preview_should_be_valid": true
+}

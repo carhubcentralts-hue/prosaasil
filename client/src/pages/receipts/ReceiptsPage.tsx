@@ -1028,7 +1028,7 @@ export function ReceiptsPage() {
     }
   }, [user?.token, fetchStats]);
   
-  // Initial load - load status, stats, and check for active sync
+  // Initial load - load status, stats, and check for active sync AND delete jobs
   useEffect(() => {
     const initializeAndCheckSync = async () => {
       await doInitialFetch();
@@ -1036,8 +1036,8 @@ export function ReceiptsPage() {
       // Check if there's an active sync run on page load/refresh
       try {
         const latestSyncRes = await axios.get('/api/receipts/sync/latest');
-        if (latestSyncRes.data.success && latestSyncRes.data.sync_run) {
-          const run = latestSyncRes.data.sync_run;
+        if (latestSyncRes.data.success && latestSyncRes.data.last_run) {
+          const run = latestSyncRes.data.last_run;
           
           // If sync is still running, restore the UI state
           if (run.status === 'running' || run.status === 'paused') {
@@ -1045,8 +1045,15 @@ export function ReceiptsPage() {
             setActiveSyncRunId(run.id);
             setSyncing(true);
             setSyncInProgress(true);
-            setSyncProgress(run.progress);
+            
+            // Set progress from counters
+            if (run.counters) {
+              setSyncProgress(run.counters);
+            }
             setSyncProgressPercentage(run.progress_percentage || 0);
+            
+            // CRITICAL: Save sync_run_id to localStorage for future refreshes
+            localStorage.setItem('activeSyncRunId', run.id.toString());
             
             // Restore from localStorage if available
             const storedSyncDates = localStorage.getItem('activeSyncDates');
@@ -1062,10 +1069,85 @@ export function ReceiptsPage() {
           } else {
             // Sync completed/failed - clear localStorage
             localStorage.removeItem('activeSyncDates');
+            localStorage.removeItem('activeSyncRunId');
+          }
+        } else {
+          // FALLBACK: Check localStorage for stored sync_run_id
+          const storedSyncRunId = localStorage.getItem('activeSyncRunId');
+          if (storedSyncRunId) {
+            console.log('📍 Found stored sync_run_id in localStorage, checking status:', storedSyncRunId);
+            try {
+              const syncRunRes = await axios.get(`/api/receipts/sync/status?run_id=${storedSyncRunId}`);
+              if (syncRunRes.data.success && syncRunRes.data.sync_run) {
+                const run = syncRunRes.data.sync_run;
+                if (run.status === 'running' || run.status === 'paused') {
+                  console.log('📍 Restoring sync from localStorage:', run);
+                  setActiveSyncRunId(run.id);
+                  setSyncing(true);
+                  setSyncInProgress(true);
+                  
+                  if (run.progress) {
+                    setSyncProgress(run.progress);
+                  }
+                  setSyncProgressPercentage(run.progress_percentage || 0);
+                } else {
+                  // Sync is done - clear localStorage
+                  localStorage.removeItem('activeSyncDates');
+                  localStorage.removeItem('activeSyncRunId');
+                }
+              }
+            } catch (err) {
+              console.error('Failed to check stored sync_run_id:', err);
+              // Clear invalid localStorage
+              localStorage.removeItem('activeSyncRunId');
+            }
           }
         }
       } catch (err) {
         console.error('Failed to check for active sync:', err);
+      }
+      
+      // CRITICAL: Check for active delete job on page load/refresh
+      try {
+        // Check localStorage for active delete job
+        const storedDeleteJobId = localStorage.getItem('activeDeleteJobId');
+        if (storedDeleteJobId) {
+          const jobId = parseInt(storedDeleteJobId, 10);
+          console.log('📍 Found stored delete job ID on page load:', jobId);
+          
+          // Fetch current job status
+          const jobRes = await axios.get(`/api/receipts/jobs/${jobId}`);
+          if (jobRes.data.success) {
+            const job = jobRes.data;
+            
+            // If job is still active, restore UI state
+            if (job.status === 'running' || job.status === 'paused' || job.status === 'queued') {
+              console.log('📍 Restoring active delete job:', job);
+              setDeleteJobId(jobId);
+              setShowDeleteProgress(true);
+              setDeleteProgress({
+                status: job.status,
+                total: job.total,
+                processed: job.processed,
+                succeeded: job.succeeded,
+                failed_count: job.failed_count,
+                percent: job.percent,
+                last_error: job.last_error
+              });
+              
+              // Start polling
+              deleteProgressRef.current = { active: true, jobId };
+              pollDeleteProgress(jobId);
+            } else {
+              // Job completed/failed - clear localStorage
+              localStorage.removeItem('activeDeleteJobId');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check for active delete job:', err);
+        // Clear localStorage if job fetch fails
+        localStorage.removeItem('activeDeleteJobId');
       }
     };
     
@@ -1094,8 +1176,9 @@ export function ReceiptsPage() {
             setSyncProgressPercentage(0);
             setCancelling(false);
             
-            // Clear localStorage when sync completes
+            // CRITICAL: Clear BOTH localStorage items when sync completes
             localStorage.removeItem('activeSyncDates');
+            localStorage.removeItem('activeSyncRunId');
             
             // Refresh data - trigger via state change
             setPage(p => p); // This triggers a re-fetch via the effect
@@ -1216,6 +1299,14 @@ export function ReceiptsPage() {
         headers: { Authorization: `Bearer ${user?.token}` }
       });
       console.log('🔔 Sync response:', response.status, response.data);
+      
+      // CRITICAL: Check if response includes sync_run_id and save it to localStorage
+      if (response.data.sync_run_id) {
+        const syncRunId = response.data.sync_run_id;
+        setActiveSyncRunId(syncRunId);
+        localStorage.setItem('activeSyncRunId', syncRunId.toString());
+        console.log('📍 Saved sync_run_id to localStorage:', syncRunId);
+      }
 
       // Backend now returns 202 Accepted immediately
       if (response.status === 202) {
@@ -1399,6 +1490,9 @@ export function ReceiptsPage() {
           percent: 0
         });
         
+        // CRITICAL: Store job ID in localStorage for persistence across refresh
+        localStorage.setItem('activeDeleteJobId', jobId.toString());
+        
         // Start polling for progress
         deleteProgressRef.current = { active: true, jobId };
         pollDeleteProgress(jobId);
@@ -1435,6 +1529,8 @@ export function ReceiptsPage() {
         // Check if job is complete
         if (progress.status === 'completed') {
           deleteProgressRef.current.active = false;
+          // CRITICAL: Clear localStorage when job completes
+          localStorage.removeItem('activeDeleteJobId');
           // Wait a bit to show 100% before closing
           setTimeout(() => {
             setShowDeleteProgress(false);
@@ -1446,11 +1542,15 @@ export function ReceiptsPage() {
           return;
         } else if (progress.status === 'failed') {
           deleteProgressRef.current.active = false;
+          // CRITICAL: Clear localStorage when job fails
+          localStorage.removeItem('activeDeleteJobId');
           alert(`מחיקה נכשלה: ${progress.last_error || 'שגיאה לא ידועה'}`);
           setShowDeleteProgress(false);
           return;
         } else if (progress.status === 'cancelled') {
           deleteProgressRef.current.active = false;
+          // CRITICAL: Clear localStorage when job is cancelled
+          localStorage.removeItem('activeDeleteJobId');
           alert('מחיקה בוטלה');
           setShowDeleteProgress(false);
           return;
@@ -1476,6 +1576,8 @@ export function ReceiptsPage() {
       });
       
       deleteProgressRef.current.active = false;
+      // CRITICAL: Clear localStorage when job is cancelled
+      localStorage.removeItem('activeDeleteJobId');
       alert('מחיקה בוטלה');
       setShowDeleteProgress(false);
       fetchReceipts();
