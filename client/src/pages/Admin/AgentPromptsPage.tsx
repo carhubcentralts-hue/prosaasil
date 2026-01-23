@@ -10,12 +10,14 @@ import {
   Save, 
   RefreshCw,
   AlertCircle,
-  History
+  History,
+  Sparkles
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useAuth } from '../../features/auth/hooks';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
+import { SmartPromptGeneratorV2 } from '../../components/settings/SmartPromptGeneratorV2';
 
 interface PromptData {
   calls_prompt: string;
@@ -58,6 +60,8 @@ export function AgentPromptsPage() {
   const [revisions, setRevisions] = useState<PromptRevision[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [businessName, setBusinessName] = useState<string>('');
+  const [showSmartGenerator, setShowSmartGenerator] = useState(false);
+  const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
 
   // Load prompts and business info
   useEffect(() => {
@@ -153,6 +157,17 @@ export function AgentPromptsPage() {
     }
   };
 
+  const handleSmartGeneratorSave = (promptText: string, channel: 'calls' | 'whatsapp', metadata: any) => {
+    // Update the prompt in state
+    setPrompts(prev => ({
+      ...prev,
+      [channel === 'calls' ? 'calls_prompt' : 'whatsapp_prompt']: promptText
+    }));
+    
+    // Show success message
+    alert(`✅ פרומפט חכם נוצר והוכנס לשדה ${channel === 'calls' ? 'שיחות' : 'WhatsApp'}. לא שכח לשמור!`);
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
       year: 'numeric',
@@ -201,13 +216,25 @@ export function AgentPromptsPage() {
             </p>
           </div>
           
-          <button
-            onClick={() => {
-              setShowHistory(!showHistory);
-              if (!showHistory) loadHistory();
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-          >
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setSmartGenChannel('calls');
+                setShowSmartGenerator(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 rounded-lg transition-all shadow-md hover:shadow-lg"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span className="font-medium">מחולל פרומפטים חכם v2</span>
+            </button>
+            
+            <button
+              onClick={() => {
+                setShowHistory(!showHistory);
+                if (!showHistory) loadHistory();
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+            >
             <History className="h-4 w-4" />
             היסטוריית שינויים
           </button>
@@ -412,6 +439,14 @@ export function AgentPromptsPage() {
           )}
         </div>
       )}
+      
+      {/* Smart Prompt Generator v2 Modal */}
+      <SmartPromptGeneratorV2
+        isOpen={showSmartGenerator}
+        onClose={() => setShowSmartGenerator(false)}
+        onSave={handleSmartGeneratorSave}
+        initialChannel={smartGenChannel}
+      />
     </div>
   );
 }
