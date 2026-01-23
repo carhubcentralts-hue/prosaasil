@@ -2812,7 +2812,7 @@ def _convert_png_to_pdf(png_path: str) -> bytes:
             os.unlink(pdf_path)
 
 
-def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: int = None, 
+def generate_receipt_preview_png(email_html: str, business_id: int, receipt_id: Optional[int] = None, 
                                   viewport_width: int = 1280, viewport_height: int = 720,
                                   retry_attempt: int = 0) -> Optional[Tuple[int, int]]:
     """
@@ -3373,10 +3373,10 @@ def generate_email_screenshot(email_html: str, business_id: int, receipt_id: int
 
 def extract_email_html_full(message: dict) -> str:
     """
-    Extract FULL HTML content from Gmail message for Playwright rendering
+    Extract FULL HTML content from Gmail message for PNG preview rendering
     
     CRITICAL: Returns COMPLETE HTML without truncation
-    This is used for generating previews - truncation causes empty PDFs!
+    This is used for generating PNG previews - truncation causes empty/blank images!
     
     Args:
         message: Gmail message object
