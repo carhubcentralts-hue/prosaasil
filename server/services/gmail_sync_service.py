@@ -1443,16 +1443,25 @@ def process_single_receipt_message(
                                 preview_data = generate_image_thumbnail(att_data, att['mime_type'])
                             
                             if preview_data:
-                                preview_attachment_id = save_preview_attachment(
-                                    preview_data=preview_data,
-                                    business_id=business_id,
-                                    original_filename=att['filename'] or 'receipt',
-                                    purpose='receipt_preview'
-                                )
-                                if preview_attachment_id:
-                                    preview_generated = True
-                                    logger.info(f"✅ Preview generated from first attachment")
-                            else:
+                                # CRITICAL: Validate preview is not blank BEFORE saving
+                                from server.services.receipt_preview_service import is_image_blank_or_white
+                                
+                                if is_image_blank_or_white(preview_data):
+                                    logger.warning(f"⚠️ Preview appears blank/white - rejecting")
+                                    preview_error_msg = f"Preview validation failed - blank/white image"
+                                    preview_data = None
+                                else:
+                                    preview_attachment_id = save_preview_attachment(
+                                        preview_data=preview_data,
+                                        business_id=business_id,
+                                        original_filename=att['filename'] or 'receipt',
+                                        purpose='receipt_preview'
+                                    )
+                                    if preview_attachment_id:
+                                        preview_generated = True
+                                        logger.info(f"✅ Preview generated from first attachment")
+                            
+                            if not preview_data:
                                 logger.warning(f"⚠️ Preview generation returned None for {att['mime_type']}")
                                 preview_error_msg = f"Preview generation returned None for {att['mime_type']}"
                     except Exception as preview_err:
@@ -1493,6 +1502,8 @@ def process_single_receipt_message(
                     if preview_file_size < MIN_PREVIEW_SIZE:
                         preview_error_msg = f"Preview small ({preview_file_size} bytes) - may indicate blocked/empty content"
                         logger.warning(f"⚠️ {preview_error_msg}")
+                        # Mark as not generated if too small - likely useless
+                        preview_generated = False
                     else:
                         logger.info(f"✅ PNG preview generated successfully: {preview_file_size} bytes")
                     
@@ -1547,7 +1558,7 @@ def process_single_receipt_message(
             logger.warning(f"⚠️ PARTIAL SAVE: {saved_count}/{total_count} attachments saved")
     
     # CRITICAL: Only skip if email is completely empty (no HTML, no attachments)
-    # Otherwise ALWAYS create record (Rule 7)
+    # OR if validation failed critically (no preview AND no amount)
     if not attachment_processed and not email_html_snippet and not all_attachments:
         logger.info(f"⏭️ Skipping completely empty email (no HTML, no attachments)")
         result['skipped'] += 1
@@ -1560,6 +1571,17 @@ def process_single_receipt_message(
         subject=metadata.get('subject', ''),
         metadata=metadata
     )
+    
+    # CRITICAL NEW VALIDATION: Don't save receipts that have NOTHING useful
+    # If validation failed AND no amount extracted, this receipt is useless - skip it
+    if validation_failed and not extracted.get('amount'):
+        logger.error(
+            f"❌ SKIPPING USELESS RECEIPT: validation failed AND no amount extracted. "
+            f"preview_generated={preview_generated}, has_amount={bool(extracted.get('amount'))}, "
+            f"validation_errors={validation_errors}"
+        )
+        result['skipped'] += 1
+        return None
     
     # Parse received date
     received_at = None

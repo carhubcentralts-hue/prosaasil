@@ -26,8 +26,9 @@ THUMBNAIL_MAX_HEIGHT = 512  # Max height for thumbnails
 THUMBNAIL_QUALITY = 85  # JPEG quality for thumbnails
 
 # Content validation thresholds
-MIN_CONTENT_VARIANCE = 10  # Minimum pixel variance for non-blank image
-MIN_UNIQUE_COLORS = 10  # Minimum unique colors for non-blank image
+MIN_CONTENT_VARIANCE = 50  # Minimum pixel variance for non-blank image (raised from 10)
+MIN_UNIQUE_COLORS = 50  # Minimum unique colors for non-blank image (raised from 10)
+MIN_EDGE_MEAN = 3.0  # Minimum edge detection mean (raised from 1.0)
 
 
 def is_image_blank_or_white(image_data: bytes) -> bool:
@@ -82,7 +83,7 @@ def is_image_blank_or_white(image_data: bytes) -> bool:
             edge_mean = sum(edge_stat.mean) / len(edge_stat.mean)
             
             # If almost no edges detected, likely blank
-            if edge_mean < 1.0:
+            if edge_mean < MIN_EDGE_MEAN:
                 logger.warning(f"Image appears blank - no edges: {edge_mean:.2f}")
                 return True
         except Exception as e:

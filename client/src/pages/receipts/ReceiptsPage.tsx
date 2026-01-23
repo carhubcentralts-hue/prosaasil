@@ -992,9 +992,14 @@ export function ReceiptsPage() {
         const status = response.data.sync_run;
         setSyncStatus(status);
         
+        // CRITICAL: Update progress data too!
+        setSyncProgress(status.progress);
+        setSyncProgressPercentage(status.progress_percentage || 0);
+        
         // Stop polling if sync is done
         if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
           setSyncInProgress(false);
+          setCancelling(false);
           // Reload receipts - trigger via state change which will be caught by the debounced effect
           setPage(p => p); // This triggers a re-fetch via the effect
           await fetchStats();
@@ -1002,6 +1007,10 @@ export function ReceiptsPage() {
       }
     } catch (error) {
       console.error('Failed to fetch sync status:', error);
+      // Show error to user
+      const errorMsg = '⚠️ שגיאה בקבלת מצב הסנכרון';
+      setError(errorMsg);
+      setTimeout(() => setError(null), 5000);
     }
   }, [user?.token, fetchStats]);
   
