@@ -273,47 +273,35 @@ def get_tts_voices():
     """
     Get available TTS voices for each provider.
     
-    OpenAI: Returns existing voice list (not modified)
-    Gemini: Uses discovery from gemini_voice_catalog
+    🔥 UPDATED: Uses unified voice_catalog for consistent Hebrew names
+    Returns both OpenAI and Gemini voices ALWAYS.
+    Gemini is shown even if API key missing (with availability flag).
     """
     try:
-        # OpenAI voices - use existing list, don't modify
+        from server.config.voice_catalog import OPENAI_VOICES, GEMINI_VOICES
+        
+        # Check if Gemini API key is configured
+        # 🔥 CRITICAL: Use exact env var name GEMINI_API_KEY (no aliases)
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        gemini_available = bool(gemini_api_key and gemini_api_key.strip())
+        
         providers = [
             {
                 "id": "openai",
                 "name": "OpenAI",
                 "label": "OpenAI TTS",
-                "mode": "production",
-                "voices": tts_provider.get_available_voices("openai"),
+                "voices": OPENAI_VOICES,
                 "available": True
-            }
-        ]
-        
-        # Gemini voices - use discovery from catalog
-        from server.services import gemini_voice_catalog
-        gemini_data = gemini_voice_catalog.get_gemini_voices_for_ui()
-        
-        if gemini_data["gemini_available"]:
-            gemini_mode = "production" if _get_voice_provider_modes().get('gemini') else "preview"
-            providers.append({
-                "id": "gemini" if gemini_mode == "production" else "gemini_preview",
-                "name": "Gemini",
-                "label": f"Google Gemini TTS {'(Preview)' if gemini_mode == 'preview' else ''}",
-                "mode": gemini_mode,
-                "voices": gemini_data["voices"],
-                "available": True
-            })
-        else:
-            # Gemini not available
-            providers.append({
+            },
+            {
                 "id": "gemini",
                 "name": "Gemini",
-                "label": "Google Gemini TTS (לא מוגדר)",
-                "mode": "unavailable",
-                "voices": [],
-                "available": False,
-                "message": gemini_data.get("error", "יש להגדיר GEMINI_API_KEY כדי להפעיל")
-            })
+                "label": "Google Gemini TTS",
+                "voices": GEMINI_VOICES,
+                "available": gemini_available,
+                "message": "" if gemini_available else "יש להגדיר GEMINI_API_KEY כדי להפעיל"
+            }
+        ]
         
         return jsonify({"providers": providers})
     except Exception as e:

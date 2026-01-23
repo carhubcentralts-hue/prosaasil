@@ -534,3 +534,43 @@ def preview_tts():
         logger.error(f"[AI][TTS_PREVIEW] Failed to generate preview: {e}")
         traceback.print_exc()
         return {"ok": False, "error": "tts_generation_failed", "message": str(e)}, 500
+
+
+@ai_system_bp.route('/api/ai/voices', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_all_voices():
+    """
+    Get all available TTS voices from both OpenAI and Gemini providers.
+    
+    Returns unified voice catalog with Hebrew display names.
+    Gemini voices are ALWAYS returned - if API key missing, gemini_available=False
+    but voices list is still provided for UI display.
+    
+    🔥 CRITICAL: This is for TTS (voice) only, NOT for LLM (brain).
+    Brain is always OpenAI, voice can be OpenAI or Gemini.
+    
+    Returns:
+        {
+            "openai": [...],  # Always available
+            "gemini": [...],  # Always returned, even if API key missing
+            "gemini_available": bool  # True only if GEMINI_API_KEY is set
+        }
+    """
+    try:
+        from server.config.voice_catalog import OPENAI_VOICES, GEMINI_VOICES
+        
+        # Check if Gemini API key is configured
+        # Use exact env var name: GEMINI_API_KEY (no aliases, no fallbacks)
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        gemini_available = bool(gemini_api_key and gemini_api_key.strip())
+        
+        return jsonify({
+            "openai": OPENAI_VOICES,
+            "gemini": GEMINI_VOICES,
+            "gemini_available": gemini_available
+        })
+    
+    except Exception as e:
+        logger.error(f"[AI][VOICES] Failed to get voice catalog: {e}")
+        return jsonify({"error": "Failed to load voices"}), 500
