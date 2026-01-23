@@ -869,6 +869,20 @@ export function ReceiptsPage() {
   const [syncProgressPercentage, setSyncProgressPercentage] = useState<number>(0);
   const [cancelling, setCancelling] = useState(false);
   
+  // Delete-all progress tracking
+  const [deleteJobId, setDeleteJobId] = useState<number | null>(null);
+  const [deleteProgress, setDeleteProgress] = useState<{
+    status: string;
+    total: number;
+    processed: number;
+    succeeded: number;
+    failed_count: number;
+    percent: number;
+    last_error?: string;
+  } | null>(null);
+  const [showDeleteProgress, setShowDeleteProgress] = useState(false);
+  const deleteProgressRef = useRef<{ active: boolean; jobId: number | null }>({ active: false, jobId: null });
+  
   // Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -1344,6 +1358,134 @@ export function ReceiptsPage() {
     }
   };
   
+  // =============================================
+  // Handle Delete All Receipts with Progress Tracking
+  // =============================================
+  const handleDeleteAllReceipts = async () => {
+    // Confirmation dialogs
+    const firstConfirm = window.confirm(
+      'פעולה זו תמחק את כל הקבלות באמצעות תהליך רקע יציב. האם אתה בטוח?'
+    );
+    
+    if (!firstConfirm) {
+      return;
+    }
+    
+    const confirmed = prompt(
+      'אישור סופי: הקלד "DELETE" באנגלית:'
+    );
+    
+    if (confirmed !== 'DELETE') {
+      alert('האישור בוטל - לא הוקלד "DELETE"');
+      return;
+    }
+
+    try {
+      // Start delete job
+      const response = await axios.post('/api/receipts/delete_all', {}, {
+        headers: { Authorization: `Bearer ${user?.token}` }
+      });
+      
+      if (response.data.success) {
+        const jobId = response.data.job_id;
+        setDeleteJobId(jobId);
+        setShowDeleteProgress(true);
+        setDeleteProgress({
+          status: response.data.status,
+          total: response.data.total,
+          processed: 0,
+          succeeded: 0,
+          failed_count: 0,
+          percent: 0
+        });
+        
+        // Start polling for progress
+        deleteProgressRef.current = { active: true, jobId };
+        pollDeleteProgress(jobId);
+      }
+    } catch (error: any) {
+      console.error('Delete all error:', error);
+      alert(error.response?.data?.error || 'שגיאה בהפעלת מחיקת הקבלות');
+    }
+  };
+  
+  // Poll delete progress
+  const pollDeleteProgress = async (jobId: number) => {
+    if (!deleteProgressRef.current.active || deleteProgressRef.current.jobId !== jobId) {
+      return;
+    }
+    
+    try {
+      const response = await axios.get(`/api/receipts/jobs/${jobId}`, {
+        headers: { Authorization: `Bearer ${user?.token}` }
+      });
+      
+      if (response.data.success) {
+        const progress = response.data;
+        setDeleteProgress({
+          status: progress.status,
+          total: progress.total,
+          processed: progress.processed,
+          succeeded: progress.succeeded,
+          failed_count: progress.failed_count,
+          percent: progress.percent,
+          last_error: progress.last_error
+        });
+        
+        // Check if job is complete
+        if (progress.status === 'completed') {
+          deleteProgressRef.current.active = false;
+          // Wait a bit to show 100% before closing
+          setTimeout(() => {
+            setShowDeleteProgress(false);
+            setDeleteJobId(null);
+            fetchReceipts();
+            fetchStats();
+            alert(`מחיקה הושלמה בהצלחה! נמחקו ${progress.succeeded} קבלות.`);
+          }, 2000);
+          return;
+        } else if (progress.status === 'failed') {
+          deleteProgressRef.current.active = false;
+          alert(`מחיקה נכשלה: ${progress.last_error || 'שגיאה לא ידועה'}`);
+          setShowDeleteProgress(false);
+          return;
+        } else if (progress.status === 'cancelled') {
+          deleteProgressRef.current.active = false;
+          alert('מחיקה בוטלה');
+          setShowDeleteProgress(false);
+          return;
+        }
+        
+        // Continue polling (1.5 seconds)
+        setTimeout(() => pollDeleteProgress(jobId), 1500);
+      }
+    } catch (error) {
+      console.error('Error polling delete progress:', error);
+      // Retry after a short delay
+      setTimeout(() => pollDeleteProgress(jobId), 2000);
+    }
+  };
+  
+  // Cancel delete job
+  const handleCancelDelete = async () => {
+    if (!deleteJobId) return;
+    
+    try {
+      await axios.post(`/api/receipts/jobs/${deleteJobId}/cancel`, {}, {
+        headers: { Authorization: `Bearer ${user?.token}` }
+      });
+      
+      deleteProgressRef.current.active = false;
+      alert('מחיקה בוטלה');
+      setShowDeleteProgress(false);
+      fetchReceipts();
+      fetchStats();
+    } catch (error) {
+      console.error('Cancel delete error:', error);
+      alert('שגיאה בביטול המחיקה');
+    }
+  };
+  
   // Handle view receipt with signed URL
   const handleViewReceipt = async (receipt: ReceiptItem) => {
     try {
@@ -1430,11 +1572,12 @@ export function ReceiptsPage() {
               {/* Sync button */}
               {gmailStatus?.connected && (
                 <>
-                  {/* Purge All Button */}
+                  {/* Delete All Button (Stable with Progress) */}
                   <button
-                    onClick={handlePurgeAllReceipts}
-                    className="flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                    title="מחק את כל הקבלות"
+                    onClick={handleDeleteAllReceipts}
+                    disabled={showDeleteProgress}
+                    className="flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium disabled:opacity-50"
+                    title="מחק את כל הקבלות (יציב עם סרגל התקדמות)"
                   >
                     <X className="w-4 h-4 sm:ml-2" />
                     <span className="hidden sm:inline">מחק הכל</span>
@@ -2102,6 +2245,108 @@ export function ReceiptsPage() {
           setPage(1);
         }}
       />
+      
+      {/* ============================================= */}
+      {/* Delete Progress Modal */}
+      {/* ============================================= */}
+      {showDeleteProgress && deleteProgress && ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900">מוחק קבלות...</h3>
+              {deleteProgress.status === 'running' && (
+                <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
+              )}
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">
+                  {deleteProgress.processed} מתוך {deleteProgress.total}
+                </span>
+                <span className="text-sm font-bold text-blue-600">
+                  {deleteProgress.percent.toFixed(1)}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="bg-blue-600 h-full transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${deleteProgress.percent}%` }}
+                />
+              </div>
+            </div>
+            
+            {/* Stats */}
+            <div className="space-y-2 mb-6">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-600">נמחקו בהצלחה:</span>
+                <span className="font-medium text-green-600">{deleteProgress.succeeded}</span>
+              </div>
+              {deleteProgress.failed_count > 0 && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">נכשלו:</span>
+                  <span className="font-medium text-red-600">{deleteProgress.failed_count}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-600">סטטוס:</span>
+                <span className="font-medium text-gray-900">
+                  {deleteProgress.status === 'running' ? 'רץ' :
+                   deleteProgress.status === 'queued' ? 'בתור' :
+                   deleteProgress.status === 'paused' ? 'מושהה' :
+                   deleteProgress.status === 'completed' ? 'הושלם' :
+                   deleteProgress.status}
+                </span>
+              </div>
+            </div>
+            
+            {/* Error Message */}
+            {deleteProgress.last_error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-xs text-red-800">
+                  <strong>שגיאה אחרונה:</strong> {deleteProgress.last_error}
+                </p>
+              </div>
+            )}
+            
+            {/* Info */}
+            <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-xs text-blue-800">
+                <strong>💡 טיפ:</strong> המערכת מוחקת את הקבלות באצוות קטנות כדי לשמור על יציבות. 
+                התהליך עשוי לקחת מספר דקות בהתאם לכמות הקבלות.
+              </p>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex gap-3">
+              {deleteProgress.status === 'running' && (
+                <button
+                  onClick={handleCancelDelete}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                >
+                  בטל
+                </button>
+              )}
+              {deleteProgress.status === 'completed' && (
+                <button
+                  onClick={() => {
+                    setShowDeleteProgress(false);
+                    setDeleteJobId(null);
+                    fetchReceipts();
+                    fetchStats();
+                  }}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  סגור
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
