@@ -574,16 +574,17 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     metadata['has_attachment'] = has_pdf or has_image
     
     # ==================================================================================
-    # MASTER INSTRUCTION RULE 1: ANY ATTACHMENT = MUST PROCESS (NO EXCEPTIONS!)
+    # REVISED LOGIC: Process ALL emails with receipt indicators
     # ==================================================================================
-    # If email has ANY attachment (PDF or image), it MUST be processed.
-    # No keyword checks, no confidence thresholds - attachment presence is absolute.
-    if has_pdf or has_image:
-        logger.info(f"📎 RULE 1: Email has attachment - MUST PROCESS (confidence=100)")
-        return True, 100, metadata  # Force processing with max confidence
+    # Attachments are a BONUS, not the primary criterion
+    # We want to capture ALL receipt-related emails based on keywords, subject, content
+    # Screenshots will be generated for emails without attachments
     
-    # If no attachment, use keyword-based detection for other receipt types
-    # (e.g., plain text receipts, embedded HTML receipts)
+    # Start with base confidence
+    # If email has attachments, boost confidence but don't force immediate return
+    if has_pdf or has_image:
+        confidence += 60  # High boost for attachments, but continue checking
+        logger.info(f"📎 Email has attachment - boosting confidence to {confidence}")
     
     # Check for receipt keywords in subject/content
     subject_lower = subject.lower()
@@ -596,12 +597,14 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
     
     # If we have receipt keywords, it's likely a receipt even without attachment
     if matched_keywords:
-        confidence += 40  # Strong indicator
+        confidence += 50  # Very strong indicator - increased from 40
         metadata['matched_keywords'] = matched_keywords
+        logger.info(f"🔑 Found {len(matched_keywords)} keywords: {matched_keywords[:3]}, confidence now {confidence}")
     
     # Check sender domain
     if from_domain in KNOWN_RECEIPT_DOMAINS:
-        confidence += 40  # Increased from 35
+        confidence += 45  # Increased from 40
+        logger.info(f"🏢 Known receipt domain: {from_domain}, confidence now {confidence}")
     
     # Extract email snippet for additional analysis
     snippet = message.get('snippet', '').lower()
@@ -625,11 +628,15 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
             if snippet_matches >= MAX_SNIPPET_MATCHES:
                 break
     
-    # Also give benefit of doubt if we have keywords
-    if matched_keywords:
-        if confidence < MIN_CONFIDENCE:
-            confidence = MIN_CONFIDENCE + 5  # Small boost
-            logger.info(f"🔑 Boosted confidence to {confidence} due to keywords: {matched_keywords}")
+    # Ensure emails with keywords or attachments are ALWAYS processed
+    # This is critical - we don't want to miss ANY receipts!
+    if matched_keywords and confidence < MIN_CONFIDENCE:
+        confidence = 60  # Force high confidence for keyword matches
+        logger.info(f"🔑 FORCED PROCESSING: Keywords found, setting confidence to {confidence}")
+    
+    if (has_pdf or has_image) and confidence < MIN_CONFIDENCE:
+        confidence = 70  # Force high confidence for attachments
+        logger.info(f"📎 FORCED PROCESSING: Attachment found, setting confidence to {confidence}")
     
     # NEW: If snippet contains currency symbols, likely a receipt
     if any(symbol in snippet for symbol in ['₪', '$', '€', 'USD', 'ILS', 'EUR']):
@@ -637,10 +644,11 @@ def check_is_receipt_email(message: dict) -> Tuple[bool, int, dict]:
         logger.info(f"💰 Found currency in snippet, confidence now {confidence}")
     
     # Lower threshold - accept almost anything that looks like a receipt
-    # Philosophy: Better to let user review/reject than to miss receipts! (Rule 6)
+    # Philosophy: Better to let user review/reject than to miss receipts!
     is_receipt = confidence >= MIN_CONFIDENCE
     
-    logger.info(f"📧 Receipt detection: is_receipt={is_receipt}, confidence={confidence}, has_attachment=False, keywords={len(matched_keywords)}")
+    # Show actual has_attachment value from metadata
+    logger.info(f"📧 Receipt detection: is_receipt={is_receipt}, confidence={confidence}, has_attachment={metadata.get('has_attachment', False)}, keywords={len(matched_keywords)}")
     
     return is_receipt, confidence, metadata
 
@@ -1258,8 +1266,10 @@ def process_single_receipt_message(
     import time
     
     # Fetch message if not provided
+    # CRITICAL: Uses format='full' by default to get complete payload.parts with attachment data
+    # This ensures attachments are properly detected (RULE 1: Any attachment = must process)
     if not message:
-        message = gmail.get_message(message_id)
+        message = gmail.get_message(message_id)  # format='full' by default
         result['processed'] += 1
     
     # Check if receipt if not already done
@@ -1274,12 +1284,13 @@ def process_single_receipt_message(
         # Log why it was skipped for debugging - WITH PII MASKING
         safe_metadata = get_safe_log_metadata(metadata)
         logger.info(
-            f"⏭️ SKIP: confidence={confidence}, "
+            f"⏭️ SKIP_NON_RECEIPT: confidence={confidence}, "
             f"subject='{safe_metadata.get('subject', 'N/A')}', "
             f"from_domain={safe_metadata.get('from_domain', 'N/A')}, "
             f"has_attachment={metadata.get('has_attachment', False)}"
         )
-        result['skipped'] += 1
+        result['skipped_non_receipts'] += 1
+        result['skipped'] += 1  # Keep for backward compatibility
         return None
     
     # Extract full HTML content
@@ -1764,7 +1775,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         'sync_run_id': sync_run.id,
         'new_count': 0,
         'processed': 0,
-        'skipped': 0,
+        'skipped': 0,  # DEPRECATED - kept for backward compatibility
+        'skipped_non_receipts': 0,  # Emails that didn't match receipt criteria
         'errors': 0,
         'pages_scanned': 0,
         'messages_scanned': 0,
@@ -1934,23 +1946,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 f"📊 RUN_PROGRESS: run_id={sync_run.id}, "
                                 f"messages_scanned={result['messages_scanned']}, "
                                 f"saved={result['saved_receipts']}, "
-                                f"skipped={result['skipped']}, "
+                                f"skipped_non_receipts={result.get('skipped_non_receipts', 0)}, "
                                 f"errors={result['errors']}"
                             )
                     
-                    # Check if already exists (with no_autoflush to prevent SQLAlchemy warnings)
-                    with db.session.no_autoflush:
-                        existing = Receipt.query.filter_by(
-                            business_id=business_id,
-                            gmail_message_id=message_id
-                        ).first()
-                    
-                    if existing:
-                        result['skipped'] += 1
-                        # Batch update skipped_count every 50 skips to reduce DB writes
-                        if result['skipped'] % 50 == 0:
-                            sync_run.skipped_count = result['skipped']
-                        continue
+                    # REMOVED: Duplicate checking - per requirement, extract everything including duplicates
+                    # This allows re-processing of all emails in date range even if previously synced
                     
                     try:
                         # Process receipt using extracted helper function
@@ -2156,19 +2157,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                                 page_token = None
                                 break
                         
-                        # Check if already processed (with no_autoflush to prevent SQLAlchemy warnings)
-                        with db.session.no_autoflush:
-                            existing = Receipt.query.filter_by(
-                                business_id=business_id,
-                                gmail_message_id=message_id
-                            ).first()
-                        
-                        if existing:
-                            result['skipped'] += 1
-                            # Batch update skipped_count every 50 skips to reduce DB writes
-                            if result['skipped'] % 50 == 0:
-                                sync_run.skipped_count = result['skipped']
-                            continue
+                        # REMOVED: Duplicate checking - per requirement, extract everything including duplicates
+                        # This allows re-processing of all emails in monthly backfill even if previously synced
                         
                         try:
                             # Process receipt using extracted helper function
@@ -2208,11 +2198,11 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                     # Sleep between pages to avoid rate limits
                     time.sleep(0.2)  # 200ms between pages
                     
-                    # Update checkpoint including final skipped_count
+                    # Update checkpoint
                     sync_run.last_page_token = page_token
                     sync_run.current_month = month_label  # Add this
                     sync_run.updated_at = datetime.now(timezone.utc)
-                    sync_run.skipped_count = result['skipped']  # Ensure final count is saved
+                    # Note: skipped_count no longer tracked separately (duplicates removed as per requirement)
                     db.session.commit()
                 
                 # Month complete - commit all changes for this month
@@ -2311,19 +2301,12 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             page_token = None
                             break
                     
-                    # Check if already processed (with no_autoflush to prevent SQLAlchemy warnings)
-                    with db.session.no_autoflush:
-                        existing = Receipt.query.filter_by(
-                            business_id=business_id,
-                            gmail_message_id=message_id
-                        ).first()
-                    
-                    if existing:
-                        result['skipped'] += 1
-                        continue
+                    # REMOVED: Duplicate checking - per requirement, extract everything including duplicates
+                    # This allows re-processing of all emails in incremental sync even if previously synced
                     
                     try:
-                        message = gmail.get_message(message_id)
+                        # Fetch message with format='full' to get complete payload with attachments
+                        message = gmail.get_message(message_id)  # format='full' by default
                         result['processed'] += 1
                         
                         is_receipt, confidence, metadata = check_is_receipt_email(message)
@@ -2333,7 +2316,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                             sync_run.candidate_receipts = result['candidate_receipts']
                         
                         if not is_receipt:
-                            result['skipped'] += 1
+                            result['skipped_non_receipts'] += 1
+                            result['skipped'] += 1  # Keep for backward compatibility
                             continue
                         
                         # Process receipt (same logic as before - extracted for brevity)
@@ -2458,14 +2442,14 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         # SUMMARY LOGGING: Show key metrics for verification
         total_emails_scanned = result['messages_scanned']
         total_receipts_saved = result['saved_receipts']
-        total_skipped = result['skipped']
+        total_skipped_non_receipts = result.get('skipped_non_receipts', 0)
         receipts_to_emails_ratio = (total_receipts_saved / total_emails_scanned * 100) if total_emails_scanned > 0 else 0
         
         logger.info("=" * 80)
         logger.info(f"📊 SYNC SUMMARY (run_id={sync_run.id}, duration={duration:.1f}s)")
         logger.info(f"   Emails scanned: {total_emails_scanned}")
         logger.info(f"   Receipts saved: {total_receipts_saved}")
-        logger.info(f"   Skipped (duplicates): {total_skipped}")
+        logger.info(f"   Skipped (non-receipts): {total_skipped_non_receipts}")
         logger.info(f"   Pages scanned: {result['pages_scanned']}")
         logger.info(f"   Candidate receipts: {result.get('candidate_receipts', 0)}")
         logger.info(f"   Errors: {result.get('errors', 0)}")
@@ -2543,7 +2527,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
         'sync_run_id': sync_run.id,
         'new_count': 0,
         'processed': 0,
-        'skipped': 0,
+        'skipped': 0,  # DEPRECATED - kept for backward compatibility
+        'skipped_non_receipts': 0,  # Emails that didn't match receipt criteria
         'errors': 0,
         'pages_scanned': 0,
         'messages_scanned': 0,
@@ -2667,16 +2652,8 @@ def sync_gmail_receipts(business_id: int, mode: str = 'incremental', max_message
                         page_token = None  # Stop pagination
                         break
                 
-                # Check if already processed (with no_autoflush to prevent SQLAlchemy warnings)
-                with db.session.no_autoflush:
-                    existing = Receipt.query.filter_by(
-                        business_id=business_id,
-                        gmail_message_id=message_id
-                    ).first()
-                
-                if existing:
-                    result['skipped'] += 1
-                    continue
+                # REMOVED: Duplicate checking - per requirement, extract everything including duplicates
+                # This allows re-processing of all emails in fallback sync even if previously synced
                 
                 try:
                     # Process receipt using extracted helper function
