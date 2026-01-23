@@ -285,13 +285,18 @@ def get_tts_voices():
         gemini_api_key = os.getenv('GEMINI_API_KEY')
         gemini_available = bool(gemini_api_key and gemini_api_key.strip())
         
+        # Check if OpenAI API key is configured (for consistency)
+        openai_api_key = os.getenv('OPENAI_API_KEY')
+        openai_available = bool(openai_api_key and openai_api_key.strip())
+        
         providers = [
             {
                 "id": "openai",
                 "name": "OpenAI",
                 "label": "OpenAI TTS",
                 "voices": OPENAI_VOICES,
-                "available": True
+                "available": openai_available,
+                "message": "" if openai_available else "יש להגדיר OPENAI_API_KEY כדי להפעיל"
             },
             {
                 "id": "gemini",
@@ -584,9 +589,13 @@ def start_test_call():
         # )
         
         # Mock response for now
+        # 🔥 Production: Replace with actual Twilio Call SID
+        MOCK_CALL_SID_LENGTH = 32
+        mock_call_sid = "CA" + "0" * MOCK_CALL_SID_LENGTH
+        
         return jsonify({
             "success": True,
-            "call_sid": "CA" + "0" * 32,  # Mock Twilio Call SID
+            "call_sid": mock_call_sid,
             "status": "initiated",
             "message": f"שיחת בדיקה התחילה למספר {test_phone[:5]}***",
             "note": "זוהי תגובה ניסיונית. יש לחבר למערכת השיחות בפועל."
