@@ -122,14 +122,21 @@ def generate_image_thumbnail(image_data: bytes, mime_type: str) -> Optional[byte
         return None
 
 
-def generate_html_preview(html_content: str, width: int = 800, height: int = 600) -> Optional[bytes]:
+def generate_html_preview(html_content: str, width: int = 1280, height: int = 720) -> Optional[bytes]:
     """
-    Render HTML content to PNG image using Playwright
+    Render HTML content to PNG image using Playwright with proper waiting
+    
+    IMPROVEMENTS:
+    - Waits for DOM, fonts, and images to fully load
+    - Uses screen media emulation
+    - Fixed viewport size (1280x720 for better quality)
+    - Injects CSS for better rendering
+    - Full-page screenshot
     
     Args:
         html_content: HTML string to render
-        width: Viewport width in pixels
-        height: Viewport height in pixels
+        width: Viewport width in pixels (default 1280)
+        height: Viewport height in pixels (default 720)
         
     Returns:
         PNG image bytes or None if rendering fails
@@ -139,16 +146,77 @@ def generate_html_preview(html_content: str, width: int = 800, height: int = 600
         
         with sync_playwright() as p:
             # Launch browser (headless)
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--disable-extensions'
+                ]
+            )
             
-            # Create page with viewport size
+            # Create page with fixed viewport size for consistent rendering
             page = browser.new_page(viewport={'width': width, 'height': height})
             
-            # Set HTML content
-            page.set_content(html_content, wait_until='networkidle')
+            # CRITICAL: Emulate screen media (not print)
+            page.emulate_media(media='screen')
             
-            # Take screenshot
-            screenshot_bytes = page.screenshot(type='png', full_page=False)
+            # Set HTML content and wait for network to be idle
+            page.set_content(html_content, wait_until='networkidle', timeout=30000)
+            
+            # CRITICAL WAITING SEQUENCE - Let content fully load
+            try:
+                # Wait 1: Network idle
+                page.wait_for_load_state('networkidle', timeout=20000)
+            except Exception as e:
+                logger.warning(f"networkidle timeout (continuing): {e}")
+            
+            try:
+                # Wait 2: Fonts ready
+                page.evaluate("document.fonts && document.fonts.ready")
+            except Exception as e:
+                logger.warning(f"fonts.ready failed (continuing): {e}")
+            
+            try:
+                # Wait 3: All images loaded
+                page.evaluate("""
+                    async () => {
+                        const imgs = Array.from(document.images || []);
+                        await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
+                            img.addEventListener('load', res);
+                            img.addEventListener('error', res);
+                        })));
+                    }
+                """)
+            except Exception as e:
+                logger.warning(f"Image loading wait failed (continuing): {e}")
+            
+            # Wait 4: Final buffer to ensure everything is settled
+            try:
+                page.wait_for_timeout(1200)
+            except Exception as e:
+                logger.warning(f"Final timeout failed (continuing): {e}")
+            
+            # Inject wrapper CSS for better rendering
+            try:
+                page.add_style_tag(content="""
+                    body {
+                        max-width: 100%;
+                        background: white !important;
+                        font-size: 14px;
+                        padding: 20px;
+                    }
+                    img {
+                        max-width: 100% !important;
+                        height: auto !important;
+                    }
+                """)
+            except Exception as e:
+                logger.warning(f"CSS injection failed (continuing): {e}")
+            
+            # Take full-page screenshot
+            screenshot_bytes = page.screenshot(type='png', full_page=True)
             
             # Close browser
             browser.close()

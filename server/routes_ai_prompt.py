@@ -280,8 +280,8 @@ def get_current_business_prompt():
     try:
         from flask import g
         
-        # BUILD 177: Enhanced debugging for external server issues
-        logger.info(f"[PROMPT GET] g.tenant={g.get('tenant')}, session keys={list(session.keys())}")
+        # BUILD 177: Enhanced debugging for external server issues (debug only)
+        logger.debug(f"[PROMPT GET] g.tenant={g.get('tenant')}, session keys={list(session.keys())}")
         
         # 🔥 BUILD 186 FIX: Safely handle None values from session
         user_session = session.get('user') or {}
