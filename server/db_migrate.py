@@ -4597,6 +4597,128 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ receipts table does not exist - skipping")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 96: WhatsApp Prompt-Only Mode + Lead Name Tracking
+        # 🎯 PURPOSE: Add dedicated WhatsApp prompt fields to business table
+        #            Add name tracking fields to leads table
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 96: WhatsApp Prompt-Only Mode + Lead Name Tracking")
+        
+        # Part 1: Add WhatsApp prompt fields to business table
+        if check_table_exists('business'):
+            try:
+                # whatsapp_system_prompt - dedicated WhatsApp AI prompt
+                if not check_column_exists('business', 'whatsapp_system_prompt'):
+                    checkpoint("  → Adding whatsapp_system_prompt to business...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN whatsapp_system_prompt TEXT
+                    """))
+                    checkpoint("  ✅ business.whatsapp_system_prompt added")
+                    migrations_applied.append('add_business_whatsapp_system_prompt')
+                
+                # whatsapp_temperature - temperature for WhatsApp responses
+                if not check_column_exists('business', 'whatsapp_temperature'):
+                    checkpoint("  → Adding whatsapp_temperature to business...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN whatsapp_temperature FLOAT DEFAULT 0.0
+                    """))
+                    checkpoint("  ✅ business.whatsapp_temperature added")
+                    migrations_applied.append('add_business_whatsapp_temperature')
+                
+                # whatsapp_model - AI model for WhatsApp
+                if not check_column_exists('business', 'whatsapp_model'):
+                    checkpoint("  → Adding whatsapp_model to business...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN whatsapp_model VARCHAR(50) DEFAULT 'gpt-4o-mini'
+                    """))
+                    checkpoint("  ✅ business.whatsapp_model added")
+                    migrations_applied.append('add_business_whatsapp_model')
+                
+                # whatsapp_max_tokens - max tokens for WhatsApp
+                if not check_column_exists('business', 'whatsapp_max_tokens'):
+                    checkpoint("  → Adding whatsapp_max_tokens to business...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN whatsapp_max_tokens INTEGER DEFAULT 350
+                    """))
+                    checkpoint("  ✅ business.whatsapp_max_tokens added")
+                    migrations_applied.append('add_business_whatsapp_max_tokens')
+                
+                checkpoint("✅ Migration 96 Part 1 completed - WhatsApp prompt fields added to business")
+            except Exception as e:
+                log.error(f"❌ Migration 96 Part 1 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ business table does not exist - skipping Part 1")
+        
+        # Part 2: Add name tracking fields to leads table
+        if check_table_exists('leads'):
+            try:
+                # name - unified name field
+                if not check_column_exists('leads', 'name'):
+                    checkpoint("  → Adding name to leads...")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN name VARCHAR(255)
+                    """))
+                    checkpoint("  ✅ leads.name added")
+                    migrations_applied.append('add_leads_name')
+                
+                # name_source - source of name (whatsapp/call/manual)
+                if not check_column_exists('leads', 'name_source'):
+                    checkpoint("  → Adding name_source to leads...")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN name_source VARCHAR(32)
+                    """))
+                    checkpoint("  ✅ leads.name_source added")
+                    migrations_applied.append('add_leads_name_source')
+                
+                # name_updated_at - when name was last updated
+                if not check_column_exists('leads', 'name_updated_at'):
+                    checkpoint("  → Adding name_updated_at to leads...")
+                    db.session.execute(text("""
+                        ALTER TABLE leads 
+                        ADD COLUMN name_updated_at TIMESTAMP
+                    """))
+                    checkpoint("  ✅ leads.name_updated_at added")
+                    migrations_applied.append('add_leads_name_updated_at')
+                
+                # Migrate existing lead names to new name column
+                checkpoint("  → Migrating existing lead names...")
+                result = db.session.execute(text("""
+                    UPDATE leads 
+                    SET name = CASE 
+                        WHEN first_name IS NOT NULL AND last_name IS NOT NULL 
+                            THEN first_name || ' ' || last_name
+                        WHEN first_name IS NOT NULL 
+                            THEN first_name
+                        WHEN last_name IS NOT NULL 
+                            THEN last_name
+                        ELSE NULL
+                    END,
+                    name_source = 'manual',
+                    name_updated_at = updated_at
+                    WHERE name IS NULL 
+                    AND (first_name IS NOT NULL OR last_name IS NOT NULL)
+                """))
+                rows_updated = result.rowcount if hasattr(result, 'rowcount') else 0
+                checkpoint(f"  ✅ Migrated {rows_updated} existing lead names")
+                
+                checkpoint("✅ Migration 96 Part 2 completed - Lead name tracking fields added")
+            except Exception as e:
+                log.error(f"❌ Migration 96 Part 2 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️ leads table does not exist - skipping Part 2")
+        
+        checkpoint("✅ Migration 96 completed - WhatsApp Prompt-Only Mode + Lead Name Tracking")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

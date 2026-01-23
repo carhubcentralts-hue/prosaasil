@@ -861,6 +861,12 @@ def baileys_webhook():
                 customer_external_id = None
                 remote_jid_alt = None  # Alternative JID for proper reply routing
                 phone_raw = None  # Raw phone for debugging
+                push_name = None  # WhatsApp display name
+                
+                # 🆕 Extract pushName for name saving
+                push_name = msg.get('pushName', '')
+                if push_name and push_name.lower() not in ['unknown', '']:
+                    log.debug(f"[WA-INCOMING] Extracted pushName: {push_name}")
                 
                 # 🔥 FIX #3: Check for participant (sender_pn) first - this is the preferred reply address
                 participant = msg.get('key', {}).get('participant')
@@ -1022,7 +1028,8 @@ def baileys_webhook():
                     message_text=message_text,
                     whatsapp_jid=remote_jid,
                     whatsapp_jid_alt=remote_jid_alt,
-                    phone_raw=phone_raw
+                    phone_raw=phone_raw,
+                    push_name=push_name  # 🆕 Pass pushName for name saving
                 )
                 
                 action = "created" if was_created else "updated"
