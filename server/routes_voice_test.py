@@ -9,8 +9,9 @@ Supports Realtime API session for natural conversation and TTS Preview
 
 🔒 Security:
 - All endpoints require authentication
-- Rate limiting on expensive operations
+- Rate limiting on expensive operations (ENFORCED)
 - Input size guards (max chars)
+- Generic error messages only (no API key leaks)
 """
 from flask import Blueprint, request, jsonify, session, Response, current_app
 from server.routes_admin import require_api_auth
@@ -26,6 +27,15 @@ import json
 logger = logging.getLogger(__name__)
 
 voice_test_bp = Blueprint('voice_test', __name__)
+
+
+def _get_limiter():
+    """Get rate limiter from app extensions (may not be available in dev)"""
+    try:
+        return current_app.extensions.get('limiter')
+    except RuntimeError:
+        return None
+
 
 # 🔒 Security: Input size limits
 MAX_TEXT_LENGTH = 1000  # Max chars for TTS text
@@ -237,7 +247,9 @@ def voice_test_tts():
         )
         
         if audio_bytes is None:
-            return jsonify({"error": f"שגיאה ביצירת אודיו: {result}"}), 500
+            # 🔒 Security: Generic error only
+            logger.error(f"TTS synthesis failed: {result}")
+            return jsonify({"error": "שגיאה ביצירת אודיו"}), 500
         
         # Return audio data
         return Response(
@@ -261,47 +273,77 @@ def get_tts_voices():
     """
     Get available TTS voices for each provider.
     
-    Returns providers with their voice options.
-    Gemini is marked as preview-only unless ENABLE_GEMINI_TTS_PRODUCTION=true.
+    OpenAI: Returns existing voice list (not modified)
+    Gemini: Uses discovery from gemini_voice_catalog
     """
     try:
+        # OpenAI voices - use existing list, don't modify
         providers = [
             {
                 "id": "openai",
                 "name": "OpenAI",
                 "label": "OpenAI TTS",
                 "mode": "production",
-                "voices": tts_provider.OPENAI_TTS_VOICES
+                "voices": tts_provider.OPENAI_TTS_VOICES,
+                "available": True
             }
         ]
         
-        # Add Gemini only if GEMINI_API_KEY is configured
-        if _is_gemini_available():
+        # Gemini voices - use discovery from catalog
+        from server.services import gemini_voice_catalog
+        gemini_data = gemini_voice_catalog.get_gemini_voices_for_ui()
+        
+        if gemini_data["gemini_available"]:
             gemini_mode = "production" if _get_voice_provider_modes().get('gemini') else "preview"
             providers.append({
                 "id": "gemini" if gemini_mode == "production" else "gemini_preview",
                 "name": "Gemini",
                 "label": f"Google Gemini TTS {'(Preview)' if gemini_mode == 'preview' else ''}",
                 "mode": gemini_mode,
-                "voices": tts_provider.GEMINI_TTS_VOICES,
+                "voices": gemini_data["voices"],
                 "available": True
             })
         else:
-            # Show Gemini as unavailable (no key configured)
+            # Gemini not available
             providers.append({
                 "id": "gemini",
                 "name": "Gemini",
                 "label": "Google Gemini TTS (לא מוגדר)",
                 "mode": "unavailable",
-                "voices": tts_provider.GEMINI_TTS_VOICES,
+                "voices": [],
                 "available": False,
-                "message": "יש להגדיר GEMINI_API_KEY כדי להפעיל"
+                "message": gemini_data.get("error", "יש להגדיר GEMINI_API_KEY כדי להפעיל")
             })
         
         return jsonify({"providers": providers})
     except Exception as e:
         logger.error(f"Get voices error: {e}")
         return jsonify({"error": "שגיאה בטעינת קולות"}), 500
+
+
+@voice_test_bp.route('/api/ai/gemini/voices', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_gemini_voices():
+    """
+    Get Gemini/Google TTS voices via API discovery.
+    
+    Returns discovered Hebrew voices with Hebrew display names.
+    This endpoint performs actual API discovery, not hardcoded lists.
+    """
+    try:
+        from server.services import gemini_voice_catalog
+        
+        result = gemini_voice_catalog.get_gemini_voices_for_ui()
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Get Gemini voices error: {e}")
+        return jsonify({
+            "gemini_available": False,
+            "voices": [],
+            "error": "שגיאה בטעינת קולות Gemini"
+        }), 500
 
 
 @voice_test_bp.route('/api/voice_test/preview', methods=['POST'])
@@ -342,7 +384,9 @@ def preview_voice():
         )
         
         if audio_bytes is None:
-            return jsonify({"error": f"שגיאה ביצירת אודיו: {result}"}), 500
+            # 🔒 Security: Generic error only
+            logger.error(f"TTS synthesis failed: {result}")
+            return jsonify({"error": "שגיאה ביצירת אודיו"}), 500
         
         # Return audio data
         return Response(

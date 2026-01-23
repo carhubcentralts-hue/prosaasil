@@ -1,6 +1,11 @@
 """
 TTS Provider Service - Unified interface for OpenAI and Gemini TTS
 Supports voice synthesis for prompt testing with provider abstraction
+
+🔒 SECURITY:
+- Never return raw exception messages to clients (may contain API keys)
+- Use logger.exception() for detailed server-side logging
+- Return generic error messages only
 """
 import os
 import logging
@@ -8,6 +13,9 @@ import io
 from typing import Optional, Tuple, List, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+# 🔒 Security: Allowed TTS languages whitelist
+ALLOWED_TTS_LANGUAGES = {"he-IL", "en-US", "ar-IL"}
 
 # OpenAI TTS voices
 OPENAI_TTS_VOICES = [
@@ -112,8 +120,9 @@ def synthesize_openai(
         return audio_bytes, "audio/mpeg"
         
     except Exception as e:
-        logger.error(f"OpenAI TTS error: {e}")
-        return None, str(e)
+        # 🔒 Security: Log full error server-side, return generic message to client
+        logger.exception("[TTS][OPENAI] synthesis failed")
+        return None, "TTS synthesis failed"
 
 
 def synthesize_gemini(
@@ -142,12 +151,17 @@ def synthesize_gemini(
     try:
         # Check if Google is disabled
         if os.getenv("DISABLE_GOOGLE", "false").lower() == "true":
-            return None, "Google TTS is disabled (DISABLE_GOOGLE=true)"
+            return None, "Google TTS is disabled"
         
         # 🔐 CRITICAL: Use ONLY GEMINI_API_KEY - no fallback to other names
         gemini_api_key = os.getenv('GEMINI_API_KEY')
         if not gemini_api_key:
-            return None, "GEMINI_API_KEY not configured - Gemini TTS unavailable"
+            return None, "Gemini TTS unavailable"
+        
+        # 🔒 Security: Validate language against whitelist
+        if language not in ALLOWED_TTS_LANGUAGES:
+            logger.warning(f"[TTS] Invalid language '{language}', falling back to he-IL")
+            language = "he-IL"
         
         # Log that Gemini TTS is enabled (don't log the key value!)
         logger.info("[VOICE] Gemini TTS enabled")
@@ -239,8 +253,9 @@ def synthesize_gemini(
         return audio_bytes, "audio/mpeg"
         
     except Exception as e:
-        logger.error(f"Gemini TTS error: {e}")
-        return None, str(e)
+        # 🔒 Security: Log full error server-side, return generic message to client
+        logger.exception("[TTS][GEMINI] synthesis failed")
+        return None, "TTS synthesis failed"
 
 
 def synthesize(
