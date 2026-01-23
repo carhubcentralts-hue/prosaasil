@@ -14,6 +14,11 @@ import { logger } from '../shared/utils/logger';
 // Set up PDF.js worker - use local copy for security
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.js/pdf.worker.min.js';
 
+// Constants
+const MIN_CONTAINER_WIDTH_FOR_RENDER = 200; // Minimum container width before rendering PDF (px)
+const PDF_CANVAS_Z_INDEX = 1; // Z-index for PDF canvas
+const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay (signature fields, etc.)
+
 export interface PDFCanvasProps {
   pdfUrl: string;
   currentPage: number;
@@ -54,7 +59,7 @@ export function PDFCanvas({
   const containerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
 
-  // Load PDF document - memoize to prevent double fetch
+  // Load PDF document - only when URL changes
   useEffect(() => {
     if (!pdfUrl) return;
 
@@ -96,7 +101,10 @@ export function PDFCanvas({
         renderTaskRef.current.cancel();
       }
     };
-  }, [pdfUrl]); // Remove onTotalPagesChange from deps to prevent double fetch
+    // Only depend on pdfUrl - onTotalPagesChange is called but not depended on
+    // to avoid re-fetching when parent updates the callback
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfUrl]);
 
   // ResizeObserver to handle container size changes
   useEffect(() => {
@@ -129,7 +137,7 @@ export function PDFCanvas({
     if (!context) return;
 
     // Don't render if container is too small (waiting for layout)
-    if (containerWidth < 200) {
+    if (containerWidth < MIN_CONTAINER_WIDTH_FOR_RENDER) {
       logger.debug('[PDF_CANVAS] Container too small, waiting for layout. Width:', containerWidth);
       return;
     }
@@ -353,7 +361,7 @@ export function PDFCanvas({
                   // 🔥 FIX: Default to pointer-events none, let children override
                   pointerEvents: 'none',
                   // 🔥 FIX: Ensure proper z-index layering
-                  zIndex: 2,
+                  zIndex: PDF_OVERLAY_Z_INDEX,
                 }}
               >
                 {children}

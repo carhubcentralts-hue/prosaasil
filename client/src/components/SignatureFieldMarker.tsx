@@ -17,6 +17,9 @@ export interface SignatureField {
 
 // Constants
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
+const MIN_CONTAINER_WIDTH = 200; // Minimum container width for PDF rendering (px)
+const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields
+const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field
 
 interface SignatureFieldMarkerProps {
   contractId: number;
@@ -42,38 +45,34 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  // Get viewport for current page - compute from canvas instead of loading PDF twice
+  // Get viewport for current page - compute from rendered canvas
   useEffect(() => {
-    // Wait for canvas to be rendered by PDFCanvas component
-    const updateViewport = async () => {
-      try {
-        // Load PDF temporarily just to get viewport dimensions
-        const pdfUrl = `/api/contracts/${contractId}/pdf`;
-        const loadingTask = pdfjsLib.getDocument({
-          url: pdfUrl,
-          withCredentials: true,
-        });
-        
-        const loadedPdf = await loadingTask.promise;
-        const page = await loadedPdf.getPage(currentPage);
-        
-        // Use devicePixelRatio like PDFCanvas does
-        const pixelRatio = window.devicePixelRatio || 1;
-        const renderScale = scale * pixelRatio;
-        const viewport = page.getViewport({ scale: renderScale });
-        
-        // Adjust viewport for CSS size (display size)
-        const cssViewport = page.getViewport({ scale: scale });
-        setPageViewport(cssViewport);
-        
-        logger.debug('[SignatureFieldMarker] Page viewport updated:', cssViewport.width, 'x', cssViewport.height);
-      } catch (err) {
-        logger.error('[SignatureFieldMarker] Error getting page viewport:', err);
-      }
-    };
+    // Use a timeout to allow canvas to render first
+    const timer = setTimeout(() => {
+      const container = canvasContainerRef.current;
+      if (!container) return;
 
-    updateViewport();
-  }, [contractId, currentPage, scale]);
+      // Find the canvas element rendered by PDFCanvas
+      const canvas = container.querySelector('canvas') as HTMLCanvasElement;
+      if (!canvas) return;
+
+      // Get the CSS display size of the canvas
+      const cssWidth = parseFloat(canvas.style.width) || canvas.offsetWidth;
+      const cssHeight = parseFloat(canvas.style.height) || canvas.offsetHeight;
+
+      if (cssWidth > 0 && cssHeight > 0) {
+        // Create a mock viewport with the actual display dimensions
+        setPageViewport({
+          width: cssWidth,
+          height: cssHeight,
+        } as pdfjsLib.PageViewport);
+        
+        logger.debug('[SignatureFieldMarker] Viewport updated from canvas:', cssWidth, 'x', cssHeight);
+      }
+    }, 100); // Small delay to let PDFCanvas render
+
+    return () => clearTimeout(timer);
+  }, [currentPage, scale]); // Re-calculate when page or scale changes
 
   // Load existing signature fields
   useEffect(() => {
@@ -309,7 +308,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
             height: `${height}px`,
             // 🔥 FIX: Ensure fields receive pointer events
             pointerEvents: 'auto',
-            zIndex: selectedFieldId === field.id ? 10 : 5,
+            zIndex: selectedFieldId === field.id ? FIELD_Z_INDEX_SELECTED : FIELD_Z_INDEX_NORMAL,
           }}
           onMouseDown={(e) => handleFieldMouseDown(e, field)}
           onPointerDown={(e) => handleFieldMouseDown(e, field)}
