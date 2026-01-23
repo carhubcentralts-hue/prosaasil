@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Send, Users, MessageSquare, Filter, Upload, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Plus, Edit2, Trash2, FileText, X } from 'lucide-react';
 import { http } from '../../services/http';
@@ -116,7 +117,10 @@ const STATUS_VARIANTS: Record<string, 'default' | 'success' | 'warning' | 'destr
 };
 
 export function WhatsAppBroadcastPage() {
-  const [activeTab, setActiveTab] = useState<'send' | 'history' | 'templates'>('send');
+  // URL-based tab navigation
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as 'send' | 'history' | 'templates' | null;
+  const [activeTab, setActiveTab] = useState<'send' | 'history' | 'templates'>(tabFromUrl || 'send');
   
   // Template state
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -171,6 +175,19 @@ export function WhatsAppBroadcastPage() {
   
   // Status options from CRM - store full status objects for labels
   const [availableStatuses, setAvailableStatuses] = useState<Array<{ name: string; label: string }>>([]);
+
+  // Sync activeTab with URL
+  useEffect(() => {
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+  
+  // Update URL when tab changes
+  const handleTabChange = (tab: 'send' | 'history' | 'templates') => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
 
   useEffect(() => {
     loadTemplates();
@@ -671,7 +688,7 @@ export function WhatsAppBroadcastPage() {
       <div className="border-b border-slate-200">
         <nav className="-mb-px flex space-x-reverse space-x-8">
           <button
-            onClick={() => setActiveTab('send')}
+            onClick={() => handleTabChange('send')}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'send'
                 ? 'border-blue-500 text-blue-600'
@@ -682,7 +699,7 @@ export function WhatsAppBroadcastPage() {
             שליחת תפוצה
           </button>
           <button
-            onClick={() => setActiveTab('history')}
+            onClick={() => handleTabChange('history')}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'history'
                 ? 'border-blue-500 text-blue-600'
@@ -693,7 +710,7 @@ export function WhatsAppBroadcastPage() {
             היסטוריה
           </button>
           <button
-            onClick={() => setActiveTab('templates')}
+            onClick={() => handleTabChange('templates')}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'templates'
                 ? 'border-blue-500 text-blue-600'

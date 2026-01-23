@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Headphones, 
   MessageCircle, 
@@ -18,7 +19,10 @@ import { adminApi } from '../../features/admin/api';
 export function AdminSupportPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'prompt' | 'phones'>('prompt');
+  // URL-based tab navigation
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as 'prompt' | 'phones' | null;
+  const [activeTab, setActiveTab] = useState<'prompt' | 'phones'>(tabFromUrl || 'prompt');
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
 
@@ -65,6 +69,19 @@ export function AdminSupportPage() {
       });
     }
   }, [phonesApiData]);
+
+  // Sync activeTab with URL
+  useEffect(() => {
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+  
+  // Update URL when tab changes
+  const handleTabChange = (tab: 'prompt' | 'phones') => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
 
   const handleSavePrompt = async () => {
     setSaving(true);
@@ -139,7 +156,7 @@ export function AdminSupportPage() {
         <div className="mb-6">
           <nav className="flex space-x-8" dir="ltr">
             <button
-              onClick={() => setActiveTab('prompt')}
+              onClick={() => handleTabChange('prompt')}
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
                 activeTab === 'prompt'
                   ? 'border-blue-500 text-blue-600'
@@ -150,7 +167,7 @@ export function AdminSupportPage() {
               פרומפט AI
             </button>
             <button
-              onClick={() => setActiveTab('phones')}
+              onClick={() => handleTabChange('phones')}
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
                 activeTab === 'phones'
                   ? 'border-blue-500 text-blue-600'
