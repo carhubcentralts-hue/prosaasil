@@ -529,50 +529,215 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {/* Desktop: 2-column layout for Activity tab */}
         {activeTab === 'activity' ? (
           <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-6">
-            {/* Main Column - Timeline */}
+            {/* Main Column - Contact Details (Now Prominent) */}
             <div className="mb-6 lg:mb-0">
-              <ActivityTab activities={activities} />
-            </div>
-            
-            {/* Sidebar - Lead Info & Quick Actions (Desktop only) */}
-            <aside className="hidden lg:block space-y-4">
-              {/* Lead Info Card */}
-              <Card className="p-4">
-                <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  פרטי קשר
-                </h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">שם:</span>
-                    <span className="text-gray-900">{lead.first_name} {lead.last_name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">טלפון:</span>
-                    <span className="text-gray-900 font-mono">{lead.phone_e164}</span>
-                  </div>
-                  {lead.email && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">מייל:</span>
-                      <span className="text-gray-900 truncate max-w-[180px]">{lead.email}</span>
-                    </div>
-                  )}
-                  {lead.source && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">מקור:</span>
-                      <span className="text-gray-900">{lead.source}</span>
+              <Card className="p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-gray-900">פרטי קשר</h3>
+                  {!isEditing ? (
+                    <Button
+                      onClick={startEditing}
+                      size="sm"
+                      variant="secondary"
+                      data-testid="button-edit-lead"
+                    >
+                      <Pencil className="w-4 h-4 mr-2" />
+                      ערוך
+                    </Button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={cancelEditing}
+                        size="sm"
+                        variant="ghost"
+                        disabled={isSaving}
+                        data-testid="button-cancel-edit"
+                      >
+                        <X className="w-4 h-4 mr-2" />
+                        ביטול
+                      </Button>
+                      <Button
+                        onClick={saveLead}
+                        size="sm"
+                        disabled={isSaving}
+                        data-testid="button-save-lead"
+                      >
+                        {isSaving ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4 mr-2" />
+                        )}
+                        שמור
+                      </Button>
                     </div>
                   )}
                 </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="w-full mt-3"
-                  onClick={() => setActiveTab('overview')}
-                >
-                  <Pencil className="w-3 h-3 ml-2" />
-                  ערוך פרטים
-                </Button>
+                
+                {isEditing ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">שם פרטי</label>
+                      <Input
+                        value={editForm.first_name}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, first_name: e.target.value }))}
+                        className="w-full"
+                        data-testid="input-first-name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">שם משפחה</label>
+                      <Input
+                        value={editForm.last_name}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, last_name: e.target.value }))}
+                        className="w-full"
+                        data-testid="input-last-name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                      <Input
+                        value={editForm.phone_e164}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, phone_e164: e.target.value }))}
+                        className="w-full"
+                        data-testid="input-phone"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                      <Input
+                        value={editForm.email}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                        type="email"
+                        className="w-full"
+                        data-testid="input-email"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">מין</label>
+                      <select
+                        value={editForm.gender}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, gender: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        data-testid="select-gender"
+                      >
+                        <option value="">לא ידוע</option>
+                        <option value="male">זכר</option>
+                        <option value="female">נקבה</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שם פרטי</label>
+                        <p className="text-sm text-gray-900">{lead.first_name}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שם משפחה</label>
+                        <p className="text-sm text-gray-900">{lead.last_name}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                        <p className="text-sm text-gray-900">{lead.phone_e164}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                        <p className="text-sm text-gray-900">{lead.email || 'לא צוין'}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">מין</label>
+                        <p className="text-sm text-gray-900">
+                          {lead.gender === 'male' ? 'זכר' : lead.gender === 'female' ? 'נקבה' : 'לא ידוע'}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">מקור</label>
+                        <p className="text-sm text-gray-900">{lead.source}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">תאריך יצירה</label>
+                        <p className="text-sm text-gray-900">{formatDate(lead.created_at)}</p>
+                      </div>
+                    </div>
+                    
+                    {lead.whatsapp_last_summary && (
+                      <div className="mt-4 bg-green-50 p-4 rounded-lg border border-green-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MessageSquare className="w-4 h-4 text-green-600" />
+                          <label className="block text-sm font-medium text-green-800">סיכום שיחת וואטסאפ אחרונה</label>
+                          {lead.whatsapp_last_summary_at && (
+                            <span className="text-xs text-green-600 mr-auto">
+                              {formatDate(lead.whatsapp_last_summary_at)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-green-900 whitespace-pre-wrap" data-testid="text-whatsapp-summary">{lead.whatsapp_last_summary}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                {lead.tags && lead.tags.length > 0 && (
+                  <div className="mt-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">תגיות</label>
+                    <div className="flex flex-wrap gap-2">
+                      {lead.tags.map((tag, index) => (
+                        <Badge key={index} variant="info">
+                          <Tag className="w-3 h-3 mr-1" />
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
+            
+            {/* Sidebar - Last Activity & Quick Actions (Desktop only, now smaller) */}
+            <aside className="hidden lg:block space-y-4">
+              {/* Last Activity Card */}
+              <Card className="p-4">
+                <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  פעילות אחרונה
+                </h3>
+                {activities.length === 0 ? (
+                  <div className="text-center py-4">
+                    <Activity className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500">אין פעילות עדיין</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {activities.slice(0, 5).map((activity) => {
+                      const info = getActivityInfo(activity);
+                      const IconComponent = info.icon;
+                      return (
+                        <div key={activity.id} className="flex items-start gap-2">
+                          <span className={`h-6 w-6 rounded-full ${info.bgColor} flex items-center justify-center flex-shrink-0`}>
+                            <IconComponent className={`w-3 h-3 ${info.color}`} />
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="text-xs font-medium text-gray-900 truncate">{info.label}</span>
+                              <span className="text-xs text-gray-400 whitespace-nowrap">
+                                {formatDate(activity.at).split(' ')[0]}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-600 line-clamp-2">
+                              {getActivityDescription(activity)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {activities.length > 5 && (
+                      <p className="text-xs text-gray-400 text-center pt-2">
+                        +{activities.length - 5} פעילויות נוספות
+                      </p>
+                    )}
+                  </div>
+                )}
               </Card>
               
               {/* Quick Tasks Card */}
@@ -2534,50 +2699,52 @@ function ContractsTab({ lead }: { lead: Lead }) {
   );
 }
 
-function ActivityTab({ activities }: { activities: LeadActivity[] }) {
-  const getActivityInfo = (activity: LeadActivity) => {
-    const typeMap: Record<string, { label: string; icon: typeof Activity; color: string; bgColor: string }> = {
-      'status_change': { label: 'שינוי סטטוס', icon: Activity, color: 'text-white', bgColor: 'bg-purple-500' },
-      'call': { label: 'שיחת טלפון', icon: Phone, color: 'text-white', bgColor: 'bg-blue-500' },
-      'call_incoming': { label: 'שיחה נכנסת', icon: Phone, color: 'text-white', bgColor: 'bg-green-500' },
-      'call_outgoing': { label: 'שיחה יוצאת', icon: Phone, color: 'text-white', bgColor: 'bg-blue-500' },
-      'whatsapp': { label: 'הודעת וואטסאפ', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-600' },
-      'whatsapp_in': { label: 'הודעה נכנסת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-600' },
-      'whatsapp_out': { label: 'הודעה יוצאת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-500' },
-      'appointment': { label: 'פגישה', icon: Calendar, color: 'text-white', bgColor: 'bg-indigo-500' },
-      'reminder': { label: 'משימה', icon: CheckCircle2, color: 'text-white', bgColor: 'bg-yellow-500' },
-      'note': { label: 'הערה', icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' },
-      'created': { label: 'ליד נוצר', icon: User, color: 'text-white', bgColor: 'bg-emerald-500' },
-      'email': { label: 'אימייל', icon: Mail, color: 'text-white', bgColor: 'bg-red-500' },
-    };
-    return typeMap[activity.type] || { label: activity.type, icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' };
+// Helper functions for activity display
+function getActivityInfo(activity: LeadActivity) {
+  const typeMap: Record<string, { label: string; icon: typeof Activity; color: string; bgColor: string }> = {
+    'status_change': { label: 'שינוי סטטוס', icon: Activity, color: 'text-white', bgColor: 'bg-purple-500' },
+    'call': { label: 'שיחת טלפון', icon: Phone, color: 'text-white', bgColor: 'bg-blue-500' },
+    'call_incoming': { label: 'שיחה נכנסת', icon: Phone, color: 'text-white', bgColor: 'bg-green-500' },
+    'call_outgoing': { label: 'שיחה יוצאת', icon: Phone, color: 'text-white', bgColor: 'bg-blue-500' },
+    'whatsapp': { label: 'הודעת וואטסאפ', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-600' },
+    'whatsapp_in': { label: 'הודעה נכנסת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-600' },
+    'whatsapp_out': { label: 'הודעה יוצאת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-500' },
+    'appointment': { label: 'פגישה', icon: Calendar, color: 'text-white', bgColor: 'bg-indigo-500' },
+    'reminder': { label: 'משימה', icon: CheckCircle2, color: 'text-white', bgColor: 'bg-yellow-500' },
+    'note': { label: 'הערה', icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' },
+    'created': { label: 'ליד נוצר', icon: User, color: 'text-white', bgColor: 'bg-emerald-500' },
+    'email': { label: 'אימייל', icon: Mail, color: 'text-white', bgColor: 'bg-red-500' },
   };
+  return typeMap[activity.type] || { label: activity.type, icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' };
+}
 
-  const getActivityDescription = (activity: LeadActivity) => {
-    const payload = activity.payload || {};
-    
-    if (activity.type === 'status_change') {
-      return `סטטוס שונה מ"${payload.from || 'לא ידוע'}" ל"${payload.to || 'לא ידוע'}"`;
-    }
-    if (activity.type === 'call' || activity.type === 'call_incoming' || activity.type === 'call_outgoing') {
-      const duration = payload.duration ? ` (${payload.duration} שניות)` : '';
-      return `${payload.summary || 'שיחה התבצעה'}${duration}`;
-    }
-    if (activity.type === 'whatsapp' || activity.type === 'whatsapp_in' || activity.type === 'whatsapp_out') {
-      return payload.message?.substring(0, 100) || 'הודעה נשלחה/התקבלה';
-    }
-    if (activity.type === 'appointment') {
-      return payload.title || 'פגישה נקבעה';
-    }
-    if (activity.type === 'reminder') {
-      return payload.note || 'משימה נוספה';
-    }
-    if (activity.type === 'created') {
-      return `ליד נוסף למערכת מ${payload.source || 'מקור לא ידוע'}`;
-    }
-    
-    return payload.message || payload.note || payload.description || 'פעילות';
-  };
+function getActivityDescription(activity: LeadActivity) {
+  const payload = activity.payload || {};
+  
+  if (activity.type === 'status_change') {
+    return `סטטוס שונה מ"${payload.from || 'לא ידוע'}" ל"${payload.to || 'לא ידוע'}"`;
+  }
+  if (activity.type === 'call' || activity.type === 'call_incoming' || activity.type === 'call_outgoing') {
+    const duration = payload.duration ? ` (${payload.duration} שניות)` : '';
+    return `${payload.summary || 'שיחה התבצעה'}${duration}`;
+  }
+  if (activity.type === 'whatsapp' || activity.type === 'whatsapp_in' || activity.type === 'whatsapp_out') {
+    return payload.message?.substring(0, 100) || 'הודעה נשלחה/התקבלה';
+  }
+  if (activity.type === 'appointment') {
+    return payload.title || 'פגישה נקבעה';
+  }
+  if (activity.type === 'reminder') {
+    return payload.note || 'משימה נוספה';
+  }
+  if (activity.type === 'created') {
+    return `ליד נוסף למערכת מ${payload.source || 'מקור לא ידוע'}`;
+  }
+  
+  return payload.message || payload.note || payload.description || 'פעילות';
+}
+
+function ActivityTab({ activities }: { activities: LeadActivity[] }) {
 
   return (
     <Card className="p-4 sm:p-6">
