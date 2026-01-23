@@ -136,7 +136,14 @@ def get_voices():
 def get_business_ai_settings():
     """
     Get AI settings for current business (with caching to prevent bottlenecks)
-    Returns: {"voice_id": "ash"}
+    Returns: {
+        "ok": True,
+        "voice_id": "ash",  # Legacy field for compatibility
+        "tts_provider": "openai",  # New field
+        "tts_voice_id": "ash",  # New field
+        "tts_language": "he-IL",
+        "tts_speed": 1.0
+    }
     """
     # Get business_id from session/JWT using robust resolution
     business_id = get_business_id_from_context()
@@ -158,14 +165,26 @@ def get_business_ai_settings():
         logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
-    # Get voice_id, default to ash if not set
-    voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+    # Get TTS settings with fallbacks
+    tts_provider = getattr(business, 'tts_provider', 'openai') or 'openai'
+    tts_voice_id = getattr(business, 'tts_voice_id', None)
+    voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE  # Legacy field
+    tts_language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
+    tts_speed = getattr(business, 'tts_speed', 1.0) or 1.0
     
-    logger.info(f"[AI_SETTINGS] Loaded AI settings for business {business_id}: voice={voice_id}")
+    # If tts_voice_id not set, use voice_id as fallback
+    if not tts_voice_id:
+        tts_voice_id = voice_id
+    
+    logger.info(f"[AI_SETTINGS] Loaded AI settings for business {business_id}: provider={tts_provider}, voice={tts_voice_id}")
     
     result = {
         "ok": True,
-        "voice_id": voice_id
+        "voice_id": voice_id,  # Legacy for compatibility
+        "tts_provider": tts_provider,
+        "tts_voice_id": tts_voice_id,
+        "tts_language": tts_language,
+        "tts_speed": tts_speed
     }
     
     # 🔥 Store in cache for future requests
@@ -180,7 +199,13 @@ def get_business_ai_settings():
 def update_business_ai_settings():
     """
     Update AI settings for current business (with cache invalidation)
-    Body: {"voice_id": "onyx"}
+    Body: {
+        "voice_id": "onyx",  # Legacy - still supported
+        "tts_provider": "openai" | "gemini",  # New
+        "tts_voice_id": "ash",  # New
+        "tts_language": "he-IL",  # Optional
+        "tts_speed": 1.0  # Optional
+    }
     """
     # Get business_id from session/JWT using robust resolution
     business_id = get_business_id_from_context()
@@ -190,22 +215,32 @@ def update_business_ai_settings():
         return {"ok": False, "error": "business_id_required"}, 401
     
     data = request.get_json(force=True)
-    voice_id = data.get('voice_id')
     
-    if not voice_id:
+    # Support both old (voice_id) and new (tts_provider + tts_voice_id) formats
+    tts_provider = data.get('tts_provider', 'openai')
+    tts_voice_id = data.get('tts_voice_id') or data.get('voice_id')  # Fallback to voice_id for compatibility
+    tts_language = data.get('tts_language', 'he-IL')
+    tts_speed = data.get('tts_speed', 1.0)
+    
+    if not tts_voice_id:
         return {"ok": False, "error": "voice_id_required"}, 400
     
-    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase
-    # This prevents issues with " cedar" or "Cedar" being rejected
-    voice_id = str(voice_id).strip().lower()
+    # Validate provider
+    if tts_provider not in ['openai', 'gemini']:
+        return {"ok": False, "error": "invalid_provider", "message": "Provider must be 'openai' or 'gemini'"}, 400
     
-    # Validate voice_id
-    if voice_id not in OPENAI_VOICES:
-        logger.warning(f"[AI_SETTINGS] Invalid voice_id '{voice_id}' for business {business_id}")
+    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase for OpenAI
+    if tts_provider == 'openai':
+        tts_voice_id = str(tts_voice_id).strip().lower()
+    
+    # Validate voice_id based on provider
+    from server.config.voice_catalog import is_valid_voice
+    if not is_valid_voice(tts_voice_id, tts_provider):
+        logger.warning(f"[AI_SETTINGS] Invalid voice_id '{tts_voice_id}' for provider '{tts_provider}' and business {business_id}")
         return {
             "ok": False, 
             "error": "invalid_voice_id",
-            "message": f"Voice '{voice_id}' is not valid. Must be one of: {', '.join(OPENAI_VOICES)}"
+            "message": f"Voice '{tts_voice_id}' is not valid for provider '{tts_provider}'"
         }, 400
     
     business = Business.query.get(business_id)
@@ -213,13 +248,18 @@ def update_business_ai_settings():
         logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
-    # Update voice_id
-    business.voice_id = voice_id
+    # Update TTS settings
+    business.tts_provider = tts_provider
+    business.tts_voice_id = tts_voice_id
+    business.tts_language = tts_language
+    business.tts_speed = float(tts_speed)
+    # Also update legacy voice_id for backward compatibility
+    business.voice_id = tts_voice_id
     business.updated_at = datetime.utcnow()
     
     try:
         db.session.commit()
-        logger.info(f"[VOICE_LIBRARY] Updated voice for business {business_id}: {voice_id}")
+        logger.info(f"[VOICE_LIBRARY] Updated TTS settings for business {business_id}: provider={tts_provider}, voice={tts_voice_id}")
         
         # 🔥 Invalidate both cache keys after update
         _ai_settings_cache.delete(f"ai_settings_{business_id}")
@@ -238,12 +278,15 @@ def update_business_ai_settings():
             logger.warning(f"[VOICE_LIBRARY] ⚠️ Failed to invalidate business cache: {cache_err}")
     except Exception as e:
         db.session.rollback()
-        logger.error(f"[VOICE_LIBRARY] Failed to update voice: {e}")
+        logger.error(f"[VOICE_LIBRARY] Failed to update TTS settings: {e}")
         return {"ok": False, "error": "database_error"}, 500
     
     return {
         "ok": True,
-        "voice_id": voice_id
+        "tts_provider": tts_provider,
+        "tts_voice_id": tts_voice_id,
+        "tts_language": tts_language,
+        "tts_speed": tts_speed
     }
 
 
@@ -385,18 +428,22 @@ async def _generate_preview_via_realtime(voice_id: str, text: str) -> bytes:
 @api_handler
 def preview_tts():
     """
-    Preview TTS with specified text and voice
-    Body: {"text": "שלום עולם", "voice_id": "cedar"}
+    Preview TTS with specified text, voice, and provider
+    Body: {
+        "text": "שלום עולם", 
+        "voice_id": "cedar",
+        "provider": "openai" | "gemini"  # Optional, defaults to openai
+    }
     Returns: audio/mpeg (mp3) or audio/wav depending on engine
     
-    🔥 TWO PREVIEW ENGINES:
-    1. speech.create (TTS-1): Fast, returns mp3 for voices in SPEECH_CREATE_VOICES (alloy, ash, echo, shimmer)
-    2. Realtime API: Returns wav (pcm16) for Realtime-only voices (cedar, ballad, coral, marin, sage, verse)
+    🔥 MULTI-PROVIDER SUPPORT:
+    1. OpenAI: speech.create (TTS-1) or Realtime API
+    2. Gemini: Google Cloud TTS with GEMINI_API_KEY
     
     🔥 CRITICAL: Returns binary audio Response (NOT JSON)
-    🔥 FIX: Realtime API only supports pcm16/g711_ulaw/g711_alaw, so we return WAV format for those voices
     """
     from server.config.voices import SPEECH_CREATE_VOICES
+    from server.services.tts_provider import synthesize
     
     # Get business_id from session/JWT using robust resolution
     business_id = get_business_id_from_context()
@@ -408,26 +455,30 @@ def preview_tts():
     data = request.get_json(force=True)
     text = data.get('text', '')
     voice_id = data.get('voice_id')
+    provider = data.get('provider', 'openai')  # Default to openai
     
     # If voice_id not provided, use business default
     if not voice_id:
         business = Business.query.get(business_id)
         if business:
-            voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+            provider = getattr(business, 'tts_provider', 'openai') or 'openai'
+            voice_id = getattr(business, 'tts_voice_id', None) or getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
         else:
             voice_id = DEFAULT_VOICE
     
-    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase
-    # This prevents issues with " cedar" or "Cedar" being rejected
-    voice_id = str(voice_id).strip().lower()
+    # 🔥 FIX: Sanitize voice_id for OpenAI - strip whitespace and convert to lowercase
+    # Gemini voices are case-sensitive, don't modify them
+    if provider == 'openai':
+        voice_id = str(voice_id).strip().lower()
     
-    # Validate voice_id is in REALTIME_VOICES
-    if voice_id not in OPENAI_VOICES:
-        logger.warning(f"[TTS_PREVIEW] Invalid voice_id '{voice_id}' for business {business_id}")
+    # Validate voice_id based on provider
+    from server.config.voice_catalog import is_valid_voice
+    if not is_valid_voice(voice_id, provider):
+        logger.warning(f"[TTS_PREVIEW] Invalid voice_id '{voice_id}' for provider '{provider}' and business {business_id}")
         return {
             "ok": False, 
             "error": "invalid_voice_id",
-            "message": f"Voice '{voice_id}' is not supported. Must be one of: {', '.join(OPENAI_VOICES)}"
+            "message": f"Voice '{voice_id}' is not supported for provider '{provider}'"
         }, 400
     
     # Validate text length (5-400 characters)
@@ -437,78 +488,94 @@ def preview_tts():
     if len(text) > 400:
         return {"ok": False, "error": "text_too_long", "message": "Text must be at most 400 characters"}, 400
     
-    # Get voice metadata to determine preview engine
-    voice_metadata = OPENAI_VOICES_METADATA.get(voice_id, {})
-    preview_engine = voice_metadata.get("preview_engine", "realtime")
-    
-    # 🔥 CRITICAL: Double-check voice is in speech.create whitelist if using that engine
-    if preview_engine == "speech_create" and voice_id not in SPEECH_CREATE_VOICES:
-        logger.warning(f"[TTS_PREVIEW] Voice '{voice_id}' marked as speech_create but not in whitelist -> using Realtime")
-        preview_engine = "realtime"
-    
     # Log preview request
-    logger.info(f"[AI][TTS_PREVIEW] business_id={business_id} voice={voice_id} engine={preview_engine} chars={len(text)}")
-    
-    # 🔥 NEW: Track if we need to fallback to speech.create
-    attempted_realtime = False
+    logger.info(f"[AI][TTS_PREVIEW] business_id={business_id} provider={provider} voice={voice_id} chars={len(text)}")
     
     try:
-        audio_bytes = None
-        content_type = 'audio/mpeg'  # Default for speech.create
-        file_extension = 'mp3'
-        
-        if preview_engine == "speech_create":
-            # Use standard speech.create API (fast, for compatible voices only)
-            # 🔥 Returns mp3 format
-            client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-            
-            # Generate speech using TTS-1 model with specified voice
-            response = client.audio.speech.create(
-                model="tts-1",
-                voice=voice_id,
-                input=text,
-                response_format="mp3"
+        if provider == 'gemini':
+            # Use Gemini/Google TTS via tts_provider service
+            audio_bytes, error_or_content_type = synthesize(
+                text=text,
+                provider='gemini',
+                voice_id=voice_id,
+                language='he-IL',
+                speed=1.0
             )
             
-            # Convert response to bytes
-            audio_bytes = response.content
-            content_type = 'audio/mpeg'
+            if audio_bytes is None:
+                logger.error(f"[TTS_PREVIEW] Gemini synthesis failed: {error_or_content_type}")
+                return {"ok": False, "error": "tts_generation_failed", "message": error_or_content_type}, 500
+            
+            content_type = error_or_content_type  # Should be "audio/mpeg"
             file_extension = 'mp3'
-            logger.info(f"[TTS_PREVIEW] speech.create success: {len(audio_bytes)} bytes (mp3)")
+            logger.info(f"[TTS_PREVIEW] Gemini success: {len(audio_bytes)} bytes (mp3)")
+            
         else:
-            # Use Realtime API for cedar and other Realtime-only voices
-            # 🔥 Returns WAV format (pcm16 wrapped with WAV header)
-            # 🔥 NEW: Fallback to speech.create if Realtime fails
-            try:
-                attempted_realtime = True
-                import asyncio
-                audio_bytes = asyncio.run(_generate_preview_via_realtime(voice_id, text))
-                content_type = 'audio/wav'
-                file_extension = 'wav'
-                logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes (wav)")
-            except Exception as realtime_error:
-                # 🔥 FALLBACK: If Realtime fails, try speech.create if voice is compatible
-                logger.warning(f"[TTS_PREVIEW] Realtime API failed for voice '{voice_id}': {realtime_error}")
+            # OpenAI provider
+            # Get voice metadata to determine preview engine
+            voice_metadata = OPENAI_VOICES_METADATA.get(voice_id, {})
+            preview_engine = voice_metadata.get("preview_engine", "realtime")
+            
+            # 🔥 CRITICAL: Double-check voice is in speech.create whitelist if using that engine
+            if preview_engine == "speech_create" and voice_id not in SPEECH_CREATE_VOICES:
+                logger.warning(f"[TTS_PREVIEW] Voice '{voice_id}' marked as speech_create but not in whitelist -> using Realtime")
+                preview_engine = "realtime"
+            
+            audio_bytes = None
+            content_type = 'audio/mpeg'  # Default for speech.create
+            file_extension = 'mp3'
+            
+            if preview_engine == "speech_create":
+                # Use standard speech.create API (fast, for compatible voices only)
+                # 🔥 Returns mp3 format
+                client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
                 
-                # Check if voice is compatible with speech.create for fallback
-                if voice_id in SPEECH_CREATE_VOICES:
-                    logger.info(f"[TTS_PREVIEW] Falling back to speech.create for voice '{voice_id}'")
-                    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                # Generate speech using TTS-1 model with specified voice
+                response = client.audio.speech.create(
+                    model="tts-1",
+                    voice=voice_id,
+                    input=text,
+                    response_format="mp3"
+                )
+                
+                # Convert response to bytes
+                audio_bytes = response.content
+                content_type = 'audio/mpeg'
+                file_extension = 'mp3'
+                logger.info(f"[TTS_PREVIEW] speech.create success: {len(audio_bytes)} bytes (mp3)")
+            else:
+                # Use Realtime API for cedar and other Realtime-only voices
+                # 🔥 Returns WAV format (pcm16 wrapped with WAV header)
+                # 🔥 NEW: Fallback to speech.create if Realtime fails
+                try:
+                    import asyncio
+                    audio_bytes = asyncio.run(_generate_preview_via_realtime(voice_id, text))
+                    content_type = 'audio/wav'
+                    file_extension = 'wav'
+                    logger.info(f"[TTS_PREVIEW] Realtime success: {len(audio_bytes)} bytes (wav)")
+                except Exception as realtime_error:
+                    # 🔥 FALLBACK: If Realtime fails, try speech.create if voice is compatible
+                    logger.warning(f"[TTS_PREVIEW] Realtime API failed for voice '{voice_id}': {realtime_error}")
                     
-                    response = client.audio.speech.create(
-                        model="tts-1",
-                        voice=voice_id,
-                        input=text,
-                        response_format="mp3"
-                    )
-                    
-                    audio_bytes = response.content
-                    content_type = 'audio/mpeg'
-                    file_extension = 'mp3'
-                    logger.info(f"[TTS_PREVIEW] speech.create fallback success: {len(audio_bytes)} bytes (mp3)")
-                else:
-                    # Voice not compatible with speech.create - re-raise the original error
-                    raise realtime_error
+                    # Check if voice is compatible with speech.create for fallback
+                    if voice_id in SPEECH_CREATE_VOICES:
+                        logger.info(f"[TTS_PREVIEW] Falling back to speech.create for voice '{voice_id}'")
+                        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                        
+                        response = client.audio.speech.create(
+                            model="tts-1",
+                            voice=voice_id,
+                            input=text,
+                            response_format="mp3"
+                        )
+                        
+                        audio_bytes = response.content
+                        content_type = 'audio/mpeg'
+                        file_extension = 'mp3'
+                        logger.info(f"[TTS_PREVIEW] speech.create fallback success: {len(audio_bytes)} bytes (mp3)")
+                    else:
+                        # Voice not compatible with speech.create - re-raise the original error
+                        raise realtime_error
         
         # Create BytesIO object for send_file
         # 🔥 FIX: Don't close the stream in finally - Flask's send_file handles it

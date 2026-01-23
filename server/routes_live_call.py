@@ -242,22 +242,11 @@ def live_call_tts():
             return jsonify({'error': 'Business not found'}), 404
         
         # Get voice settings from business
-        settings = db.session.query(BusinessSettings).filter_by(
-            business_id=business_id
-        ).first()
-        
-        # Default to OpenAI if no settings
-        provider = 'openai'
-        voice_id = 'alloy'
-        speed = 1.0
-        language = 'he-IL'
-        
-        if settings:
-            # Get saved voice settings
-            provider = getattr(settings, 'tts_provider', 'openai') or 'openai'
-            voice_id = getattr(settings, 'voice_id', 'alloy') or 'alloy'
-            speed = float(getattr(settings, 'tts_speed', 1.0) or 1.0)
-            language = getattr(settings, 'tts_language', 'he-IL') or 'he-IL'
+        # TTS settings are stored in Business table
+        provider = getattr(business, 'tts_provider', 'openai') or 'openai'
+        voice_id = getattr(business, 'tts_voice_id', None) or getattr(business, 'voice_id', 'alloy') or 'alloy'
+        speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
+        language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
         
         # Check if Gemini is requested but not available
         if provider == 'gemini' and not tts_provider.is_gemini_available():
