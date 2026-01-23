@@ -262,8 +262,8 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
             onPointerMove={draw}
             onPointerUp={stopDrawing}
             onPointerLeave={stopDrawing}
-            className="w-full cursor-crosshair touch-none"
-            style={{ maxWidth: '100%', height: '150px', display: 'block' }}
+            className="w-full cursor-crosshair"
+            style={{ maxWidth: '100%', height: '150px', display: 'block', touchAction: 'none' }}
           />
         </div>
       </div>
@@ -301,7 +301,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
             <>
               <iframe
                 ref={iframeRef}
-                key={`${file.download_url}-${currentPage}`}
+                key={`pdf-${file.id}-${currentPage}`}
                 src={`${file.download_url}#page=${currentPage}&view=FitH`}
                 className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
                 title={file.filename}
