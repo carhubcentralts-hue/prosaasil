@@ -250,6 +250,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_ROLE: calls
       PORT: 5050
+      # 🔥 P2+Calls: Maximum concurrent calls limit (server-wide)
+      MAX_CONCURRENT_CALLS: 15
       # 🔥 TTS WARMUP: Optional - disable TTS warmup if needed (does not affect DB)
       # Set to "true" to skip TTS client warmup (useful for faster deployments)
       DISABLE_TTS_WARMUP: ${DISABLE_TTS_WARMUP:-false}
