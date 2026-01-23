@@ -11,8 +11,8 @@ import {
 import * as pdfjsLib from 'pdfjs-dist';
 import { logger } from '../shared/utils/logger';
 
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Set up PDF.js worker - use local copy for security
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.js/pdf.worker.min.js';
 
 export interface PDFCanvasProps {
   pdfUrl: string;

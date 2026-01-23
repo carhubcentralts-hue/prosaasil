@@ -272,12 +272,17 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
   const renderSignatureFields = () => {
     if (!pageViewport) return null;
 
-    return getCurrentPageFields().map((field, index) => {
+    // Create a map of field IDs to their global index for efficient lookup
+    const fieldIndexMap = new Map(fields.map((f, i) => [f.id, i + 1]));
+
+    return getCurrentPageFields().map((field) => {
       // Convert PDF units to pixels
       const left = field.x * pageViewport.width;
       const top = field.y * pageViewport.height;
       const width = field.w * pageViewport.width;
       const height = field.h * pageViewport.height;
+      
+      const fieldNumber = fieldIndexMap.get(field.id) || 1;
 
       return (
         <div
@@ -297,7 +302,7 @@ export function SignatureFieldMarker({ pdfUrl, contractId, onClose, onSave }: Si
         >
           {/* Field Label */}
           <div className="absolute -top-7 right-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-t-lg shadow-md whitespace-nowrap">
-            חתימה #{fields.indexOf(field) + 1}
+            חתימה #{fieldNumber}
           </div>
           
           {/* Delete Button */}
