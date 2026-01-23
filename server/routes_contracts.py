@@ -826,6 +826,113 @@ def download_contract_file(contract_id, file_id):
         return jsonify({'error': 'Failed to generate download URL'}), 500
 
 
+@contracts_bp.route('/<int:contract_id>/pdf_url', methods=['GET'])
+@require_api_auth
+@require_page_access('contracts')
+def get_contract_pdf_url(contract_id):
+    """
+    Get signed URL for contract PDF viewing
+    
+    This endpoint returns a temporary signed URL for viewing the contract PDF in an iframe.
+    The signed URL bypasses session cookie/CORS issues with iframe embedding.
+    
+    Returns:
+        JSON with:
+        - url: Temporary signed URL (valid for 15 minutes)
+        - expires_at: ISO timestamp when URL expires
+        - filename: Original PDF filename
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        logger.info(f"[CONTRACTS_PDF_URL] Request for contract_id={contract_id}, business_id={business_id}, user_id={user_id}")
+        
+        if not business_id:
+            logger.warning(f"[CONTRACTS_PDF_URL] Missing business_id for contract {contract_id}")
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Verify contract exists and belongs to business
+        contract = Contract.query.filter_by(
+            id=contract_id,
+            business_id=business_id
+        ).first()
+        
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        # Get the first PDF file (original purpose)
+        contract_file = ContractFile.query.filter_by(
+            contract_id=contract_id,
+            business_id=business_id,
+            purpose=CONTRACT_FILE_PURPOSE_ORIGINAL
+        ).filter(ContractFile.deleted_at.is_(None)).first()
+        
+        if not contract_file:
+            return jsonify({'error': 'No PDF file found for this contract'}), 404
+        
+        # Get attachment
+        attachment = Attachment.query.filter_by(
+            id=contract_file.attachment_id,
+            business_id=business_id
+        ).first()
+        
+        if not attachment:
+            return jsonify({'error': 'Attachment not found'}), 404
+        
+        # Verify it's a PDF
+        if attachment.mime_type != 'application/pdf':
+            return jsonify({'error': 'File is not a PDF'}), 400
+        
+        # Generate signed URL with 15 minute TTL (for iframe viewing)
+        attachment_service = get_attachment_service()
+        ttl_seconds = 900  # 15 minutes - sufficient for viewing session
+        
+        signed_url = attachment_service.generate_signed_url(
+            attachment.id,
+            attachment.storage_path,
+            ttl_minutes=ttl_seconds // 60,
+            mime_type=attachment.mime_type,
+            filename=attachment.filename_original
+        )
+        
+        if not signed_url:
+            return jsonify({'error': 'Failed to generate PDF URL'}), 500
+        
+        # Calculate expiration timestamp
+        expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        
+        # Log event (best effort - don't fail if audit logging fails)
+        try:
+            log_contract_event(
+                contract_id=contract_id,
+                business_id=business_id,
+                event_type='file_viewed',
+                metadata={
+                    'file_id': contract_file.id,
+                    'filename': attachment.filename_original,
+                    'access_type': 'signed_url'
+                },
+                user_id=user_id
+            )
+        except Exception as audit_err:
+            # Don't fail URL generation if audit logging fails
+            logger.warning(f"[CONTRACTS_PDF_URL] Audit logging failed: {audit_err}")
+        
+        logger.info(f"[CONTRACTS_PDF_URL] Generated signed URL for contract_id={contract_id}, expires_at={expires_at.isoformat()}")
+        
+        return jsonify({
+            'url': signed_url,
+            'expires_at': expires_at.isoformat() + 'Z',
+            'expires_in': ttl_seconds,
+            'filename': attachment.filename_original
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACTS_PDF_URL] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to generate PDF URL'}), 500
+
+
 @contracts_bp.route('/<int:contract_id>/pdf', methods=['GET'])
 @require_api_auth
 @require_page_access('contracts')

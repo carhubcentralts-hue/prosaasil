@@ -355,19 +355,42 @@ def create_app():
     @app.after_request
     def add_security_headers(response):
         """Add enterprise security headers"""
-        # CSP (Content Security Policy) - Strict but functional
-        csp_policy = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data: blob: https:; "
-            "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
-            "frame-ancestors 'none'; "
-            "object-src 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self';"
+        
+        # Check if this is a PDF viewing endpoint that needs iframe support
+        is_pdf_endpoint = (
+            request.endpoint and 
+            (request.endpoint.endswith('.stream_contract_pdf') or 
+             request.endpoint.endswith('.get_contract_pdf_url'))
         )
+        
+        # CSP (Content Security Policy) - Strict but functional
+        # For PDF endpoints, allow same-origin framing
+        if is_pdf_endpoint:
+            csp_policy = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com data:; "
+                "img-src 'self' data: blob: https:; "
+                "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
+                "frame-ancestors 'self'; "  # Allow same-origin framing for PDFs
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self';"
+            )
+        else:
+            csp_policy = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com data:; "
+                "img-src 'self' data: blob: https:; "
+                "connect-src 'self' wss: ws: https://fonts.googleapis.com https://fonts.gstatic.com; "
+                "frame-ancestors 'none'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self';"
+            )
         response.headers['Content-Security-Policy'] = csp_policy
         
         # HSTS - Strict Transport Security (force HTTPS)
@@ -376,7 +399,12 @@ def create_app():
             response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
         
         # Additional security headers
-        response.headers['X-Frame-Options'] = 'DENY'
+        # For PDF endpoints, allow same-origin framing
+        if is_pdf_endpoint:
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'  # Allow same-origin framing for PDFs
+        else:
+            response.headers['X-Frame-Options'] = 'DENY'
+            
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
