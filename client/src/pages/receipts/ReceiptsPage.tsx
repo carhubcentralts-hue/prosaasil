@@ -855,6 +855,7 @@ export function ReceiptsPage() {
   const [syncFromDate, setSyncFromDate] = useState<string>('');
   const [syncToDate, setSyncToDate] = useState<string>('');
   const [showSyncOptions, setShowSyncOptions] = useState(false);
+  const [forceRescan, setForceRescan] = useState(false); // Force rescan with purge
   
   // Sync progress tracking
   const [activeSyncRunId, setActiveSyncRunId] = useState<number | null>(null);
@@ -1132,11 +1133,24 @@ export function ReceiptsPage() {
   
   // Handle sync
   const handleSync = useCallback(async () => {
-    console.log('🔔 Sync button clicked with dates:', { syncFromDate, syncToDate });
+    console.log('🔔 Sync button clicked with dates:', { syncFromDate, syncToDate, forceRescan });
     
     if (syncInProgress) {
       alert('סנכרון כבר רץ ברקע. אנא המתן לסיום.');
       return;
+    }
+
+    // Safety confirmation for force rescan
+    if (forceRescan) {
+      const confirmed = window.confirm(
+        '⚠️ אזהרה: סנכרון מאולץ ימחק את כל הקבלות הקיימות בטווח התאריכים שנבחר ויסנכרן אותן מחדש.\n\n' +
+        'המשך רק אם אתה בטוח שברצונך לבצע פעולה זו.\n\n' +
+        'האם להמשיך?'
+      );
+      
+      if (!confirmed) {
+        return;
+      }
     }
 
     try {
@@ -1150,6 +1164,7 @@ export function ReceiptsPage() {
       const syncParams: {
         from_date?: string;
         to_date?: string;
+        force?: boolean;
       } = {};
       
       if (syncFromDate) {
@@ -1157,6 +1172,9 @@ export function ReceiptsPage() {
       }
       if (syncToDate) {
         syncParams.to_date = syncToDate;
+      }
+      if (forceRescan) {
+        syncParams.force = true;
       }
 
       // Save sync dates to localStorage for persistence across refresh
@@ -1208,7 +1226,7 @@ export function ReceiptsPage() {
     } finally {
       setSyncing(false);
     }
-  }, [syncFromDate, syncToDate, user?.token, pollSyncStatus]);
+  }, [syncFromDate, syncToDate, forceRescan, user?.token, pollSyncStatus]);
   
   // Handle cancel sync
   const handleCancelSync = useCallback(async () => {
@@ -1292,7 +1310,7 @@ export function ReceiptsPage() {
         data: {
           confirm: true,
           typed: 'DELETE',
-          delete_attachments: false
+          delete_attachments: true  // CHANGED: Delete attachments to allow fresh rescan without duplicates
         }
       });
       
@@ -1539,15 +1557,61 @@ export function ReceiptsPage() {
                 </div>
               )}
               
+              {/* Force Rescan Option */}
+              <div className="mt-4 pt-3 border-t border-blue-200">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={forceRescan}
+                    onChange={(e) => setForceRescan(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-2 focus:ring-red-500"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 group-hover:text-gray-700">
+                        סנכרון מאולץ (Force Rescan)
+                      </span>
+                      <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                        מתקדם
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">
+                      מחיקת כל הקבלות בטווח התאריכים וסנכרון מחדש מ-Gmail. 
+                      <span className="font-medium text-red-600"> שימו לב: פעולה זו תמחק קבלות קיימות!</span>
+                    </p>
+                    {forceRescan && (
+                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                          <div className="text-red-800">
+                            <p className="font-medium mb-1">⚠️ מצב מתקדם מופעל</p>
+                            <ul className="list-disc list-inside space-y-0.5">
+                              <li>כל הקבלות בטווח התאריכים ימחקו</li>
+                              <li>קבצי מקור וקבצי תצוגה מקדימה של קבלות ימחקו</li>
+                              <li>קבלות יסונכרנו מחדש מ-Gmail</li>
+                              <li>תתבקש אישור סופי לפני תחילת הסנכרון</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </div>
+              
               {/* Sync button with selected dates */}
               <div className="mt-4 pt-3 border-t border-blue-200">
                 <button
                   onClick={handleSync}
                   disabled={syncing || syncInProgress}
-                  className="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium text-sm"
+                  className={`w-full flex items-center justify-center px-4 py-3 rounded-lg disabled:opacity-50 transition-colors font-medium text-sm ${
+                    forceRescan 
+                      ? 'bg-red-600 text-white hover:bg-red-700' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
                 >
                   <RefreshCw className={`w-4 h-4 ml-2 ${(syncing || syncInProgress) ? 'animate-spin' : ''}`} />
-                  {syncInProgress ? 'רץ...' : syncing ? 'מסנכרן...' : (syncFromDate || syncToDate) ? 'סנכרן עם התאריכים שנבחרו' : 'סנכרן'}
+                  {syncInProgress ? 'רץ...' : syncing ? 'מסנכרן...' : forceRescan ? 'סנכרון מאולץ' : (syncFromDate || syncToDate) ? 'סנכרן עם התאריכים שנבחרו' : 'סנכרן'}
                 </button>
               </div>
             </div>
