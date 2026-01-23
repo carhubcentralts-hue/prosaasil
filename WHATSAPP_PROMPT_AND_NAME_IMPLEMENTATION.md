@@ -187,8 +187,11 @@ lead_upsert: phone=+972501234567 source=whatsapp pushName="0501234567" applied=f
 
 ### הרצה:
 ```bash
-python migration_add_whatsapp_prompt_and_lead_name.py
+python -m server.db_migrate
 ```
+
+**חשוב**: המיגרציה מתווספת דרך `server/db_migrate.py` בלבד (Migration 96).
+לא להוסיף מיגרציות כקבצים נפרדים!
 
 ### מה קורה:
 1. הוספת 4 עמודות לטבלת `business`
