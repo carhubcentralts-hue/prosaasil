@@ -28,7 +28,10 @@ MAX_TOTAL_INPUT = 4000  # Max total chars for all fields combined
 MAX_PROMPT_LENGTH = 10000  # Max chars for generated prompt
 
 # 🔒 Security: Blocked patterns for basic prompt injection defense
+# Note: This is a defense-in-depth measure, not a complete solution
+# The system guard in PROMPT_BUILDER_TEMPLATE is the primary defense
 BLOCKED_PATTERNS = [
+    # English patterns
     "ignore previous",
     "system prompt",
     "act as",
@@ -36,6 +39,18 @@ BLOCKED_PATTERNS = [
     "disregard",
     "forget your instructions",
     "new instructions",
+    "override",
+    "jailbreak",
+    "pretend",
+    "roleplay",
+    "bypass",
+    "ignore all",
+    "forget everything",
+    # Hebrew patterns
+    "התעלם מהוראות",
+    "הוראות חדשות",
+    "שכח את",
+    "התחזה ל",
 ]
 
 # Prompt builder template for generating business prompts

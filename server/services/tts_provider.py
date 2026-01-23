@@ -6,6 +6,10 @@ Supports voice synthesis for prompt testing with provider abstraction
 - Never return raw exception messages to clients (may contain API keys)
 - Use logger.exception() for detailed server-side logging
 - Return generic error messages only
+
+🔥 IMPORTANT:
+- OpenAI voices: Use existing config from server/config/voices.py (DO NOT DUPLICATE)
+- Gemini voices: Use API discovery from gemini_voice_catalog.py
 """
 import os
 import logging
@@ -17,45 +21,70 @@ logger = logging.getLogger(__name__)
 # 🔒 Security: Allowed TTS languages whitelist
 ALLOWED_TTS_LANGUAGES = {"he-IL", "en-US", "ar-IL"}
 
-# OpenAI TTS voices
-OPENAI_TTS_VOICES = [
-    {"id": "alloy", "name": "Alloy", "label": "אלוי", "gender": "neutral"},
-    {"id": "ash", "name": "Ash", "label": "אש", "gender": "male"},
-    {"id": "echo", "name": "Echo", "label": "הד", "gender": "male"},
-    {"id": "shimmer", "name": "Shimmer", "label": "שימר", "gender": "female"},
-    {"id": "nova", "name": "Nova", "label": "נובה", "gender": "female"},
-    {"id": "onyx", "name": "Onyx", "label": "אוניקס", "gender": "male"},
-    {"id": "fable", "name": "Fable", "label": "פייבל", "gender": "male"},
-    {"id": "coral", "name": "Coral", "label": "קורל", "gender": "female"},
-]
 
-# Google/Gemini TTS voices (Hebrew)
-GEMINI_TTS_VOICES = [
-    {"id": "he-IL-Wavenet-A", "name": "Wavenet A", "label": "וייבנט א׳", "gender": "female"},
-    {"id": "he-IL-Wavenet-B", "name": "Wavenet B", "label": "וייבנט ב׳", "gender": "male"},
-    {"id": "he-IL-Wavenet-C", "name": "Wavenet C", "label": "וייבנט ג׳", "gender": "female"},
-    {"id": "he-IL-Wavenet-D", "name": "Wavenet D", "label": "וייבנט ד׳", "gender": "male"},
-    {"id": "he-IL-Standard-A", "name": "Standard A", "label": "סטנדרט א׳", "gender": "female"},
-    {"id": "he-IL-Standard-B", "name": "Standard B", "label": "סטנדרט ב׳", "gender": "male"},
-    {"id": "he-IL-Standard-C", "name": "Standard C", "label": "סטנדרט ג׳", "gender": "female"},
-    {"id": "he-IL-Standard-D", "name": "Standard D", "label": "סטנדרט ד׳", "gender": "male"},
-]
+def _get_openai_voices() -> List[Dict[str, Any]]:
+    """
+    Get OpenAI voices from existing config (DO NOT DUPLICATE).
+    Uses server/config/voices.py as single source of truth.
+    """
+    try:
+        from server.config.voices import OPENAI_VOICES_METADATA
+        return [
+            {
+                "id": v["id"],
+                "name": v["name"],
+                "label": v["label"],
+                "gender": v["gender"]
+            }
+            for v in OPENAI_VOICES_METADATA.values()
+        ]
+    except ImportError:
+        logger.warning("Could not import OPENAI_VOICES_METADATA, using fallback")
+        # Minimal fallback if import fails - matches existing config
+        return [
+            {"id": "alloy", "name": "Alloy", "label": "אלוי", "gender": "neutral"},
+            {"id": "ash", "name": "Ash", "label": "אש", "gender": "male"},
+            {"id": "echo", "name": "Echo", "label": "הד", "gender": "male"},
+            {"id": "shimmer", "name": "Shimmer", "label": "שימר", "gender": "female"},
+        ]
+
+
+def _get_gemini_voices() -> List[Dict[str, Any]]:
+    """
+    Get Gemini voices from discovery catalog.
+    Uses server/services/gemini_voice_catalog.py with API discovery.
+    """
+    try:
+        from server.services.gemini_voice_catalog import get_cached_voices
+        return get_cached_voices()
+    except ImportError:
+        logger.warning("Could not import gemini_voice_catalog")
+        return []
+
+
+# Exported for backwards compatibility
+OPENAI_TTS_VOICES = _get_openai_voices()
+GEMINI_TTS_VOICES = []  # Will be populated dynamically from discovery
 
 
 def get_available_voices(provider: str) -> List[Dict[str, Any]]:
     """Get list of available voices for a provider"""
     if provider == "openai":
-        return OPENAI_TTS_VOICES
+        return _get_openai_voices()
     elif provider == "gemini":
-        return GEMINI_TTS_VOICES
+        return _get_gemini_voices()
     else:
-        return OPENAI_TTS_VOICES  # Default to OpenAI
+        return _get_openai_voices()  # Default to OpenAI
 
 
 def get_default_voice(provider: str) -> str:
     """Get default voice ID for a provider"""
     if provider == "openai":
-        return "alloy"
+        try:
+            from server.config.voices import DEFAULT_VOICE
+            return DEFAULT_VOICE
+        except ImportError:
+            return "alloy"
     elif provider == "gemini":
         return "he-IL-Wavenet-A"
     else:
@@ -85,7 +114,7 @@ def synthesize_openai(
     Args:
         text: The text to convert to speech.
         voice_id: The OpenAI voice ID (e.g., 'alloy', 'echo', 'shimmer').
-                  Invalid voices fall back to 'alloy'.
+                  Invalid voices fall back to default.
         speed: Speaking speed from 0.25 to 4.0 (default 1.0).
     
     Returns:
@@ -97,10 +126,17 @@ def synthesize_openai(
         
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Validate voice
-        valid_voices = [v["id"] for v in OPENAI_TTS_VOICES]
+        # Validate voice using existing config (DO NOT DUPLICATE)
+        try:
+            from server.config.voices import REALTIME_VOICES, DEFAULT_VOICE
+            valid_voices = REALTIME_VOICES
+            fallback_voice = DEFAULT_VOICE
+        except ImportError:
+            valid_voices = ["alloy", "ash", "echo", "shimmer"]
+            fallback_voice = "alloy"
+        
         if voice_id not in valid_voices:
-            voice_id = "alloy"
+            voice_id = fallback_voice
         
         # Clamp speed to valid range
         speed = max(0.25, min(4.0, speed))

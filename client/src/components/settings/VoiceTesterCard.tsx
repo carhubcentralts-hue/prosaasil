@@ -23,6 +23,9 @@ interface Voice {
   name: string;
   label: string;
   gender: string;
+  display_he?: string;  // Hebrew display name (Gemini only)
+  tags_he?: string[];   // Hebrew tags (Gemini only)
+  available?: boolean;  // Whether voice is available
 }
 
 interface Provider {
@@ -31,6 +34,8 @@ interface Provider {
   label: string;
   mode: string;
   voices: Voice[];
+  available?: boolean;
+  message?: string;
 }
 
 interface VoiceSettings {
@@ -217,7 +222,8 @@ export function VoiceTesterCard({ promptText }: VoiceTesterCardProps) {
                   value={settings.provider}
                   onChange={(e) => {
                     const newProvider = e.target.value;
-                    const providerVoices = providers.find(p => p.id === newProvider)?.voices || [];
+                    const selectedProvider = providers.find(p => p.id === newProvider);
+                    const providerVoices = selectedProvider?.voices || [];
                     setSettings(prev => ({
                       ...prev,
                       provider: newProvider,
@@ -227,11 +233,21 @@ export function VoiceTesterCard({ promptText }: VoiceTesterCardProps) {
                   className="w-full p-2 border border-slate-300 rounded-lg bg-white text-sm"
                 >
                   {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label} {p.mode === 'preview' ? '(Preview)' : ''}
+                    <option 
+                      key={p.id} 
+                      value={p.id}
+                      disabled={p.available === false}
+                    >
+                      {p.label} {p.mode === 'preview' ? '(Preview)' : ''} {p.available === false ? '(לא זמין)' : ''}
                     </option>
                   ))}
                 </select>
+                {/* Show message if selected provider is unavailable */}
+                {providers.find(p => p.id === settings.provider)?.available === false && (
+                  <p className="text-xs text-orange-600 mt-1">
+                    {providers.find(p => p.id === settings.provider)?.message || 'ספק זה אינו זמין כרגע'}
+                  </p>
+                )}
               </div>
 
               {/* Voice Selection */}
@@ -241,10 +257,18 @@ export function VoiceTesterCard({ promptText }: VoiceTesterCardProps) {
                   value={settings.voice_id}
                   onChange={(e) => setSettings(prev => ({ ...prev, voice_id: e.target.value }))}
                   className="w-full p-2 border border-slate-300 rounded-lg bg-white text-sm"
+                  disabled={!voices.length}
                 >
-                  {voices.map((v) => (
-                    <option key={v.id} value={v.id}>{v.label} ({v.name})</option>
-                  ))}
+                  {voices.length === 0 ? (
+                    <option value="">אין קולות זמינים</option>
+                  ) : (
+                    voices.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {/* Show Hebrew display name if available (Gemini), otherwise label */}
+                        {v.display_he || v.label || v.name} ({v.id})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 

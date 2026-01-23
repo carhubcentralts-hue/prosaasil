@@ -248,7 +248,7 @@ def voice_test_tts():
         
         if audio_bytes is None:
             # 🔒 Security: Generic error only
-            logger.error(f"TTS synthesis failed: {result}")
+            logger.exception("[TTS] Synthesis failed")
             return jsonify({"error": "שגיאה ביצירת אודיו"}), 500
         
         # Return audio data
@@ -385,7 +385,7 @@ def preview_voice():
         
         if audio_bytes is None:
             # 🔒 Security: Generic error only
-            logger.error(f"TTS synthesis failed: {result}")
+            logger.exception("[TTS] Synthesis failed")
             return jsonify({"error": "שגיאה ביצירת אודיו"}), 500
         
         # Return audio data
