@@ -1,0 +1,49 @@
+# ===========================================
+# ProSaaS Backend Light - Python Flask + ASGI
+# Optimized for API and Calls services (no Playwright/Chromium)
+# ===========================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (minimal set without Playwright dependencies)
+# - ffmpeg for audio conversion
+# - poppler-utils for PDF processing (optional, pymupdf is preferred)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    openssl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+COPY server/ ./server/
+COPY asgi.py wsgi.py run_server.py ./
+
+# 🔥 PYTHON ENVIRONMENT FIX: Ensure consistent Python interpreter
+# Install all dependencies to the default Python location
+# This ensures both `python` and `python3` use the same packages
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
+
+# 🚫 NO PLAYWRIGHT: This is the light image for API/Calls services
+# Playwright/Chromium are only installed in the heavy worker image
+# Receipt preview and Gmail sync will be handled by the worker service
+
+RUN mkdir -p server/public
+
+RUN mkdir -p storage/recordings storage/whatsapp logs
+
+# 🔥 PYTHON ENVIRONMENT: Ensure python and python3 are the same
+# This prevents issues where worker might use python3 but packages are in python
+ENV PYTHONUNBUFFERED=1
+ENV PORT=5000
+ENV FLASK_ENV=production
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+CMD ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "5000", "--ws", "websockets", "--timeout-keep-alive", "75", "--timeout-graceful-shutdown", "30"]
