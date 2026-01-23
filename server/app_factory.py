@@ -704,6 +704,14 @@ def create_app():
         from server.routes_ai_system import ai_system_bp
         app.register_blueprint(ai_system_bp)
         
+        # Voice Test Blueprint - Prompt voice testing with VAD
+        from server.routes_voice_test import voice_test_bp
+        app.register_blueprint(voice_test_bp)
+        
+        # Prompt Builder Blueprint - AI-powered prompt generation
+        from server.routes_prompt_builder import prompt_builder_bp
+        app.register_blueprint(prompt_builder_bp)
+        
         # Note: Status Management Blueprint now registered earlier (before line 356)
         
         @app.before_request  
