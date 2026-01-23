@@ -1198,26 +1198,23 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     # Only include appointment instructions if call_goal="appointment"
     if channel == "whatsapp" and call_goal != "appointment":
         # 🔥 WHATSAPP + NO APPOINTMENTS = MINIMAL SYSTEM RULES
+        # 🔥 FIX: Removed hardcoded redirect message - let custom prompt handle off-topic responses
         system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
 TODAY: {today_str} (Israel)
 
 ⚠️ CRITICAL RULES:
 1. NEVER offer or discuss appointment scheduling - this business doesn't do appointments via WhatsApp
-2. Focus on answering customer questions about the business, services, and information
+2. Focus on answering customer questions based on YOUR CUSTOM INSTRUCTIONS below
 3. Use business_get_info() tool if customer asks about location, hours, or contact details
-4. Keep responses short and direct (2-3 sentences max)
+4. Keep responses natural and conversational as defined in your custom instructions
 5. Always respond in Hebrew
-
-🔒 STAY ON TOPIC:
-- ONLY discuss topics related to THIS business
-- If customer asks unrelated questions (weather, news, general knowledge):
-  → Politely redirect: "אני כאן לעזור עם פרטי העסק. איך אוכל לעזור?"
 
 ---
 """
         logger.info(f"📱 WhatsApp without appointments: using MINIMAL system rules ({len(system_rules)} chars)")
     elif channel == "whatsapp" and call_goal == "appointment":
         # 🔥 WHATSAPP + APPOINTMENTS = FOCUSED APPOINTMENT RULES
+        # 🔥 FIX: Removed hardcoded redirect message - let custom prompt handle off-topic responses
         booking_tool_rule = "schedule_appointment()"
         availability_tool_rule = "check_availability()"
         
@@ -1239,7 +1236,7 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 6. Confirm based on returned user_message
 
 🔥 CRITICAL: Ask for info ONE at a time (date, then time, then name)
-🔥 Keep responses SHORT (2-3 sentences)
+🔥 Follow YOUR CUSTOM INSTRUCTIONS below for conversation style and behavior
 
 ---
 """
@@ -1293,14 +1290,12 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 - Example BAD: "שלום! רוצה לקבוע תור?" ❌ (too pushy)
 - Example GOOD: "שלום! איך אני יכולה לעזור?" ✅ (let customer lead)
 
-🔒 STAY ON TOPIC (CRITICAL!):
-- 🔥 ONLY discuss topics related to THIS business and the services mentioned in your prompt!
-- If customer asks unrelated questions (weather, news, general knowledge, other businesses):
-  → Politely redirect: "אני כאן לעזור עם תיאום פגישות ופרטי העסק. איך אוכל לעזור?"
+🔒 STAY ON TOPIC:
+- Follow YOUR CUSTOM INSTRUCTIONS below for handling off-topic questions
+- If your custom instructions don't specify, politely redirect to business topics
 - Examples:
   ✅ GOOD: Questions about appointments, services, location, hours, pricing
   ❌ BAD: "מה מזג האויר?", "מי ראש הממשלה?", "תכתוב לי שיר"
-- 🔥 NEVER answer questions outside your business scope - always redirect politely!
 
 📋 BOOKING WORKFLOW (ONLY when customer requests appointment!):
 1. Ask for DATE & TIME preference first
@@ -1674,14 +1669,12 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
    - WhatsApp: Natural text, confirmations sent automatically
    - Both: Always confirm important details before final action
 
-7. **STAY ON TOPIC (CRITICAL!):**
-   - 🔥 ONLY discuss topics related to THIS business and the services mentioned in your prompt!
-   - If customer asks unrelated questions (weather, news, general knowledge, other businesses):
-     → Politely redirect: "אני כאן לעזור עם תיאום פגישות ופרטי העסק. איך אוכל לעזור?"
+7. **STAY ON TOPIC:**
+   - Follow YOUR CUSTOM INSTRUCTIONS below for conversation style and topic handling
+   - If your custom instructions don't specify, focus on business-related topics
    - Examples:
      ✅ GOOD: Appointments, services, location, hours, pricing, payments, contracts
      ❌ BAD: "מה מזג האויר?", "מי ראש הממשלה?", "תכתוב לי שיר", "מה קורה בעולם?"
-   - 🔥 NEVER answer questions outside your business scope - always redirect politely!
 
 📋 **AUTOMATION WORKFLOWS (CRITICAL - ALWAYS FOLLOW):**
 

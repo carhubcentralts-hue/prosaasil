@@ -210,11 +210,40 @@ function saveQueueToDisk() {
 // Auto-save every 30 seconds
 setInterval(saveQueueToDisk, 30000);
 
-const messageDedup = new Map(); // (tenantId:wa_message_id) -> timestamp to prevent duplicates
+const messageDedup = new Map(); // (tenantId:remoteJid:message_id) -> timestamp to prevent duplicates
 const MAX_QUEUE_SIZE = 1000;
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5000, 10000, 30000, 60000, 120000]; // 5s, 10s, 30s, 1m, 2m
 const DEDUP_CLEANUP_MS = 600000; // Clean dedup entries older than 10 minutes
+const DEDUP_CLEANUP_HOUR_MS = 3600000; // 1 hour for dedup entry retention
+const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
+
+// 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [key, timestamp] of messageDedup.entries()) {
+    if (now - timestamp > DEDUP_CLEANUP_MS) {
+      messageDedup.delete(key);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`[CLEANUP] Removed ${cleaned} old dedup entries (size: ${messageDedup.size})`);
+  }
+}, DEDUP_CLEANUP_MS);
+
+// Helper function to check if a message has actual content
+function hasTextContent(msgObj) {
+  return !!(
+    msgObj.conversation ||
+    msgObj.extendedTextMessage?.text ||
+    msgObj.imageMessage?.caption ||
+    msgObj.videoMessage?.caption ||
+    msgObj.audioMessage ||
+    msgObj.documentMessage
+  );
+}
 
 // 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
 setInterval(() => {
@@ -1524,29 +1553,43 @@ async function startSession(tenantId, forceRelink = false) {
         
         console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected - forwarding to Flask`);
         
-        // 🔥 FIX #1 & #4: Deduplication - check if we've already processed these messages
+        // 🔥 FIX: Improved deduplication - only by message_id + remoteJid, NO time window
+        // This prevents dropping legitimate retry/ack events while still blocking true duplicates
         const newMessages = [];
         for (const msg of incomingMessages) {
           const messageId = msg.key?.id;
-          if (!messageId) continue;
+          const remoteJid = msg.key?.remoteJid;
           
-          const dedupKey = `${tenantId}:${messageId}`;
-          const lastSeen = messageDedup.get(dedupKey);
-          const now = Date.now();
-          
-          // Skip if seen in last 5 minutes
-          if (lastSeen && (now - lastSeen) < 300000) {
-            console.log(`[${tenantId}] ⏭️ Skipping duplicate message ${messageId} (seen ${Math.floor((now - lastSeen)/1000)}s ago)`);
+          if (!messageId || !remoteJid) {
+            console.log(`[${tenantId}] ⏭️ Skipping message with missing messageId or remoteJid`);
             continue;
           }
           
-          messageDedup.set(dedupKey, now);
+          // 🔥 FIX: Filter out non-message events (protocol messages, empty messages, etc.)
+          const msgObj = msg.message || {};
+          if (!hasTextContent(msgObj)) {
+            console.log(`[${tenantId}] ⏭️ Skipping non-message event ${messageId} - no text content`);
+            continue;
+          }
+          
+          // Deduplication key: tenantId + remoteJid + messageId
+          // This ensures we only process each unique message once per conversation
+          const dedupKey = `${tenantId}:${remoteJid}:${messageId}`;
+          
+          if (messageDedup.has(dedupKey)) {
+            console.log(`[${tenantId}] ⏭️ Skipping duplicate message ${messageId} from ${remoteJid.substring(0, 15)}`);
+            continue;
+          }
+          
+          messageDedup.set(dedupKey, Date.now());
           newMessages.push(msg);
           
-          // Clean old dedup entries (keep last 10 minutes only)
-          if (messageDedup.size > 1000) {
+          // Clean old dedup entries (keep last hour = DEDUP_CLEANUP_HOUR_MS)
+          // This is sufficient to prevent duplicates while allowing memory cleanup
+          if (messageDedup.size > DEDUP_MAX_SIZE) {
+            const now = Date.now();
             for (const [key, timestamp] of messageDedup.entries()) {
-              if (now - timestamp > 600000) {
+              if (now - timestamp > DEDUP_CLEANUP_HOUR_MS) {
                 messageDedup.delete(key);
               }
             }
@@ -1554,7 +1597,7 @@ async function startSession(tenantId, forceRelink = false) {
         }
         
         if (newMessages.length === 0) {
-          console.log(`[${tenantId}] ⏭️ All messages were duplicates - skipping webhook`);
+          console.log(`[${tenantId}] ⏭️ All messages were duplicates or non-message events - skipping webhook`);
           return;
         }
         
