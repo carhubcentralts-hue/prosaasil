@@ -568,7 +568,8 @@ def create_app():
     
     logger.info(f"[CORS] Configured with {len(cors_origins)} allowed origin(s)")
     if is_production_mode:
-        logger.info(f"[CORS] Production mode: {', '.join([o for o in cors_origins if not o.startswith('r\"')])}")
+        safe_origins = [o for o in cors_origins if not o.startswith('r"')]
+        logger.info(f"[CORS] Production mode: {', '.join(safe_origins)}")
     
     # ⚡ CRITICAL FIX: Register essential API blueprints FIRST (before all other blueprints)
     # This ensures dashboard, business, notifications, etc. work even if other blueprints fail
