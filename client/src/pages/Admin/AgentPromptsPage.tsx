@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useParams, useNavigate } from 'react-router-dom';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   ArrowRight, 
   Bot, 
@@ -16,7 +14,6 @@ import {
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useAuth } from '../../features/auth/hooks';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { SmartPromptGeneratorV2 } from '../../components/settings/SmartPromptGeneratorV2';
 
 interface PromptData {
@@ -225,7 +222,7 @@ export function AgentPromptsPage() {
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 rounded-lg transition-all shadow-md hover:shadow-lg"
             >
               <Sparkles className="h-4 w-4" />
-              <span className="font-medium">מחולל פרומפטים חכם v2</span>
+              <span className="font-medium">מחולל פרומפטים חכם</span>
             </button>
             
             <button
