@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Mail, Send, Settings, AlertCircle, CheckCircle, Clock, XCircle, Plus, Eye, Search, X, RefreshCw, Pencil, Save, Edit2, Trash2, FileText, Paperclip } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import axios from 'axios';
@@ -93,11 +94,14 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 
 export function EmailsPage() {
   const { user } = useAuth();
+  // URL-based tab navigation
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as 'all' | 'sent' | 'leads' | 'templates' | 'settings' | null;
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [settings, setSettings] = useState<EmailSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'leads' | 'templates' | 'settings'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'sent' | 'leads' | 'templates' | 'settings'>(tabFromUrl || 'all');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -185,6 +189,19 @@ export function EmailsPage() {
   const [templateDefaultCtaUrl, setTemplateDefaultCtaUrl] = useState('');
   const [templateDefaultFooter, setTemplateDefaultFooter] = useState('אם אינך מעוניין לקבל הודעות נוספות, אנא לחץ כאן להסרה מהרשימה.\n\n© {{business.name}} | כל הזכויות שמורות');
   const [templateBrandColor, setTemplateBrandColor] = useState('#2563EB');
+  
+  // Sync activeTab with URL
+  useEffect(() => {
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+  
+  // Update URL when tab changes
+  const handleTabChange = (tab: 'all' | 'sent' | 'leads' | 'templates' | 'settings') => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
   
   useEffect(() => {
     loadSettings();
@@ -1028,7 +1045,7 @@ export function EmailsPage() {
         <div className="border-b border-gray-200 overflow-x-auto">
           <nav className="flex -mb-px min-w-max">
             <button
-              onClick={() => setActiveTab('all')}
+              onClick={() => handleTabChange('all')}
               className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'all'
                   ? 'border-blue-500 text-blue-600'
@@ -1038,7 +1055,7 @@ export function EmailsPage() {
               כל המיילים
             </button>
             <button
-              onClick={() => setActiveTab('sent')}
+              onClick={() => handleTabChange('sent')}
               className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'sent'
                   ? 'border-blue-500 text-blue-600'
@@ -1048,7 +1065,7 @@ export function EmailsPage() {
               נשלחו
             </button>
             <button
-              onClick={() => setActiveTab('leads')}
+              onClick={() => handleTabChange('leads')}
               className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'leads'
                   ? 'border-blue-500 text-blue-600'
@@ -1060,7 +1077,7 @@ export function EmailsPage() {
               <span className="sm:hidden">שלח</span>
             </button>
             <button
-              onClick={() => setActiveTab('templates')}
+              onClick={() => handleTabChange('templates')}
               className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === 'templates'
                   ? 'border-blue-500 text-blue-600'
@@ -1071,7 +1088,7 @@ export function EmailsPage() {
             </button>
             {isAdmin && (
               <button
-                onClick={() => setActiveTab('settings')}
+                onClick={() => handleTabChange('settings')}
                 className={`px-4 sm:px-6 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === 'settings'
                     ? 'border-blue-500 text-blue-600'

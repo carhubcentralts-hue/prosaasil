@@ -3,6 +3,7 @@
  * Provides prompt creation, testing, voice configuration, and queue settings
  */
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Bot, 
   Wand2, 
@@ -32,10 +33,26 @@ interface AppointmentSettings {
 
 export function PromptStudioPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments'>('prompts');
+  // ✅ URL-based tab navigation for search and refresh persistence
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | null;
+  const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments'>(tabFromUrl || 'prompts');
   const [showSmartGenerator, setShowSmartGenerator] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
   const [saving, setSaving] = useState(false);
+  
+  // ✅ Sync activeTab with URL
+  useEffect(() => {
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+  
+  // ✅ Update URL when tab changes
+  const handleTabChange = (tab: 'prompts' | 'builder' | 'tester' | 'appointments') => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
   
   // Appointment settings state
   const [appointmentSettings, setAppointmentSettings] = useState<AppointmentSettings>({
@@ -148,7 +165,7 @@ export function PromptStudioPage() {
       {/* Tabs */}
       <div className="flex border-b border-slate-200 mb-6">
         <button
-          onClick={() => setActiveTab('prompts')}
+          onClick={() => handleTabChange('prompts')}
           className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'prompts'
               ? 'border-purple-600 text-purple-600'
@@ -158,7 +175,7 @@ export function PromptStudioPage() {
           עריכת פרומפטים
         </button>
         <button
-          onClick={() => setActiveTab('builder')}
+          onClick={() => handleTabChange('builder')}
           className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'builder'
               ? 'border-purple-600 text-purple-600'
@@ -168,7 +185,7 @@ export function PromptStudioPage() {
           מחולל פרומפטים
         </button>
         <button
-          onClick={() => setActiveTab('tester')}
+          onClick={() => handleTabChange('tester')}
           className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'tester'
               ? 'border-purple-600 text-purple-600'
@@ -178,7 +195,7 @@ export function PromptStudioPage() {
           שיחה חיה
         </button>
         <button
-          onClick={() => setActiveTab('appointments')}
+          onClick={() => handleTabChange('appointments')}
           className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
             activeTab === 'appointments'
               ? 'border-purple-600 text-purple-600'
