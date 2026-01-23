@@ -843,7 +843,10 @@ def stream_contract_pdf(contract_id):
         business_id = get_current_business_id()
         user_id = get_current_user_id()
         
+        logger.info(f"[CONTRACTS_PDF_STREAM] Request for contract_id={contract_id}, business_id={business_id}, user_id={user_id}")
+        
         if not business_id:
+            logger.warning(f"[CONTRACTS_PDF_STREAM] Missing business_id for contract {contract_id}")
             return jsonify({'error': 'Business ID not found'}), 403
         
         # Verify contract exists and belongs to business
@@ -885,6 +888,8 @@ def stream_contract_pdf(contract_id):
             filename=attachment.filename_original,
             mime_type=attachment.mime_type
         )
+        
+        logger.info(f"[CONTRACTS_PDF_STREAM] Successfully loaded PDF: contract_id={contract_id}, filename={filename}, size={len(file_bytes)} bytes")
         
         # Log event (best effort - don't fail if audit logging fails)
         try:
