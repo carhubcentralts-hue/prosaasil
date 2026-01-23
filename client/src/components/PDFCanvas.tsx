@@ -259,7 +259,8 @@ export function PDFCanvas({
       ref={containerRef || containerDivRef}
       className={`relative flex-1 bg-gray-100 rounded-lg overflow-auto ${className}`}
       style={{
-        minHeight: isFullscreen ? '100vh' : 'calc(100vh - 250px)',
+        // Use minHeight only in fullscreen, otherwise let flex layout handle height
+        ...(isFullscreen ? { minHeight: '100vh' } : {}),
       }}
     >
       {loading ? (
@@ -278,11 +279,15 @@ export function PDFCanvas({
           </div>
         </div>
       ) : (
-        <div className="flex items-start justify-center p-4 min-h-full">
-          <div className="relative">
+        <div className="flex items-start justify-center p-4 w-full h-full">
+          <div className="relative inline-block">
             <canvas 
               ref={canvasRef} 
-              className="shadow-lg bg-white"
+              className="shadow-lg bg-white block"
+              style={{
+                // Ensure canvas displays as block to avoid inline spacing issues
+                display: 'block',
+              }}
             />
             {/* Overlay for custom elements (signature boxes, etc.) */}
             {children && canvasRef.current && (
