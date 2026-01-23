@@ -52,11 +52,11 @@ services:
     # Add production service dependencies
     depends_on:
       prosaas-api:
-        condition: service_healthy
+        condition: service_started
       prosaas-calls:
-        condition: service_healthy
+        condition: service_started
       frontend:
-        condition: service_healthy
+        condition: service_started
       n8n:
         condition: service_started
     healthcheck:
@@ -339,12 +339,11 @@ services:
   frontend:
     depends_on: []
     # P3-4: Docker hardening - read-only filesystem
-    read_only: false
+    read_only: true
     tmpfs:
       - /tmp
       - /var/cache/nginx
       - /var/run
-      - /etc/nginx/conf.d  # For envsubst scripts in nginx:alpine base image
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -354,6 +353,13 @@ services:
       - SETUID
       - SETGID
       - NET_BIND_SERVICE
+    # Production healthcheck - longer start_period for safety
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     deploy:
       resources:
         limits:
