@@ -55,7 +55,7 @@ services:
         condition: service_healthy
       prosaas-calls:
         condition: service_healthy
-      frontend:
+      prosaasil-frontend:
         condition: service_healthy
       n8n:
         condition: service_started
@@ -336,7 +336,7 @@ services:
   # Frontend - Production settings
   # Remove backend dependency since frontend is static files
   # ===========================================
-  frontend:
+  prosaasil-frontend:
     depends_on: []
     # P3-4: Docker hardening - read-only filesystem
     read_only: true

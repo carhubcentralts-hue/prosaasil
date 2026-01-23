@@ -23,7 +23,7 @@ services:
         condition: service_healthy
       prosaas-calls:
         condition: service_healthy
-      frontend:
+      prosaasil-frontend:
         condition: service_healthy
       n8n:
         condition: service_started
@@ -116,7 +116,7 @@ services:
   # Frontend Service
   # Serves static files, no external port exposure
   # ===========================================
-  frontend:
+  prosaasil-frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
