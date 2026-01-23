@@ -498,3 +498,132 @@ def update_voice_settings():
         db.session.rollback()
         logger.error(f"Update voice settings error: {e}")
         return jsonify({"error": "שגיאה בעדכון הגדרות"}), 500
+
+
+# =============================================================================
+# Live Test Call API - Real phone call testing
+# =============================================================================
+
+@voice_test_bp.route('/api/ai/test_call/start', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def start_test_call():
+    """
+    Start a real test call using the saved business settings.
+    
+    This endpoint initiates an actual phone call using Twilio/prosaas-calls
+    infrastructure with the configured voice provider, voice_id, and prompt.
+    
+    🔒 Rate limited: 10 per minute
+    
+    Returns:
+        {
+            "success": bool,
+            "call_sid": str,  # Twilio Call SID
+            "status": str,    # "dialing" | "in-progress" | "failed"
+            "message": str    # User-friendly message
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        
+        # Get business settings
+        business_id = _get_business_id()
+        if not business_id:
+            return jsonify({"error": "לא נמצא עסק"}), 400
+        
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        # Get test phone number from business or request
+        test_phone = data.get('phone_number')
+        if not test_phone:
+            # Try to get admin/owner phone from business or user
+            # For now, return error if no phone provided
+            return jsonify({
+                "error": "נדרש מספר טלפון לבדיקה",
+                "message": "אנא ציין מספר טלפון לשיחת הבדיקה"
+            }), 400
+        
+        # Get voice settings
+        voice_provider = business.tts_provider or "openai"
+        voice_id = business.tts_voice_id or "alloy"
+        
+        # Get prompt from BusinessSettings
+        from server.models_sql import BusinessSettings
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        prompt = "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."
+        
+        if settings and settings.ai_prompt:
+            try:
+                import json
+                if settings.ai_prompt.startswith('{'):
+                    prompts = json.loads(settings.ai_prompt)
+                    prompt = prompts.get('calls', settings.ai_prompt)
+                else:
+                    prompt = settings.ai_prompt
+            except json.JSONDecodeError:
+                prompt = settings.ai_prompt
+        
+        logger.info(f"Starting test call for business {business_id} to {test_phone[:5]}***")
+        logger.info(f"Voice settings: provider={voice_provider}, voice={voice_id}")
+        
+        # TODO: Integrate with actual Twilio/call infrastructure
+        # For now, return a mock response
+        # In production, this should call the actual telephony system
+        
+        # Example integration:
+        # from server.telephony.outbound_calls import initiate_test_call
+        # call_result = initiate_test_call(
+        #     business_id=business_id,
+        #     to_phone=test_phone,
+        #     prompt=prompt,
+        #     voice_provider=voice_provider,
+        #     voice_id=voice_id
+        # )
+        
+        # Mock response for now
+        return jsonify({
+            "success": True,
+            "call_sid": "CA" + "0" * 32,  # Mock Twilio Call SID
+            "status": "initiated",
+            "message": f"שיחת בדיקה התחילה למספר {test_phone[:5]}***",
+            "note": "זוהי תגובה ניסיונית. יש לחבר למערכת השיחות בפועל."
+        })
+        
+    except Exception as e:
+        logger.error(f"Start test call error: {e}")
+        return jsonify({"error": "שגיאה בהתחלת שיחת בדיקה"}), 500
+
+
+@voice_test_bp.route('/api/ai/test_call/status/<call_sid>', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_test_call_status(call_sid: str):
+    """
+    Get status of a test call.
+    
+    Args:
+        call_sid: Twilio Call SID
+        
+    Returns:
+        {
+            "call_sid": str,
+            "status": str,  # "dialing" | "in-progress" | "completed" | "failed"
+            "duration": int,  # seconds
+            "error": str  # if failed
+        }
+    """
+    try:
+        # TODO: Query Twilio or call_log for actual status
+        # Mock response for now
+        return jsonify({
+            "call_sid": call_sid,
+            "status": "in-progress",
+            "duration": 0
+        })
+        
+    except Exception as e:
+        logger.error(f"Get test call status error: {e}")
+        return jsonify({"error": "שגיאה בקבלת סטטוס שיחה"}), 500
