@@ -33,12 +33,14 @@ class CustomerIntelligence:
         message_text: str,
         whatsapp_jid: str = None,
         whatsapp_jid_alt: str = None,
-        phone_raw: str = None
+        phone_raw: str = None,
+        push_name: str = None
     ) -> Tuple[Customer, Lead, bool]:
         """
         זיהוי או יצירת לקוח מתוך הודעת WhatsApp
         ✅ תמיד נרמל טלפון לפני בדיקה - מונע כפילויות!
         🔥 FIX #3 & #6: Support @lid identifiers and WhatsApp JID mapping
+        🆕 Name saving: Save pushName from WhatsApp with smart upsert logic
         
         Args:
             phone_number: Phone number or external ID (may be @lid)
@@ -46,6 +48,7 @@ class CustomerIntelligence:
             whatsapp_jid: Primary WhatsApp identifier (remoteJid)
             whatsapp_jid_alt: Alternative WhatsApp identifier (sender_pn/participant)
             phone_raw: Original phone input before normalization
+            push_name: WhatsApp pushName (display name)
         
         Returns:
             Tuple[Customer, Lead, bool]: (לקוח, ליד, האם נוצר חדש)
@@ -186,6 +189,30 @@ class CustomerIntelligence:
                 # עדכון הליד הקיים עם מידע חדש
                 self._update_lead_from_message(lead, message_text)
                 log.info(f"♻️ Updated existing lead {lead.id} for {phone_e164}")
+            
+            # 🆕 Name saving: Update lead name from pushName if available
+            if push_name:
+                from server.utils.name_utils import normalize_name, is_name_better
+                normalized_name = normalize_name(push_name)
+                
+                if normalized_name:
+                    # Check if we should update the name
+                    should_update = is_name_better(
+                        new_name=normalized_name,
+                        old_name=lead.name or "",
+                        new_source='whatsapp',
+                        old_source=lead.name_source or ""
+                    )
+                    
+                    if should_update:
+                        lead.name = normalized_name
+                        lead.name_source = 'whatsapp'
+                        lead.name_updated_at = datetime.utcnow()
+                        log.info(f"lead_upsert: phone={phone_e164} source=whatsapp pushName=\"{push_name}\" applied=true reason=name_improved")
+                    else:
+                        log.info(f"lead_upsert: phone={phone_e164} source=whatsapp pushName=\"{push_name}\" applied=false reason=existing_name_better old_name=\"{lead.name}\" old_source={lead.name_source}")
+                else:
+                    log.debug(f"lead_upsert: phone={phone_e164} source=whatsapp pushName=\"{push_name}\" applied=false reason=invalid_name")
             
             db.session.commit()
             return customer, lead, was_created

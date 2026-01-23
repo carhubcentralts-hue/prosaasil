@@ -15,6 +15,11 @@ class Business(db.Model):
     greeting_message = db.Column(db.Text)
     whatsapp_greeting = db.Column(db.Text)
     system_prompt = db.Column(db.Text)
+    # WhatsApp AI prompt configuration (prompt-only mode)
+    whatsapp_system_prompt = db.Column(db.Text)  # Dedicated WhatsApp prompt from DB
+    whatsapp_temperature = db.Column(db.Float, default=0.0)  # Temperature for WhatsApp AI
+    whatsapp_model = db.Column(db.String(50), default="gpt-4o-mini")  # Model for WhatsApp
+    whatsapp_max_tokens = db.Column(db.Integer, default=350)  # Max tokens for WhatsApp
     whatsapp_enabled = db.Column(db.Boolean, default=False)
     whatsapp_provider = db.Column(db.String(32), default="baileys")  # "baileys" | "meta" - WhatsApp provider choice
     phone_permissions = db.Column(db.Boolean, default=True)
@@ -421,6 +426,11 @@ class Lead(db.Model):
     email = db.Column(db.String(255), index=True)
     gender = db.Column(db.String(16), nullable=True)  # 'male', 'female', or NULL - auto-detected or manually set
     
+    # Name tracking (unified name field with source tracking)
+    name = db.Column(db.String(255))  # Full name from any source
+    name_source = db.Column(db.String(32))  # Source: 'whatsapp', 'call', 'manual'
+    name_updated_at = db.Column(db.DateTime)  # When name was last updated
+    
     # 🔥 FIX #3 & #6: WhatsApp identity mapping
     whatsapp_jid = db.Column(db.String(128), index=True)  # Primary WhatsApp identifier (remoteJid)
     whatsapp_jid_alt = db.Column(db.String(128))  # Alternative identifier (sender_pn/participant)
@@ -470,6 +480,10 @@ class Lead(db.Model):
     # Computed properties
     @property
     def full_name(self):
+        # Prefer unified name field if available
+        if self.name:
+            return self.name
+        # Fallback to first_name + last_name
         if self.first_name and self.last_name:
             return f"{self.first_name} {self.last_name}"
         return self.first_name or self.last_name or "ללא שם"

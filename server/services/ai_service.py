@@ -324,7 +324,11 @@ class AIService:
         self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
         
     def get_business_prompt(self, business_id: int, channel: str = "calls") -> Dict[str, Any]:
-        """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)"""
+        """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)
+        
+        🆕 For WhatsApp: Uses business.whatsapp_system_prompt if available (prompt-only mode)
+        Falls back to BusinessSettings.ai_prompt if not set.
+        """
         cache_key = f"business_{business_id}_{channel}"
         now = datetime.now().timestamp()
         
@@ -355,44 +359,95 @@ class AIService:
             # ✅ שם עסק לשימוש ב-placeholders
             business_name = business.name if business else "העסק שלנו"
             
-            # בחירת פרומפט חכמה - עם fallback ל-business.system_prompt
+            # 🆕 PROMPT-ONLY MODE: Load WhatsApp prompt from business.whatsapp_system_prompt
             system_prompt = ""
-            if settings and settings.ai_prompt and settings.ai_prompt.strip():
-                # יש פרומפט ב-settings - תמיד תשתמש בו! (ללא בדיקת אורך)
-                import json
-                try:
-                    # נסיון לפרוס כ-JSON (פורמט חדש עם calls/whatsapp)
-                    if settings.ai_prompt.strip().startswith('{'):
-                        prompt_obj = json.loads(settings.ai_prompt)
-                        # בחירת הפרומפט הנכון לפי channel
-                        # ✅ STRICT: Require channel-specific key
-                        if channel in prompt_obj:
-                            system_prompt = prompt_obj[channel]
-                            logger.info(f"✅ Using {channel} prompt for business {business_id} from settings")
+            model = "gpt-4o-mini"
+            temperature = 0.0
+            max_tokens = 350
+            
+            if channel == "whatsapp":
+                # 🆕 Priority 1: Use business.whatsapp_system_prompt if available (prompt-only mode)
+                if business and hasattr(business, 'whatsapp_system_prompt') and business.whatsapp_system_prompt and business.whatsapp_system_prompt.strip():
+                    system_prompt = business.whatsapp_system_prompt
+                    # Load WhatsApp-specific settings if available
+                    if hasattr(business, 'whatsapp_temperature') and business.whatsapp_temperature is not None:
+                        temperature = business.whatsapp_temperature
+                    if hasattr(business, 'whatsapp_model') and business.whatsapp_model:
+                        model = business.whatsapp_model
+                    if hasattr(business, 'whatsapp_max_tokens') and business.whatsapp_max_tokens:
+                        max_tokens = business.whatsapp_max_tokens
+                    
+                    logger.info(f"✅ Loaded WhatsApp prompt from DB: business_id={business_id} chars={len(system_prompt)} model={model} temp={temperature}")
+                    
+                # Priority 2: Fall back to BusinessSettings.ai_prompt if set
+                elif settings and settings.ai_prompt and settings.ai_prompt.strip():
+                    import json
+                    try:
+                        # Try JSON format with channel-specific keys
+                        if settings.ai_prompt.strip().startswith('{'):
+                            prompt_obj = json.loads(settings.ai_prompt)
+                            if 'whatsapp' in prompt_obj:
+                                system_prompt = prompt_obj['whatsapp']
+                                logger.info(f"✅ Using whatsapp prompt from BusinessSettings for business {business_id}")
+                            else:
+                                logger.warning(f"⚠️ Missing 'whatsapp' key in ai_prompt JSON, using default")
+                                system_prompt = self._get_default_hebrew_prompt(business_name, "whatsapp")
                         else:
-                            # ⚠️ STRICT MODE: Missing channel key
-                            logger.error(f"❌ Missing '{channel}' key in ai_prompt JSON for business {business_id}. Available keys: {list(prompt_obj.keys())}")
-                            # Use default prompt as fallback but log error
-                            system_prompt = self._get_default_hebrew_prompt(business_name, channel)
-                            logger.warning(f"⚠️ Using default prompt due to missing '{channel}' key")
-                        
-                        logger.info(f"🔍 DEBUG: Loaded prompt starts with: {system_prompt[:100]}...")
-                    else:
-                        # פרומפט טקסט פשוט (legacy)
+                            # Legacy text prompt
+                            system_prompt = settings.ai_prompt
+                            logger.info(f"✅ Using legacy text prompt from BusinessSettings for {business_id}")
+                    except json.JSONDecodeError:
                         system_prompt = settings.ai_prompt
-                        logger.info(f"✅ Using legacy text prompt for business {business_id}")
-                except json.JSONDecodeError:
-                    # אם זה לא JSON תקין, השתמש בזה כטקסט
-                    system_prompt = settings.ai_prompt
-                    logger.info(f"✅ Using non-JSON prompt for business {business_id}")
-            elif business and business.system_prompt and business.system_prompt.strip():
-                # fallback לפרומפט המלא מטבלת business
-                system_prompt = business.system_prompt
-                logger.info(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
+                        logger.info(f"✅ Using non-JSON prompt from BusinessSettings for {business_id}")
+                
+                # Priority 3: Fall back to business.system_prompt
+                elif business and business.system_prompt and business.system_prompt.strip():
+                    system_prompt = business.system_prompt
+                    logger.info(f"⚠️ Using fallback business.system_prompt for WhatsApp (business {business_id})")
+                
+                # Priority 4: Use default minimal fallback
+                else:
+                    system_prompt = self._get_default_hebrew_prompt(business_name, "whatsapp")
+                    logger.error(f"❌ ERROR: No WhatsApp prompt configured for business {business_id} - using minimal fallback")
+            
             else:
-                # fallback אחרון לפרומפט ברירת מחדל
-                system_prompt = self._get_default_hebrew_prompt(business_name, channel)
-                logger.info(f"⚠️ Using default prompt for business {business_id} - no custom prompt found")
+                # Calls channel - use existing logic
+                if settings and settings.ai_prompt and settings.ai_prompt.strip():
+                    # יש פרומפט ב-settings - תמיד תשתמש בו! (ללא בדיקת אורך)
+                    import json
+                    try:
+                        # נסיון לפרוס כ-JSON (פורמט חדש עם calls/whatsapp)
+                        if settings.ai_prompt.strip().startswith('{'):
+                            prompt_obj = json.loads(settings.ai_prompt)
+                            # בחירת הפרומפט הנכון לפי channel
+                            # ✅ STRICT: Require channel-specific key
+                            if channel in prompt_obj:
+                                system_prompt = prompt_obj[channel]
+                                logger.info(f"✅ Using {channel} prompt for business {business_id} from settings")
+                            else:
+                                # ⚠️ STRICT MODE: Missing channel key
+                                logger.error(f"❌ Missing '{channel}' key in ai_prompt JSON for business {business_id}. Available keys: {list(prompt_obj.keys())}")
+                                # Use default prompt as fallback but log error
+                                system_prompt = self._get_default_hebrew_prompt(business_name, channel)
+                                logger.warning(f"⚠️ Using default prompt due to missing '{channel}' key")
+                            
+                            logger.info(f"🔍 DEBUG: Loaded prompt starts with: {system_prompt[:100]}...")
+                        else:
+                            # פרומפט טקסט פשוט (legacy)
+                            system_prompt = settings.ai_prompt
+                            logger.info(f"✅ Using legacy text prompt for business {business_id}")
+                    except json.JSONDecodeError:
+                        # אם זה לא JSON תקין, השתמש בזה כטקסט
+                        system_prompt = settings.ai_prompt
+                        logger.info(f"✅ Using non-JSON prompt for business {business_id}")
+                elif business and business.system_prompt and business.system_prompt.strip():
+                    # fallback לפרומפט המלא מטבלת business
+                    system_prompt = business.system_prompt
+                    logger.info(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
+                else:
+                    # fallback אחרון לפרומפט ברירת מחדל
+                    system_prompt = self._get_default_hebrew_prompt(business_name, channel)
+                    logger.info(f"⚠️ Using default prompt for business {business_id} - no custom prompt found")
             
             # ✅ החלפת placeholders דינמיים בפרומפט
             system_prompt = system_prompt.replace("{{business_name}}", business_name)
@@ -442,7 +497,17 @@ class AIService:
             else:
                 logger.info(f"✅ Prompt length OK: {len(system_prompt)} chars")
             
-            if not settings:
+            # Build prompt_data with channel-specific or fallback settings
+            if channel == "whatsapp":
+                # Use WhatsApp-specific settings loaded above
+                prompt_data = {
+                    "system_prompt": system_prompt,
+                    "business_name": business_name,
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+            elif not settings:
                 # ⚡ BUILD 117: INCREASED - allow complete sentences without truncation
                 prompt_data = {
                     "system_prompt": system_prompt,
