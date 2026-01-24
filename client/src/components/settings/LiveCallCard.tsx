@@ -715,6 +715,6 @@ export function LiveCallCard() {
       )}
     </div>
   );
-}
+
 
 export default LiveCallCard;
