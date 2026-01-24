@@ -237,6 +237,7 @@ export function AgentPromptsPage() {
           </button>
         </div>
       </div>
+      </div>
 
       {/* Alerts */}
       <div className="space-y-4 mb-6">
