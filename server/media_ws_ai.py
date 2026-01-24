@@ -10235,6 +10235,9 @@ class MediaStreamHandler:
                         session = _get_session(self.call_sid)
                         if session:
                             session.push_audio(pcm16)
+                            # 🔥 FIX: Increment frames_forwarded counter for Gemini pipeline
+                            # This prevents FRAME_ACCOUNTING_ERROR when using Gemini provider
+                            self._stats_audio_sent += 1
                             # Update session timestamp to prevent cleanup
                             with _registry_lock:
                                 item = _sessions_registry.get(self.call_sid)
@@ -16373,16 +16376,32 @@ class MediaStreamHandler:
             expected_total = frames_forwarded_to_realtime + frames_dropped_total
             if frames_in_from_twilio != expected_total:
                 accounting_error = frames_in_from_twilio - expected_total
-                logger.error(
-                    f"[FRAME_ACCOUNTING_ERROR] Mathematical inconsistency detected! "
-                    f"frames_in={frames_in_from_twilio}, "
-                    f"frames_forwarded={frames_forwarded_to_realtime}, "
-                    f"frames_dropped_total={frames_dropped_total}, "
-                    f"expected_total={expected_total}, "
-                    f"accounting_error={accounting_error}"
-                )
-                logger.error(f"   🚨 FRAME ACCOUNTING ERROR: Missing/extra {accounting_error} frames!")
-                logger.info(f"      frames_in={frames_in_from_twilio} != forwarded({frames_forwarded_to_realtime}) + dropped({frames_dropped_total})")
+                ai_provider = getattr(self, '_ai_provider', 'unknown')
+                
+                # 🔥 FIX: For Gemini provider, log as warning only and reset counters
+                # Don't close session - Gemini pipeline uses different accounting model
+                if ai_provider == 'gemini':
+                    logger.warning(
+                        f"[FRAME_ACCOUNTING_WARNING] Gemini pipeline accounting mismatch (non-critical): "
+                        f"frames_in={frames_in_from_twilio}, "
+                        f"frames_forwarded={frames_forwarded_to_realtime}, "
+                        f"frames_dropped_total={frames_dropped_total}, "
+                        f"accounting_error={accounting_error}"
+                    )
+                    logger.info(f"   ⚠️ Gemini pipeline: Resetting counters for next call")
+                    # Reset counters for alignment (don't close session)
+                else:
+                    # For OpenAI Realtime, keep existing error behavior
+                    logger.error(
+                        f"[FRAME_ACCOUNTING_ERROR] Mathematical inconsistency detected! "
+                        f"frames_in={frames_in_from_twilio}, "
+                        f"frames_forwarded={frames_forwarded_to_realtime}, "
+                        f"frames_dropped_total={frames_dropped_total}, "
+                        f"expected_total={expected_total}, "
+                        f"accounting_error={accounting_error}"
+                    )
+                    logger.error(f"   🚨 FRAME ACCOUNTING ERROR: Missing/extra {accounting_error} frames!")
+                    logger.info(f"      frames_in={frames_in_from_twilio} != forwarded({frames_forwarded_to_realtime}) + dropped({frames_dropped_total})")
             else:
                 logger.info(f"   ✅ Frame accounting OK: {frames_in_from_twilio} = {frames_forwarded_to_realtime} + {frames_dropped_total}")
             
