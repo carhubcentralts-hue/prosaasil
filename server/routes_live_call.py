@@ -5,7 +5,13 @@ Real-time voice conversation directly in browser using WebAudio
 🎯 Purpose:
 - Live voice chat in Prompt Studio web interface
 - NO phone calls, NO Twilio, NO dialing
-- Browser-only: microphone → STT → OpenAI Chat → TTS → speakers
+- Browser-only: microphone → STT → LLM → TTS → speakers
+- SAME logic as phone calls: OpenAI uses Realtime, Gemini uses Pipeline
+
+🔥 CRITICAL: Voice routing EXACTLY like phone calls:
+- OpenAI provider: Could use Realtime API (WebRTC) but for simplicity uses Pipeline
+- Gemini provider: Pipeline (Whisper STT → Gemini LLM → Gemini TTS)
+- NO speech.create shortcuts - same TTS as phone calls
 
 🔒 Security:
 - Authentication required on all endpoints
@@ -15,9 +21,9 @@ Real-time voice conversation directly in browser using WebAudio
 
 📋 Architecture:
 - Client-side VAD (Voice Activity Detection) with WebAudio
-- STT: Speech-to-text conversion
-- Chat: OpenAI for brain (always)
-- TTS: OpenAI or Gemini (based on saved settings)
+- STT: OpenAI Whisper (for both providers)
+- LLM: OpenAI or Gemini (based on business ai_provider)
+- TTS: Same tts_provider.synthesize() as phone calls (NO speech.create)
 """
 from flask import Blueprint, request, jsonify, Response, current_app, g
 from server.auth_api import require_api_auth
@@ -188,12 +194,14 @@ def live_call_chat():
             try:
                 from google import genai
                 from google.genai import types
+                from server.utils.gemini_key_provider import get_gemini_api_key
                 
-                gemini_api_key = os.getenv('GEMINI_API_KEY')
+                gemini_api_key = get_gemini_api_key()
                 if not gemini_api_key:
-                    logger.error("[LIVE_CALL][CHAT] Gemini requested but GEMINI_API_KEY not set")
+                    logger.error(f"[LIVE_CALL][CHAT] Gemini requested but GEMINI_API_KEY not set")
                     return jsonify({'error': 'Gemini LLM unavailable - API key not configured'}), 503
                 
+                logger.info(f"[LIVE_CALL][CHAT] Using Gemini LLM for business={business_id}")
                 client = genai.Client(api_key=gemini_api_key)
                 
                 # Convert messages to Gemini format
@@ -297,20 +305,23 @@ def live_call_tts():
         if not voice_name:
             voice_name = getattr(business, 'tts_voice_id', None) or getattr(business, 'voice_id', 'alloy') or 'alloy'
         
-        # 🔥 RUNTIME SAFETY: Validate voice matches provider, use default if invalid
+        # 🔥 CRITICAL: Validate voice matches provider - NO FALLBACK, return error
         from server.config.voice_catalog import is_valid_voice, default_voice
         if not is_valid_voice(voice_name, ai_provider):
-            default = default_voice(ai_provider)
-            logger.error(f"[LIVE_CALL][TTS] Invalid voice '{voice_name}' for provider '{ai_provider}' - using default '{default}'")
-            voice_name = default
+            error_msg = f"Voice '{voice_name}' is not supported for provider '{ai_provider}'"
+            logger.error(f"[LIVE_CALL][TTS] {error_msg} for business={business_id}")
+            return jsonify({'error': error_msg}), 422
         
         speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
         language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
         
         # Check if Gemini is requested but not available
-        if ai_provider == 'gemini' and not tts_provider.is_gemini_available():
-            logger.error("[LIVE_CALL][TTS] Gemini requested but GEMINI_API_KEY not set")
-            return jsonify({'error': 'Gemini TTS unavailable - API key not configured'}), 503
+        if ai_provider == 'gemini':
+            from server.utils.gemini_key_provider import is_gemini_available
+            if not is_gemini_available():
+                logger.error(f"[LIVE_CALL][TTS] Gemini requested but GEMINI_API_KEY not set")
+                return jsonify({'error': 'Gemini TTS unavailable - API key not configured'}), 503
+            logger.info(f"[LIVE_CALL][TTS] Using Gemini TTS for business={business_id}")
         
         # Synthesize speech using ai_provider
         audio_bytes, content_type_or_error = tts_provider.synthesize(

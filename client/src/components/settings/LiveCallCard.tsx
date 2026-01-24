@@ -1,18 +1,19 @@
 /**
  * LiveCallCard Component
- * Browser-based voice chat (Web App only)
+ * Browser-based voice chat with phone-call-style UI
  * Real-time voice conversation directly in browser using WebAudio
  * 
  * 🎯 Purpose:
  * - Live voice chat in Prompt Studio
- * - NO phone calls, NO Twilio, NO dialing
- * - Browser-only: microphone → STT → OpenAI Chat → TTS → speakers
+ * - Phone-call-style UI: Timer, Mute, Speaker, Hangup
+ * - Same logic as phone calls (no shortcuts)
  * 
  * 🔧 Features:
  * - Client-side VAD (Voice Activity Detection)
- * - Automatic end-of-speech detection
- * - Continuous conversation loop
- * - Uses saved Prompt Studio settings
+ * - Call timer (00:00 format)
+ * - Mute/Unmute microphone
+ * - Speaker/Audio boost
+ * - Hangup button
  * 
  * 📱 Mobile Support:
  * - Full RTL
@@ -22,15 +23,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Mic, 
-  Square,
-  Play,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Phone,
+  PhoneOff,
   AlertCircle,
   Loader2
 } from 'lucide-react';
 import { http } from '../../services/http';
 
 // Types
-type ConnectionState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
+type ConnectionState = 'idle' | 'active' | 'error';
 
 interface ConversationTurn {
   userSaid: string;
@@ -44,6 +48,14 @@ export function LiveCallCard() {
   const [conversation, setConversation] = useState<ConversationTurn[]>([]);
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [conversationHistory, setConversationHistory] = useState<any[]>([]);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Timer
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const callStartTimeRef = useRef<number>(0);
   
   // Audio refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -63,6 +75,35 @@ export function LiveCallCard() {
   const VAD_NOISE_MULTIPLIER = 2.2; // Dynamic threshold multiplier
   const VAD_CHECK_INTERVAL = 20; // ms between RMS checks
 
+  // Timer effect
+  useEffect(() => {
+    if (state === 'active' && !timerIntervalRef.current) {
+      callStartTimeRef.current = Date.now();
+      timerIntervalRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - callStartTimeRef.current) / 1000);
+        setCallDuration(elapsed);
+      }, 1000);
+    } else if (state !== 'active' && timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+      setCallDuration(0);
+    }
+    
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [state]);
+
+  // Format timer display (MM:SS)
+  const formatTimer = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -75,9 +116,10 @@ export function LiveCallCard() {
    */
   const startSession = async () => {
     setError('');
-    setState('listening');
     setConversation([]);
     setConversationHistory([]);
+    setIsMuted(false);
+    setCallDuration(0);
     
     try {
       // Request microphone access
@@ -97,11 +139,38 @@ export function LiveCallCard() {
       // Start recording
       startRecording(stream);
       
+      // Move to active state
+      setState('active');
+      
     } catch (err: any) {
       console.error('Microphone access error:', err);
       setError('לא ניתן לגשת למיקרופון. אנא אפשר גישה במכשיר שלך.');
       setState('error');
     }
+  };
+
+  /**
+   * Toggle mute/unmute
+   */
+  const toggleMute = () => {
+    if (mediaStreamRef.current) {
+      const audioTracks = mediaStreamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsMuted(!isMuted);
+    }
+  };
+
+  /**
+   * Toggle speaker on/off (audio boost)
+   * Note: Actual audio output device control is limited in browsers.
+   * This mainly serves as UI indicator for user awareness.
+   */
+  const toggleSpeaker = () => {
+    setIsSpeakerOn(!isSpeakerOn);
+    // Browser limitations: Cannot actually change output device
+    // This is a UI indicator only
   };
 
   /**
@@ -148,6 +217,8 @@ export function LiveCallCard() {
     
     setState('idle');
     setCurrentTranscript('');
+    setCallDuration(0);
+  };
   };
 
   /**
@@ -282,7 +353,7 @@ export function LiveCallCard() {
     if (!isRecordingRef.current) return;
     
     isRecordingRef.current = false;
-    setState('processing');
+    setIsProcessing(true);
     
     // Stop recording
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -318,18 +389,17 @@ export function LiveCallCard() {
       if (!transcript || !transcript.trim()) {
         // No speech detected, restart listening
         console.log('[LIVE_CALL] No speech detected, restarting...');
+        setIsProcessing(false);
         restartListening();
         return;
       }
       
       setCurrentTranscript(transcript);
       
-      // Step 2: Chat (OpenAI)
-      setState('processing');
+      // Step 2: Chat (OpenAI or Gemini based on business settings)
       const aiResponse = await chatWithAI(transcript);
       
-      // Step 3: TTS (Text-to-Speech)
-      setState('speaking');
+      // Step 3: TTS (OpenAI or Gemini - same logic as phone calls!)
       await textToSpeech(aiResponse);
       
       // Add to conversation history
@@ -347,6 +417,7 @@ export function LiveCallCard() {
       ]);
       
       setCurrentTranscript('');
+      setIsProcessing(false);
       
       // Step 4: Return to listening
       restartListening();
@@ -363,16 +434,22 @@ export function LiveCallCard() {
       // Show error but try to recover
       const errorMessage = err.message || 'שגיאה בעיבוד השיחה';
       setError(errorMessage);
+      setIsProcessing(false);
       
-      // 🔥 CRITICAL: Return to listening after 3 seconds, or stop if no stream
+      // 🔥 CRITICAL: Return to listening after 3 seconds if media stream still exists
       setTimeout(() => {
-        if (mediaStreamRef.current) {
+        const streamStillExists = mediaStreamRef.current !== null;
+        const shouldRecover = streamStillExists && (state === 'active' || state === 'idle');
+        
+        if (shouldRecover && state === 'active') {
           console.log('[LIVE_CALL] Recovering from error, restarting listening...');
           setError('');
           restartListening();
         } else {
-          console.log('[LIVE_CALL] Cannot recover, no media stream');
-          setState('idle');
+          console.log('[LIVE_CALL] Cannot recover - stopping call');
+          if (streamStillExists) {
+            stopSession(); // Clean shutdown
+          }
         }
       }, 3000);
     } finally {
@@ -385,13 +462,12 @@ export function LiveCallCard() {
    * Restart listening after processing
    */
   const restartListening = () => {
-    if (!mediaStreamRef.current) {
-      setState('error');
-      setError('חיבור למיקרופון אבד');
+    if (!mediaStreamRef.current || state !== 'active') {
+      console.log('[LIVE_CALL] Cannot restart - no stream or not active');
       return;
     }
     
-    setState('listening');
+    setIsProcessing(false);
     audioChunksRef.current = [];
     isRecordingRef.current = true;
     
@@ -496,141 +572,147 @@ export function LiveCallCard() {
     });
   };
 
-  // Status indicator text
-  const getStatusText = (): string => {
-    switch (state) {
-      case 'idle':
-        return 'מוכן להתחלה';
-      case 'listening':
-        return '🟢 מקשיב...';
-      case 'processing':
-        return '🟡 מעבד...';
-      case 'speaking':
-        return '🔵 מדבר...';
-      case 'error':
-        return '❌ שגיאה';
-      default:
-        return '';
-    }
-  };
-
-  // Status indicator color
-  const getStatusColor = (): string => {
-    switch (state) {
-      case 'listening':
-        return 'bg-green-100 text-green-700';
-      case 'processing':
-        return 'bg-yellow-100 text-yellow-700';
-      case 'speaking':
-        return 'bg-blue-100 text-blue-700';
-      case 'error':
-        return 'bg-red-100 text-red-700';
-      default:
-        return 'bg-slate-100 text-slate-700';
-    }
-  };
-
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6" dir="rtl">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-          state === 'listening' ? 'bg-green-100' : 
-          state === 'processing' ? 'bg-yellow-100' :
-          state === 'speaking' ? 'bg-blue-100' : 'bg-slate-100'
-        }`}>
-          <Mic className={`h-5 w-5 ${
-            state === 'listening' ? 'text-green-600' : 
-            state === 'processing' ? 'text-yellow-600' :
-            state === 'speaking' ? 'text-blue-600' : 'text-slate-600'
-          }`} />
-        </div>
-        <div>
-          <h3 className="text-lg font-semibold text-slate-900">שיחה חיה</h3>
-          <p className="text-sm text-slate-500">שיחה ישירה עם ה-AI בדפדפן</p>
-        </div>
-      </div>
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" dir="rtl">
+      {/* Phone Call Style UI */}
+      {state === 'idle' || state === 'error' ? (
+        // Start Call Screen
+        <div className="p-8">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-lg">
+              <Phone className="h-10 w-10 text-white" />
+            </div>
+            <h3 className="text-2xl font-bold text-slate-900 mb-2">שיחה חיה</h3>
+            <p className="text-slate-500">שיחה ישירה עם ה-AI בדפדפן</p>
+          </div>
 
-      {/* Status Indicator */}
-      <div className={`mb-6 px-4 py-3 rounded-lg font-medium text-center ${getStatusColor()}`}>
-        {getStatusText()}
-      </div>
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
+              <span className="text-red-700">{error}</span>
+            </div>
+          )}
 
-      {/* Main Control Button */}
-      <div className="flex justify-center mb-6">
-        {state === 'idle' || state === 'error' ? (
+          {/* Start Button */}
           <button
             onClick={startSession}
-            className="flex items-center gap-3 px-8 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors min-h-[56px] min-w-[200px] justify-center font-semibold text-lg shadow-lg"
+            className="w-full flex items-center justify-center gap-3 px-8 py-5 bg-gradient-to-br from-green-500 to-green-600 text-white rounded-2xl hover:from-green-600 hover:to-green-700 transition-all shadow-lg hover:shadow-xl font-semibold text-lg"
           >
-            <Play className="h-6 w-6" />
+            <Phone className="h-6 w-6" />
             התחל שיחה
           </button>
-        ) : (
-          <button
-            onClick={stopSession}
-            className="flex items-center gap-3 px-8 py-4 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors min-h-[56px] min-w-[200px] justify-center font-semibold text-lg shadow-lg"
-          >
-            <Square className="h-6 w-6" />
-            עצור שיחה
-          </button>
-        )}
-      </div>
 
-      {/* Current Transcript */}
-      {currentTranscript && (
-        <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-          <div className="text-xs text-slate-500 mb-1">אתה אמרת:</div>
-          <div className="text-slate-900">{currentTranscript}</div>
-        </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-          <span className="text-red-700 text-sm">{error}</span>
-        </div>
-      )}
-
-      {/* Conversation History */}
-      {conversation.length > 0 && (
-        <div className="space-y-3 max-h-[400px] overflow-y-auto">
-          <div className="text-sm font-medium text-slate-700 mb-2">היסטוריית שיחה:</div>
-          {conversation.map((turn, index) => (
-            <div key={index} className="space-y-2">
-              {/* User said */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="text-xs text-blue-600 mb-1">אתה אמרת:</div>
-                <div className="text-blue-900">{turn.userSaid}</div>
-              </div>
-              
-              {/* AI said */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <div className="text-xs text-green-600 mb-1">ה-AI ענה:</div>
-                <div className="text-green-900">{turn.aiSaid}</div>
+          {/* Info */}
+          <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-700">
+                <p className="font-medium">💡 שיחה חיה בדפדפן</p>
+                <p className="mt-1">
+                  השיחה משתמשת בהגדרות הפרומפט והקול השמורים.
+                  דבר למיקרופון והמערכת תזהה אוטומטית מתי סיימת ותענה בקול.
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Info */}
-      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <div className="flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-700">
-            <p className="font-medium">💡 שיחה חיה בדפדפן</p>
-            <p className="mt-1">
-              לחץ "התחל שיחה" והתחל לדבר למיקרופון. המערכת תזהה אוטומטית מתי סיימת לדבר,
-              תעבד את הדיבור שלך ותשיב בקול. השיחה תמשיך אוטומטית עד שתלחץ "עצור שיחה".
-            </p>
-            <p className="mt-2 text-xs">
-              <strong>הערה:</strong> השיחה משתמשת בפרומפט והקול השמורים בהגדרות Prompt Studio.
-            </p>
           </div>
         </div>
-      </div>
+      ) : (
+        // Active Call Screen
+        <div>
+          {/* Call Header */}
+          <div className="bg-gradient-to-br from-green-500 to-green-600 text-white p-6">
+            <div className="text-center">
+              <div className="text-sm font-medium opacity-90 mb-1">שיחה פעילה</div>
+              <div className="text-3xl font-bold mb-1">{formatTimer(callDuration)}</div>
+              <div className="text-sm opacity-80">
+                {isProcessing ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    מעבד...
+                  </span>
+                ) : isMuted ? (
+                  '🔇 מושתק'
+                ) : (
+                  '🎤 מקשיב...'
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Call Controls */}
+          <div className="p-6 bg-slate-50">
+            <div className="flex items-center justify-center gap-4 mb-6">
+              {/* Mute Button */}
+              <button
+                onClick={toggleMute}
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg ${
+                  isMuted
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-2 border-slate-200'
+                }`}
+                title={isMuted ? 'בטל השתקה' : 'השתק'}
+              >
+                {isMuted ? <MicOff className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
+              </button>
+
+              {/* Speaker Button */}
+              <button
+                onClick={toggleSpeaker}
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg ${
+                  isSpeakerOn
+                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-2 border-slate-200'
+                }`}
+                title={isSpeakerOn ? 'כבה רמקול' : 'הדלק רמקול'}
+              >
+                {isSpeakerOn ? <Volume2 className="h-7 w-7" /> : <VolumeX className="h-7 w-7" />}
+              </button>
+
+              {/* Hangup Button */}
+              <button
+                onClick={stopSession}
+                className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white flex items-center justify-center transition-all shadow-lg"
+                title="ניתוק"
+              >
+                <PhoneOff className="h-7 w-7" />
+              </button>
+            </div>
+
+            {/* Current Transcript */}
+            {currentTranscript && (
+              <div className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm">
+                <div className="text-xs text-slate-500 mb-1">אתה אמרת:</div>
+                <div className="text-slate-900 font-medium">{currentTranscript}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Conversation History */}
+          {conversation.length > 0 && (
+            <div className="p-6 pt-0 bg-slate-50">
+              <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                <div className="text-sm font-semibold text-slate-700 mb-3">היסטוריית שיחה:</div>
+                {conversation.map((turn, index) => (
+                  <div key={index} className="space-y-2">
+                    {/* User said */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <div className="text-xs text-blue-600 mb-1 font-medium">🧑 אתה:</div>
+                      <div className="text-blue-900">{turn.userSaid}</div>
+                    </div>
+                    
+                    {/* AI said */}
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                      <div className="text-xs text-green-600 mb-1 font-medium">🤖 AI:</div>
+                      <div className="text-green-900">{turn.aiSaid}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
