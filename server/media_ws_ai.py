@@ -15,18 +15,19 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 
 🔷 Gemini Provider (ai_provider='gemini'):
    - STT: Google Cloud Speech-to-Text API (google.cloud.speech)
+         ⚠️ This is Google Cloud Speech API, NOT Gemini STT API!
    - LLM: Google Gemini API (gemini-2.0-flash-exp)
    - TTS: Google Gemini Native Speech
    - Pipeline: Batch processing (STT → LLM → TTS)
-   - Requires: GEMINI_API_KEY (same key for STT, LLM, TTS!)
+   - Requires: GEMINI_API_KEY (same key for all services)
    - NO Whisper, NO duplication
 
 🔑 KEY CONFIGURATION:
    - OpenAI: OPENAI_API_KEY
    - Gemini (ALL services): GEMINI_API_KEY
-     ├─ STT: Uses GEMINI_API_KEY
-     ├─ LLM: Uses GEMINI_API_KEY
-     └─ TTS: Uses GEMINI_API_KEY
+     ├─ Google Cloud Speech-to-Text: Uses GEMINI_API_KEY
+     ├─ Gemini LLM: Uses GEMINI_API_KEY
+     └─ Gemini TTS: Uses GEMINI_API_KEY
 
 🚫 NO FALLBACK BETWEEN PROVIDERS:
    - If ai_provider='openai' → ONLY OpenAI (no Gemini fallback)
@@ -11704,21 +11705,22 @@ class MediaStreamHandler:
             except Exception as numpy_error:
                 logger.error(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
             
-            # 🔷 GEMINI: Use Google Cloud Speech-to-Text with GEMINI_API_KEY
-            logger.info(f"[STT_ROUTING] provider=gemini -> google_cloud_stt (using GEMINI_API_KEY)")
+            # 🔷 GEMINI: Use Google Cloud Speech-to-Text API with GEMINI_API_KEY
+            # Note: This is Google Cloud Speech-to-Text (google.cloud.speech), NOT Gemini STT API
+            logger.info(f"[STT_ROUTING] provider=gemini -> google_cloud_speech_api (auth: GEMINI_API_KEY)")
             
             # 🚫 NO FALLBACK: Check if GEMINI_API_KEY is available
             from server.utils.gemini_key_provider import get_gemini_api_key
             gemini_api_key = get_gemini_api_key()
             if not gemini_api_key:
                 error_msg = (
-                    "Gemini STT unavailable: GEMINI_API_KEY not configured. "
-                    "Set GEMINI_API_KEY environment variable for Gemini STT, LLM, and TTS."
+                    "Google Cloud Speech-to-Text unavailable: GEMINI_API_KEY not configured. "
+                    "Set GEMINI_API_KEY environment variable for Google Cloud STT, Gemini LLM, and Gemini TTS."
                 )
                 logger.error(f"❌ [CONFIG] {error_msg}")
                 raise Exception(error_msg)
             
-            # Use Google STT for Gemini provider with GEMINI_API_KEY - NO FALLBACK TO WHISPER
+            # Use Google Cloud Speech-to-Text for Gemini provider with GEMINI_API_KEY - NO FALLBACK TO WHISPER
             return self._google_stt_batch(pcm16_8k)
                 
         except Exception as e:
@@ -11864,10 +11866,13 @@ class MediaStreamHandler:
     
     def _google_stt_batch(self, pcm16_8k: bytes) -> str:
         """
-        🔷 GEMINI PROVIDER: Batch STT using Google Cloud Speech-to-Text API
+        🔷 GEMINI PROVIDER: Google Cloud Speech-to-Text API (NOT Gemini STT API!)
         
-        🔑 IMPORTANT: Uses GEMINI_API_KEY (same key for STT, LLM, and TTS)
-        All Gemini services use the same API key.
+        🔑 KEY CLARIFICATION:
+        - Service: Google Cloud Speech-to-Text (google.cloud.speech)
+        - Authentication: GEMINI_API_KEY
+        - NOT using Gemini's STT API - using Google Cloud's Speech API
+        - Same GEMINI_API_KEY works for Google Cloud STT, Gemini LLM, and Gemini TTS
         
         This is used when ai_provider='gemini' for transcription.
         
@@ -11881,13 +11886,13 @@ class MediaStreamHandler:
             Exception: If GEMINI_API_KEY is not configured
         """
         try:
-            from google.cloud import speech
+            from google.cloud import speech  # ← Google Cloud Speech-to-Text, NOT Gemini STT
             import tempfile
             import wave
             
-            logger.info(f"🔷 [GOOGLE_STT] Processing {len(pcm16_8k)} bytes with Google Cloud Speech-to-Text API (GEMINI_API_KEY)")
+            logger.info(f"🔷 [GOOGLE_CLOUD_STT] Processing {len(pcm16_8k)} bytes with Google Cloud Speech-to-Text API (auth: GEMINI_API_KEY)")
             
-            # Convert 8kHz to 16kHz (Google STT works better with 16kHz)
+            # Convert 8kHz to 16kHz (Google Cloud STT works better with 16kHz)
             import audioop
             pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
             
@@ -11899,15 +11904,16 @@ class MediaStreamHandler:
                 wav_file.setframerate(16000)
                 wav_file.writeframes(pcm16_16k)
             
-            # Initialize Google Speech client with GEMINI_API_KEY
+            # Initialize Google Cloud Speech-to-Text client with GEMINI_API_KEY
             # 🔑 CRITICAL: Uses GEMINI_API_KEY for authentication
+            # This is Google Cloud Speech-to-Text API (google.cloud.speech), NOT Gemini STT API
             try:
                 from server.utils.gemini_key_provider import get_gemini_api_key
                 gemini_api_key = get_gemini_api_key()
                 
                 if not gemini_api_key:
-                    error_msg = "GEMINI_API_KEY not configured. Required for Gemini STT."
-                    logger.error(f"❌ [GOOGLE_STT] {error_msg}")
+                    error_msg = "GEMINI_API_KEY not configured. Required for Google Cloud Speech-to-Text."
+                    logger.error(f"❌ [GOOGLE_CLOUD_STT] {error_msg}")
                     raise Exception(error_msg)
                 
                 # Use GEMINI_API_KEY to authenticate Google Cloud Speech client
@@ -11916,10 +11922,10 @@ class MediaStreamHandler:
                 os.environ['GOOGLE_API_KEY'] = gemini_api_key
                 
                 client = speech.SpeechClient()
-                logger.info("✅ [GOOGLE_STT] Client initialized with GEMINI_API_KEY")
+                logger.info("✅ [GOOGLE_CLOUD_STT] Google Cloud Speech-to-Text client initialized with GEMINI_API_KEY")
                 
             except Exception as client_err:
-                logger.error(f"❌ [GOOGLE_STT] Failed to initialize client: {client_err}")
+                logger.error(f"❌ [GOOGLE_CLOUD_STT] Failed to initialize Google Cloud Speech-to-Text client: {client_err}")
                 raise
             
             # Read audio file

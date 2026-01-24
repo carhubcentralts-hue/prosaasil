@@ -36,12 +36,16 @@
 ```
 ┌─────────────────────────────────┐
 │  Gemini Pipeline                │
-│  ├─ STT: Google Cloud Speech    │ ← google.cloud.speech
+│  ├─ STT: Google Cloud Speech    │ ← google.cloud.speech API
+│  │        (לא Gemini STT!)      │    (NOT Gemini STT API!)
 │  ├─ LLM: Gemini 2.0             │
 │  └─ TTS: Gemini Native Speech   │
 └─────────────────────────────────┘
 
 מפתח: GEMINI_API_KEY (אחד לכולם!)
+
+⚠️ חשוב: זה Google Cloud Speech-to-Text API
+   (לא Gemini STT API - שירותים שונים!)
 
 ✅ ללא Whisper כלל
 ✅ ללא Realtime API
@@ -103,10 +107,12 @@ GEMINI_API_KEY=AIza...
 
 **חשוב מאוד**: 
 - Gemini משתמש ב-**מפתח אחד** לכל השירותים:
-  - ✅ STT (תמלול)
-  - ✅ LLM (בינה מלאכותית)
-  - ✅ TTS (דיבור)
-- **לא צריך** GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON!
+  - ✅ **Google Cloud Speech-to-Text** (תמלול - לא Gemini STT API!)
+  - ✅ **Gemini LLM** (בינה מלאכותית)
+  - ✅ **Gemini TTS** (דיבור)
+- השירות לתמלול הוא **Google Cloud Speech-to-Text API** (google.cloud.speech)
+- זה **לא** Gemini STT API - אלו שני שירותים שונים של Google
+- אבל שניהם משתמשים באותו GEMINI_API_KEY
 
 ---
 
@@ -130,11 +136,13 @@ OpenAI should use Realtime API for STT, not batch processing.
 
 ### כאשר Gemini נבחר:
 ```
-[STT_ROUTING] provider=gemini -> google_cloud_stt (using GEMINI_API_KEY)
-🔷 [GOOGLE_STT] Processing 16000 bytes with Google Cloud Speech-to-Text API (GEMINI_API_KEY)
-✅ [GOOGLE_STT] Client initialized with GEMINI_API_KEY
-✅ [GOOGLE_STT] Success: 'שלום, איך אפשר לעזור?'
+[STT_ROUTING] provider=gemini -> google_cloud_speech_api (auth: GEMINI_API_KEY)
+🔷 [GOOGLE_CLOUD_STT] Processing 16000 bytes with Google Cloud Speech-to-Text API (auth: GEMINI_API_KEY)
+✅ [GOOGLE_CLOUD_STT] Google Cloud Speech-to-Text client initialized with GEMINI_API_KEY
+✅ [GOOGLE_CLOUD_STT] Success: 'שלום, איך אפשר לעזור?'
 ```
+
+**הערה**: הלוגים מציינים "GOOGLE_CLOUD_STT" כי זה Google Cloud Speech-to-Text API (לא Gemini STT API)
 
 ### כאשר OpenAI נבחר:
 ```
