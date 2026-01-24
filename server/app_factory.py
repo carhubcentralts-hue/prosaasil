@@ -717,6 +717,10 @@ def create_app():
         from server.routes_smart_prompt_generator import smart_prompt_bp
         app.register_blueprint(smart_prompt_bp)
         
+        # Prompt Builder Chat - Natural conversational prompt generation
+        from server.routes_prompt_builder_chat import prompt_builder_chat_bp
+        app.register_blueprint(prompt_builder_chat_bp)
+        
         # Note: Status Management Blueprint now registered earlier (before line 356)
         
         @app.before_request  
