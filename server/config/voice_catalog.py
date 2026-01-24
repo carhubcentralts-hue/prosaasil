@@ -84,218 +84,219 @@ OPENAI_VOICES = [
 ]
 
 # Gemini/Google TTS Voices (30 voices)
-# IDs match Google's exact voice names
-# Hebrew names are authentic Israeli first names
+# 🔥 CRITICAL: These are the ONLY valid voices for Gemini TTS API
+# Voice IDs MUST be lowercase - this is the Gemini API requirement
+# Hebrew names (display_he) are for UI display only - authentic Israeli first names
 GEMINI_VOICES = [
     {
         "provider": "gemini",
-        "id": "Chernar",
-        "gender": "female",
-        "display_he": "קרן",
-        "description_he": "קול נשי בהיר"
+        "id": "achernar",
+        "gender": "neutral",
+        "display_he": "אור",
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Achird",
+        "id": "achird",
         "gender": "male",
-        "display_he": "אחיר",
-        "description_he": "קול גברי חזק"
+        "display_he": "איתן",
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Algenib",
+        "id": "algenib",
         "gender": "male",
-        "display_he": "גיל",
-        "description_he": "קול גברי צעיר"
+        "display_he": "רון",
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Algieba",
-        "gender": "male",
-        "display_he": "אלי",
-        "description_he": "קול גברי מלא"
-    },
-    {
-        "provider": "gemini",
-        "id": "Alnilam",
-        "gender": "male",
-        "display_he": "ניל",
-        "description_he": "קול גברי רך"
-    },
-    {
-        "provider": "gemini",
-        "id": "Aoede",
-        "gender": "female",
-        "display_he": "איה",
-        "description_he": "קול נשי עדין"
-    },
-    {
-        "provider": "gemini",
-        "id": "Autonoe",
-        "gender": "female",
-        "display_he": "אורית",
-        "description_he": "קול נשי בוטח"
-    },
-    {
-        "provider": "gemini",
-        "id": "Callirrhoe",
-        "gender": "female",
-        "display_he": "קליר",
-        "description_he": "קול נשי זורם"
-    },
-    {
-        "provider": "gemini",
-        "id": "Charon",
-        "gender": "male",
-        "display_he": "כרם",
-        "description_he": "קול גברי עשיר"
-    },
-    {
-        "provider": "gemini",
-        "id": "Despina",
-        "gender": "female",
-        "display_he": "דפנה",
-        "description_he": "קול נשי מתוק"
-    },
-    {
-        "provider": "gemini",
-        "id": "Enceladus",
-        "gender": "male",
-        "display_he": "אלעד",
-        "description_he": "קול גברי מעמיק"
-    },
-    {
-        "provider": "gemini",
-        "id": "Erinome",
-        "gender": "female",
-        "display_he": "רינה",
-        "description_he": "קול נשי שמח"
-    },
-    {
-        "provider": "gemini",
-        "id": "Fenrir",
-        "gender": "male",
-        "display_he": "פנחס",
-        "description_he": "קול גברי עוצמתי"
-    },
-    {
-        "provider": "gemini",
-        "id": "Gacrux",
-        "gender": "female",
-        "display_he": "גאיה",
-        "description_he": "קול נשי טבעי"
-    },
-    {
-        "provider": "gemini",
-        "id": "Iapetus",
-        "gender": "male",
-        "display_he": "יפתח",
-        "description_he": "קול גברי פותח"
-    },
-    {
-        "provider": "gemini",
-        "id": "Kore",
-        "gender": "female",
-        "display_he": "קורל",
-        "description_he": "קול נשי צעיר"
-    },
-    {
-        "provider": "gemini",
-        "id": "Laomedeia",
-        "gender": "female",
-        "display_he": "לאה",
-        "description_he": "קול נשי קלאסי"
-    },
-    {
-        "provider": "gemini",
-        "id": "Leda",
-        "gender": "female",
-        "display_he": "ליה",
-        "description_he": "קול נשי קליל"
-    },
-    {
-        "provider": "gemini",
-        "id": "Orus",
-        "gender": "male",
-        "display_he": "אורי",
-        "description_he": "קול גברי מואר"
-    },
-    {
-        "provider": "gemini",
-        "id": "Pulcherrima",
-        "gender": "female",
-        "display_he": "פולה",
-        "description_he": "קול נשי יפה"
-    },
-    {
-        "provider": "gemini",
-        "id": "Puck",
-        "gender": "male",
-        "display_he": "פז",
-        "description_he": "קול גברי זריז"
-    },
-    {
-        "provider": "gemini",
-        "id": "Rasalgethi",
-        "gender": "male",
-        "display_he": "רז",
-        "description_he": "קול גברי מסתורי"
-    },
-    {
-        "provider": "gemini",
-        "id": "Sadachbia",
-        "gender": "male",
-        "display_he": "שדי",
-        "description_he": "קול גברי שקט"
-    },
-    {
-        "provider": "gemini",
-        "id": "Sadaltager",
-        "gender": "male",
-        "display_he": "טל",
-        "description_he": "קול גברי רענן"
-    },
-    {
-        "provider": "gemini",
-        "id": "Schedar",
-        "gender": "male",
+        "id": "algieba",
+        "gender": "neutral",
         "display_he": "שחר",
-        "description_he": "קול גברי מבריק"
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Sulafat",
-        "gender": "female",
-        "display_he": "סול",
-        "description_he": "קול נשי מנגן"
-    },
-    {
-        "provider": "gemini",
-        "id": "Umbriel",
+        "id": "alnilam",
         "gender": "male",
-        "display_he": "עומר",
-        "description_he": "קול גברי צלול"
+        "display_he": "אייל",
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Vindemiatrix",
+        "id": "aoede",
+        "gender": "female",
+        "display_he": "נועה",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "autonoe",
+        "gender": "female",
+        "display_he": "הילה",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "callirrhoe",
         "gender": "female",
         "display_he": "דנה",
-        "description_he": "קול נשי חוזר"
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Zephyr",
+        "id": "charon",
+        "gender": "male",
+        "display_he": "עמית",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "despina",
         "gender": "female",
-        "display_he": "זוהר",
-        "description_he": "קול נשי נושב"
+        "display_he": "מאיה",
+        "description_he": ""
     },
     {
         "provider": "gemini",
-        "id": "Zubenelgenubi",
+        "id": "enceladus",
+        "gender": "male",
+        "display_he": "גיל",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "erinome",
+        "gender": "female",
+        "display_he": "רוני",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "fenrir",
+        "gender": "male",
+        "display_he": "לביא",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "gacrux",
+        "gender": "neutral",
+        "display_he": "נועם",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "iapetus",
+        "gender": "male",
+        "display_he": "יואב",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "kore",
+        "gender": "female",
+        "display_he": "תמר",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "laomedeia",
+        "gender": "female",
+        "display_he": "אלה",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "leda",
+        "gender": "female",
+        "display_he": "יעל",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "orus",
+        "gender": "male",
+        "display_he": "אדם",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "puck",
         "gender": "male",
         "display_he": "בן",
-        "description_he": "קול גברי מאוזן"
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "pulcherrima",
+        "gender": "female",
+        "display_he": "ליה",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "rasalgethi",
+        "gender": "male",
+        "display_he": "ארז",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "sadachbia",
+        "gender": "female",
+        "display_he": "שיר",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "sadaltager",
+        "gender": "male",
+        "display_he": "עומר",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "schedar",
+        "gender": "male",
+        "display_he": "דן",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "sulafat",
+        "gender": "neutral",
+        "display_he": "ליאור",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "umbriel",
+        "gender": "male",
+        "display_he": "אורי",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "vindemiatrix",
+        "gender": "female",
+        "display_he": "מיכל",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "zephyr",
+        "gender": "neutral",
+        "display_he": "רועי",
+        "description_he": ""
+    },
+    {
+        "provider": "gemini",
+        "id": "zubenelgenubi",
+        "gender": "female",
+        "display_he": "נועית",
+        "description_he": ""
     }
 ]
 
@@ -364,6 +365,6 @@ def default_voice(provider: str) -> str:
     if provider == "openai":
         return "alloy"
     elif provider == "gemini":
-        return "Puck"
+        return "pulcherrima"  # 🔥 Default Gemini voice as per requirements
     else:
         return "alloy"  # Fallback to OpenAI default
