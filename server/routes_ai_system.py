@@ -506,9 +506,9 @@ def preview_tts():
                 logger.error(f"[TTS_PREVIEW] Gemini synthesis failed: {error_or_content_type}")
                 return {"ok": False, "error": "tts_generation_failed", "message": error_or_content_type}, 500
             
-            content_type = error_or_content_type  # Should be "audio/mpeg"
-            file_extension = 'mp3'
-            logger.info(f"[TTS_PREVIEW] Gemini success: {len(audio_bytes)} bytes (mp3)")
+            content_type = error_or_content_type  # Should be "audio/wav" for Gemini
+            file_extension = 'wav' if 'wav' in content_type else 'mp3'
+            logger.info(f"[TTS_PREVIEW] Gemini success: {len(audio_bytes)} bytes ({file_extension})")
             
         else:
             # OpenAI provider
