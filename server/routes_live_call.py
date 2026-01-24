@@ -297,6 +297,13 @@ def live_call_tts():
         if not voice_name:
             voice_name = getattr(business, 'tts_voice_id', None) or getattr(business, 'voice_id', 'alloy') or 'alloy'
         
+        # 🔥 RUNTIME SAFETY: Validate voice matches provider, use default if invalid
+        from server.config.voice_catalog import is_valid_voice, default_voice
+        if not is_valid_voice(voice_name, ai_provider):
+            default = default_voice(ai_provider)
+            logger.error(f"[LIVE_CALL][TTS] Invalid voice '{voice_name}' for provider '{ai_provider}' - using default '{default}'")
+            voice_name = default
+        
         speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
         language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
         

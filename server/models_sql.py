@@ -44,10 +44,10 @@ class Business(db.Model):
     tts_language = db.Column(db.String(16), default="he-IL")  # TTS language code
     tts_speed = db.Column(db.Float, default=1.0)  # TTS speaking speed (0.5 - 2.0)
     # 🔥 NEW: AI Provider Selection - Single source of truth
-    # The ai_provider determines BOTH the LLM brain AND the TTS voice
+    # The ai_provider determines BOTH the LLM brain AND the TTS voice AND STT
+    # When ai_provider="openai": Uses OpenAI for everything (Realtime API or pipeline)
+    # When ai_provider="gemini": Uses Gemini for LLM+TTS, can use OpenAI Whisper for STT
     ai_provider = db.Column(db.String(32), default="openai")  # "openai" | "gemini" - Main provider selection
-    llm_provider = db.Column(db.String(32), default="openai")  # Always equals ai_provider (for consistency)
-    voice_provider = db.Column(db.String(32), default="openai")  # Always equals ai_provider (for consistency)
     voice_name = db.Column(db.String(64), default="alloy")  # Voice name within the selected provider
     # Company registration info
     company_id = db.Column(db.String(50), nullable=True)  # Israeli company registration number (ח.פ)

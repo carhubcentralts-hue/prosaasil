@@ -138,9 +138,7 @@ def get_business_ai_settings():
     Get AI settings for current business (with caching to prevent bottlenecks)
     Returns: {
         "ok": True,
-        "ai_provider": "openai",  # Main provider selection
-        "llm_provider": "openai",  # Always equals ai_provider
-        "voice_provider": "openai",  # Always equals ai_provider
+        "ai_provider": "openai",  # Main provider selection (source of truth)
         "voice_name": "alloy",  # Voice within selected provider
         "tts_language": "he-IL",
         "tts_speed": 1.0,
@@ -172,8 +170,6 @@ def get_business_ai_settings():
     
     # Get new provider settings with fallbacks
     ai_provider = getattr(business, 'ai_provider', 'openai') or 'openai'
-    llm_provider = getattr(business, 'llm_provider', ai_provider) or ai_provider
-    voice_provider = getattr(business, 'voice_provider', ai_provider) or ai_provider
     voice_name = getattr(business, 'voice_name', None)
     
     # Get TTS settings with fallbacks (legacy)
@@ -187,10 +183,10 @@ def get_business_ai_settings():
     if not voice_name:
         voice_name = tts_voice_id or voice_id
     
-    # Validate voice_name matches provider, fix if needed
+    # Validate voice_name matches provider, fix if needed (runtime safety)
     from server.config.voice_catalog import is_valid_voice, default_voice
     if not is_valid_voice(voice_name, ai_provider):
-        logger.warning(f"[AI_SETTINGS] Voice '{voice_name}' invalid for provider '{ai_provider}', using default")
+        logger.error(f"[AI_SETTINGS] Voice '{voice_name}' invalid for provider '{ai_provider}', using default")
         voice_name = default_voice(ai_provider)
     
     # If legacy tts_voice_id not set, use voice_name
@@ -201,10 +197,8 @@ def get_business_ai_settings():
     
     result = {
         "ok": True,
-        # NEW: Unified provider selection
+        # NEW: Unified provider selection (source of truth)
         "ai_provider": ai_provider,
-        "llm_provider": llm_provider,
-        "voice_provider": voice_provider,
         "voice_name": voice_name,
         # Common settings
         "tts_language": tts_language,
@@ -228,8 +222,8 @@ def update_business_ai_settings():
     """
     Update AI settings for current business (with cache invalidation)
     Body: {
-        "ai_provider": "openai" | "gemini",  # NEW: Main provider selection
-        "voice_name": "alloy",  # NEW: Voice within selected provider
+        "ai_provider": "openai" | "gemini",  # Main provider selection (source of truth)
+        "voice_name": "alloy",  # Voice within selected provider
         "tts_language": "he-IL",  # Optional
         "tts_speed": 1.0,  # Optional
         # LEGACY (still supported for compatibility):
@@ -279,10 +273,8 @@ def update_business_ai_settings():
         logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
-    # Update AI provider settings (new unified approach)
+    # Update AI provider settings (single source of truth)
     business.ai_provider = ai_provider
-    business.llm_provider = ai_provider  # Always same as ai_provider
-    business.voice_provider = ai_provider  # Always same as ai_provider
     business.voice_name = voice_name
     
     # Update TTS settings (common)
@@ -322,8 +314,6 @@ def update_business_ai_settings():
     return {
         "ok": True,
         "ai_provider": ai_provider,
-        "llm_provider": ai_provider,
-        "voice_provider": ai_provider,
         "voice_name": voice_name,
         "tts_language": tts_language,
         "tts_speed": tts_speed

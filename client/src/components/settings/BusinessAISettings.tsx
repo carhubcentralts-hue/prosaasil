@@ -325,7 +325,7 @@ export function BusinessAISettings() {
       );
       
       if (result.ok) {
-        alert('✅ ספק ה-AI והקול נשמרו בהצלחה! הספק שנבחר קובע גם את המוח (LLM) וגם את הקול (TTS). השינוי יחול על שיחות חדשות.');
+        alert('✅ ספק ה-AI והקול נשמרו בהצלחה! הספק שנבחר קובע את המוח (LLM), הקול (TTS) ואופן עיבוד השיחה. השינוי יחול על שיחות חדשות.');
       }
     } catch (err: any) {
       console.error('❌ Failed to save AI provider settings:', {
