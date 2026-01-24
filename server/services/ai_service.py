@@ -546,10 +546,10 @@ class AIService:
             System prompt string, or None if business_id not set
             
         Raises:
-            ValueError: If business_id was not provided during initialization
+            ValueError: If business_id was not provided in __init__
         """
         if self.business_id is None:
-            raise ValueError("business_id must be provided either in __init__ or as parameter to get_business_prompt")
+            raise ValueError("business_id must be provided in __init__ to use get_system_prompt()")
         
         prompt_data = self.get_business_prompt(self.business_id, channel)
         return prompt_data.get("system_prompt")

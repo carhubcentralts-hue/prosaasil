@@ -64,7 +64,7 @@ def _get_gemini_voices() -> List[Dict[str, Any]]:
 
 # Exported for backwards compatibility
 OPENAI_TTS_VOICES = _get_openai_voices()
-GEMINI_TTS_VOICES = []  # Will be populated dynamically from discovery
+# Note: GEMINI_TTS_VOICES loaded dynamically from voice_catalog.py via _get_gemini_voices()
 
 
 def get_available_voices(provider: str) -> List[Dict[str, Any]]:
@@ -86,7 +86,7 @@ def get_default_voice(provider: str) -> str:
         except ImportError:
             return "alloy"
     elif provider == "gemini":
-        return "Puck"  # Default Gemini voice
+        return "Puck"  # Default Gemini voice - matches voice_catalog.py
     else:
         return "alloy"
 
@@ -161,6 +161,40 @@ def synthesize_openai(
         return None, "TTS synthesis failed"
 
 
+def _create_wav_header(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
+    """
+    Create WAV file header for PCM16 mono audio.
+    
+    Args:
+        pcm_data: Raw PCM audio bytes
+        sample_rate: Sample rate in Hz (default 24000 for Gemini TTS)
+        
+    Returns:
+        Complete WAV file (header + PCM data)
+    """
+    import struct
+    
+    data_size = len(pcm_data)
+    byte_rate = sample_rate * 2  # 16-bit = 2 bytes per sample
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF',
+        36 + data_size,
+        b'WAVE',
+        b'fmt ',
+        16,  # Subchunk1Size (PCM)
+        1,   # AudioFormat (PCM)
+        1,   # NumChannels (mono)
+        sample_rate,
+        byte_rate,
+        2,   # BlockAlign
+        16,  # BitsPerSample
+        b'data',
+        data_size
+    )
+    return header + pcm_data
+
+
 def synthesize_gemini(
     text: str,
     voice_id: str = "Puck",
@@ -218,8 +252,9 @@ def synthesize_gemini(
             from server.config.voice_catalog import get_voice_by_id
             voice_metadata = get_voice_by_id(voice_id, "gemini")
             if not voice_metadata:
-                logger.warning(f"[TTS] Invalid Gemini voice '{voice_id}', falling back to Puck")
-                voice_id = "Puck"
+                default_voice = get_default_voice("gemini")
+                logger.warning(f"[TTS] Invalid Gemini voice '{voice_id}', falling back to {default_voice}")
+                voice_id = default_voice
             
             # Clamp speed to valid range
             speed = max(0.25, min(4.0, speed))
@@ -261,29 +296,7 @@ def synthesize_gemini(
             
             # 🔥 Convert PCM data to WAV format for browser playback
             # Gemini returns raw PCM16 at 24kHz, we need to wrap it with WAV header
-            def create_wav_header(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
-                """Create WAV file header for PCM16 mono audio"""
-                data_size = len(pcm_data)
-                byte_rate = sample_rate * 2  # 16-bit = 2 bytes per sample
-                header = struct.pack(
-                    '<4sI4s4sIHHIIHH4sI',
-                    b'RIFF',
-                    36 + data_size,
-                    b'WAVE',
-                    b'fmt ',
-                    16,  # Subchunk1Size (PCM)
-                    1,   # AudioFormat (PCM)
-                    1,   # NumChannels (mono)
-                    sample_rate,
-                    byte_rate,
-                    2,   # BlockAlign
-                    16,  # BitsPerSample
-                    b'data',
-                    data_size
-                )
-                return header + pcm_data
-            
-            wav_data = create_wav_header(audio_data)
+            wav_data = _create_wav_header(audio_data)
             
             logger.info(f"Gemini TTS: Synthesized {len(wav_data)} bytes WAV with voice={voice_id}")
             return wav_data, "audio/wav"
