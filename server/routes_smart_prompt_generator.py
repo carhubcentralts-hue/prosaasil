@@ -20,6 +20,7 @@ import os
 import json
 from datetime import datetime
 import re
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,11 @@ smart_prompt_bp = Blueprint('smart_prompt', __name__)
 # Maximum input lengths for security
 MAX_FIELD_LENGTH = 500
 MAX_TOTAL_INPUT = 4000
+
+# OpenAI generation settings
+MAX_RETRIES = 2  # 1 initial attempt + 1 retry
+RETRY_DELAY = 0.5  # seconds
+OPENAI_TIMEOUT = 12.0  # seconds
 
 # Output template sections - MUST appear in this exact order
 REQUIRED_SECTIONS = [
@@ -209,7 +215,6 @@ def _validate_prompt_structure(prompt_text: str) -> tuple[bool, str]:
 def _generate_with_openai(questionnaire: dict, provider_config: dict) -> dict:
     """Generate prompt using OpenAI with timeout and retry"""
     from openai import OpenAI
-    import time
     
     api_key = provider_config.get('api_key') or os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -217,7 +222,7 @@ def _generate_with_openai(questionnaire: dict, provider_config: dict) -> dict:
     
     model = provider_config.get('model', 'gpt-4o-mini')
     
-    client = OpenAI(api_key=api_key, timeout=12.0)  # Hard timeout of 12 seconds
+    client = OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT)
     
     # Build user prompt from questionnaire
     user_prompt = f"""צור SYSTEM PROMPT לסוכן AI על בסיס המידע הבא:
@@ -235,9 +240,8 @@ def _generate_with_openai(questionnaire: dict, provider_config: dict) -> dict:
 אינטגרציות: {', '.join(questionnaire.get('integrations', [])) or 'אין'}
 """
     
-    # Retry logic: max 1 retry
-    last_error = None
-    for attempt in range(2):  # 0 = first try, 1 = retry
+    # Retry logic
+    for attempt in range(MAX_RETRIES):
         try:
             start_time = time.time()
             response = client.chat.completions.create(
@@ -258,13 +262,13 @@ def _generate_with_openai(questionnaire: dict, provider_config: dict) -> dict:
                 "model": model
             }
         except Exception as e:
-            last_error = e
-            if attempt == 0:
-                logger.warning(f"OpenAI call failed (attempt 1), retrying: {str(e)}")
-                time.sleep(0.5)  # Brief pause before retry
+            is_last_attempt = (attempt == MAX_RETRIES - 1)
+            if is_last_attempt:
+                logger.error(f"OpenAI call failed after {MAX_RETRIES} attempts: {str(e)}")
+                raise
             else:
-                logger.error(f"OpenAI call failed after retry: {str(e)}")
-                raise last_error
+                logger.warning(f"OpenAI call failed (attempt {attempt + 1}), retrying: {str(e)}")
+                time.sleep(RETRY_DELAY)
 
 
 def _generate_with_gemini(questionnaire: dict, provider_config: dict) -> dict:
