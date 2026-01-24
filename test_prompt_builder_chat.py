@@ -3,7 +3,11 @@ Test for Prompt Builder Chat backend routes
 Verifies that the system prompt and endpoints are properly configured
 """
 import sys
-sys.path.insert(0, '/home/runner/work/prosaasil/prosaasil')
+import os
+
+# Add project root to path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
 
 def test_system_prompt_defined():
     """Test that the system prompt is properly defined"""

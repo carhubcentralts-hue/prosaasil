@@ -206,7 +206,8 @@ def chat_message():
             summary = None
             
             # Try to detect if this is a JSON response with a prompt
-            if assistant_message.startswith('{') and '"type"' in assistant_message and '"prompt_generated"' in assistant_message:
+            # More robust check: only parse if it looks like valid JSON
+            if assistant_message.startswith('{') and assistant_message.endswith('}'):
                 try:
                     result = json.loads(assistant_message)
                     if result.get('type') == 'prompt_generated':
@@ -215,6 +216,7 @@ def chat_message():
                         summary = result.get('summary', '')
                         assistant_message = f"הכנתי עבורך פרומפט מותאם!\n\n{summary}"
                 except json.JSONDecodeError:
+                    # Not valid JSON, treat as regular message
                     pass
             
             logger.info(f"Prompt builder chat: User said '{user_message[:50]}...', generated={prompt_generated}")

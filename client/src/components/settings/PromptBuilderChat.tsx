@@ -176,16 +176,20 @@ export function PromptBuilderChat({
 
   const handleClose = () => {
     onClose();
-    // Reset state after a brief delay to allow animation
-    setTimeout(() => {
+  };
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      // Reset state when modal is closed
       setMessages([]);
       setInputMessage('');
       setGeneratedPrompt('');
       setPromptSummary('');
       setShowPrompt(false);
       setError('');
-    }, 300);
-  };
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -345,8 +349,9 @@ export function PromptBuilderChat({
                       checked={selectedChannel === 'calls'}
                       onChange={() => setSelectedChannel('calls')}
                       className="w-4 h-4 text-blue-600"
+                      aria-label="שיחות טלפון"
                     />
-                    <span className="text-slate-700">📞 שיחות טלפון</span>
+                    <span className="text-slate-700" aria-hidden="true">📞 שיחות טלפון</span>
                   </label>
                   <label className={`
                     flex items-center gap-2 cursor-pointer p-3 border-2 rounded-lg transition-all
@@ -361,8 +366,9 @@ export function PromptBuilderChat({
                       checked={selectedChannel === 'whatsapp'}
                       onChange={() => setSelectedChannel('whatsapp')}
                       className="w-4 h-4 text-blue-600"
+                      aria-label="WhatsApp"
                     />
-                    <span className="text-slate-700">💬 WhatsApp</span>
+                    <span className="text-slate-700" aria-hidden="true">💬 WhatsApp</span>
                   </label>
                 </div>
               </div>
