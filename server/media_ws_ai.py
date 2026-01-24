@@ -18,7 +18,8 @@ from server.config.voices import DEFAULT_VOICE, OPENAI_VOICES, REALTIME_VOICES  
 # CORRECT WAY: Use OpenAI Realtime API tools for appointment scheduling
 SERVER_FIRST_SCHEDULING = False  # HARDCODED FALSE - DO NOT USE ENV VAR
 
-# 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
+# 🚫 DISABLE_GOOGLE: Hard off for old Google Cloud STT (NOT Gemini!)
+# Gemini is separate and controlled by ai_provider setting
 DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 
 # ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
@@ -80,8 +81,9 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
     }
     logging.getLogger("turn").info(json.dumps(payload, ensure_ascii=False))
 
-# 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
-USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
+# 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API or Whisper!
+# For Gemini: Use Whisper for STT (not streaming, batch processing)
+USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI Realtime or Whisper only!
 
 # 🔥 NAME VALIDATION: Import from centralized module (single source of truth)
 from server.services.name_validation import is_valid_customer_name, INVALID_NAME_PLACEHOLDERS
@@ -133,8 +135,9 @@ except ImportError:
 ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", "yes")
 
 # 🚀 REALTIME API MODE - OpenAI Realtime API for phone calls
-# 🔥 BUILD 186: ALWAYS enabled - no fallback to Google STT/TTS!
-USE_REALTIME_API = True  # FORCED TRUE - OpenAI Realtime API only!
+# 🔥 Per-call setting: OpenAI → Realtime API, Gemini → STT→LLM→TTS pipeline
+# This is overridden in MediaStreamHandler based on business.ai_provider
+USE_REALTIME_API = True  # Default for OpenAI, set to False per-call for Gemini
 
 # 🔥 BUILD 318: COST OPTIMIZATION - Use gpt-4o-mini-realtime-preview (75% cheaper!)
 # - $10/1M input vs $40/1M for gpt-4o-realtime
@@ -9757,6 +9760,10 @@ class MediaStreamHandler:
                             use_realtime_for_this_call = (ai_provider == 'openai')
                             self._use_realtime_for_call = use_realtime_for_this_call
                             
+                            # 🔥 CRITICAL: Set USE_REALTIME_API flag for this handler instance
+                            # This controls behavior throughout the call processing
+                            self._USE_REALTIME_API_OVERRIDE = use_realtime_for_this_call
+                            
                             if ai_provider == 'gemini':
                                 logger.info(f"[GEMINI_PIPELINE] Call will use Gemini: STT (Whisper) → LLM (Gemini) → TTS (Gemini)")
                                 _orig_print(f"🔷 [GEMINI_PIPELINE] starting", flush=True)
@@ -9819,9 +9826,9 @@ class MediaStreamHandler:
                             logger.info(f"[GEMINI_PIPELINE] Initializing Gemini pipeline for call {self.call_sid}")
                             _orig_print(f"🔷 [GEMINI_PIPELINE] Not using OpenAI Realtime (provider=gemini)", flush=True)
                             
-                            # Initialize streaming STT for Gemini pipeline
-                            self._init_streaming_stt()
-                            logger.info("✅ [GEMINI_PIPELINE] Whisper STT initialized for Gemini calls")
+                            # 🔥 Gemini uses batch Whisper STT, not streaming
+                            # No initialization needed - Whisper called on-demand per utterance
+                            logger.info("✅ [GEMINI_PIPELINE] Will use Whisper STT (batch mode) for Gemini calls")
                         else:
                             logger.warning(f"[CALL_ROUTING] AI service thread NOT started! use_realtime={use_realtime}, realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
@@ -10033,7 +10040,9 @@ class MediaStreamHandler:
                             self.is_calibrated = True
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
-                    if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                    # 🔥 Check per-call override (set based on ai_provider)
+                    use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+                    if use_realtime_for_this_call and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔥 REMOVED: greeting_lock frame dropping - all frames are now processed
                         
                         if not self.barge_in_enabled_after_greeting:
@@ -10230,8 +10239,11 @@ class MediaStreamHandler:
                             if self._noise_reject_count % 100 == 0:
                                 reason = "noise" if is_noise else f"insufficient_consec_frames({self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
                                 logger.info(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
-                    # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
-                    elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
+                    # ⚡ STREAMING STT: Legacy Google STT (DISABLED - not used for Gemini)
+                    # Gemini uses batch Whisper STT, not streaming
+                    # This code block is kept for historical reasons only
+                    use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+                    elif not use_realtime_for_this_call and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
                         if session:
                             session.push_audio(pcm16)
@@ -10254,7 +10266,9 @@ class MediaStreamHandler:
                     
                     # 🔥 BUILD 165: BALANCED BARGE-IN - Filter noise while allowing speech
                     # ✅ P0-2: Clean barge-in with local RMS VAD only (no duplex/guards)
-                    if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                    # 🔥 Check per-call override (set based on ai_provider)
+                    use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+                    if use_realtime_for_this_call and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
                         if not hasattr(self, '_barge_in_debug_counter'):
                             self._barge_in_debug_counter = 0
@@ -10302,8 +10316,9 @@ class MediaStreamHandler:
                     
                     # 🔥 BUILD 165: FALLBACK BARGE-IN - ONLY for non-Realtime API mode!
                     # Realtime API has its own barge-in handler above (lines 3010-3065)
-                    # This is for legacy Google STT mode only
-                    if ENABLE_BARGE_IN and not self.is_playing_greeting and not USE_REALTIME_API:
+                    # This is for Gemini pipeline only (not OpenAI Realtime)
+                    use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+                    if ENABLE_BARGE_IN and not self.is_playing_greeting and not use_realtime_for_this_call:
                         # ספירת פריימים רצופים של קול חזק בלבד
                         if is_strong_voice:
                             self.voice_in_row += 1
@@ -10807,16 +10822,27 @@ class MediaStreamHandler:
 
     # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
     def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
-        """עיבוד מבע עם הגנה כפולה מפני לולאות"""
+        """עיבוד מבע עם הגנה כפולה מפני לולאות
+        
+        🔥 Supports two pipelines:
+        1. OpenAI Realtime API: Skips this function (handled in realtime thread)
+        2. Gemini Pipeline: Whisper STT → Gemini LLM → Gemini TTS
+        """
+        # 🔥 Check per-call override first (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        
         # 🚀 REALTIME API: Skip Google STT/TTS completely in Realtime mode
-        if USE_REALTIME_API:
-            logger.info(f"⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only")
+        if use_realtime_for_this_call:
+            logger.info(f"⏭️ [REALTIME] Skipping legacy STT/TTS - using Realtime API only")
             # Reset buffer and state to prevent accumulation
             if hasattr(self, 'buf'):
                 self.buf.clear()
             self.processing = False
             self.state = STATE_LISTEN
             return
+        
+        # 🔷 GEMINI PIPELINE: Process using Whisper → Gemini → TTS
+        logger.info(f"🔷 [GEMINI_PIPELINE] Processing utterance with Gemini pipeline")
         
         # וודא שלא מעבדים את אותו ID פעמיים
         if conversation_id <= self.last_processing_id:
@@ -10830,7 +10856,7 @@ class MediaStreamHandler:
             logger.info("🚫 Still speaking - cannot process new utterance")
             return
             
-        logger.info(f"🎤 SAFE PROCESSING: conversation #{conversation_id}")
+        logger.info(f"🎤 GEMINI SAFE PROCESSING: conversation #{conversation_id}")
         self.state = STATE_THINK  # מעבר למצב חשיבה
         
         text = ""  # initialize to avoid unbound variable
@@ -11108,12 +11134,15 @@ class MediaStreamHandler:
             self._finalize_speaking()
     
     def _speak_simple(self, text: str):
-        """TTS עם מעקב מצבים וסימונים"""
+        """TTS עם מעקב מצבים וסימונים - תומך ב-OpenAI Realtime וGemini"""
         if not text:
             return
         
-        # 🚀 REALTIME API: Skip Google TTS completely in Realtime mode
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override first (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        
+        # 🚀 REALTIME API: Skip TTS - OpenAI Realtime handles it
+        if use_realtime_for_this_call:
             return
         
         # 🔥 BUILD 118: Defensive check (should be normalized already in _ai_response)
@@ -15531,22 +15560,74 @@ class MediaStreamHandler:
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """
-        🚫 DISABLED - Google TTS is turned off for production stability
+        Hebrew TTS synthesis - supports OpenAI Realtime API and Gemini TTS
         
-        This function should never be called when USE_REALTIME_API=True.
-        OpenAI Realtime API handles ALL TTS natively.
+        - OpenAI Realtime: Returns None (handled natively by Realtime API)
+        - Gemini: Uses Gemini TTS API to generate audio
         """
-        # 🚀 REALTIME API: Skip Google TTS completely - OpenAI Realtime generates audio natively
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override first (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        
+        # 🚀 REALTIME API: Skip TTS - OpenAI Realtime generates audio natively
+        if use_realtime_for_this_call:
             return None
         
-        # 🚫 Google TTS is DISABLED
-        if DISABLE_GOOGLE:
-            logger.warning("⚠️ _hebrew_tts called but Google TTS is DISABLED")
-            return None
+        # 🔷 GEMINI TTS: Use Gemini for text-to-speech
+        logger.info(f"[GEMINI_TTS] Synthesizing: {len(text)} chars")
         
-        logger.error("❌ Google TTS should not be used - DISABLE_GOOGLE flag should be set")
-        return None
+        try:
+            # Get business settings for voice configuration
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                logger.error("[GEMINI_TTS] No business_id - cannot synthesize")
+                return None
+            
+            # Get voice settings from business
+            app = _get_flask_app()
+            with app.app_context():
+                from server.models_sql import Business
+                business = Business.query.get(business_id)
+                if not business:
+                    logger.error(f"[GEMINI_TTS] Business {business_id} not found")
+                    return None
+                
+                voice_name = getattr(business, 'voice_name', None) or 'pulcherrima'
+                speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
+                language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
+            
+            # Use tts_provider to synthesize with Gemini
+            from server.services import tts_provider
+            
+            audio_bytes, content_type_or_error = tts_provider.synthesize(
+                text=text,
+                provider='gemini',
+                voice_id=voice_name,
+                language=language,
+                speed=speed
+            )
+            
+            if audio_bytes is None:
+                logger.error(f"[GEMINI_TTS] Synthesis failed: {content_type_or_error}")
+                return None
+            
+            logger.info(f"[GEMINI_TTS] Success: {len(audio_bytes)} bytes ({content_type_or_error})")
+            
+            # 🔥 CRITICAL: Convert WAV to PCM16 for Twilio
+            # Gemini returns WAV format, but we need raw PCM16 for _send_pcm16_as_mulaw_frames_with_mark
+            # WAV has 44-byte header, skip it to get raw PCM16
+            if len(audio_bytes) > 44 and audio_bytes[:4] == b'RIFF':
+                pcm16_data = audio_bytes[44:]  # Skip WAV header
+                logger.info(f"[GEMINI_TTS] Extracted PCM16: {len(pcm16_data)} bytes")
+                return pcm16_data
+            else:
+                logger.warning(f"[GEMINI_TTS] Unexpected format - using as-is")
+                return audio_bytes
+                
+        except Exception as e:
+            logger.error(f"[GEMINI_TTS] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def _flush_tx_queue(self):
         """
