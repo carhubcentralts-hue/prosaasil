@@ -9919,8 +9919,10 @@ class MediaStreamHandler:
                     
                     # Note: Realtime thread was already started above (BEFORE DB query)
                     
-                    # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime
-                    if not self.greeting_sent and not USE_REALTIME_API:
+                    # 🎵 GEMINI/GOOGLE TTS: Send greeting via Gemini TTS if NOT using Realtime
+                    # 🔥 CRITICAL: Check per-call override (set based on ai_provider)
+                    use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+                    if not self.greeting_sent and not use_realtime_for_this_call:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         logger.info(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
                         try:
@@ -11061,7 +11063,7 @@ class MediaStreamHandler:
 
     # ✅ דיבור מתקדם עם סימונים לטוויליו
     def _speak_greeting(self, text: str):
-        """⚡ TTS מהיר לברכה - ללא sleep!"""
+        """⚡ TTS מהיר לברכה - ללא sleep! תומך ב-OpenAI Realtime וGemini"""
         if not text:
             return
         
@@ -11074,8 +11076,11 @@ class MediaStreamHandler:
         self.speaking_start_ts = time.time()
         self.state = STATE_SPEAK
         
+        # 🔥 Check per-call override first (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        
         # 🚀 REALTIME API: Send greeting via Realtime API if enabled
-        if USE_REALTIME_API:
+        if use_realtime_for_this_call:
             logger.info(f"🚀 [REALTIME] Sending greeting via Realtime API: '{text[:50]}...'")
             try:
                 # ✅ FIX: Queue greeting text to be sent via Realtime API (non-blocking)
@@ -11204,16 +11209,22 @@ class MediaStreamHandler:
             # 🚫 Google TTS is DISABLED - OpenAI Realtime handles TTS natively
             # This code should never run when USE_REALTIME_API=True
             
+            ai_provider = getattr(self, '_ai_provider', 'unknown')
+            logger.info(f"[TTS] Calling _hebrew_tts: provider={ai_provider}, text_len={len(text)}")
+            _orig_print(f"🎤 [TTS] Generating audio for {len(text)} chars (provider={ai_provider})", flush=True)
+            
             tts_audio = self._hebrew_tts(text)
             tts_generation_time = time.time() - tts_start
             if DEBUG: logger.debug(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
             
             if tts_audio and len(tts_audio) > 1000:
                 logger.info(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
+                _orig_print(f"✅ [TTS] Got {len(tts_audio)} bytes, sending to Twilio...", flush=True)
                 send_start = time.time()
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
                 send_time = time.time() - send_start
-                if DEBUG: logger.debug(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
+                logger.info(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission complete)")
+                _orig_print(f"✅ [TTS] Audio sent in {send_time:.3f}s", flush=True)
                 
                 # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
                 if eou_saved:
@@ -15567,13 +15578,18 @@ class MediaStreamHandler:
         """
         # 🔥 Check per-call override first (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        ai_provider = getattr(self, '_ai_provider', 'unknown')
+        
+        logger.info(f"[TTS] _hebrew_tts called: provider={ai_provider}, use_realtime={use_realtime_for_this_call}, text_len={len(text)}")
         
         # 🚀 REALTIME API: Skip TTS - OpenAI Realtime generates audio natively
         if use_realtime_for_this_call:
+            logger.info(f"[TTS] Skipping TTS - OpenAI Realtime handles it")
             return None
         
         # 🔷 GEMINI TTS: Use Gemini for text-to-speech
-        logger.info(f"[GEMINI_TTS] Synthesizing: {len(text)} chars")
+        logger.info(f"[GEMINI_TTS] Starting synthesis: {len(text)} chars, provider={ai_provider}")
+        _orig_print(f"🔷 [GEMINI_TTS] Synthesizing {len(text)} chars...", flush=True)
         
         try:
             # Get business settings for voice configuration
@@ -15611,14 +15627,28 @@ class MediaStreamHandler:
                 return None
             
             logger.info(f"[GEMINI_TTS] Success: {len(audio_bytes)} bytes ({content_type_or_error})")
+            _orig_print(f"✅ [GEMINI_TTS] Generated {len(audio_bytes)} bytes", flush=True)
             
-            # 🔥 CRITICAL: Convert WAV to PCM16 for Twilio
-            # Gemini returns WAV format, but we need raw PCM16 for _send_pcm16_as_mulaw_frames_with_mark
-            # WAV has 44-byte header, skip it to get raw PCM16
+            # 🔥 CRITICAL: Convert WAV to PCM16 8kHz for Twilio
+            # Gemini returns WAV format at 24kHz, but we need raw PCM16 at 8kHz
+            # Steps: Extract PCM16 from WAV → Resample to 8kHz → Return
             if len(audio_bytes) > 44 and audio_bytes[:4] == b'RIFF':
-                pcm16_data = audio_bytes[44:]  # Skip WAV header
-                logger.info(f"[GEMINI_TTS] Extracted PCM16: {len(pcm16_data)} bytes")
-                return pcm16_data
+                pcm16_24k = audio_bytes[44:]  # Skip WAV header (Gemini uses 24kHz)
+                logger.info(f"[GEMINI_TTS] Extracted PCM16 24kHz: {len(pcm16_24k)} bytes")
+                
+                # 🔥 Resample from 24kHz to 8kHz for Twilio
+                try:
+                    import audioop
+                    # Resample: 24000Hz → 8000Hz (ratio 3:1)
+                    pcm16_8k = audioop.ratecv(pcm16_24k, 2, 1, 24000, 8000, None)[0]
+                    logger.info(f"[GEMINI_TTS] Resampled to 8kHz: {len(pcm16_8k)} bytes")
+                    _orig_print(f"🔄 [GEMINI_TTS] Resampled: {len(pcm16_24k)}B@24kHz → {len(pcm16_8k)}B@8kHz", flush=True)
+                    return pcm16_8k
+                except Exception as resample_err:
+                    logger.error(f"[GEMINI_TTS] Resample failed: {resample_err}")
+                    _orig_print(f"❌ [GEMINI_TTS] Resample failed: {resample_err}", flush=True)
+                    # Fallback: try using as-is (will sound wrong but better than silence)
+                    return pcm16_24k
             else:
                 logger.warning(f"[GEMINI_TTS] Unexpected format - using as-is")
                 return audio_bytes
