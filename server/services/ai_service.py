@@ -716,8 +716,19 @@ class AIService:
                     llm_time = time.time() - llm_start
                     logger.info(f"✅ GEMINI_SUCCESS: {llm_time:.3f}s")
                     
-                    # Extract text from response
-                    ai_response = response.text.strip() if hasattr(response, 'text') else str(response).strip()
+                    # Extract text from response with proper validation
+                    if hasattr(response, 'text') and response.text:
+                        ai_response = response.text.strip()
+                    elif hasattr(response, 'candidates') and response.candidates:
+                        # Fallback: Extract from candidates structure
+                        try:
+                            ai_response = response.candidates[0].content.parts[0].text.strip()
+                        except (AttributeError, IndexError) as e:
+                            logger.error(f"Failed to extract text from Gemini candidates: {e}")
+                            ai_response = str(response).strip()
+                    else:
+                        logger.warning("Gemini response has unexpected format")
+                        ai_response = str(response).strip() if response else ""
                     
                 else:
                     # Use OpenAI for LLM (default)
