@@ -187,6 +187,7 @@ def live_call_chat():
             # Use Gemini for LLM
             try:
                 from google import genai
+                from google.genai import types
                 
                 gemini_api_key = os.getenv('GEMINI_API_KEY')
                 if not gemini_api_key:
@@ -196,7 +197,7 @@ def live_call_chat():
                 client = genai.Client(api_key=gemini_api_key)
                 
                 # Convert messages to Gemini format
-                # Gemini expects a single prompt string, so combine messages
+                # Combine system and conversation into a single prompt
                 prompt_parts = []
                 for msg in messages:
                     role = msg.get('role', 'user')
@@ -208,14 +209,17 @@ def live_call_chat():
                     elif role == 'assistant':
                         prompt_parts.append(f"Assistant: {content}")
                 
-                full_prompt = "\n".join(prompt_parts)
+                full_prompt = "\n\n".join(prompt_parts)
                 
+                # Generate content using Gemini
                 response = client.models.generate_content(
                     model="gemini-2.0-flash-exp",
                     contents=full_prompt
                 )
                 
-                ai_response = response.text.strip()
+                # Extract text from response
+                # Gemini response has .text attribute for simple text generation
+                ai_response = response.text.strip() if hasattr(response, 'text') else str(response).strip()
                 
             except Exception as gemini_err:
                 logger.error(f"[LIVE_CALL][CHAT] Gemini error: {gemini_err}")
