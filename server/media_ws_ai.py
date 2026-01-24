@@ -15637,8 +15637,11 @@ class MediaStreamHandler:
                 logger.info(f"[GEMINI_TTS] Extracted PCM16 24kHz: {len(pcm16_24k)} bytes")
                 
                 # 🔥 Resample from 24kHz to 8kHz for Twilio
+                # Note: audioop.ratecv() is a simple linear resampler. For production,
+                # consider using scipy.signal.resample() with proper anti-aliasing filtering
+                # to prevent aliasing artifacts. However, for phone calls (narrowband),
+                # simple resampling is usually acceptable.
                 try:
-                    import audioop
                     # Resample: 24000Hz → 8000Hz (ratio 3:1)
                     pcm16_8k = audioop.ratecv(pcm16_24k, 2, 1, 24000, 8000, None)[0]
                     logger.info(f"[GEMINI_TTS] Resampled to 8kHz: {len(pcm16_8k)} bytes")
