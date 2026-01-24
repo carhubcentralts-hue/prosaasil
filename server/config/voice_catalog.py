@@ -346,3 +346,24 @@ def get_voices_by_provider(provider: str):
 def is_valid_voice(voice_id: str, provider: str) -> bool:
     """Check if voice_id is valid for the given provider."""
     return get_voice_by_id(voice_id, provider) is not None
+
+
+def get_voices(provider: str):
+    """
+    Get list of voices for a specific provider.
+    Returns list of voice dictionaries.
+    """
+    return get_voices_by_provider(provider)
+
+
+def default_voice(provider: str) -> str:
+    """
+    Get default voice ID for a provider.
+    Returns voice ID string.
+    """
+    if provider == "openai":
+        return "alloy"
+    elif provider == "gemini":
+        return "Puck"
+    else:
+        return "alloy"  # Fallback to OpenAI default

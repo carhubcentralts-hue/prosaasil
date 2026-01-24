@@ -247,8 +247,16 @@ export function BusinessAISettings() {
       try {
         // Load unified voice catalog with both OpenAI and Gemini voices
         const [voicesData, aiSettingsData] = await Promise.all([
-          http.get<{ openai: Voice[]; gemini: Voice[]; gemini_available: boolean }>(`/api/ai/voices`),
-          http.get<{ ok: boolean; voice_id?: string; tts_provider?: string; tts_voice_id?: string }>(`/api/business/settings/ai`)
+          http.get<{ openai: Voice[]; gemini: Voice[]; gemini_available: boolean; default_voices?: { openai: string; gemini: string } }>(`/api/ai/voices`),
+          http.get<{ 
+            ok: boolean; 
+            ai_provider?: string; 
+            voice_name?: string;
+            // Legacy fields for compatibility:
+            voice_id?: string; 
+            tts_provider?: string; 
+            tts_voice_id?: string 
+          }>(`/api/business/settings/ai`)
         ]);
         
         if (voicesData && aiSettingsData.ok) {
@@ -257,9 +265,9 @@ export function BusinessAISettings() {
           const geminiAvailable = voicesData.gemini_available || false;
           
           // Determine current provider and voice from saved settings
-          // NEW: Support both old (voice_id) and new (tts_provider + tts_voice_id) formats
-          const currentProvider = aiSettingsData.tts_provider || 'openai';
-          const currentVoiceId = aiSettingsData.tts_voice_id || aiSettingsData.voice_id || 'ash';
+          // NEW: Prefer ai_provider and voice_name, fallback to legacy fields
+          const currentProvider = aiSettingsData.ai_provider || aiSettingsData.tts_provider || 'openai';
+          const currentVoiceId = aiSettingsData.voice_name || aiSettingsData.tts_voice_id || aiSettingsData.voice_id || 'alloy';
           
           // Filter available voices based on current provider
           const availableVoices = currentProvider === 'gemini' ? geminiVoices : openaiVoices;
@@ -307,28 +315,32 @@ export function BusinessAISettings() {
     setVoiceLibrary(prev => ({ ...prev, isSavingVoice: true }));
     
     try {
-      // Save both provider and voice_id
-      const result = await http.put<{ ok: boolean; tts_provider: string; tts_voice_id: string }>(
+      // Save ai_provider and voice_name (new unified approach)
+      const result = await http.put<{ ok: boolean; ai_provider: string; voice_name: string }>(
         `/api/business/settings/ai`,
         { 
-          tts_provider: voiceLibrary.provider,
-          tts_voice_id: voiceLibrary.voiceId
+          ai_provider: voiceLibrary.provider,
+          voice_name: voiceLibrary.voiceId
         }
       );
       
       if (result.ok) {
-        alert('✅ הקול נשמר בהצלחה! השינוי יחול על שיחות חדשות.');
+        alert('✅ ספק ה-AI והקול נשמרו בהצלחה! הספק שנבחר קובע את המוח (LLM), הקול (TTS) ואופן עיבוד השיחה. השינוי יחול על שיחות חדשות.');
       }
     } catch (err: any) {
-      console.error('❌ Failed to save voice settings:', {
+      console.error('❌ Failed to save AI provider settings:', {
         error: err?.error || err?.message || 'Unknown error',
         status: err?.status,
-        hint: err?.hint
+        hint: err?.hint,
+        message: err?.message
       });
       if (err?.status === 401) {
         alert(AUTH_ERROR_MESSAGE);
+      } else if (err?.status === 400 && err?.message) {
+        // Show specific validation error from backend
+        alert(`שגיאה: ${err.message}`);
       } else {
-        alert('שגיאה בשמירת הגדרות הקול');
+        alert('שגיאה בשמירת הגדרות ספק ה-AI');
       }
     } finally {
       setVoiceLibrary(prev => ({ ...prev, isSavingVoice: false }));
@@ -710,15 +722,15 @@ export function BusinessAISettings() {
 
       {/* 🔥 BUILD 310: STT Vocabulary section removed - using OpenAI Realtime native transcription */}
 
-      {/* 🎤 Voice Library Section - Per-business voice selection for phone calls */}
+      {/* 🎤 AI Provider & Voice Selection - Unified provider determines both brain and voice */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center">
-            <Volume2 className="h-5 w-5 text-pink-600" />
+            <Brain className="h-5 w-5 text-pink-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">קול לשיחות טלפון</h3>
-            <p className="text-sm text-slate-500">בחר את הקול שיופעל בשיחות הטלפון עם לקוחות</p>
+            <h3 className="text-lg font-semibold text-slate-900">ספק AI - מוח וקול</h3>
+            <p className="text-sm text-slate-500">הספק שתבחר קובע גם את המוח (LLM) וגם את הקול (TTS)</p>
           </div>
         </div>
 
@@ -726,7 +738,7 @@ export function BusinessAISettings() {
           {/* Provider Selection Dropdown */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              🏢 ספק קול
+              🏢 ספק AI
             </label>
             {voiceLibrary.isLoadingVoices ? (
               <div className="flex items-center gap-2 text-slate-500">
@@ -744,9 +756,9 @@ export function BusinessAISettings() {
                   disabled={!voiceLibrary.geminiAvailable && voiceLibrary.provider === 'openai'}
                   data-testid="select-provider"
                 >
-                  <option value="openai">OpenAI</option>
+                  <option value="openai">OpenAI (מוח + קול)</option>
                   <option value="gemini" disabled={!voiceLibrary.geminiAvailable}>
-                    Google Gemini {!voiceLibrary.geminiAvailable ? '(חסר GEMINI_API_KEY)' : ''}
+                    Google Gemini (מוח + קול) {!voiceLibrary.geminiAvailable ? '(חסר GEMINI_API_KEY)' : ''}
                   </option>
                 </select>
                 {!voiceLibrary.geminiAvailable && (
@@ -757,14 +769,14 @@ export function BusinessAISettings() {
               </>
             )}
             <p className="text-xs text-slate-500 mt-1">
-              בחר את ספק הקול (המוח תמיד OpenAI, רק הקול משתנה)
+              הספק קובע גם את המוח וגם את הקול - לא ניתן לערבב ספקים
             </p>
           </div>
 
           {/* Voice Selection Dropdown */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              🎤 בחירת קול
+              🎤 קול בתוך הספק
             </label>
             {voiceLibrary.isLoadingVoices ? (
               <div className="flex items-center gap-2 text-slate-500">
@@ -805,7 +817,7 @@ export function BusinessAISettings() {
               </>
             )}
             <p className="text-xs text-slate-500 mt-1">
-              הקול שנבחר ישמש בכל שיחות הטלפון החדשות של העסק
+              מציג רק קולות מהספק שנבחר ({voiceLibrary.provider === 'openai' ? 'OpenAI' : 'Gemini'})
             </p>
           </div>
 
