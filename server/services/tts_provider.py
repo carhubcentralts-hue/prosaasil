@@ -129,15 +129,18 @@ def synthesize_openai(
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
         # Validate voice using existing config (DO NOT DUPLICATE)
+        # 🔥 CRITICAL: speech.create API only supports SPEECH_CREATE_VOICES subset
+        # (NOT all REALTIME_VOICES - ballad, cedar, coral, sage, marin, verse are Realtime-only)
         try:
-            from server.config.voices import REALTIME_VOICES, DEFAULT_VOICE
-            valid_voices = REALTIME_VOICES
-            fallback_voice = DEFAULT_VOICE
+            from server.config.voices import SPEECH_CREATE_VOICES
+            valid_voices = SPEECH_CREATE_VOICES
+            fallback_voice = "alloy"  # alloy is always in SPEECH_CREATE_VOICES
         except ImportError:
             valid_voices = ["alloy", "ash", "echo", "shimmer"]
             fallback_voice = "alloy"
         
         if voice_id not in valid_voices:
+            logger.warning(f"[TTS][OPENAI] Voice {voice_id} not compatible with speech.create, using fallback {fallback_voice}")
             voice_id = fallback_voice
         
         # Clamp speed to valid range
