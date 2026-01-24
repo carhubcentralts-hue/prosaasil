@@ -97,10 +97,12 @@ def is_gemini_available() -> bool:
     
     Returns:
         True if GEMINI_API_KEY is configured, False otherwise.
+    
+    Note: DISABLE_GOOGLE only affects old Google Cloud STT, NOT Gemini API!
     """
     gemini_key = os.getenv('GEMINI_API_KEY')
-    is_disabled = os.getenv("DISABLE_GOOGLE", "false").lower() == "true"
-    return bool(gemini_key) and not is_disabled
+    # 🔥 DISABLE_GOOGLE does NOT affect Gemini - only old Google Cloud STT
+    return bool(gemini_key)
 
 
 def synthesize_openai(
@@ -225,9 +227,8 @@ def synthesize_gemini(
     - Voice names MUST be lowercase (e.g., "pulcherrima", not "Pulcherrima")
     """
     try:
-        # Check if Google is disabled
-        if os.getenv("DISABLE_GOOGLE", "false").lower() == "true":
-            return None, "Google TTS is disabled"
+        # 🔥 NOTE: DISABLE_GOOGLE applies to old Google Cloud STT, NOT Gemini!
+        # Gemini TTS/LLM is separate and controlled by GEMINI_API_KEY availability
         
         # 🔐 CRITICAL: Use ONLY GEMINI_API_KEY
         gemini_api_key = os.getenv('GEMINI_API_KEY')
