@@ -5,16 +5,16 @@ import {
   Bot, 
   Phone, 
   MessageSquare, 
+  MessageCircle,
   Save, 
   RefreshCw,
   AlertCircle,
-  History,
-  Sparkles
+  History
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useAuth } from '../../features/auth/hooks';
-import { SmartPromptGeneratorV2 } from '../../components/settings/SmartPromptGeneratorV2';
+import { PromptBuilderChat } from '../../components/settings/PromptBuilderChat';
 
 interface PromptData {
   calls_prompt: string;
@@ -57,7 +57,7 @@ export function AgentPromptsPage() {
   const [revisions, setRevisions] = useState<PromptRevision[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [businessName, setBusinessName] = useState<string>('');
-  const [showSmartGenerator, setShowSmartGenerator] = useState(false);
+  const [showChatBuilder, setShowChatBuilder] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
 
   // Load prompts and business info
@@ -217,12 +217,12 @@ export function AgentPromptsPage() {
             <button
               onClick={() => {
                 setSmartGenChannel('calls');
-                setShowSmartGenerator(true);
+                setShowChatBuilder(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 rounded-lg transition-all shadow-md hover:shadow-lg"
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 rounded-lg transition-all shadow-md hover:shadow-lg"
             >
-              <Sparkles className="h-4 w-4" />
-              <span className="font-medium">מחולל פרומפטים חכם</span>
+              <MessageCircle className="h-4 w-4" />
+              <span className="font-medium">מחולל פרומפטים</span>
             </button>
             
             <button
@@ -438,10 +438,10 @@ export function AgentPromptsPage() {
         </div>
       )}
       
-      {/* Smart Prompt Generator v2 Modal */}
-      <SmartPromptGeneratorV2
-        isOpen={showSmartGenerator}
-        onClose={() => setShowSmartGenerator(false)}
+      {/* Prompt Builder Chat Modal */}
+      <PromptBuilderChat
+        isOpen={showChatBuilder}
+        onClose={() => setShowChatBuilder(false)}
         onSave={handleSmartGeneratorSave}
         initialChannel={smartGenChannel}
       />
