@@ -1,7 +1,44 @@
 """
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
-🚫 Google STT/TTS DISABLED for production stability
+
+🔥 CRITICAL: AI Provider Selection (NO FALLBACK, NO DUPLICATION)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔶 OpenAI Provider (ai_provider='openai'):
+   - STT: OpenAI Realtime API (gpt-4o-transcribe) - built-in, NO Whisper
+   - LLM: OpenAI GPT-4o via Realtime API
+   - TTS: OpenAI voices via Realtime API
+   - Pipeline: Bidirectional real-time streaming
+   - NO batch processing, NO Whisper, NO duplication
+
+🔷 Gemini Provider (ai_provider='gemini'):
+   - STT: Google Cloud Speech-to-Text API (google.cloud.speech)
+         Requires: GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+         NOT Gemini STT API - they are separate services!
+   - LLM: Google Gemini API (gemini-2.0-flash-exp)
+         Requires: GEMINI_API_KEY
+   - TTS: Google Gemini Native Speech
+         Requires: GEMINI_API_KEY
+   - Pipeline: Batch processing (STT → LLM → TTS)
+   - NO Whisper, NO duplication
+
+🚫 NO FALLBACK BETWEEN PROVIDERS:
+   - If ai_provider='openai' → ONLY OpenAI (no Gemini fallback)
+   - If ai_provider='gemini' → ONLY Gemini (no OpenAI fallback)
+   - Missing keys = Clear error, call fails immediately
+   
+🚫 NO TRANSCRIPTION DUPLICATION:
+   - OpenAI: Uses Realtime API only (no batch STT)
+   - Gemini: Uses Google Cloud STT only (no Whisper)
+   - Each provider has ONE transcription path
+
+📋 Key Configuration:
+   - OpenAI: OPENAI_API_KEY
+   - Gemini LLM/TTS: GEMINI_API_KEY
+   - Gemini STT: GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS
+   
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata
 import builtins
@@ -11552,6 +11589,9 @@ class MediaStreamHandler:
     def _hebrew_stt_wrapper(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
         """
         🎯 Smart wrapper: streaming (collects from dispatcher) → fallback to single-request
+        
+        NOTE: This fallback is INTERNAL (streaming → batch within same provider).
+        NOT a provider fallback (Gemini ↔ OpenAI). Provider selection is immutable.
         """
         session = _get_session(self.call_sid) if self.call_sid else None
         
@@ -11569,76 +11609,91 @@ class MediaStreamHandler:
             utt_duration = time.time() - utt_start
             logger.info(f"⏱️ [STT_STREAM] _utterance_end took {utt_duration:.3f}s, result: '{result[:50] if result else '(empty)'}'")
             
-            # ✅ FIX: Fallback on empty results
+            # ✅ INTERNAL FALLBACK: Streaming → batch (SAME provider)
             if not result or not result.strip():
-                logger.warning("⚠️ [STT] Streaming returned empty → fallback to single")
+                logger.warning("⚠️ [STT] Streaming returned empty → fallback to batch (same provider)")
                 fallback_start = time.time()
                 fallback_result = self._hebrew_stt(pcm16_8k)
                 fallback_duration = time.time() - fallback_start
-                logger.info(f"⏱️ [STT_FALLBACK] Single-request took {fallback_duration:.3f}s, result: '{fallback_result[:50] if fallback_result else '(empty)'}'")
+                logger.info(f"⏱️ [STT_FALLBACK] Batch request took {fallback_duration:.3f}s, result: '{fallback_result[:50] if fallback_result else '(empty)'}'")
                 return fallback_result
                 
             return result
             
         except Exception as e:
-            # Fallback to single-request on exception
-            logger.error(f"⚠️ [STT] Streaming failed → fallback to single. err={e}")
+            # INTERNAL FALLBACK: Streaming → batch (SAME provider)
+            logger.error(f"⚠️ [STT] Streaming failed → fallback to batch (same provider). err={e}")
             import traceback
             traceback.print_exc()
             return self._hebrew_stt(pcm16_8k)
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """
-        🔥 STT Routing based on ai_provider:
-        - OpenAI provider: Use Whisper (OpenAI STT)
-        - Gemini provider: Use Google STT (Google Cloud Speech-to-Text)
+        🔥 STT Routing based on ai_provider - NO FALLBACK, NO DUPLICATION:
+        - OpenAI provider: NEVER CALLED - Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
+        - Gemini provider: Uses Google Cloud Speech-to-Text (NOT Gemini STT API)
         
-        This is the single source of truth for STT provider selection.
+        This function is ONLY used for Gemini pipeline (when USE_REALTIME_API=False).
+        OpenAI always uses Realtime API which handles STT internally.
+        
+        🚫 NO FALLBACK: If provider is misconfigured or keys missing, FAIL with clear error.
         """
-        # 🚀 REALTIME API: Skip all STT - use gpt-4o-transcribe via Realtime API
+        # 🚀 CRITICAL: OpenAI NEVER uses this function - it uses Realtime API
+        # This check prevents duplication if somehow called for OpenAI
         if USE_REALTIME_API:
+            logger.warning("⚠️ _hebrew_stt called with USE_REALTIME_API=True - this should not happen!")
             return ""
         
+        # Get ai_provider from handler instance
+        ai_provider = getattr(self, '_ai_provider', 'openai')
+        
+        # 🚫 CRITICAL: OpenAI should NEVER reach here - only Gemini uses this path
+        if ai_provider == 'openai':
+            logger.error("❌ [STT_ERROR] OpenAI provider reached batch STT - this is a bug! OpenAI should use Realtime API only.")
+            raise Exception("OpenAI should use Realtime API for STT, not batch processing")
+        
+        # 🔷 From this point, we're ONLY handling Gemini provider
+        if ai_provider != 'gemini':
+            logger.error(f"❌ [STT_ERROR] Unknown provider '{ai_provider}' - only 'openai' and 'gemini' are supported")
+            raise Exception(f"Unknown ai_provider: {ai_provider}")
+        
         try:
-            # ✅ FIXED: בדיקת איכות אודיו מתקדמת - מניעת עיבוד של רעש/שקט
+            # ✅ בדיקת איכות אודיו - מניעת עיבוד של רעש/שקט
             import audioop
             max_amplitude = audioop.max(pcm16_8k, 2)
             rms = audioop.rms(pcm16_8k, 2)
             duration = len(pcm16_8k) / (2 * 8000)
             if DEBUG: logger.debug(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # 🔥 BUILD 164B: BALANCED NOISE GATE - Filter noise, allow quiet speech
+            # 🔥 BALANCED NOISE GATE - Filter noise, allow quiet speech
             
-            # 1. Basic amplitude check - balanced threshold
-            if max_amplitude < 100:  # Back to reasonable threshold for quiet speech
+            # 1. Basic amplitude check
+            if max_amplitude < 100:
                 logger.info(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 100)")
                 return ""
             
-            # 2. RMS energy check - balanced (typical speech is 180-500)
-            if rms < 80:  # Allow soft speech while filtering pure noise
+            # 2. RMS energy check
+            if rms < 80:
                 logger.info(f"🚫 STT_BLOCKED: Audio below noise threshold (rms={rms} < 80)")
                 return ""
             
-            # 3. Duration check - slightly longer minimum
-            if duration < 0.18:  # 180ms minimum for meaningful audio
+            # 3. Duration check
+            if duration < 0.18:
                 logger.info(f"🚫 STT_BLOCKED: Audio too short ({duration:.2f}s < 0.18s)")
                 return ""
             
-            # 4. 🔥 BUILD 164B: BALANCED noise detection with variance/ZCR
+            # 4. Variance/ZCR noise detection
             try:
                 import numpy as np
                 pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
                 energy_variance = np.var(pcm_array.astype(np.float32))
                 zero_crossings = np.sum(np.diff(np.sign(pcm_array)) != 0) / len(pcm_array)
                 
-                # Block pure silence and monotonic sounds (DTMF tones, carrier noise)
-                # But allow normal speech variance (200k+)
-                if energy_variance < 200000:  # Back to balanced threshold
+                if energy_variance < 200000:
                     logger.info(f"🚫 STT_BLOCKED: Low energy variance - likely noise (variance={energy_variance:.0f})")
                     return ""
                 
-                # Block DTMF tones (very low ZCR) but allow speech
-                if zero_crossings < 0.01 or zero_crossings > 0.3:  # Relaxed range
+                if zero_crossings < 0.01 or zero_crossings > 0.3:
                     logger.info(f"🚫 STT_BLOCKED: Abnormal ZCR - likely noise/tone (zcr={zero_crossings:.3f})")
                     return ""
                 
@@ -11648,29 +11703,25 @@ class MediaStreamHandler:
                 logger.warning("⚠️ numpy not available - skipping advanced audio validation")
             except Exception as numpy_error:
                 logger.error(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
-                # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
             
-            # 🔥 NEW REQUIREMENT: Route STT based on ai_provider
-            # Get ai_provider from handler instance
-            ai_provider = getattr(self, '_ai_provider', 'openai')
+            # 🔷 GEMINI: Use Google Cloud Speech-to-Text (NOT Gemini STT API)
+            logger.info(f"[STT_ROUTING] provider=gemini -> google_cloud_stt (Google Cloud Speech-to-Text API)")
             
-            if ai_provider == 'gemini':
-                # 🔷 GEMINI: Use Google STT (Google Cloud Speech-to-Text)
-                logger.info(f"[STT_ROUTING] provider=gemini -> google_stt")
-                
-                # Check if Google API key is available
-                from server.utils.gemini_key_provider import get_gemini_api_key
-                gemini_api_key = get_gemini_api_key()
-                if not gemini_api_key:
-                    logger.error(f"[CONFIG] missing GEMINI_API_KEY for Google STT - cannot proceed")
-                    raise Exception("Google STT unavailable - GEMINI_API_KEY not configured")
-                
-                # Use Google STT for Gemini provider
-                return self._google_stt_batch(pcm16_8k)
-            else:
-                # 🔶 OPENAI: Use Whisper (OpenAI STT)
-                logger.info(f"[STT_ROUTING] provider=openai -> whisper")
-                return self._whisper_fallback(pcm16_8k)
+            # 🚫 NO FALLBACK: Check if Google Cloud credentials are available
+            # Note: GEMINI_API_KEY is for Gemini LLM/TTS, not for Google STT
+            # Google STT requires GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS
+            import os
+            if not os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') and not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+                error_msg = (
+                    "Google Cloud Speech-to-Text credentials missing. "
+                    "Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS. "
+                    "GEMINI_API_KEY is for Gemini LLM/TTS only, not STT."
+                )
+                logger.error(f"❌ [CONFIG] {error_msg}")
+                raise Exception(error_msg)
+            
+            # Use Google STT for Gemini provider - NO FALLBACK TO WHISPER
+            return self._google_stt_batch(pcm16_8k)
                 
         except Exception as e:
             logger.error(f"❌ STT_ERROR: {e}")
@@ -11815,23 +11866,30 @@ class MediaStreamHandler:
     
     def _google_stt_batch(self, pcm16_8k: bytes) -> str:
         """
-        🔷 GEMINI: Batch STT using Google Cloud Speech-to-Text
+        🔷 GEMINI PROVIDER: Batch STT using Google Cloud Speech-to-Text API
+        
+        🚫 IMPORTANT: This uses Google Cloud Speech-to-Text (google.cloud.speech),
+        NOT Gemini's STT API. They are different services:
+        - Google Cloud Speech-to-Text: Uses GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+        - Gemini API: Uses GEMINI_API_KEY (for LLM and TTS only)
         
         This is used when ai_provider='gemini' for transcription.
-        Uses Google Cloud Speech API for Hebrew transcription.
         
         Args:
             pcm16_8k: PCM16 audio at 8kHz
             
         Returns:
             Transcribed Hebrew text or empty string
+            
+        Raises:
+            Exception: If Google Cloud credentials are not configured
         """
         try:
             from google.cloud import speech
             import tempfile
             import wave
             
-            logger.info(f"🔷 [GOOGLE_STT] Processing {len(pcm16_8k)} bytes with Google Cloud STT")
+            logger.info(f"🔷 [GOOGLE_STT] Processing {len(pcm16_8k)} bytes with Google Cloud Speech-to-Text API")
             
             # Convert 8kHz to 16kHz (Google STT works better with 16kHz)
             import audioop
@@ -11846,6 +11904,8 @@ class MediaStreamHandler:
                 wav_file.writeframes(pcm16_16k)
             
             # Initialize Google Speech client
+            # 🔥 CRITICAL: Google Cloud Speech-to-Text requires service account credentials
+            # Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON environment variable
             try:
                 import json
                 import os
@@ -11853,22 +11913,27 @@ class MediaStreamHandler:
                 if sa_json:
                     credentials_info = json.loads(sa_json)
                     client = speech.SpeechClient.from_service_account_info(credentials_info)
-                    logger.info("✅ Google STT client initialized (service account)")
+                    logger.info("✅ [GOOGLE_STT] Client initialized with service account JSON")
+                elif os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+                    # Fallback to application default credentials
+                    client = speech.SpeechClient()
+                    logger.info("✅ [GOOGLE_STT] Client initialized with GOOGLE_APPLICATION_CREDENTIALS")
                 else:
-                    # Try using GEMINI_API_KEY if available
-                    from server.utils.gemini_key_provider import get_gemini_api_key
-                    gemini_api_key = get_gemini_api_key()
-                    if gemini_api_key:
-                        # Note: This uses default credentials
-                        # In production, ensure GOOGLE_APPLICATION_CREDENTIALS is set
-                        client = speech.SpeechClient()
-                        logger.info("✅ Google STT client initialized (default credentials)")
-                    else:
-                        logger.error("[CONFIG] missing GEMINI_API_KEY/GOOGLE_APPLICATION_CREDENTIALS for Google STT")
-                        return ""
+                    # 🚫 NO FALLBACK: Fail clearly if credentials missing
+                    error_msg = (
+                        "Google Cloud Speech-to-Text credentials not configured. "
+                        "Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS environment variable. "
+                        "Note: GEMINI_API_KEY is for Gemini LLM/TTS only, not for Google STT."
+                    )
+                    logger.error(f"❌ [GOOGLE_STT] {error_msg}")
+                    raise Exception(error_msg)
+            except json.JSONDecodeError as json_err:
+                error_msg = f"Invalid JSON in GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON: {json_err}"
+                logger.error(f"❌ [GOOGLE_STT] {error_msg}")
+                raise Exception(error_msg)
             except Exception as client_err:
-                logger.error(f"❌ Failed to initialize Google STT client: {client_err}")
-                return ""
+                logger.error(f"❌ [GOOGLE_STT] Failed to initialize client: {client_err}")
+                raise
             
             # Read audio file
             with open(temp_wav.name, 'rb') as audio_file:
@@ -11920,9 +11985,17 @@ class MediaStreamHandler:
             return ""
     
     def _whisper_fallback(self, pcm16_8k: bytes) -> str:
-        """🔥 BUILD 164: REDIRECT to validated version for all Whisper calls"""
-        # Always use the validated version with aggressive noise filtering
-        return self._whisper_fallback_validated(pcm16_8k)
+        """
+        🔥 DEPRECATED: This should NEVER be called!
+        
+        - OpenAI: Uses Realtime API (not Whisper)
+        - Gemini: Uses Google STT (not Whisper)
+        
+        If this is called, it's a bug in the routing logic.
+        """
+        logger.error("❌ [BUG] _whisper_fallback called - this should never happen with current routing!")
+        logger.error("❌ OpenAI should use Realtime API, Gemini should use Google STT")
+        raise Exception("Whisper fallback called incorrectly - check STT routing logic")
     
     def _load_business_prompts(self, channel: str = 'calls') -> str:
         """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
