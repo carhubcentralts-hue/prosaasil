@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Plus, Edit, Trash2, Link2, Bell } from 'lucide-react';
+import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Plus, Edit, Trash2, Link2, Bell, Bot } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { queryClient, apiRequest } from '@/lib/queryClient';
