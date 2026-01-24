@@ -10243,7 +10243,7 @@ class MediaStreamHandler:
                     # Gemini uses batch Whisper STT, not streaming
                     # This code block is kept for historical reasons only
                     use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
-                    elif not use_realtime_for_this_call and self.call_sid and pcm16 and not is_noise:
+                    if not use_realtime_for_this_call and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
                         if session:
                             session.push_audio(pcm16)
