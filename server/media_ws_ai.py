@@ -16388,8 +16388,8 @@ class MediaStreamHandler:
                         f"frames_dropped_total={frames_dropped_total}, "
                         f"accounting_error={accounting_error}"
                     )
-                    logger.info(f"   ⚠️ Gemini pipeline: Resetting counters for next call")
-                    # Reset counters for alignment (don't close session)
+                    logger.info(f"   ⚠️ Gemini pipeline: Accounting mismatch is non-critical, continuing call")
+                    # Don't trigger session close for Gemini - counters will reset on next call
                 else:
                     # For OpenAI Realtime, keep existing error behavior
                     logger.error(
