@@ -20,6 +20,7 @@ import os
 import json
 from datetime import datetime
 import re
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,11 @@ smart_prompt_bp = Blueprint('smart_prompt', __name__)
 # Maximum input lengths for security
 MAX_FIELD_LENGTH = 500
 MAX_TOTAL_INPUT = 4000
+
+# OpenAI generation settings
+MAX_RETRIES = 2  # 1 initial attempt + 1 retry
+RETRY_DELAY = 0.5  # seconds
+OPENAI_TIMEOUT = 12.0  # seconds
 
 # Output template sections - MUST appear in this exact order
 REQUIRED_SECTIONS = [
@@ -58,6 +64,15 @@ GENERATOR_SYSTEM_PROMPT = """אתה מחולל SYSTEM PROMPTS לסוכני AI ק
 - שאלות – אחת בכל פעם
 - סוכן חייב לדעת מתי לעצור
 
+חוקים קריטיים - חובה:
+- אסור לך לבקש מידע חסר או להחזיר הודעה שחסרים פרטים
+- אסור לכתוב "חסרות שאלות" או "צריך עוד פרטים" או דומה
+- אם חסר מידע - תייצר פרומפט מושלם לפי מה שיש
+- השתמש ב-placeholders הגיוניים במקום מידע חסר (לדוגמה: {{BUSINESS_NAME}}, {{HOURS}})
+- אם שעות לא ידועות - כתוב "שעות פעילות: {{HOURS}} (או 'לא צוין')"
+- אם שירותים לא ידועים - כתוב "שירותים: {{SERVICES}}"
+- תמיד תייצר פרומפט שלם ושמיש, ללא חריגים
+
 הפרומפט חייב לכלול את הסעיפים הבאים בלבד,
 ובדיוק בסדר הזה:
 
@@ -68,7 +83,7 @@ GENERATOR_SYSTEM_PROMPT = """אתה מחולל SYSTEM PROMPTS לסוכני AI ק
 5. תנאי עצירה / העברה לנציג אנושי
 6. מגבלות ואיסורים
 
-אם חסר מידע – השלם בצורה סבירה,
+אם חסר מידע – השלם בצורה סבירה עם placeholders,
 אבל אל תמציא הבטחות, מחירים או התחייבויות.
 
 החזר את התשובה בפורמט הבא בדיוק:
@@ -198,13 +213,16 @@ def _validate_prompt_structure(prompt_text: str) -> tuple[bool, str]:
 
 
 def _generate_with_openai(questionnaire: dict, provider_config: dict) -> dict:
-    """Generate prompt using OpenAI"""
+    """Generate prompt using OpenAI with timeout and retry"""
     from openai import OpenAI
     
     api_key = provider_config.get('api_key') or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not configured")
+    
     model = provider_config.get('model', 'gpt-4o-mini')
     
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=OPENAI_TIMEOUT)
     
     # Build user prompt from questionnaire
     user_prompt = f"""צור SYSTEM PROMPT לסוכן AI על בסיס המידע הבא:
@@ -222,21 +240,35 @@ def _generate_with_openai(questionnaire: dict, provider_config: dict) -> dict:
 אינטגרציות: {', '.join(questionnaire.get('integrations', [])) or 'אין'}
 """
     
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": GENERATOR_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt}
-        ],
-        max_tokens=2500,
-        temperature=0.5
-    )
-    
-    return {
-        "prompt_text": response.choices[0].message.content.strip(),
-        "provider": "openai",
-        "model": model
-    }
+    # Retry logic
+    for attempt in range(MAX_RETRIES):
+        try:
+            start_time = time.time()
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": GENERATOR_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=2500,
+                temperature=0.5
+            )
+            duration = time.time() - start_time
+            logger.info(f"OpenAI prompt generation completed in {duration:.2f}s (attempt {attempt + 1})")
+            
+            return {
+                "prompt_text": response.choices[0].message.content.strip(),
+                "provider": "openai",
+                "model": model
+            }
+        except Exception as e:
+            is_last_attempt = (attempt == MAX_RETRIES - 1)
+            if is_last_attempt:
+                logger.error(f"OpenAI call failed after {MAX_RETRIES} attempts: {str(e)}")
+                raise
+            else:
+                logger.warning(f"OpenAI call failed (attempt {attempt + 1}), retrying: {str(e)}")
+                time.sleep(RETRY_DELAY)
 
 
 def _generate_with_gemini(questionnaire: dict, provider_config: dict) -> dict:
@@ -397,8 +429,11 @@ def generate_smart_prompt():
     """
     Generate a structured system prompt from questionnaire
     
-    Input: Structured questionnaire object + provider selection
-    Output: Structured prompt following rigid template + validation results
+    ✅ ALWAYS uses OpenAI (not related to business ai_provider)
+    ✅ ALWAYS returns a prompt (best-effort) - never fails on quality
+    
+    Input: Structured questionnaire object
+    Output: Structured prompt following rigid template + quality info (not blocking)
     """
     try:
         data = request.get_json()
@@ -406,8 +441,8 @@ def generate_smart_prompt():
             return jsonify({"error": "נדרשים נתונים"}), 400
         
         questionnaire = data.get('questionnaire', {})
-        provider = data.get('provider', 'openai')  # 'openai' or 'gemini'
-        provider_config = data.get('provider_config', {})
+        # REMOVED: provider selection - always use OpenAI
+        # REMOVED: provider_config - not needed, use env var
         
         # Validate required fields
         if not questionnaire.get('business_name'):
@@ -418,6 +453,14 @@ def generate_smart_prompt():
             return jsonify({"error": "מטרה עיקרית היא שדה חובה"}), 400
         if not questionnaire.get('conversation_style'):
             return jsonify({"error": "סגנון שיחה הוא שדה חובה"}), 400
+        
+        # Check if OpenAI API key is available
+        if not os.getenv("OPENAI_API_KEY"):
+            logger.error("OPENAI_API_KEY not configured for smart prompt generator")
+            return jsonify({
+                "error": "מחולל הפרומפטים הזמין דורש הגדרת OpenAI API Key",
+                "details": "OPENAI_API_KEY environment variable is not set"
+            }), 503
         
         # Sanitize all text inputs
         sanitized = {}
@@ -435,45 +478,54 @@ def generate_smart_prompt():
         if total_size > MAX_TOTAL_INPUT:
             return jsonify({"error": f"סך הקלט ארוך מדי (מקסימום {MAX_TOTAL_INPUT} תווים)"}), 400
         
-        # Generate prompt using selected provider
-        logger.info(f"Generating smart prompt with {provider} for business: {sanitized.get('business_name')}")
+        # Generate prompt - ALWAYS with OpenAI
+        logger.info(f"Generating smart prompt with openai for business: {sanitized.get('business_name')}")
         
         try:
-            if provider == 'gemini':
-                result = _generate_with_gemini(sanitized, provider_config)
-            else:  # default to openai
-                result = _generate_with_openai(sanitized, provider_config)
+            # ALWAYS use OpenAI - no provider selection
+            result = _generate_with_openai(sanitized, {})
             
             prompt_text = result['prompt_text']
             
-            # Quality Gate - validate structure
+            # Quality Check - BUT DON'T FAIL, only warn
             is_valid, validation_error = _validate_prompt_structure(prompt_text)
             
             if not is_valid:
-                logger.warning(f"Generated prompt failed quality gate: {validation_error}")
-                return jsonify({
-                    "error": "הפרומפט שנוצר לא עמד בבדיקת איכות",
-                    "validation_error": validation_error,
-                    "suggestion": "נסה שוב או שנה את התשובות בשאלון"
-                }), 422
+                # Log as warning, not error - still return the prompt
+                logger.warning(f"Generated prompt has quality issues (returning anyway): {validation_error}")
             
             logger.info(f"Smart prompt generated successfully ({len(prompt_text)} chars) using {result['provider']}")
             
-            return jsonify({
+            # ALWAYS return 200 with the prompt
+            response_data = {
                 "success": True,
                 "prompt_text": prompt_text,
                 "provider": result['provider'],
                 "model": result['model'],
                 "length": len(prompt_text),
                 "validation": {
-                    "passed": True,
+                    "passed": is_valid,
                     "sections_found": REQUIRED_SECTIONS
                 }
-            })
+            }
             
+            # Add quality warning if validation failed (but still return prompt)
+            if not is_valid:
+                response_data["quality_warning"] = validation_error
+                response_data["note"] = "הפרומפט נוצר בהצלחה - ייתכנו שיפורים אפשריים"
+            
+            return jsonify(response_data), 200
+            
+        except ValueError as ve:
+            # This catches the "OPENAI_API_KEY not configured" error
+            logger.exception(f"Configuration error in smart prompt generator")
+            return jsonify({
+                "error": "שגיאת הגדרה",
+                "details": str(ve)
+            }), 503
         except Exception as gen_error:
-            logger.exception(f"Error generating prompt with {provider}")
-            return jsonify({"error": f"שגיאה ביצירת הפרומפט עם {provider}"}), 500
+            logger.exception(f"Error generating prompt with OpenAI")
+            return jsonify({"error": f"שגיאה ביצירת הפרומפט"}), 500
         
     except Exception as e:
         logger.exception("Error in smart prompt generator")
@@ -607,35 +659,25 @@ def save_smart_prompt():
 def get_available_providers():
     """
     Get list of available AI providers for prompt generation
+    
+    ✅ NOTE: Smart Prompt Generator ALWAYS uses OpenAI only
+    This endpoint is kept for UI compatibility but returns only OpenAI
     """
+    # Only return OpenAI - Gemini is not used for smart prompt generation
     providers = [
         {
             "id": "openai",
             "name": "OpenAI",
             "default": True,
-            "models": ["gpt-4o", "gpt-4o-mini"],
-            "description": "מערכת ברירת המחדל - אמינה ומהירה"
-        },
-        {
-            "id": "gemini",
-            "name": "Google Gemini",
-            "default": False,
-            "models": ["gemini-pro", "gemini-1.5-pro"],
-            "description": "חלופה של גוגל - תומכת בעברית"
+            "models": ["gpt-4o-mini", "gpt-4o"],
+            "description": "מערכת ברירת המחדל - אמינה ומהירה",
+            "available": bool(os.getenv("OPENAI_API_KEY")),
+            "note": "מחולל הפרומפטים החכם משתמש רק ב-OpenAI"
         }
     ]
     
-    # Check which providers have API keys configured
-    has_openai = bool(os.getenv("OPENAI_API_KEY"))
-    has_gemini = bool(os.getenv("GEMINI_API_KEY"))
-    
-    for provider in providers:
-        if provider['id'] == 'openai':
-            provider['available'] = has_openai
-        elif provider['id'] == 'gemini':
-            provider['available'] = has_gemini
-    
     return jsonify({
         "providers": providers,
-        "default_provider": "openai"
+        "default_provider": "openai",
+        "note": "Smart Prompt Generator uses OpenAI exclusively"
     })
