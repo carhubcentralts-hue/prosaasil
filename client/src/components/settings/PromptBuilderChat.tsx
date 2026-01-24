@@ -32,7 +32,7 @@ interface Message {
 interface PromptBuilderChatProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (promptText: string, channel: 'calls' | 'whatsapp') => void;
+  onSave: (promptText: string, channel: 'calls' | 'whatsapp', metadata?: any) => void;
   initialChannel?: 'calls' | 'whatsapp';
 }
 
@@ -167,7 +167,10 @@ export function PromptBuilderChat({
   };
 
   const handleSave = () => {
-    onSave(generatedPrompt, selectedChannel);
+    onSave(generatedPrompt, selectedChannel, {
+      source: 'chat',
+      summary: promptSummary
+    });
     handleClose();
   };
 
