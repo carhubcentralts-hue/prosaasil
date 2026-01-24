@@ -9,7 +9,7 @@ Supports voice synthesis for prompt testing with provider abstraction
 
 🔥 IMPORTANT:
 - OpenAI voices: Use existing config from server/config/voices.py (DO NOT DUPLICATE)
-- Gemini voices: Use API discovery from gemini_voice_catalog.py
+- Gemini voices: Use voice_catalog.py for available voices (NOT gemini_voice_catalog.py)
 """
 import os
 import logging
@@ -51,14 +51,14 @@ def _get_openai_voices() -> List[Dict[str, Any]]:
 
 def _get_gemini_voices() -> List[Dict[str, Any]]:
     """
-    Get Gemini voices from discovery catalog.
-    Uses server/services/gemini_voice_catalog.py with API discovery.
+    Get Gemini voices from voice_catalog.
+    Uses server/config/voice_catalog.py as single source of truth.
     """
     try:
-        from server.services.gemini_voice_catalog import get_cached_voices
-        return get_cached_voices()
+        from server.config.voice_catalog import GEMINI_VOICES
+        return GEMINI_VOICES
     except ImportError:
-        logger.warning("Could not import gemini_voice_catalog")
+        logger.warning("Could not import GEMINI_VOICES from voice_catalog")
         return []
 
 
