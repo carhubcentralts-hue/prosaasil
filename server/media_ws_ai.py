@@ -3645,39 +3645,43 @@ class MediaStreamHandler:
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             
-            # 🎯 VOICE LIBRARY: Load voice from business settings (per-business voice selection)
-            # Get voice_id from business via CallContext (cached, no DB query)
-            # Fallback chain: business.voice_id -> DEFAULT_VOICE
+            # 🎯 VOICE LIBRARY: Use pre-determined voice from call setup
+            # Voice was already loaded and validated in the START event handler
+            # based on ai_provider setting
             
-            # Try to get voice from cached call context first (avoids DB query)
-            call_voice = DEFAULT_VOICE  # Default fallback
-            if self.call_ctx_loaded and self.call_ctx:
-                call_voice = getattr(self.call_ctx, 'business_voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
-                logger.info(f"🎤 [VOICE_LIBRARY] Using cached voice from CallContext: {call_voice}")
+            # Try to get pre-determined voice first (set during business validation)
+            call_voice = getattr(self, '_voice_name', None)
+            if call_voice:
+                logger.info(f"🎤 [VOICE_LIBRARY] Using pre-determined voice: {call_voice}")
             else:
-                # Fallback: Load business from DB if cache not available
-                try:
-                    from server.models_sql import Business
-                    business = Business.query.get(business_id_safe)
-                    if business:
-                        business_voice = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
-                        # Validate voice is in allowed list
-                        if business_voice in OPENAI_VOICES:
-                            call_voice = business_voice
-                        else:
-                            logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice db_value={business_voice} fallback={DEFAULT_VOICE}")
-                            call_voice = DEFAULT_VOICE
-                        logger.info(f"🎤 [VOICE_LIBRARY] Loaded voice from DB: {call_voice}")
-                except Exception as e:
-                    logger.warning(f"[VOICE_LIBRARY] Failed to load voice from DB: {e}, using default: {DEFAULT_VOICE}")
+                # Fallback: Try to get voice from cached call context
+                if self.call_ctx_loaded and self.call_ctx:
+                    call_voice = getattr(self.call_ctx, 'business_voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+                    logger.info(f"🎤 [VOICE_LIBRARY] Using cached voice from CallContext: {call_voice}")
+                else:
+                    # Last resort: Load from DB (should not happen if START handler worked correctly)
+                    try:
+                        from server.models_sql import Business
+                        business = Business.query.get(business_id_safe)
+                        if business:
+                            business_voice = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
+                            # Validate voice is in allowed list
+                            if business_voice in OPENAI_VOICES:
+                                call_voice = business_voice
+                            else:
+                                logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice db_value={business_voice} fallback={DEFAULT_VOICE}")
+                                call_voice = DEFAULT_VOICE
+                            logger.info(f"🎤 [VOICE_LIBRARY] Loaded voice from DB: {call_voice}")
+                    except Exception as e:
+                        logger.warning(f"[VOICE_LIBRARY] Failed to load voice from DB: {e}, using default: {DEFAULT_VOICE}")
+                        call_voice = DEFAULT_VOICE
+                
+                # Validate voice is in allowed list (final safety check)
+                # 🔥 CRITICAL: Only use Realtime-supported voices to prevent session.update timeouts
+                if call_voice not in REALTIME_VOICES:
+                    logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} fallback={DEFAULT_VOICE} (not in REALTIME_VOICES)")
+                    _orig_print(f"⚠️ [VOICE_VALIDATION] Rejecting unsupported voice '{call_voice}' -> fallback to '{DEFAULT_VOICE}'")
                     call_voice = DEFAULT_VOICE
-            
-            # Validate voice is in allowed list (final safety check)
-            # 🔥 CRITICAL: Only use Realtime-supported voices to prevent session.update timeouts
-            if call_voice not in REALTIME_VOICES:
-                logger.warning(f"[AI][VOICE_FALLBACK] invalid_voice value={call_voice} fallback={DEFAULT_VOICE} (not in REALTIME_VOICES)")
-                _orig_print(f"⚠️ [VOICE_VALIDATION] Rejecting unsupported voice '{call_voice}' -> fallback to '{DEFAULT_VOICE}'")
-                call_voice = DEFAULT_VOICE
             
             self._call_voice = call_voice  # Store for session.update reuse
             logger.info(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
@@ -9713,6 +9717,52 @@ class MediaStreamHandler:
                             logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
                             _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
                             
+                            # 🔥 CRITICAL: Load ai_provider and voice BEFORE starting any AI service
+                            # This determines which pipeline to use: OpenAI Realtime OR Gemini (STT→LLM→TTS)
+                            from server.models_sql import Business
+                            from server.config.voice_catalog import is_valid_voice, default_voice
+                            
+                            business = Business.query.get(business_id_safe)
+                            if not business:
+                                logger.error(f"❌ CRITICAL: Business {business_id_safe} not found in DB!")
+                                raise ValueError(f"Business {business_id_safe} not found")
+                            
+                            # Get ai_provider (default to 'openai' if not set)
+                            ai_provider = getattr(business, 'ai_provider', 'openai') or 'openai'
+                            
+                            # Get voice_name from business settings
+                            voice_name = getattr(business, 'voice_name', None)
+                            if not voice_name:
+                                # Fallback to legacy fields
+                                voice_name = getattr(business, 'voice_id', None) or getattr(business, 'tts_voice_id', None)
+                            
+                            # Validate voice matches provider, use default if invalid
+                            if not voice_name or not is_valid_voice(voice_name, ai_provider):
+                                default = default_voice(ai_provider)
+                                if voice_name:
+                                    logger.warning(f"[VOICE_VALIDATION] Invalid voice '{voice_name}' for provider '{ai_provider}' - using default '{default}'")
+                                voice_name = default
+                            
+                            # Store provider and voice in instance for later use
+                            self._ai_provider = ai_provider
+                            self._voice_name = voice_name
+                            
+                            # 🔥 MANDATORY ROUTING LOG: This is the single source of truth for call routing
+                            logger.info(f"[CALL_ROUTING] business={business_id_safe} provider={ai_provider} voice={voice_name} direction={call_direction}")
+                            _orig_print(f"🎯 [CALL_ROUTING] provider={ai_provider} voice={voice_name}", flush=True)
+                            
+                            # 🔥 CRITICAL: Decide which pipeline to use based on ai_provider
+                            # - OpenAI: Use Realtime API (bidirectional audio streaming)
+                            # - Gemini: Use STT → LLM → TTS pipeline (no Realtime)
+                            use_realtime_for_this_call = (ai_provider == 'openai')
+                            self._use_realtime_for_call = use_realtime_for_this_call
+                            
+                            if ai_provider == 'gemini':
+                                logger.info(f"[GEMINI_PIPELINE] Call will use Gemini: STT (Whisper) → LLM (Gemini) → TTS (Gemini)")
+                                _orig_print(f"🔷 [GEMINI_PIPELINE] starting", flush=True)
+                            else:
+                                logger.info(f"[OPENAI_PIPELINE] Call will use OpenAI Realtime API")
+                            
                             # 🔥 PART D: PRE-BUILD FULL BUSINESS prompt here (while we have app context!)
                             # This eliminates redundant DB query later and enforces prompt separation.
                             try:
@@ -9727,12 +9777,13 @@ class MediaStreamHandler:
                         logger.info(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
-                        # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
-                        # OpenAI connection happens ONLY AFTER business_id is confirmed
-                        logger.debug(f"[REALTIME] About to check if we should start realtime thread...")
-                        logger.debug(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
+                        # 🔥 STEP 2: Now that business is validated, START AI SERVICE BASED ON PROVIDER
+                        # Connection happens ONLY AFTER business_id AND ai_provider are confirmed
+                        use_realtime = getattr(self, '_use_realtime_for_call', True)  # Default to True for safety
+                        logger.debug(f"[CALL_ROUTING] About to check if we should start AI service...")
+                        logger.debug(f"[CALL_ROUTING] ai_provider={getattr(self, '_ai_provider', 'unknown')}, use_realtime={use_realtime}, realtime_thread={getattr(self, 'realtime_thread', None)}")
                         
-                        if USE_REALTIME_API and not self.realtime_thread:
+                        if use_realtime and not self.realtime_thread:
                             logger.debug(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
                             t_realtime_start = time.time()
                             delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
@@ -9763,8 +9814,16 @@ class MediaStreamHandler:
                             else:
                                 logger.warning(f"[REALTIME] Audio out thread already started - skipping duplicate start")
                             logger.debug(f"[REALTIME] Both realtime threads started successfully!")
+                        elif not use_realtime:
+                            # 🔷 GEMINI PIPELINE: Use STT → LLM → TTS (not Realtime API)
+                            logger.info(f"[GEMINI_PIPELINE] Initializing Gemini pipeline for call {self.call_sid}")
+                            _orig_print(f"🔷 [GEMINI_PIPELINE] Not using OpenAI Realtime (provider=gemini)", flush=True)
+                            
+                            # Initialize streaming STT for Gemini pipeline
+                            self._init_streaming_stt()
+                            logger.info("✅ [GEMINI_PIPELINE] Whisper STT initialized for Gemini calls")
                         else:
-                            logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
+                            logger.warning(f"[CALL_ROUTING] AI service thread NOT started! use_realtime={use_realtime}, realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
                             self.bot_speaks_first = True
                         
@@ -9789,10 +9848,8 @@ class MediaStreamHandler:
                         # Stop processing this call
                         return
                     
-                    # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
-                    if not USE_REALTIME_API:
-                        self._init_streaming_stt()
-                        logger.info("✅ Google STT initialized (USE_REALTIME_API=False)")
+                    # ⚡ STREAMING STT: Already initialized above based on ai_provider
+                    # Removed duplicate initialization to prevent issues
                     
                     # 🚀 DEFERRED: Call log creation (recording deferred until FIRST_AUDIO_SENT)
                     def _deferred_call_setup():

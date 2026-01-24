@@ -311,7 +311,7 @@ def invalidate_business_cache(business_id: int):
         logger.error(f"⚠️ Failed to invalidate agent cache: {e}")
 
 class AIService:
-    """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
+    """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI וGemini"""
     
     def __init__(self, business_id: Optional[int] = None):
         """
@@ -330,6 +330,36 @@ class AIService:
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
         self.business_id = business_id  # 🔥 NEW: Store business context for live calls
+        
+        # 🔥 NEW: Gemini client (lazy loaded when needed)
+        self._gemini_client = None
+    
+    def _get_gemini_client(self):
+        """Lazy load Gemini client when needed"""
+        if self._gemini_client is None:
+            try:
+                from google import genai
+                gemini_api_key = os.getenv('GEMINI_API_KEY')
+                if not gemini_api_key:
+                    raise ValueError("GEMINI_API_KEY not configured")
+                self._gemini_client = genai.Client(api_key=gemini_api_key)
+                logger.info("✅ Gemini client initialized")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Gemini client: {e}")
+                raise
+        return self._gemini_client
+    
+    def _get_ai_provider(self, business_id: int) -> str:
+        """Get AI provider for a business (openai or gemini)"""
+        try:
+            business = Business.query.get(business_id)
+            if business:
+                ai_provider = getattr(business, 'ai_provider', 'openai') or 'openai'
+                logger.info(f"[AI_SERVICE] Business {business_id} uses provider: {ai_provider}")
+                return ai_provider
+        except Exception as e:
+            logger.error(f"Failed to get ai_provider for business {business_id}: {e}")
+        return 'openai'  # Default fallback
         
     def get_business_prompt(self, business_id: int, channel: str = "calls") -> Dict[str, Any]:
         """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)
@@ -647,24 +677,76 @@ class AIService:
             # הוספת הודעת המשתמש הנוכחית
             messages.append({"role": "user", "content": message})
             
-            # ⚡ CRITICAL: Measure OpenAI call time
+            # 🔥 NEW: Check which AI provider to use
+            ai_provider = self._get_ai_provider(business_id) if business_id else 'openai'
+            
+            # ⚡ CRITICAL: Measure LLM call time
             import time
-            openai_start = time.time()
+            llm_start = time.time()
             
             # ⚡ BUILD 118: Add explicit timeout to prevent long waits
             try:
-                response = self.client.chat.completions.create(
-                    model=prompt_data["model"],
-                    messages=messages,  # type: ignore
-                    max_tokens=prompt_data["max_tokens"],
-                    temperature=prompt_data["temperature"],
-                    timeout=2.5  # 🔥 REDUCED: 2.5s timeout for real-time conversations (was 3.5s)
-                )
+                if ai_provider == 'gemini':
+                    # Use Gemini for LLM
+                    logger.info(f"[AI_SERVICE] Using Gemini LLM for business {business_id}")
+                    
+                    # Convert messages to Gemini format
+                    # Gemini doesn't support separate system/user/assistant roles in the same way
+                    # We'll combine them into a single prompt
+                    prompt_parts = []
+                    for msg in messages:
+                        role = msg.get('role', 'user')
+                        content = msg.get('content', '')
+                        if role == 'system':
+                            prompt_parts.append(f"System: {content}")
+                        elif role == 'user':
+                            prompt_parts.append(f"User: {content}")
+                        elif role == 'assistant':
+                            prompt_parts.append(f"Assistant: {content}")
+                    
+                    full_prompt = "\n\n".join(prompt_parts)
+                    
+                    # Call Gemini
+                    gemini_client = self._get_gemini_client()
+                    response = gemini_client.models.generate_content(
+                        model="gemini-2.0-flash-exp",
+                        contents=full_prompt
+                    )
+                    
+                    llm_time = time.time() - llm_start
+                    logger.info(f"✅ GEMINI_SUCCESS: {llm_time:.3f}s")
+                    
+                    # Extract text from response with proper validation
+                    if hasattr(response, 'text') and response.text:
+                        ai_response = response.text.strip()
+                    elif hasattr(response, 'candidates') and response.candidates:
+                        # Fallback: Extract from candidates structure
+                        try:
+                            ai_response = response.candidates[0].content.parts[0].text.strip()
+                        except (AttributeError, IndexError) as e:
+                            logger.error(f"Failed to extract text from Gemini candidates: {e}")
+                            ai_response = str(response).strip()
+                    else:
+                        logger.warning("Gemini response has unexpected format")
+                        ai_response = str(response).strip() if response else ""
+                    
+                else:
+                    # Use OpenAI for LLM (default)
+                    logger.info(f"[AI_SERVICE] Using OpenAI LLM for business {business_id}")
+                    
+                    response = self.client.chat.completions.create(
+                        model=prompt_data["model"],
+                        messages=messages,  # type: ignore
+                        max_tokens=prompt_data["max_tokens"],
+                        temperature=prompt_data["temperature"],
+                        timeout=2.5  # 🔥 REDUCED: 2.5s timeout for real-time conversations (was 3.5s)
+                    )
+                    
+                    llm_time = time.time() - llm_start
+                    logger.info(f"✅ OPENAI_SUCCESS: {llm_time:.3f}s")
+                    
+                    ai_response = response.choices[0].message.content
                 
-                openai_time = time.time() - openai_start
-                logger.info(f"✅ OPENAI_SUCCESS: {openai_time:.3f}s")
-                
-                ai_response = response.choices[0].message.content
                 if ai_response:
                     ai_response = ai_response.strip()
                 else:
@@ -672,10 +754,11 @@ class AIService:
                 logger.info(f"AI response generated for business {business_id}: {len(ai_response)} chars")
                 return ai_response
                 
-            except Exception as openai_error:
-                openai_time = time.time() - openai_start
-                error_type = type(openai_error).__name__
-                logger.error(f"🔴 OPENAI_FAILED: {error_type} after {openai_time:.3f}s: {str(openai_error)[:200]}")
+            except Exception as llm_error:
+                llm_time = time.time() - llm_start
+                error_type = type(llm_error).__name__
+                provider_label = "GEMINI" if ai_provider == 'gemini' else "OPENAI"
+                logger.error(f"🔴 {provider_label}_FAILED: {error_type} after {llm_time:.3f}s: {str(llm_error)[:200]}")
                 raise  # Re-raise to outer exception handler
             
         except Exception as e:
