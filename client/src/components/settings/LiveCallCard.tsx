@@ -570,7 +570,7 @@ export function LiveCallCard() {
       
       audio.play().catch(reject);
     });
-  };
+  
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" dir="rtl">
