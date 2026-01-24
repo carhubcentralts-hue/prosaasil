@@ -11588,17 +11588,18 @@ class MediaStreamHandler:
             return self._hebrew_stt(pcm16_8k)
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
-        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
-        OpenAI Realtime API handles ALL transcription via gpt-4o-transcribe.
-        This is kept only for backwards compatibility.
         """
-        # 🚀 REALTIME API: Skip Google STT completely - use gpt-4o-transcribe via Realtime API
+        🔥 STT Routing based on ai_provider:
+        - OpenAI provider: Use Whisper (OpenAI STT)
+        - Gemini provider: Use Google STT (Google Cloud Speech-to-Text)
+        
+        This is the single source of truth for STT provider selection.
+        """
+        # 🚀 REALTIME API: Skip all STT - use gpt-4o-transcribe via Realtime API
         if USE_REALTIME_API:
             return ""
         
         try:
-            logger.info(f"🎵 STT_PROCEED: Processing {len(pcm16_8k)} bytes with Google STT (audio validated)")
-            
             # ✅ FIXED: בדיקת איכות אודיו מתקדמת - מניעת עיבוד של רעש/שקט
             import audioop
             max_amplitude = audioop.max(pcm16_8k, 2)
@@ -11649,14 +11650,27 @@ class MediaStreamHandler:
                 logger.error(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
                 # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
             
-            # 🚫 Google STT is DISABLED - use Whisper only
-            if DISABLE_GOOGLE:
-                logger.info("🚫 Google STT is DISABLED - using Whisper")
-                return self._whisper_fallback(pcm16_8k)
+            # 🔥 NEW REQUIREMENT: Route STT based on ai_provider
+            # Get ai_provider from handler instance
+            ai_provider = getattr(self, '_ai_provider', 'openai')
             
-            # Even if not disabled, warn and use Whisper
-            logger.warning("⚠️ Google STT should not be used - using Whisper fallback")
-            return self._whisper_fallback(pcm16_8k)
+            if ai_provider == 'gemini':
+                # 🔷 GEMINI: Use Google STT (Google Cloud Speech-to-Text)
+                logger.info(f"[STT_ROUTING] provider=gemini -> google_stt")
+                
+                # Check if Google API key is available
+                from server.utils.gemini_key_provider import get_gemini_api_key
+                gemini_api_key = get_gemini_api_key()
+                if not gemini_api_key:
+                    logger.error(f"[CONFIG] missing GEMINI_API_KEY for Google STT - cannot proceed")
+                    raise Exception("Google STT unavailable - GEMINI_API_KEY not configured")
+                
+                # Use Google STT for Gemini provider
+                return self._google_stt_batch(pcm16_8k)
+            else:
+                # 🔶 OPENAI: Use Whisper (OpenAI STT)
+                logger.info(f"[STT_ROUTING] provider=openai -> whisper")
+                return self._whisper_fallback(pcm16_8k)
                 
         except Exception as e:
             logger.error(f"❌ STT_ERROR: {e}")
@@ -11797,6 +11811,112 @@ class MediaStreamHandler:
             
         except Exception as e:
             logger.error(f"❌ WHISPER_VALIDATED_ERROR: {e}")
+            return ""
+    
+    def _google_stt_batch(self, pcm16_8k: bytes) -> str:
+        """
+        🔷 GEMINI: Batch STT using Google Cloud Speech-to-Text
+        
+        This is used when ai_provider='gemini' for transcription.
+        Uses Google Cloud Speech API for Hebrew transcription.
+        
+        Args:
+            pcm16_8k: PCM16 audio at 8kHz
+            
+        Returns:
+            Transcribed Hebrew text or empty string
+        """
+        try:
+            from google.cloud import speech
+            import tempfile
+            import wave
+            
+            logger.info(f"🔷 [GOOGLE_STT] Processing {len(pcm16_8k)} bytes with Google Cloud STT")
+            
+            # Convert 8kHz to 16kHz (Google STT works better with 16kHz)
+            import audioop
+            pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+            
+            # Create temporary WAV file
+            temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            with wave.open(temp_wav.name, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(16000)
+                wav_file.writeframes(pcm16_16k)
+            
+            # Initialize Google Speech client
+            try:
+                import json
+                import os
+                sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+                if sa_json:
+                    credentials_info = json.loads(sa_json)
+                    client = speech.SpeechClient.from_service_account_info(credentials_info)
+                    logger.info("✅ Google STT client initialized (service account)")
+                else:
+                    # Try using GEMINI_API_KEY if available
+                    from server.utils.gemini_key_provider import get_gemini_api_key
+                    gemini_api_key = get_gemini_api_key()
+                    if gemini_api_key:
+                        # Note: This uses default credentials
+                        # In production, ensure GOOGLE_APPLICATION_CREDENTIALS is set
+                        client = speech.SpeechClient()
+                        logger.info("✅ Google STT client initialized (default credentials)")
+                    else:
+                        logger.error("[CONFIG] missing GEMINI_API_KEY/GOOGLE_APPLICATION_CREDENTIALS for Google STT")
+                        return ""
+            except Exception as client_err:
+                logger.error(f"❌ Failed to initialize Google STT client: {client_err}")
+                return ""
+            
+            # Read audio file
+            with open(temp_wav.name, 'rb') as audio_file:
+                audio_content = audio_file.read()
+            
+            # Clean up temp file
+            import os
+            os.unlink(temp_wav.name)
+            
+            # Configure recognition
+            audio = speech.RecognitionAudio(content=audio_content)
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
+                language_code="he-IL",  # Hebrew
+                enable_automatic_punctuation=True,
+                model="default",  # Use default model for Hebrew
+                use_enhanced=True
+            )
+            
+            # Perform recognition
+            response = client.recognize(config=config, audio=audio)
+            
+            # Extract transcript
+            if not response.results:
+                logger.info("🔷 [GOOGLE_STT] No speech detected")
+                return ""
+            
+            # Get best transcript
+            transcript = ""
+            for result in response.results:
+                if result.alternatives:
+                    transcript = result.alternatives[0].transcript.strip()
+                    confidence = result.alternatives[0].confidence if hasattr(result.alternatives[0], 'confidence') else 1.0
+                    logger.info(f"🔷 [GOOGLE_STT] Transcription: '{transcript}' (confidence: {confidence:.2f})")
+                    break
+            
+            if not transcript or len(transcript) < 2:
+                logger.info("🔷 [GOOGLE_STT] Empty/minimal result")
+                return ""
+            
+            logger.info(f"✅ [GOOGLE_STT] Success: '{transcript}'")
+            return transcript
+            
+        except Exception as e:
+            logger.error(f"❌ [GOOGLE_STT] Error: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
     
     def _whisper_fallback(self, pcm16_8k: bytes) -> str:

@@ -227,7 +227,7 @@ export function PromptStudioPage() {
               <button
                 onClick={() => {
                   setSmartGenChannel('calls');
-                  setShowSmartGenerator(true);
+                  setShowChatBuilder(true);
                 }}
                 className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow-lg mx-auto min-h-[48px]"
               >
