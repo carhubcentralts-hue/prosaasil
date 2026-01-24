@@ -116,7 +116,7 @@ def synthesize_openai(
     Args:
         text: The text to convert to speech.
         voice_id: The OpenAI voice ID (e.g., 'alloy', 'echo', 'shimmer').
-                  Invalid voices fall back to default.
+                  Invalid voices fall back to 'alloy'.
         speed: Speaking speed from 0.25 to 4.0 (default 1.0).
     
     Returns:
@@ -128,16 +128,17 @@ def synthesize_openai(
         
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Validate voice using existing config (DO NOT DUPLICATE)
+        # Validate voice - use only voices supported by speech.create API
         try:
-            from server.config.voices import REALTIME_VOICES, DEFAULT_VOICE
-            valid_voices = REALTIME_VOICES
-            fallback_voice = DEFAULT_VOICE
+            from server.config.voices import SPEECH_CREATE_VOICES
+            valid_voices = SPEECH_CREATE_VOICES
         except ImportError:
             valid_voices = ["alloy", "ash", "echo", "shimmer"]
-            fallback_voice = "alloy"
+        
+        fallback_voice = "alloy"
         
         if voice_id not in valid_voices:
+            logger.warning(f"[TTS][OPENAI] Voice '{voice_id}' not supported by speech.create API, using '{fallback_voice}'")
             voice_id = fallback_voice
         
         # Clamp speed to valid range
