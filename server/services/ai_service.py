@@ -341,13 +341,13 @@ class AIService:
                 from google import genai
                 from server.utils.gemini_key_provider import get_gemini_api_key
                 
-                gemini_api_key, key_source = get_gemini_api_key(self.business_id)
+                gemini_api_key = get_gemini_api_key()
                 if not gemini_api_key:
-                    logger.error(f"[AI_SERVICE] Gemini requested but no API key available (source={key_source}, business={self.business_id})")
+                    logger.error(f"[AI_SERVICE] GEMINI_API_KEY not set")
                     raise ValueError("GEMINI_API_KEY not configured")
                 
                 self._gemini_client = genai.Client(api_key=gemini_api_key)
-                logger.info(f"✅ Gemini client initialized with key source={key_source}, business={self.business_id}")
+                logger.info(f"✅ Gemini client initialized for business={self.business_id}")
             except Exception as e:
                 logger.error(f"❌ Failed to initialize Gemini client: {e}")
                 raise

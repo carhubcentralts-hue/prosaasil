@@ -230,11 +230,11 @@ def synthesize_gemini(
         # 🔥 NOTE: DISABLE_GOOGLE applies to old Google Cloud STT, NOT Gemini!
         # Gemini TTS/LLM is separate and controlled by GEMINI_API_KEY availability
         
-        # 🔐 CRITICAL: Use unified Gemini key provider
+        # 🔐 CRITICAL: Get Gemini key from ENV only
         from server.utils.gemini_key_provider import get_gemini_api_key
-        gemini_api_key, key_source = get_gemini_api_key()
+        gemini_api_key = get_gemini_api_key()
         if not gemini_api_key:
-            logger.error(f"[TTS][GEMINI] No API key available (source={key_source})")
+            logger.error(f"[TTS][GEMINI] GEMINI_API_KEY not set")
             return None, "Gemini TTS unavailable"
         
         # 🔒 Security: Validate language against whitelist
