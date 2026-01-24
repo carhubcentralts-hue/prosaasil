@@ -100,9 +100,8 @@ def is_gemini_available() -> bool:
     
     Note: DISABLE_GOOGLE only affects old Google Cloud STT, NOT Gemini API!
     """
-    gemini_key = os.getenv('GEMINI_API_KEY')
-    # 🔥 DISABLE_GOOGLE does NOT affect Gemini - only old Google Cloud STT
-    return bool(gemini_key)
+    from server.utils.gemini_key_provider import is_gemini_available as check_gemini
+    return check_gemini()
 
 
 def synthesize_openai(
@@ -231,9 +230,11 @@ def synthesize_gemini(
         # 🔥 NOTE: DISABLE_GOOGLE applies to old Google Cloud STT, NOT Gemini!
         # Gemini TTS/LLM is separate and controlled by GEMINI_API_KEY availability
         
-        # 🔐 CRITICAL: Use ONLY GEMINI_API_KEY
-        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        # 🔐 CRITICAL: Use unified Gemini key provider
+        from server.utils.gemini_key_provider import get_gemini_api_key
+        gemini_api_key, key_source = get_gemini_api_key()
         if not gemini_api_key:
+            logger.error(f"[TTS][GEMINI] No API key available (source={key_source})")
             return None, "Gemini TTS unavailable"
         
         # 🔒 Security: Validate language against whitelist
