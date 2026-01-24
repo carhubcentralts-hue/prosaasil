@@ -5075,6 +5075,129 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  receipts table does not exist - skipping Migration 101")
         
+        # Migration 102: Transform Voice Selection to AI Provider Selection
+        # 🔥 PURPOSE: Change from "voice selection" to "provider selection" (OpenAI / Gemini)
+        # The selected provider determines both LLM brain and TTS voice
+        if check_table_exists('business'):
+            checkpoint("Migration 102: Transform voice selection to AI provider selection")
+            try:
+                # Add ai_provider column - main provider selection (openai | gemini)
+                if not check_column_exists('business', 'ai_provider'):
+                    checkpoint("  → Adding ai_provider column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN ai_provider VARCHAR(32) DEFAULT 'openai'
+                    """))
+                    checkpoint("  ✅ ai_provider column added")
+                else:
+                    checkpoint("  ℹ️ ai_provider column already exists")
+                
+                # Add llm_provider column - always equals ai_provider for consistency
+                if not check_column_exists('business', 'llm_provider'):
+                    checkpoint("  → Adding llm_provider column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN llm_provider VARCHAR(32) DEFAULT 'openai'
+                    """))
+                    checkpoint("  ✅ llm_provider column added")
+                else:
+                    checkpoint("  ℹ️ llm_provider column already exists")
+                
+                # Add voice_provider column - always equals ai_provider for consistency
+                if not check_column_exists('business', 'voice_provider'):
+                    checkpoint("  → Adding voice_provider column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN voice_provider VARCHAR(32) DEFAULT 'openai'
+                    """))
+                    checkpoint("  ✅ voice_provider column added")
+                else:
+                    checkpoint("  ℹ️ voice_provider column already exists")
+                
+                # Add voice_name column - voice within the selected provider
+                if not check_column_exists('business', 'voice_name'):
+                    checkpoint("  → Adding voice_name column...")
+                    db.session.execute(text("""
+                        ALTER TABLE business 
+                        ADD COLUMN voice_name VARCHAR(64) DEFAULT 'alloy'
+                    """))
+                    checkpoint("  ✅ voice_name column added")
+                else:
+                    checkpoint("  ℹ️ voice_name column already exists")
+                
+                # 🔥 MIGRATION LOGIC: Map existing tts_provider to ai_provider
+                checkpoint("  → Migrating existing provider settings...")
+                
+                # Step 1: Set ai_provider based on tts_provider
+                db.session.execute(text("""
+                    UPDATE business 
+                    SET ai_provider = COALESCE(tts_provider, 'openai')
+                    WHERE ai_provider IS NULL OR ai_provider = 'openai'
+                """))
+                
+                # Step 2: Set llm_provider and voice_provider to match ai_provider
+                db.session.execute(text("""
+                    UPDATE business 
+                    SET llm_provider = ai_provider,
+                        voice_provider = ai_provider
+                    WHERE llm_provider IS NULL OR voice_provider IS NULL
+                """))
+                
+                # Step 3: Set voice_name based on tts_voice_id or voice_id
+                # For OpenAI: use existing tts_voice_id or voice_id
+                # For Gemini: validate voice or set default "Puck"
+                db.session.execute(text("""
+                    UPDATE business 
+                    SET voice_name = CASE
+                        WHEN ai_provider = 'gemini' THEN 
+                            CASE 
+                                -- Check if current voice is a valid Gemini voice
+                                WHEN COALESCE(tts_voice_id, voice_id) IN (
+                                    'Chernar', 'Achird', 'Algenib', 'Algieba', 'Alnilam',
+                                    'Aoede', 'Autonoe', 'Callirrhoe', 'Charon', 'Despina',
+                                    'Enceladus', 'Erinome', 'Fenrir', 'Gacrux', 'Iapetus',
+                                    'Kore', 'Laomedeia', 'Leda', 'Orus', 'Pulcherrima',
+                                    'Puck', 'Rasalgethi', 'Sadachbia', 'Sadaltager', 'Schedar',
+                                    'Sulafat', 'Umbriel', 'Vindemiatrix', 'Zephyr', 'Zubenelgenubi'
+                                ) THEN COALESCE(tts_voice_id, voice_id)
+                                ELSE 'Puck'  -- Default Gemini voice
+                            END
+                        ELSE 
+                            CASE
+                                -- Check if current voice is a valid OpenAI voice
+                                WHEN COALESCE(tts_voice_id, voice_id) IN (
+                                    'alloy', 'ash', 'ballad', 'coral', 'echo',
+                                    'sage', 'shimmer', 'verse', 'marin', 'cedar'
+                                ) THEN COALESCE(tts_voice_id, voice_id)
+                                ELSE 'alloy'  -- Default OpenAI voice
+                            END
+                    END
+                    WHERE voice_name IS NULL OR voice_name = 'alloy'
+                """))
+                
+                checkpoint("  ✅ Existing provider settings migrated")
+                
+                # Create index for performance
+                checkpoint("  → Creating index on (business.id, business.ai_provider)...")
+                try:
+                    db.session.execute(text("""
+                        CREATE INDEX IF NOT EXISTS idx_business_ai_provider 
+                        ON business(id, ai_provider)
+                    """))
+                    checkpoint("  ✅ Index created")
+                except Exception as idx_err:
+                    checkpoint(f"  ⚠️ Could not create index (may already exist): {idx_err}")
+                
+                migrations_applied.append('migration_102_ai_provider_selection')
+                checkpoint("✅ Migration 102 completed - AI provider selection implemented")
+                
+            except Exception as e:
+                checkpoint(f"❌ Migration 102 failed: {e}")
+                db.session.rollback()
+                raise
+        else:
+            checkpoint("  ℹ️  business table does not exist - skipping Migration 102")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

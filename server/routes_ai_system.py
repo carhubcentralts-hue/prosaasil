@@ -138,11 +138,16 @@ def get_business_ai_settings():
     Get AI settings for current business (with caching to prevent bottlenecks)
     Returns: {
         "ok": True,
-        "voice_id": "ash",  # Legacy field for compatibility
-        "tts_provider": "openai",  # New field
-        "tts_voice_id": "ash",  # New field
+        "ai_provider": "openai",  # Main provider selection
+        "llm_provider": "openai",  # Always equals ai_provider
+        "voice_provider": "openai",  # Always equals ai_provider
+        "voice_name": "alloy",  # Voice within selected provider
         "tts_language": "he-IL",
-        "tts_speed": 1.0
+        "tts_speed": 1.0,
+        # Legacy fields for compatibility:
+        "voice_id": "alloy",
+        "tts_provider": "openai",
+        "tts_voice_id": "alloy"
     }
     """
     # Get business_id from session/JWT using robust resolution
@@ -165,26 +170,49 @@ def get_business_ai_settings():
         logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
-    # Get TTS settings with fallbacks
-    tts_provider = getattr(business, 'tts_provider', 'openai') or 'openai'
+    # Get new provider settings with fallbacks
+    ai_provider = getattr(business, 'ai_provider', 'openai') or 'openai'
+    llm_provider = getattr(business, 'llm_provider', ai_provider) or ai_provider
+    voice_provider = getattr(business, 'voice_provider', ai_provider) or ai_provider
+    voice_name = getattr(business, 'voice_name', None)
+    
+    # Get TTS settings with fallbacks (legacy)
+    tts_provider = getattr(business, 'tts_provider', ai_provider) or ai_provider
     tts_voice_id = getattr(business, 'tts_voice_id', None)
-    voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE  # Legacy field
+    voice_id = getattr(business, 'voice_id', DEFAULT_VOICE) or DEFAULT_VOICE
     tts_language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
     tts_speed = getattr(business, 'tts_speed', 1.0) or 1.0
     
-    # If tts_voice_id not set, use voice_id as fallback
-    if not tts_voice_id:
-        tts_voice_id = voice_id
+    # If voice_name not set, use tts_voice_id or voice_id as fallback
+    if not voice_name:
+        voice_name = tts_voice_id or voice_id
     
-    logger.info(f"[AI_SETTINGS] Loaded AI settings for business {business_id}: provider={tts_provider}, voice={tts_voice_id}")
+    # Validate voice_name matches provider, fix if needed
+    from server.config.voice_catalog import is_valid_voice, default_voice
+    if not is_valid_voice(voice_name, ai_provider):
+        logger.warning(f"[AI_SETTINGS] Voice '{voice_name}' invalid for provider '{ai_provider}', using default")
+        voice_name = default_voice(ai_provider)
+    
+    # If legacy tts_voice_id not set, use voice_name
+    if not tts_voice_id:
+        tts_voice_id = voice_name
+    
+    logger.info(f"[AI_SETTINGS] Loaded AI settings for business {business_id}: provider={ai_provider}, voice={voice_name}")
     
     result = {
         "ok": True,
-        "voice_id": voice_id,  # Legacy for compatibility
-        "tts_provider": tts_provider,
-        "tts_voice_id": tts_voice_id,
+        # NEW: Unified provider selection
+        "ai_provider": ai_provider,
+        "llm_provider": llm_provider,
+        "voice_provider": voice_provider,
+        "voice_name": voice_name,
+        # Common settings
         "tts_language": tts_language,
-        "tts_speed": tts_speed
+        "tts_speed": tts_speed,
+        # LEGACY: Keep for backward compatibility
+        "voice_id": voice_id,
+        "tts_provider": tts_provider,
+        "tts_voice_id": tts_voice_id
     }
     
     # 🔥 Store in cache for future requests
@@ -200,11 +228,14 @@ def update_business_ai_settings():
     """
     Update AI settings for current business (with cache invalidation)
     Body: {
-        "voice_id": "onyx",  # Legacy - still supported
-        "tts_provider": "openai" | "gemini",  # New
-        "tts_voice_id": "ash",  # New
+        "ai_provider": "openai" | "gemini",  # NEW: Main provider selection
+        "voice_name": "alloy",  # NEW: Voice within selected provider
         "tts_language": "he-IL",  # Optional
-        "tts_speed": 1.0  # Optional
+        "tts_speed": 1.0,  # Optional
+        # LEGACY (still supported for compatibility):
+        "voice_id": "onyx",
+        "tts_provider": "openai" | "gemini",
+        "tts_voice_id": "ash"
     }
     """
     # Get business_id from session/JWT using robust resolution
@@ -216,31 +247,31 @@ def update_business_ai_settings():
     
     data = request.get_json(force=True)
     
-    # Support both old (voice_id) and new (tts_provider + tts_voice_id) formats
-    tts_provider = data.get('tts_provider', 'openai')
-    tts_voice_id = data.get('tts_voice_id') or data.get('voice_id')  # Fallback to voice_id for compatibility
+    # Support both new (ai_provider + voice_name) and old (tts_provider + tts_voice_id) formats
+    ai_provider = data.get('ai_provider') or data.get('tts_provider', 'openai')
+    voice_name = data.get('voice_name') or data.get('tts_voice_id') or data.get('voice_id')
     tts_language = data.get('tts_language', 'he-IL')
     tts_speed = data.get('tts_speed', 1.0)
     
-    if not tts_voice_id:
-        return {"ok": False, "error": "voice_id_required"}, 400
+    if not voice_name:
+        return {"ok": False, "error": "voice_name_required"}, 400
     
     # Validate provider
-    if tts_provider not in ['openai', 'gemini']:
+    if ai_provider not in ['openai', 'gemini']:
         return {"ok": False, "error": "invalid_provider", "message": "Provider must be 'openai' or 'gemini'"}, 400
     
-    # 🔥 FIX: Sanitize voice_id - strip whitespace and convert to lowercase for OpenAI
-    if tts_provider == 'openai':
-        tts_voice_id = str(tts_voice_id).strip().lower()
+    # 🔥 FIX: Sanitize voice_name - strip whitespace and convert to lowercase for OpenAI
+    if ai_provider == 'openai':
+        voice_name = str(voice_name).strip().lower()
     
-    # Validate voice_id based on provider
+    # 🔥 HARD VALIDATION: Validate voice_name based on provider - NO FALLBACK
     from server.config.voice_catalog import is_valid_voice
-    if not is_valid_voice(tts_voice_id, tts_provider):
-        logger.warning(f"[AI_SETTINGS] Invalid voice_id '{tts_voice_id}' for provider '{tts_provider}' and business {business_id}")
+    if not is_valid_voice(voice_name, ai_provider):
+        logger.warning(f"[AI_SETTINGS] Invalid voice_name '{voice_name}' for provider '{ai_provider}' and business {business_id}")
         return {
             "ok": False, 
-            "error": "invalid_voice_id",
-            "message": f"Voice '{tts_voice_id}' is not valid for provider '{tts_provider}'"
+            "error": "invalid_voice",
+            "message": f"Voice '{voice_name}' is not valid for provider '{ai_provider}'. Cannot mix OpenAI and Gemini voices."
         }, 400
     
     business = Business.query.get(business_id)
@@ -248,18 +279,25 @@ def update_business_ai_settings():
         logger.error(f"[AI_SETTINGS] Business {business_id} not found")
         return {"ok": False, "error": "business_not_found"}, 404
     
-    # Update TTS settings
-    business.tts_provider = tts_provider
-    business.tts_voice_id = tts_voice_id
+    # Update AI provider settings (new unified approach)
+    business.ai_provider = ai_provider
+    business.llm_provider = ai_provider  # Always same as ai_provider
+    business.voice_provider = ai_provider  # Always same as ai_provider
+    business.voice_name = voice_name
+    
+    # Update TTS settings (common)
     business.tts_language = tts_language
     business.tts_speed = float(tts_speed)
-    # Also update legacy voice_id for backward compatibility
-    business.voice_id = tts_voice_id
+    
+    # Update legacy fields for backward compatibility
+    business.tts_provider = ai_provider
+    business.tts_voice_id = voice_name
+    business.voice_id = voice_name
     business.updated_at = datetime.utcnow()
     
     try:
         db.session.commit()
-        logger.info(f"[VOICE_LIBRARY] Updated TTS settings for business {business_id}: provider={tts_provider}, voice={tts_voice_id}")
+        logger.info(f"[AI_SETTINGS] Updated AI settings for business {business_id}: provider={ai_provider}, voice={voice_name}")
         
         # 🔥 Invalidate both cache keys after update
         _ai_settings_cache.delete(f"ai_settings_{business_id}")
@@ -272,19 +310,21 @@ def update_business_ai_settings():
         try:
             from server.services.ai_service import invalidate_business_cache
             invalidate_business_cache(business_id)
-            logger.info(f"[VOICE_LIBRARY] ✅ Prompt+Agent cache invalidated for business {business_id} after voice update")
+            logger.info(f"[AI_SETTINGS] ✅ Prompt+Agent cache invalidated for business {business_id} after AI settings update")
         except Exception as cache_err:
             # Non-critical - log warning but don't fail the request
-            logger.warning(f"[VOICE_LIBRARY] ⚠️ Failed to invalidate business cache: {cache_err}")
+            logger.warning(f"[AI_SETTINGS] ⚠️ Failed to invalidate business cache: {cache_err}")
     except Exception as e:
         db.session.rollback()
-        logger.error(f"[VOICE_LIBRARY] Failed to update TTS settings: {e}")
+        logger.error(f"[AI_SETTINGS] Failed to update AI settings: {e}")
         return {"ok": False, "error": "database_error"}, 500
     
     return {
         "ok": True,
-        "tts_provider": tts_provider,
-        "tts_voice_id": tts_voice_id,
+        "ai_provider": ai_provider,
+        "llm_provider": ai_provider,
+        "voice_provider": ai_provider,
+        "voice_name": voice_name,
         "tts_language": tts_language,
         "tts_speed": tts_speed
     }
@@ -610,22 +650,26 @@ def get_all_voices():
     """
     Get all available TTS voices from both OpenAI and Gemini providers.
     
-    Returns unified voice catalog with Hebrew display names.
+    Returns unified voice catalog with Hebrew display names, grouped by provider.
     Gemini voices are ALWAYS returned - if API key missing, gemini_available=False
     but voices list is still provided for UI display.
     
-    🔥 CRITICAL: This is for TTS (voice) only, NOT for LLM (brain).
-    Brain is always OpenAI, voice can be OpenAI or Gemini.
+    🔥 NEW: Supports provider-based voice selection
+    The selected provider determines both LLM and TTS
     
     Returns:
         {
-            "openai": [...],  # Always available
-            "gemini": [...],  # Always returned, even if API key missing
-            "gemini_available": bool  # True only if GEMINI_API_KEY is set
+            "openai": [...],  # OpenAI voices
+            "gemini": [...],  # Gemini voices
+            "gemini_available": bool,  # True only if GEMINI_API_KEY is set
+            "default_voices": {
+                "openai": "alloy",
+                "gemini": "Puck"
+            }
         }
     """
     try:
-        from server.config.voice_catalog import OPENAI_VOICES, GEMINI_VOICES
+        from server.config.voice_catalog import OPENAI_VOICES, GEMINI_VOICES, default_voice
         
         # Check if Gemini API key is configured
         # Use exact env var name: GEMINI_API_KEY (no aliases, no fallbacks)
@@ -635,7 +679,11 @@ def get_all_voices():
         return jsonify({
             "openai": OPENAI_VOICES,
             "gemini": GEMINI_VOICES,
-            "gemini_available": gemini_available
+            "gemini_available": gemini_available,
+            "default_voices": {
+                "openai": default_voice("openai"),
+                "gemini": default_voice("gemini")
+            }
         })
     
     except Exception as e:

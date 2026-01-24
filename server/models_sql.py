@@ -35,14 +35,20 @@ class Business(db.Model):
     # WhatsApp webhook secret for n8n integration (unique per business)
     webhook_secret = db.Column(db.String(128), unique=True, nullable=True)  # Format: wh_n8n_<random_hex>
     # Voice Library - per-business voice selection for Realtime phone calls
-    voice_id = db.Column(db.String(32), nullable=False, default="ash")  # OpenAI Realtime voice (alloy, ash, etc.)
+    voice_id = db.Column(db.String(32), nullable=False, default="ash")  # LEGACY: OpenAI Realtime voice (kept for compatibility)
     # TTS Provider and Voice Selection (Voice only - Brain is always OpenAI)
     # 🔥 CRITICAL: This controls VOICE (TTS) only, NOT the LLM brain
     # Brain (LLM) is always OpenAI. Voice can be OpenAI TTS or Google Gemini TTS.
-    tts_provider = db.Column(db.String(32), default="openai")  # "openai" | "gemini" - Voice provider choice
-    tts_voice_id = db.Column(db.String(64), default="alloy")  # TTS voice ID (varies by provider)
+    tts_provider = db.Column(db.String(32), default="openai")  # LEGACY: "openai" | "gemini" - kept for compatibility
+    tts_voice_id = db.Column(db.String(64), default="alloy")  # LEGACY: TTS voice ID - kept for compatibility
     tts_language = db.Column(db.String(16), default="he-IL")  # TTS language code
     tts_speed = db.Column(db.Float, default=1.0)  # TTS speaking speed (0.5 - 2.0)
+    # 🔥 NEW: AI Provider Selection - Single source of truth
+    # The ai_provider determines BOTH the LLM brain AND the TTS voice
+    ai_provider = db.Column(db.String(32), default="openai")  # "openai" | "gemini" - Main provider selection
+    llm_provider = db.Column(db.String(32), default="openai")  # Always equals ai_provider (for consistency)
+    voice_provider = db.Column(db.String(32), default="openai")  # Always equals ai_provider (for consistency)
+    voice_name = db.Column(db.String(64), default="alloy")  # Voice name within the selected provider
     # Company registration info
     company_id = db.Column(db.String(50), nullable=True)  # Israeli company registration number (ח.פ)
     # Page-level permissions - which pages/modules are enabled for this business
