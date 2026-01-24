@@ -86,7 +86,7 @@ def get_default_voice(provider: str) -> str:
         except ImportError:
             return "alloy"
     elif provider == "gemini":
-        return "Puck"  # Default Gemini voice - matches voice_catalog.py
+        return "pulcherrima"  # 🔥 Default Gemini voice - matches voice_catalog.py
     else:
         return "alloy"
 
@@ -197,7 +197,7 @@ def _create_wav_header(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
 
 def synthesize_gemini(
     text: str,
-    voice_id: str = "Puck",
+    voice_id: str = "pulcherrima",
     language: str = "he-IL",
     speed: float = 1.0
 ) -> Tuple[Optional[bytes], str]:
@@ -206,7 +206,7 @@ def synthesize_gemini(
     
     Args:
         text: The text to convert to speech.
-        voice_id: The Gemini voice name (e.g., 'Puck', 'Charon', 'Kore').
+        voice_id: The Gemini voice name (lowercase, e.g., 'pulcherrima', 'charon', 'kore').
         language: Language code for synthesis (default 'he-IL').
         speed: Speaking speed from 0.25 to 4.0 (default 1.0).
     
@@ -222,6 +222,7 @@ def synthesize_gemini(
     - Model: gemini-2.5-flash-preview-tts
     - response_modalities: ["AUDIO"] (uppercase)
     - Returns PCM audio wrapped in WAV format
+    - Voice names MUST be lowercase (e.g., "pulcherrima", not "Pulcherrima")
     """
     try:
         # Check if Google is disabled
@@ -238,6 +239,9 @@ def synthesize_gemini(
             logger.warning(f"[TTS] Invalid language '{language}', falling back to he-IL")
             language = "he-IL"
         
+        # 🔥 CRITICAL: Ensure voice_id is lowercase (Gemini API requirement)
+        voice_id = voice_id.lower() if voice_id else "pulcherrima"
+        
         # Log that Gemini TTS is enabled
         logger.info(f"[VOICE] Gemini TTS enabled with voice={voice_id}")
         
@@ -247,13 +251,15 @@ def synthesize_gemini(
             from google.genai import types
             import struct
             
-            # Validate voice - must be a valid Gemini voice
-            # Get voices from voice_catalog to validate
-            from server.config.voice_catalog import get_voice_by_id
-            voice_metadata = get_voice_by_id(voice_id, "gemini")
-            if not voice_metadata:
+            # 🔥 CRITICAL: Validate voice against closed list - must be a valid Gemini voice
+            from server.config.voice_catalog import get_voice_by_id, is_valid_voice
+            
+            if not is_valid_voice(voice_id, "gemini"):
                 default_voice = get_default_voice("gemini")
-                logger.warning(f"[TTS] Invalid Gemini voice '{voice_id}', falling back to {default_voice}")
+                logger.error(
+                    f"[TTS][GEMINI] INVALID_VOICE: '{voice_id}' not in allowed list. "
+                    f"Falling back to default '{default_voice}'"
+                )
                 voice_id = default_voice
             
             # Clamp speed to valid range

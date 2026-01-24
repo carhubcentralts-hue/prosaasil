@@ -254,9 +254,10 @@ def update_business_ai_settings():
     if ai_provider not in ['openai', 'gemini']:
         return {"ok": False, "error": "invalid_provider", "message": "Provider must be 'openai' or 'gemini'"}, 400
     
-    # 🔥 FIX: Sanitize voice_name - strip whitespace and convert to lowercase for OpenAI
-    if ai_provider == 'openai':
-        voice_name = str(voice_name).strip().lower()
+    # 🔥 FIX: Sanitize voice_name - strip whitespace and convert to lowercase
+    # OpenAI voices: already lowercase (alloy, ash, etc.)
+    # Gemini voices: MUST be lowercase per API requirement (pulcherrima, charon, etc.)
+    voice_name = str(voice_name).strip().lower()
     
     # 🔥 HARD VALIDATION: Validate voice_name based on provider - NO FALLBACK
     from server.config.voice_catalog import is_valid_voice
