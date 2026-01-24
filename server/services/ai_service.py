@@ -313,7 +313,15 @@ def invalidate_business_cache(business_id: int):
 class AIService:
     """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
     
-    def __init__(self):
+    def __init__(self, business_id: Optional[int] = None):
+        """
+        Initialize AI Service
+        
+        Args:
+            business_id: Optional business ID for context. If provided, this service
+                        will be scoped to that business. If None, business_id must be
+                        passed to methods that require it.
+        """
         # ⚡ RELIABLE OpenAI client with production timeout
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
@@ -321,6 +329,7 @@ class AIService:
         )
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
+        self.business_id = business_id  # 🔥 NEW: Store business context for live calls
         
     def get_business_prompt(self, business_id: int, channel: str = "calls") -> Dict[str, Any]:
         """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)
@@ -522,6 +531,28 @@ class AIService:
                 "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences
                 "temperature": 0.0  # 🔥 FIX: Temperature 0.0 for deterministic responses
             }
+    
+    def get_system_prompt(self, channel: str = "calls") -> Optional[str]:
+        """
+        Get system prompt using the business_id set in __init__.
+        
+        This is a convenience method for live calls where business context
+        is set once during initialization.
+        
+        Args:
+            channel: Communication channel ('calls', 'whatsapp', etc.)
+            
+        Returns:
+            System prompt string, or None if business_id not set
+            
+        Raises:
+            ValueError: If business_id was not provided in __init__
+        """
+        if self.business_id is None:
+            raise ValueError("business_id must be provided in __init__ to use get_system_prompt()")
+        
+        prompt_data = self.get_business_prompt(self.business_id, channel)
+        return prompt_data.get("system_prompt")
     
     def _get_default_hebrew_prompt(self, business_name: str = "העסק שלנו", channel: str = "calls") -> str:
         """פרומפט ברירת מחדל בעברית - מינימלי וכללי!

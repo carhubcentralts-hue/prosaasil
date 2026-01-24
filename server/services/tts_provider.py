@@ -9,7 +9,7 @@ Supports voice synthesis for prompt testing with provider abstraction
 
 🔥 IMPORTANT:
 - OpenAI voices: Use existing config from server/config/voices.py (DO NOT DUPLICATE)
-- Gemini voices: Use API discovery from gemini_voice_catalog.py
+- Gemini voices: Use voice_catalog.py for available voices (NOT gemini_voice_catalog.py)
 """
 import os
 import logging
@@ -51,20 +51,20 @@ def _get_openai_voices() -> List[Dict[str, Any]]:
 
 def _get_gemini_voices() -> List[Dict[str, Any]]:
     """
-    Get Gemini voices from discovery catalog.
-    Uses server/services/gemini_voice_catalog.py with API discovery.
+    Get Gemini voices from voice_catalog.
+    Uses server/config/voice_catalog.py as single source of truth.
     """
     try:
-        from server.services.gemini_voice_catalog import get_cached_voices
-        return get_cached_voices()
+        from server.config.voice_catalog import GEMINI_VOICES
+        return GEMINI_VOICES
     except ImportError:
-        logger.warning("Could not import gemini_voice_catalog")
+        logger.warning("Could not import GEMINI_VOICES from voice_catalog")
         return []
 
 
 # Exported for backwards compatibility
 OPENAI_TTS_VOICES = _get_openai_voices()
-GEMINI_TTS_VOICES = []  # Will be populated dynamically from discovery
+# Note: GEMINI_TTS_VOICES loaded dynamically from voice_catalog.py via _get_gemini_voices()
 
 
 def get_available_voices(provider: str) -> List[Dict[str, Any]]:
@@ -86,7 +86,7 @@ def get_default_voice(provider: str) -> str:
         except ImportError:
             return "alloy"
     elif provider == "gemini":
-        return "Puck"  # Default Gemini voice
+        return "Puck"  # Default Gemini voice - matches voice_catalog.py
     else:
         return "alloy"
 
@@ -161,6 +161,40 @@ def synthesize_openai(
         return None, "TTS synthesis failed"
 
 
+def _create_wav_header(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
+    """
+    Create WAV file header for PCM16 mono audio.
+    
+    Args:
+        pcm_data: Raw PCM audio bytes
+        sample_rate: Sample rate in Hz (default 24000 for Gemini TTS)
+        
+    Returns:
+        Complete WAV file (header + PCM data)
+    """
+    import struct
+    
+    data_size = len(pcm_data)
+    byte_rate = sample_rate * 2  # 16-bit = 2 bytes per sample
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF',
+        36 + data_size,
+        b'WAVE',
+        b'fmt ',
+        16,  # Subchunk1Size (PCM)
+        1,   # AudioFormat (PCM)
+        1,   # NumChannels (mono)
+        sample_rate,
+        byte_rate,
+        2,   # BlockAlign
+        16,  # BitsPerSample
+        b'data',
+        data_size
+    )
+    return header + pcm_data
+
+
 def synthesize_gemini(
     text: str,
     voice_id: str = "Puck",
@@ -168,7 +202,7 @@ def synthesize_gemini(
     speed: float = 1.0
 ) -> Tuple[Optional[bytes], str]:
     """
-    Synthesize speech using Gemini Multimodal Live API.
+    Synthesize speech using Gemini Speech Generation (Native TTS).
     
     Args:
         text: The text to convert to speech.
@@ -183,7 +217,11 @@ def synthesize_gemini(
     Environment:
         Requires GEMINI_API_KEY to be set.
     
-    🔥 CRITICAL: Uses Gemini Multimodal Live API, NOT Google Cloud TTS!
+    🔥 CRITICAL: Uses Gemini Native Speech Generation, NOT Google Cloud TTS!
+    - Uses google-genai SDK (new unified SDK)
+    - Model: gemini-2.5-flash-preview-tts
+    - response_modalities: ["AUDIO"] (uppercase)
+    - Returns PCM audio wrapped in WAV format
     """
     try:
         # Check if Google is disabled
@@ -203,68 +241,72 @@ def synthesize_gemini(
         # Log that Gemini TTS is enabled
         logger.info(f"[VOICE] Gemini TTS enabled with voice={voice_id}")
         
-        # 🔥 Use Gemini Multimodal Live API for TTS
+        # 🔥 Use Gemini Speech Generation with new google-genai SDK
         try:
-            import google.generativeai as genai
-            
-            # Configure Gemini API
-            genai.configure(api_key=gemini_api_key)
-            
-            # 🔥 CRITICAL: Use Gemini 2.0 Flash model with multimodal support
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            from google import genai
+            from google.genai import types
+            import struct
             
             # Validate voice - must be a valid Gemini voice
-            valid_voices = [v["id"] for v in GEMINI_TTS_VOICES] if GEMINI_TTS_VOICES else ["Puck", "Charon", "Kore"]
-            if voice_id not in valid_voices and valid_voices:
-                logger.warning(f"[TTS] Invalid Gemini voice '{voice_id}', falling back to Puck")
-                voice_id = "Puck"
+            # Get voices from voice_catalog to validate
+            from server.config.voice_catalog import get_voice_by_id
+            voice_metadata = get_voice_by_id(voice_id, "gemini")
+            if not voice_metadata:
+                default_voice = get_default_voice("gemini")
+                logger.warning(f"[TTS] Invalid Gemini voice '{voice_id}', falling back to {default_voice}")
+                voice_id = default_voice
             
             # Clamp speed to valid range
             speed = max(0.25, min(4.0, speed))
             
-            # Generate speech using Gemini
-            # Note: Gemini API returns audio content directly
-            response = model.generate_content(
-                contents=[{
-                    "parts": [{
-                        "text": text
-                    }]
-                }],
-                generation_config={
-                    "response_modalities": ["audio"],
-                    "speech_config": {
-                        "voice_config": {
-                            "prebuilt_voice_config": {
-                                "voice_name": voice_id
-                            }
-                        }
-                    }
-                }
+            # Create Gemini client
+            client = genai.Client(api_key=gemini_api_key)
+            
+            # 🔥 CRITICAL: Use gemini-2.5-flash-preview-tts model for TTS
+            # Generate speech using proper SDK with uppercase AUDIO
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-preview-tts",
+                contents=text,
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],  # 🔥 UPPERCASE, not lowercase
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=voice_id
+                            )
+                        )
+                    )
+                )
             )
             
-            # Extract audio from response
-            if not response or not hasattr(response, 'parts'):
+            # Extract PCM audio data from response
+            if not response or not response.candidates:
                 return None, "No audio generated from Gemini"
             
-            # Get audio data from response
-            audio_bytes = None
-            for part in response.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    audio_bytes = part.inline_data.data
-                    break
-            
-            if not audio_bytes:
+            # Get audio data from first candidate
+            audio_data = None
+            try:
+                audio_data = response.candidates[0].content.parts[0].inline_data.data
+            except (AttributeError, IndexError) as e:
+                logger.error(f"[TTS][GEMINI] Failed to extract audio: {e}")
                 return None, "No audio data in Gemini response"
             
-            logger.info(f"Gemini TTS: Synthesized {len(audio_bytes)} bytes with voice={voice_id}")
-            return audio_bytes, "audio/mpeg"
+            if not audio_data:
+                return None, "No audio data in Gemini response"
             
-        except ImportError:
-            logger.error("[TTS][GEMINI] google-generativeai not installed")
-            return None, "Gemini SDK not available"
+            # 🔥 Convert PCM data to WAV format for browser playback
+            # Gemini returns raw PCM16 at 24kHz, we need to wrap it with WAV header
+            wav_data = _create_wav_header(audio_data)
+            
+            logger.info(f"Gemini TTS: Synthesized {len(wav_data)} bytes WAV with voice={voice_id}")
+            return wav_data, "audio/wav"
+            
+        except ImportError as imp_err:
+            logger.error(f"[TTS][GEMINI] google-genai SDK not installed: {imp_err}")
+            return None, "Gemini SDK not available - please install google-genai"
         except Exception as api_error:
-            logger.exception(f"[TTS][GEMINI] API error: {api_error}")
-            return None, f"Gemini API error: {str(api_error)}"
+            logger.exception(f"[TTS][GEMINI] API error")
+            return None, f"Gemini TTS error: {str(api_error)}"
         
     except Exception as e:
         # 🔒 Security: Log full error server-side, return generic message to client
