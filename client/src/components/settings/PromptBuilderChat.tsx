@@ -55,11 +55,11 @@ export function PromptBuilderChat({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Start with a welcoming message
+    // Start with a welcoming and guiding message
     if (isOpen && messages.length === 0) {
       setMessages([{
         role: 'assistant',
-        content: 'שלום! 👋\n\nאני כאן כדי ליצור עבורך פרומפט מושלם לבוט AI שלך.\n\nספר לי על העסק שלך - מה אתם עושים? למי אתם נותנים שירות?',
+        content: 'היי! 👋\n\nאני כאן כדי ליצור עבורך פרומפט מושלם לבוט AI.\n\nבואו נתחיל - ספר לי על העסק שלך:\n• מה אתם עושים?\n• מי הלקוחות שלכם?',
         timestamp: new Date()
       }]);
     }
@@ -154,7 +154,7 @@ export function PromptBuilderChat({
       await http.post('/api/ai/prompt_builder_chat/reset', {});
       setMessages([{
         role: 'assistant',
-        content: 'בואו נתחיל מחדש! 🚀\n\nספר לי על העסק שלך - מה התחום? מי הלקוחות?',
+        content: 'בואו נתחיל מחדש! 🔄\n\nספר לי על העסק שלך:\n• מה התחום?\n• מי הלקוחות?',
         timestamp: new Date()
       }]);
       setGeneratedPrompt('');
@@ -267,6 +267,12 @@ export function PromptBuilderChat({
 
             {/* Input Area */}
             <div className="p-4 border-t border-slate-200 bg-slate-50">
+              {/* Helpful tip */}
+              {messages.length <= 2 && !sending && (
+                <div className="mb-3 text-xs text-slate-500 text-center">
+                  💡 ספר לי בחופשיות - אני אשאל שאלות נוספות כדי לבנות פרומפט מושלם
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={handleReset}
