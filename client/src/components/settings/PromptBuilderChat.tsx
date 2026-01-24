@@ -59,7 +59,7 @@ export function PromptBuilderChat({
     if (isOpen && messages.length === 0) {
       setMessages([{
         role: 'assistant',
-        content: 'היי! אני כאן כדי לעזור לך ליצור פרומפט מותאם לעסק שלך. ספר לי קצת על העסק — מה אתם עושים ומי הלקוחות שלכם?',
+        content: 'שלום! 👋\n\nאני כאן כדי ליצור עבורך פרומפט מושלם לבוט AI שלך.\n\nספר לי על העסק שלך - מה אתם עושים? למי אתם נותנים שירות?',
         timestamp: new Date()
       }]);
     }
@@ -154,7 +154,7 @@ export function PromptBuilderChat({
       await http.post('/api/ai/prompt_builder_chat/reset', {});
       setMessages([{
         role: 'assistant',
-        content: 'בואו נתחיל מחדש! ספר לי על העסק שלך.',
+        content: 'בואו נתחיל מחדש! 🚀\n\nספר לי על העסק שלך - מה התחום? מי הלקוחות?',
         timestamp: new Date()
       }]);
       setGeneratedPrompt('');
@@ -204,13 +204,10 @@ export function PromptBuilderChat({
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                שיחה ליצירת פרומפט
-                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
-                  חדש
-                </span>
+                מחולל פרומפטים בצ'אט
               </h2>
               <p className="text-sm text-slate-600">
-                {showPrompt ? 'הפרומפט מוכן!' : 'נהל שיחה טבעית ליצירת פרומפט מותאם'}
+                {showPrompt ? 'הפרומפט מוכן!' : 'ספר לי על העסק ואני אכין פרומפט מושלם'}
               </p>
             </div>
           </div>

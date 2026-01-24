@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
-import { SmartPromptGeneratorV2 } from '../../components/settings/SmartPromptGeneratorV2';
 import { PromptBuilderChat } from '../../components/settings/PromptBuilderChat';
 import { LiveCallCard } from '../../components/settings/LiveCallCard';
 import { BusinessAISettings } from '../../components/settings/BusinessAISettings';
@@ -38,7 +37,6 @@ export function PromptStudioPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as 'prompts' | 'builder' | 'tester' | 'appointments' | null;
   const [activeTab, setActiveTab] = useState<'prompts' | 'builder' | 'tester' | 'appointments'>(tabFromUrl || 'prompts');
-  const [showSmartGenerator, setShowSmartGenerator] = useState(false);
   const [showChatBuilder, setShowChatBuilder] = useState(false);
   const [smartGenChannel, setSmartGenChannel] = useState<'calls' | 'whatsapp'>('calls');
   const [saving, setSaving] = useState(false);
@@ -411,14 +409,6 @@ export function PromptStudioPage() {
         </div>
       )}
 
-      {/* Smart Prompt Generator Modal */}
-      <SmartPromptGeneratorV2
-        isOpen={showSmartGenerator}
-        onClose={() => setShowSmartGenerator(false)}
-        onSave={handleSaveGeneratedPrompt}
-        initialChannel={smartGenChannel}
-      />
-      
       {/* Prompt Builder Chat Modal */}
       <PromptBuilderChat
         isOpen={showChatBuilder}
