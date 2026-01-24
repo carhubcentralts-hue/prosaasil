@@ -10,18 +10,23 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
    - LLM: OpenAI GPT-4o via Realtime API
    - TTS: OpenAI voices via Realtime API
    - Pipeline: Bidirectional real-time streaming
+   - Requires: OPENAI_API_KEY
    - NO batch processing, NO Whisper, NO duplication
 
 🔷 Gemini Provider (ai_provider='gemini'):
    - STT: Google Cloud Speech-to-Text API (google.cloud.speech)
-         Requires: GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
-         NOT Gemini STT API - they are separate services!
    - LLM: Google Gemini API (gemini-2.0-flash-exp)
-         Requires: GEMINI_API_KEY
    - TTS: Google Gemini Native Speech
-         Requires: GEMINI_API_KEY
    - Pipeline: Batch processing (STT → LLM → TTS)
+   - Requires: GEMINI_API_KEY (same key for STT, LLM, TTS!)
    - NO Whisper, NO duplication
+
+🔑 KEY CONFIGURATION:
+   - OpenAI: OPENAI_API_KEY
+   - Gemini (ALL services): GEMINI_API_KEY
+     ├─ STT: Uses GEMINI_API_KEY
+     ├─ LLM: Uses GEMINI_API_KEY
+     └─ TTS: Uses GEMINI_API_KEY
 
 🚫 NO FALLBACK BETWEEN PROVIDERS:
    - If ai_provider='openai' → ONLY OpenAI (no Gemini fallback)
@@ -33,11 +38,6 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
    - Gemini: Uses Google Cloud STT only (no Whisper)
    - Each provider has ONE transcription path
 
-📋 Key Configuration:
-   - OpenAI: OPENAI_API_KEY
-   - Gemini LLM/TTS: GEMINI_API_KEY
-   - Gemini STT: GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS
-   
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata
@@ -11704,23 +11704,21 @@ class MediaStreamHandler:
             except Exception as numpy_error:
                 logger.error(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
             
-            # 🔷 GEMINI: Use Google Cloud Speech-to-Text (NOT Gemini STT API)
-            logger.info(f"[STT_ROUTING] provider=gemini -> google_cloud_stt (Google Cloud Speech-to-Text API)")
+            # 🔷 GEMINI: Use Google Cloud Speech-to-Text with GEMINI_API_KEY
+            logger.info(f"[STT_ROUTING] provider=gemini -> google_cloud_stt (using GEMINI_API_KEY)")
             
-            # 🚫 NO FALLBACK: Check if Google Cloud credentials are available
-            # Note: GEMINI_API_KEY is for Gemini LLM/TTS, not for Google STT
-            # Google STT requires GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS
-            import os
-            if not os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') and not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+            # 🚫 NO FALLBACK: Check if GEMINI_API_KEY is available
+            from server.utils.gemini_key_provider import get_gemini_api_key
+            gemini_api_key = get_gemini_api_key()
+            if not gemini_api_key:
                 error_msg = (
-                    "Google Cloud Speech-to-Text credentials missing. "
-                    "Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS. "
-                    "GEMINI_API_KEY is for Gemini LLM/TTS only, not STT."
+                    "Gemini STT unavailable: GEMINI_API_KEY not configured. "
+                    "Set GEMINI_API_KEY environment variable for Gemini STT, LLM, and TTS."
                 )
                 logger.error(f"❌ [CONFIG] {error_msg}")
                 raise Exception(error_msg)
             
-            # Use Google STT for Gemini provider - NO FALLBACK TO WHISPER
+            # Use Google STT for Gemini provider with GEMINI_API_KEY - NO FALLBACK TO WHISPER
             return self._google_stt_batch(pcm16_8k)
                 
         except Exception as e:
@@ -11868,10 +11866,8 @@ class MediaStreamHandler:
         """
         🔷 GEMINI PROVIDER: Batch STT using Google Cloud Speech-to-Text API
         
-        🚫 IMPORTANT: This uses Google Cloud Speech-to-Text (google.cloud.speech),
-        NOT Gemini's STT API. They are different services:
-        - Google Cloud Speech-to-Text: Uses GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
-        - Gemini API: Uses GEMINI_API_KEY (for LLM and TTS only)
+        🔑 IMPORTANT: Uses GEMINI_API_KEY (same key for STT, LLM, and TTS)
+        All Gemini services use the same API key.
         
         This is used when ai_provider='gemini' for transcription.
         
@@ -11882,14 +11878,14 @@ class MediaStreamHandler:
             Transcribed Hebrew text or empty string
             
         Raises:
-            Exception: If Google Cloud credentials are not configured
+            Exception: If GEMINI_API_KEY is not configured
         """
         try:
             from google.cloud import speech
             import tempfile
             import wave
             
-            logger.info(f"🔷 [GOOGLE_STT] Processing {len(pcm16_8k)} bytes with Google Cloud Speech-to-Text API")
+            logger.info(f"🔷 [GOOGLE_STT] Processing {len(pcm16_8k)} bytes with Google Cloud Speech-to-Text API (GEMINI_API_KEY)")
             
             # Convert 8kHz to 16kHz (Google STT works better with 16kHz)
             import audioop
@@ -11903,34 +11899,25 @@ class MediaStreamHandler:
                 wav_file.setframerate(16000)
                 wav_file.writeframes(pcm16_16k)
             
-            # Initialize Google Speech client
-            # 🔥 CRITICAL: Google Cloud Speech-to-Text requires service account credentials
-            # Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON environment variable
+            # Initialize Google Speech client with GEMINI_API_KEY
+            # 🔑 CRITICAL: Uses GEMINI_API_KEY for authentication
             try:
-                import json
-                import os
-                sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-                if sa_json:
-                    credentials_info = json.loads(sa_json)
-                    client = speech.SpeechClient.from_service_account_info(credentials_info)
-                    logger.info("✅ [GOOGLE_STT] Client initialized with service account JSON")
-                elif os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-                    # Fallback to application default credentials
-                    client = speech.SpeechClient()
-                    logger.info("✅ [GOOGLE_STT] Client initialized with GOOGLE_APPLICATION_CREDENTIALS")
-                else:
-                    # 🚫 NO FALLBACK: Fail clearly if credentials missing
-                    error_msg = (
-                        "Google Cloud Speech-to-Text credentials not configured. "
-                        "Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS environment variable. "
-                        "Note: GEMINI_API_KEY is for Gemini LLM/TTS only, not for Google STT."
-                    )
+                from server.utils.gemini_key_provider import get_gemini_api_key
+                gemini_api_key = get_gemini_api_key()
+                
+                if not gemini_api_key:
+                    error_msg = "GEMINI_API_KEY not configured. Required for Gemini STT."
                     logger.error(f"❌ [GOOGLE_STT] {error_msg}")
                     raise Exception(error_msg)
-            except json.JSONDecodeError as json_err:
-                error_msg = f"Invalid JSON in GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON: {json_err}"
-                logger.error(f"❌ [GOOGLE_STT] {error_msg}")
-                raise Exception(error_msg)
+                
+                # Use GEMINI_API_KEY to authenticate Google Cloud Speech client
+                # Google Cloud services can use API keys for authentication
+                import os
+                os.environ['GOOGLE_API_KEY'] = gemini_api_key
+                
+                client = speech.SpeechClient()
+                logger.info("✅ [GOOGLE_STT] Client initialized with GEMINI_API_KEY")
+                
             except Exception as client_err:
                 logger.error(f"❌ [GOOGLE_STT] Failed to initialize client: {client_err}")
                 raise

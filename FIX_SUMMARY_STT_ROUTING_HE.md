@@ -25,6 +25,8 @@
 │  └─ TTS: OpenAI voices          │
 └─────────────────────────────────┘
 
+מפתח: OPENAI_API_KEY
+
 ✅ ללא Whisper כלל
 ✅ ללא תמלול batch
 ✅ ללא כפילויות
@@ -38,6 +40,8 @@
 │  ├─ LLM: Gemini 2.0             │
 │  └─ TTS: Gemini Native Speech   │
 └─────────────────────────────────┘
+
+מפתח: GEMINI_API_KEY (אחד לכולם!)
 
 ✅ ללא Whisper כלל
 ✅ ללא Realtime API
@@ -57,7 +61,7 @@
 **מה עשינו**:
 - ✅ הסרנו את `_whisper_fallback` - אסור להשתמש בזה יותר
 - ✅ OpenAI שמגיע ל-batch STT → ERROR (באג!)
-- ✅ Gemini בלי credentials → ERROR ברור
+- ✅ Gemini בלי GEMINI_API_KEY → ERROR ברור
 - ✅ כל ספק יש לו נתיב תמלול אחד בלבד
 
 ---
@@ -93,29 +97,25 @@ OPENAI_API_KEY=sk-...
 
 #### עבור Gemini:
 ```bash
-# LLM + TTS
+# מפתח אחד לכל השירותים! (STT + LLM + TTS)
 GEMINI_API_KEY=AIza...
-
-# STT (שירות נפרד!)
-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
-# או
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
-**חשוב**: 
-- `GEMINI_API_KEY` = עבור Gemini LLM + TTS
-- `GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON` = עבור Google STT
-- **אלו שני שירותים שונים!**
+**חשוב מאוד**: 
+- Gemini משתמש ב-**מפתח אחד** לכל השירותים:
+  - ✅ STT (תמלול)
+  - ✅ LLM (בינה מלאכותית)
+  - ✅ TTS (דיבור)
+- **לא צריך** GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON!
 
 ---
 
 ### 6. הודעות שגיאה ברורות ✅
 
-**אם חסר GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON**:
+**אם חסר GEMINI_API_KEY**:
 ```
-❌ [CONFIG] Google Cloud Speech-to-Text credentials missing.
-Set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS.
-GEMINI_API_KEY is for Gemini LLM/TTS only, not STT.
+❌ [CONFIG] Gemini STT unavailable: GEMINI_API_KEY not configured.
+Set GEMINI_API_KEY environment variable for Gemini STT, LLM, and TTS.
 ```
 
 **אם OpenAI הגיע לבטעות ל-batch STT**:
@@ -130,9 +130,9 @@ OpenAI should use Realtime API for STT, not batch processing.
 
 ### כאשר Gemini נבחר:
 ```
-[STT_ROUTING] provider=gemini -> google_cloud_stt (Google Cloud Speech-to-Text API)
-🔷 [GOOGLE_STT] Processing 16000 bytes with Google Cloud Speech-to-Text API
-✅ [GOOGLE_STT] Client initialized with service account JSON
+[STT_ROUTING] provider=gemini -> google_cloud_stt (using GEMINI_API_KEY)
+🔷 [GOOGLE_STT] Processing 16000 bytes with Google Cloud Speech-to-Text API (GEMINI_API_KEY)
+✅ [GOOGLE_STT] Client initialized with GEMINI_API_KEY
 ✅ [GOOGLE_STT] Success: 'שלום, איך אפשר לעזור?'
 ```
 
@@ -160,7 +160,6 @@ http://localhost:5173/admin/prompts?tab=builder
 ```bash
 # הגדר:
 export GEMINI_API_KEY=your_key
-export GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 # בצע שיחה עם עסק שמוגדר ai_provider='gemini'
 # בדוק בלוגים:
@@ -188,6 +187,7 @@ grep "REALTIME" server.log
 | **UI** | ❌ קריסה | ✅ עובד |
 | **OpenAI STT** | ❌ Whisper | ✅ Realtime API |
 | **Gemini STT** | ❌ Whisper | ✅ Google Cloud STT |
+| **Gemini מפתחות** | ❌ מבולבל | ✅ מפתח אחד לכולם |
 | **Fallback** | ❌ יש | ✅ אין בכלל |
 | **כפילויות** | ❌ אפשרי | ✅ בלתי אפשרי |
 | **הודעות שגיאה** | ❌ מבלבלות | ✅ ברורות |
@@ -199,7 +199,7 @@ grep "REALTIME" server.log
 1. **אין fallback בשקט** - אם משהו לא עובד, השיחה נכשלת מיד עם הודעה ברורה
 2. **אין ערבוב ספקים** - כל ספק עובד בנפרד לחלוטין
 3. **אין כפילויות בתמלול** - כל ספק יש לו נתיב אחד ויחיד
-4. **מפתחות נפרדים** - ברור איזה מפתח לאיזה שירות
+4. **מפתח אחד לכל Gemini** - פשוט ונקי, ללא בלבול
 
 ---
 
@@ -207,7 +207,9 @@ grep "REALTIME" server.log
 
 אם יש בעיות:
 1. בדוק את הלוגים עם `grep "STT_ROUTING\|CALL_ROUTING" server.log`
-2. ודא שכל המפתחות מוגדרים נכון
+2. ודא שכל המפתחות מוגדרים נכון:
+   - OpenAI: `OPENAI_API_KEY`
+   - Gemini: `GEMINI_API_KEY` (אחד לכולם!)
 3. ודא ש-`ai_provider` מוגדר נכון בהגדרות העסק
 
 **זכור**: אין fallback! אם חסר מפתח, השיחה תיכשל עם הודעה ברורה.
