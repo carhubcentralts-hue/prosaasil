@@ -34,7 +34,7 @@ import {
 import { http } from '../../services/http';
 
 // Types
-type ConnectionState = 'idle' | 'connecting' | 'active' | 'error';
+type ConnectionState = 'idle' | 'active' | 'error';
 
 interface ConversationTurn {
   userSaid: string;
@@ -116,7 +116,6 @@ export function LiveCallCard() {
    */
   const startSession = async () => {
     setError('');
-    setState('connecting');
     setConversation([]);
     setConversationHistory([]);
     setIsMuted(false);
@@ -165,11 +164,13 @@ export function LiveCallCard() {
 
   /**
    * Toggle speaker on/off (audio boost)
+   * Note: Actual audio output device control is limited in browsers.
+   * This mainly serves as UI indicator for user awareness.
    */
   const toggleSpeaker = () => {
     setIsSpeakerOn(!isSpeakerOn);
-    // Note: Actual audio output routing is limited in browser
-    // This mainly serves as UI indicator
+    // Browser limitations: Cannot actually change output device
+    // This is a UI indicator only
   };
 
   /**
@@ -435,15 +436,20 @@ export function LiveCallCard() {
       setError(errorMessage);
       setIsProcessing(false);
       
-      // 🔥 CRITICAL: Return to listening after 3 seconds, or stop if no stream
+      // 🔥 CRITICAL: Return to listening after 3 seconds if media stream still exists
       setTimeout(() => {
-        if (mediaStreamRef.current && state === 'active') {
+        const streamStillExists = mediaStreamRef.current !== null;
+        const shouldRecover = streamStillExists && (state === 'active' || state === 'idle');
+        
+        if (shouldRecover && state === 'active') {
           console.log('[LIVE_CALL] Recovering from error, restarting listening...');
           setError('');
           restartListening();
         } else {
-          console.log('[LIVE_CALL] Cannot recover, no media stream');
-          setState('idle');
+          console.log('[LIVE_CALL] Cannot recover - stopping call');
+          if (streamStillExists) {
+            stopSession(); // Clean shutdown
+          }
         }
       }, 3000);
     } finally {
