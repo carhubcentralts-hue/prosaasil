@@ -69,6 +69,7 @@ export function PDFCanvas({
     logger.debug('[PDF_CANVAS] Loading PDF from:', pdfUrl);
 
     // Load PDF with credentials if it's a backend URL
+    // Custom cancellation is handled via isCancelled flag and loadingTask.destroy()
     const loadingTask = pdfjsLib.getDocument({
       url: pdfUrl,
       withCredentials: pdfUrl.startsWith('/api/'), // Include auth cookies for backend endpoints
@@ -96,8 +97,16 @@ export function PDFCanvas({
 
     return () => {
       isCancelled = true;
+      // Cancel any ongoing render task
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
+      }
+      // Destroy the loading task to free resources (safe to call even if still loading)
+      try {
+        loadingTask.destroy();
+      } catch (err) {
+        // Ignore errors during cleanup
+        logger.debug('[PDF_CANVAS] Error destroying loading task during cleanup:', err);
       }
     };
     // Only depend on pdfUrl - onTotalPagesChange is called but not depended on
@@ -110,6 +119,17 @@ export function PDFCanvas({
     const container = containerRef?.current || containerDivRef.current;
     if (!container) return;
 
+    // ✅ SET INITIAL WIDTH IMMEDIATELY (before creating observer)
+    // This ensures containerWidth is set synchronously on mount
+    // Only set if width meets minimum requirement to avoid triggering unnecessary renders
+    const initialWidth = container.clientWidth;
+    if (initialWidth >= MIN_CONTAINER_WIDTH_FOR_RENDER) {
+      logger.debug('[PDF_CANVAS] Setting initial container width:', initialWidth);
+      setContainerWidth(initialWidth);
+    } else {
+      logger.debug('[PDF_CANVAS] Container width too small, waiting for layout:', initialWidth);
+    }
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width;
@@ -119,8 +139,6 @@ export function PDFCanvas({
     });
 
     resizeObserver.observe(container);
-    // Set initial width
-    setContainerWidth(container.clientWidth);
 
     return () => {
       resizeObserver.disconnect();
@@ -135,9 +153,15 @@ export function PDFCanvas({
     const context = canvas.getContext('2d');
     if (!context) return;
 
+    // ✅ Get actual container width from ref (not state) to avoid timing issues
+    // Use nullish coalescing (??) to prioritize ref's clientWidth unless it's null/undefined
+    // If clientWidth is 0, that's a valid value (container not yet laid out)
+    const container = containerRef?.current || containerDivRef.current;
+    const actualWidth = container?.clientWidth ?? containerWidth;
+
     // Don't render if container is too small (waiting for layout)
-    if (containerWidth < MIN_CONTAINER_WIDTH_FOR_RENDER) {
-      logger.debug('[PDF_CANVAS] Container too small, waiting for layout. Width:', containerWidth);
+    if (actualWidth < MIN_CONTAINER_WIDTH_FOR_RENDER) {
+      logger.debug('[PDF_CANVAS] Container too small, waiting for layout. Width:', actualWidth);
       return;
     }
 
@@ -147,7 +171,7 @@ export function PDFCanvas({
       renderTaskRef.current = null;
     }
 
-    logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', containerWidth);
+    logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', actualWidth);
 
     pdf.getPage(currentPage)
       .then((page) => {
@@ -349,14 +373,19 @@ export function PDFCanvas({
               }}
             />
             {/* Overlay for custom elements (signature boxes, etc.) */}
-            {children && canvasRef.current && (
+            {children && canvasRef.current && canvasRef.current.style.width && (
               <div 
-                className="absolute inset-0"
+                className="absolute top-0 left-0"
                 style={{
-                  // 🔥 FIX: Use CSS size (offsetWidth/offsetHeight) not canvas internal size
-                  // This ensures signature zones align properly with the displayed PDF
-                  width: canvasRef.current.style.width || `${canvasRef.current.width}px`,
-                  height: canvasRef.current.style.height || `${canvasRef.current.height}px`,
+                  // 🔥 FIX: Explicit positioning to ensure proper layering
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  // 🔥 FIX: Always use CSS display size, never internal canvas size
+                  // Canvas internal size is high-DPI (e.g., 2000x3000), CSS size is display size (e.g., 1000x1500)
+                  // Using internal size would make overlay huge and push PDF off-screen
+                  width: canvasRef.current.style.width,
+                  height: canvasRef.current.style.height,
                   // 🔥 FIX: Default to pointer-events none, let children override
                   pointerEvents: 'none',
                   // 🔥 FIX: Ensure proper z-index layering

@@ -447,6 +447,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                       height: `${pageViewport.height}px`,
                       pointerEvents: signatureMarkingMode ? 'auto' : 'none',
                       zIndex: 2,
+                      // 🔥 FIX: Ensure transparent background (don't cover PDF)
+                      backgroundColor: 'transparent',
                     }}
                   >
                     {renderSignatureFields()}
