@@ -1287,7 +1287,103 @@ def get_job_status(job_id):
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
-        "updated_at": job.updated_at.isoformat() if job.updated_at else None
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None
+    })
+
+
+@receipts_bp.route('/delete-job/status', methods=['GET'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def get_delete_job_status():
+    """
+    Get status of active delete job with stale job detection
+    
+    This endpoint:
+    - Checks for active delete_receipts_all jobs
+    - Detects stale jobs (no heartbeat for 120+ seconds)
+    - Marks stale jobs as failed
+    - Returns clean state to frontend
+    
+    Returns:
+    - has_active_job: True if there's an active job
+    - job: Job details (if active)
+    - was_stale: True if a stale job was detected and marked as failed
+    """
+    from server.models_sql import BackgroundJob
+    
+    business_id = get_current_business_id()
+    
+    # Find any active delete job
+    job = BackgroundJob.query.filter(
+        BackgroundJob.business_id == business_id,
+        BackgroundJob.job_type == 'delete_receipts_all',
+        BackgroundJob.status.in_(['queued', 'running', 'paused'])
+    ).first()
+    
+    if not job:
+        return jsonify({
+            "success": True,
+            "has_active_job": False,
+            "message": "No active delete job"
+        })
+    
+    # Check if job is stale
+    now = datetime.utcnow()
+    is_stale = False
+    stale_reason = None
+    
+    # Check heartbeat staleness (120 seconds)
+    if job.heartbeat_at:
+        heartbeat_age = (now - job.heartbeat_at).total_seconds()
+        if heartbeat_age > 120:
+            is_stale = True
+            stale_reason = f"No heartbeat for {int(heartbeat_age)} seconds"
+            logger.warning(f"Detected stale job {job.id}: {stale_reason}")
+    
+    # Check updated_at staleness (5 minutes)
+    if not is_stale and job.updated_at:
+        updated_age = (now - job.updated_at).total_seconds()
+        if updated_age > 300:  # 5 minutes
+            is_stale = True
+            stale_reason = f"No updates for {int(updated_age)} seconds"
+            logger.warning(f"Detected stale job {job.id}: {stale_reason}")
+    
+    # Mark stale job as failed
+    if is_stale:
+        job.status = 'failed'
+        job.last_error = f"Server restarted / job heartbeat lost: {stale_reason}"
+        job.finished_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Marked stale job {job.id} as failed: {stale_reason}")
+        
+        return jsonify({
+            "success": True,
+            "has_active_job": False,
+            "was_stale": True,
+            "stale_reason": stale_reason,
+            "message": "Detected and cleared stale job"
+        })
+    
+    # Job is active and healthy
+    return jsonify({
+        "success": True,
+        "has_active_job": True,
+        "job": {
+            "job_id": job.id,
+            "status": job.status,
+            "total": job.total,
+            "processed": job.processed,
+            "succeeded": job.succeeded,
+            "failed_count": job.failed_count,
+            "percent": job.percent,
+            "last_error": job.last_error,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None
+        }
     })
 
 

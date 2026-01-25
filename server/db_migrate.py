@@ -5152,6 +5152,70 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️  business table does not exist - skipping Migration 102")
         
+        # ============================================================================
+        # Migration 103: Add heartbeat to background_jobs (Stale Job Detection)
+        # ============================================================================
+        # Purpose: Enable detection and auto-recovery from stuck/crashed delete jobs
+        # - Adds heartbeat_at column for monitoring long-running batch operations
+        # - Indexed for efficient stale job queries (status='running')
+        # - Allows auto-failing jobs with no heartbeat for 120+ seconds
+        # This prevents "DELETE ALREADY RUNNING" deadlock when worker dies/restarts
+        checkpoint("Migration 103: Adding heartbeat to background_jobs (stale job detection)")
+        
+        if check_table_exists('background_jobs'):
+            from sqlalchemy import text
+            try:
+                fields_added = []
+                
+                # Add heartbeat_at column if missing
+                if not check_column_exists('background_jobs', 'heartbeat_at'):
+                    checkpoint("  → Adding heartbeat_at to background_jobs...")
+                    db.session.execute(text("""
+                        ALTER TABLE background_jobs 
+                        ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP NULL
+                    """))
+                    
+                    # Create partial index for efficient stale job detection
+                    # Only index running jobs since we only check those for staleness
+                    if not check_index_exists('idx_background_jobs_heartbeat'):
+                        checkpoint("  → Creating partial index on heartbeat_at for running jobs...")
+                        db.session.execute(text("""
+                            CREATE INDEX IF NOT EXISTS idx_background_jobs_heartbeat 
+                            ON background_jobs (heartbeat_at) 
+                            WHERE status = 'running'
+                        """))
+                        checkpoint("  ✅ Partial index created for efficient stale detection")
+                    
+                    # Initialize heartbeat for existing running jobs to prevent false positives
+                    checkpoint("  → Initializing heartbeat for existing running jobs...")
+                    result = db.session.execute(text("""
+                        UPDATE background_jobs 
+                        SET heartbeat_at = COALESCE(updated_at, started_at, created_at)
+                        WHERE status IN ('running', 'queued') AND heartbeat_at IS NULL
+                    """))
+                    updated_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    if updated_count > 0:
+                        checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing job(s)")
+                    
+                    fields_added.append('heartbeat_at')
+                    checkpoint("  ✅ heartbeat_at added with partial index")
+                
+                if fields_added:
+                    migrations_applied.append("add_background_jobs_heartbeat")
+                    checkpoint(f"✅ Migration 103 complete: {', '.join(fields_added)} added")
+                    checkpoint("   🔒 Idempotent: Safe to run multiple times")
+                    checkpoint("   🎯 Purpose: Detects stale jobs (no heartbeat > 120s)")
+                    checkpoint("   🔧 Enables: Auto-recovery from crashed background workers")
+                else:
+                    checkpoint("✅ Migration 103: Heartbeat already exists - skipping")
+                    
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 103 failed: {e}")
+                logger.error(f"Migration 103 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ background_jobs table does not exist - skipping")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

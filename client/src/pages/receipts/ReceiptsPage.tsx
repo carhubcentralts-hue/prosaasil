@@ -1138,45 +1138,54 @@ export function ReceiptsPage() {
       }
       
       // CRITICAL: Check for active delete job on page load/refresh
+      // Use the new /delete-job/status endpoint that detects and recovers from stale jobs
       try {
-        // Check localStorage for active delete job
-        const storedDeleteJobId = localStorage.getItem('activeDeleteJobId');
-        if (storedDeleteJobId) {
-          const jobId = parseInt(storedDeleteJobId, 10);
-          console.log('📍 Found stored delete job ID on page load:', jobId);
-          
-          // Fetch current job status
-          const jobRes = await axios.get(`/api/receipts/jobs/${jobId}`);
-          if (jobRes.data.success) {
-            const job = jobRes.data;
+        console.log('📍 Checking for active delete job (with stale detection)...');
+        
+        const statusRes = await axios.get('/api/receipts/delete-job/status', {
+          headers: { Authorization: `Bearer ${user?.token}` }
+        });
+        
+        if (statusRes.data.success) {
+          if (statusRes.data.was_stale) {
+            // A stale job was detected and cleared
+            console.log('⚠️ Detected and cleared stale delete job:', statusRes.data.stale_reason);
+            localStorage.removeItem('activeDeleteJobId');
+            // Show notification to user
+            setError(`⚠️ פעולת מחיקה קודמת נכשלה (שרת אותחל מחדש). ניתן להפעיל מחיקה מחדש.`);
+            setTimeout(() => setError(null), 8000);
+          } else if (statusRes.data.has_active_job && statusRes.data.job) {
+            // Active job found - restore UI state
+            const job = statusRes.data.job;
+            console.log('📍 Restoring active delete job:', job);
             
-            // If job is still active, restore UI state
-            if (job.status === 'running' || job.status === 'paused' || job.status === 'queued') {
-              console.log('📍 Restoring active delete job:', job);
-              setDeleteJobId(jobId);
-              setShowDeleteProgress(true);
-              setDeleteProgress({
-                status: job.status,
-                total: job.total,
-                processed: job.processed,
-                succeeded: job.succeeded,
-                failed_count: job.failed_count,
-                percent: job.percent,
-                last_error: job.last_error
-              });
-              
-              // Start polling
-              deleteProgressRef.current = { active: true, jobId };
-              pollDeleteProgress(jobId);
-            } else {
-              // Job completed/failed - clear localStorage
-              localStorage.removeItem('activeDeleteJobId');
-            }
+            setDeleteJobId(job.job_id);
+            setShowDeleteProgress(true);
+            setDeleteProgress({
+              status: job.status,
+              total: job.total,
+              processed: job.processed,
+              succeeded: job.succeeded,
+              failed_count: job.failed_count,
+              percent: job.percent,
+              last_error: job.last_error
+            });
+            
+            // Store in localStorage for future recovery
+            localStorage.setItem('activeDeleteJobId', job.job_id.toString());
+            
+            // Start polling
+            deleteProgressRef.current = { active: true, jobId: job.job_id };
+            pollDeleteProgress(job.job_id);
+          } else {
+            // No active job
+            console.log('✓ No active delete job');
+            localStorage.removeItem('activeDeleteJobId');
           }
         }
       } catch (err) {
         console.error('Failed to check for active delete job:', err);
-        // Clear localStorage if job fetch fails
+        // Clear localStorage if status check fails
         localStorage.removeItem('activeDeleteJobId');
       }
     };
