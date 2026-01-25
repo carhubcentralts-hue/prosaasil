@@ -124,7 +124,6 @@ export function EnhancedPDFViewer({
   // Handle iframe load events
   const handleIframeLoad = () => {
     logger.debug('PDF iframe loaded successfully');
-    // Set loaded immediately to remove loading overlay
     setIframeLoaded(true);
     setIframeError(false);
   };
@@ -135,9 +134,8 @@ export function EnhancedPDFViewer({
     setIframeLoaded(false);
   };
 
-  // Reset load state when URL changes
+  // Reset load state when PDF URL changes (not on page navigation)
   useEffect(() => {
-    // Only reset if URL actually changed (not just currentPage)
     setIframeLoaded(false);
     setIframeError(false);
   }, [pdfUrl]);

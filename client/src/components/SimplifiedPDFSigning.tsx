@@ -83,10 +83,8 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   // Handle iframe load events
   const handleIframeLoad = () => {
     console.log('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
-    // Set ready immediately to remove loading overlay
     setPdfReady(true);
     setPdfError(null);
-    // Also ensure loading is false
     setLoading(false);
   };
 
@@ -236,6 +234,9 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
   // Don't allow signing if PDF is not ready
   const canSign = pdfReady && signatureData && signatureFields.length > 0;
+  
+  // Should show loading overlay when loading and not ready yet
+  const shouldShowLoadingOverlay = loading && !pdfReady && !pdfError;
 
   return (
     <div className="space-y-4">
@@ -313,8 +314,8 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
                 onLoad={handleIframeLoad}
                 onError={handleIframeError}
               />
-              {/* Show loading overlay ONLY when loading AND not ready - remove as soon as PDF loads */}
-              {loading && !pdfReady && !pdfError && (
+              {/* Show loading overlay only when needed */}
+              {shouldShowLoadingOverlay && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
                   <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
