@@ -1615,6 +1615,79 @@ export function ReceiptsPage() {
     }
   };
   
+  // Handle export receipts as ZIP
+  const [exporting, setExporting] = useState(false);
+  
+  const handleExportReceipts = async () => {
+    try {
+      setExporting(true);
+      
+      // Build filters to send to export endpoint
+      const exportFilters: any = {};
+      
+      if (statusFilter) {
+        exportFilters.status = statusFilter;
+      }
+      
+      if (fromDate) {
+        exportFilters.from_date = fromDate;
+      }
+      
+      if (toDate) {
+        exportFilters.to_date = toDate;
+      }
+      
+      // Make POST request to export endpoint with responseType blob
+      const response = await axios.post('/api/receipts/export', exportFilters, {
+        responseType: 'blob'
+      });
+      
+      // Create a download link for the ZIP file
+      const blob = new Blob([response.data], { type: 'application/zip' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'receipts_export.zip';
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      // Success message
+      alert('הקבלות יוצאו בהצלחה! 📦');
+      
+    } catch (error: any) {
+      console.error('Export error:', error);
+      
+      // Try to extract error message from blob response
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const json = JSON.parse(text);
+          alert(json.error || 'שגיאה בייצוא קבלות');
+        } catch {
+          alert('שגיאה בייצוא קבלות');
+        }
+      } else {
+        alert(error.response?.data?.error || 'שגיאה בייצוא קבלות');
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+  
   // Handle view receipt with signed URL
   const handleViewReceipt = async (receipt: ReceiptItem) => {
     try {
@@ -1710,6 +1783,17 @@ export function ReceiptsPage() {
                   >
                     <X className="w-4 h-4 sm:ml-2" />
                     <span className="hidden sm:inline">מחק הכל</span>
+                  </button>
+                  
+                  <button
+                    onClick={handleExportReceipts}
+                    disabled={exporting || receipts.length === 0}
+                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="ייצא קבלות כ-ZIP"
+                  >
+                    <Download className={`w-4 h-4 ml-2 ${exporting ? 'animate-bounce' : ''}`} />
+                    <span className="hidden sm:inline">{exporting ? 'מייצא...' : 'ייצא ZIP'}</span>
+                    <span className="sm:hidden">ZIP</span>
                   </button>
                   
                   <button
