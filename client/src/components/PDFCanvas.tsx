@@ -17,6 +17,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.js/pdf.worker.min.js';
 // Constants
 const MIN_CONTAINER_WIDTH_FOR_RENDER = 200; // Minimum container width before rendering PDF (px)
 const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay (signature fields, etc.)
+const RENDER_TIMEOUT_MS = 10000; // Timeout for rendering to prevent stuck overlays (10 seconds)
 
 export interface PDFCanvasProps {
   pdfUrl: string;
@@ -50,6 +51,7 @@ export function PDFCanvas({
   const [internalScale, setInternalScale] = useState(1.0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [isRendering, setIsRendering] = useState(false);
   
   const scale = externalScale ?? internalScale;
   const handleScaleChange = onScaleChange ?? setInternalScale;
@@ -57,6 +59,7 @@ export function PDFCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
+  const renderTimeoutRef = useRef<number | null>(null);
 
   // Load PDF document - only when URL changes
   useEffect(() => {
@@ -171,7 +174,23 @@ export function PDFCanvas({
       renderTaskRef.current = null;
     }
 
+    // Clear any existing timeout
+    if (renderTimeoutRef.current) {
+      clearTimeout(renderTimeoutRef.current);
+      renderTimeoutRef.current = null;
+    }
+
+    // 🔥 FIX: Set isRendering state BEFORE starting render
+    setIsRendering(true);
+
     logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', actualWidth);
+
+    // 🔥 FIX: Add timeout fallback to prevent stuck overlay (10 seconds)
+    renderTimeoutRef.current = setTimeout(() => {
+      logger.error('[PDF_CANVAS] Render timeout - forcing isRendering to false');
+      setIsRendering(false);
+      renderTaskRef.current = null;
+    }, RENDER_TIMEOUT_MS);
 
     pdf.getPage(currentPage)
       .then((page) => {
@@ -206,7 +225,6 @@ export function PDFCanvas({
       })
       .then(() => {
         logger.debug('[PDF_CANVAS] Page rendered successfully');
-        renderTaskRef.current = null;
       })
       .catch((err: any) => {
         if (err.name === 'RenderingCancelledException') {
@@ -214,7 +232,15 @@ export function PDFCanvas({
         } else {
           logger.error('[PDF_CANVAS] Error rendering page:', err);
         }
+      })
+      .finally(() => {
+        // 🔥 FIX: Always clear state in finally to ensure overlay removal
         renderTaskRef.current = null;
+        setIsRendering(false);
+        if (renderTimeoutRef.current) {
+          clearTimeout(renderTimeoutRef.current);
+          renderTimeoutRef.current = null;
+        }
       });
 
     return () => {
@@ -222,6 +248,11 @@ export function PDFCanvas({
         renderTaskRef.current.cancel();
         renderTaskRef.current = null;
       }
+      if (renderTimeoutRef.current) {
+        clearTimeout(renderTimeoutRef.current);
+        renderTimeoutRef.current = null;
+      }
+      setIsRendering(false);
     };
   }, [pdf, currentPage, scale, containerWidth]);
 
@@ -236,13 +267,13 @@ export function PDFCanvas({
   };
 
   const handlePrevPage = () => {
-    if (currentPage > 1) {
+    if (currentPage > 1 && !isRendering) {
       onPageChange(currentPage - 1);
     }
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages) {
+    if (currentPage < totalPages && !isRendering) {
       onPageChange(currentPage + 1);
     }
   };
@@ -279,7 +310,7 @@ export function PDFCanvas({
         <div className="flex items-center gap-2">
           <button
             onClick={handlePrevPage}
-            disabled={currentPage === 1}
+            disabled={currentPage === 1 || isRendering}
             className="p-2 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="עמוד קודם"
           >
@@ -290,7 +321,7 @@ export function PDFCanvas({
           </span>
           <button
             onClick={handleNextPage}
-            disabled={currentPage === totalPages}
+            disabled={currentPage === totalPages || isRendering}
             className="p-2 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="עמוד הבא"
           >
@@ -303,7 +334,7 @@ export function PDFCanvas({
       <div className="flex items-center gap-2">
         <button
           onClick={handleZoomOut}
-          disabled={scale <= 0.5}
+          disabled={scale <= 0.5 || isRendering}
           className="p-2 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="הקטן"
         >
@@ -314,7 +345,7 @@ export function PDFCanvas({
         </span>
         <button
           onClick={handleZoomIn}
-          disabled={scale >= 3.0}
+          disabled={scale >= 3.0 || isRendering}
           className="p-2 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="הגדל"
         >
@@ -364,7 +395,8 @@ export function PDFCanvas({
         <div className="flex items-start justify-center p-4 w-full h-full">
           <div className="relative inline-block">
             <canvas 
-              ref={canvasRef} 
+              ref={canvasRef}
+              key={`pdf-${pdfUrl}-page-${currentPage}-scale-${Math.round(scale * 100)}`}
               className="shadow-lg bg-white block"
               style={{
                 // 🔥 FIX: Ensure canvas is always displayed properly
@@ -372,6 +404,15 @@ export function PDFCanvas({
                 maxWidth: '100%',
               }}
             />
+            {/* 🔥 FIX: Rendering overlay - show only during page render */}
+            {isRendering && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-75 pointer-events-none">
+                <div className="text-center">
+                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin mx-auto mb-2" />
+                  <p className="text-gray-600 text-sm font-medium">מרנדר עמוד...</p>
+                </div>
+              </div>
+            )}
             {/* Overlay for custom elements (signature boxes, etc.) */}
             {children && canvasRef.current && canvasRef.current.style.width && (
               <div 

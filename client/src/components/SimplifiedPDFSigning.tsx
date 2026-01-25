@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CheckCircle, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
+import { logger } from '../shared/utils/logger';
+
+// Constants
+const LOADING_TIMEOUT_MS = 10000; // Timeout for PDF loading to prevent stuck overlays (10 seconds)
 
 interface SignatureField {
   id: string;
@@ -41,6 +45,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const loadTimeoutRef = useRef<number | null>(null);
 
   // Load signature fields and PDF info
   useEffect(() => {
@@ -82,18 +87,49 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
   // Handle iframe load events
   const handleIframeLoad = () => {
-    console.log('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
+    logger.debug('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
     setPdfReady(true);
     setPdfError(null);
     setLoading(false);
+    
+    // Clear timeout on successful load
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
   };
 
   const handleIframeError = () => {
-    console.error('[PDF_LOAD_ERROR] PDF iframe failed to load');
+    logger.error('[PDF_LOAD_ERROR] PDF iframe failed to load');
     setPdfError('שגיאה בטעינת PDF');
     setPdfReady(false);
     setLoading(false);
+    
+    // Clear timeout on error
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
   };
+
+  // Set timeout for loading - if it takes too long, force clear the overlay
+  useEffect(() => {
+    if (loading && !pdfReady && !pdfError) {
+      // Start a timeout when loading begins
+      loadTimeoutRef.current = setTimeout(() => {
+        logger.error('[PDF_LOAD_TIMEOUT] PDF loading timeout - forcing load complete');
+        setLoading(false);
+        setPdfError('זמן הטעינה חרג מהמותר. נסה לרענן את הדף.');
+      }, LOADING_TIMEOUT_MS);
+    }
+    
+    return () => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
+    };
+  }, [loading, pdfReady, pdfError]);
 
   // Initialize canvas
   useEffect(() => {
@@ -201,8 +237,11 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   };
 
   const navigateToPage = (newPage: number) => {
-    if (newPage >= 1 && newPage <= totalPages && newPage !== currentPage) {
+    if (newPage >= 1 && newPage <= totalPages && newPage !== currentPage && !loading) {
       setCurrentPage(newPage);
+      // Reset load state for new page
+      setLoading(true);
+      setPdfReady(false);
     }
   };
 
@@ -234,9 +273,6 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
   // Don't allow signing if PDF is not ready
   const canSign = pdfReady && signatureData && signatureFields.length > 0;
-  
-  // Should show loading overlay when loading and not ready yet
-  const shouldShowLoadingOverlay = loading && !pdfReady && !pdfError;
 
   return (
     <div className="space-y-4">
@@ -279,7 +315,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
         <div className="flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-200">
           <button
             onClick={() => navigateToPage(currentPage - 1)}
-            disabled={currentPage === 1}
+            disabled={currentPage === 1 || loading}
             className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200"
           >
             <ChevronRight className="w-5 h-5 text-blue-600" />
@@ -289,7 +325,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
           </span>
           <button
             onClick={() => navigateToPage(currentPage + 1)}
-            disabled={currentPage === totalPages}
+            disabled={currentPage === totalPages || loading}
             className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200"
           >
             <ChevronLeft className="w-5 h-5 text-blue-600" />
@@ -306,7 +342,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
             <>
               <iframe
                 ref={iframeRef}
-                key={`pdf-${file.id}-${currentPage}`}
+                key={`pdf-${file.id}-page-${currentPage}-url-${file.download_url}`}
                 src={`${file.download_url}#page=${currentPage}&view=FitH`}
                 className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
                 title={file.filename}
@@ -314,8 +350,8 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
                 onLoad={handleIframeLoad}
                 onError={handleIframeError}
               />
-              {/* Show loading overlay only when needed */}
-              {shouldShowLoadingOverlay && (
+              {/* Show loading overlay only when needed - removed when iframe loads OR timeout occurs */}
+              {loading && !pdfReady && !pdfError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
                   <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
