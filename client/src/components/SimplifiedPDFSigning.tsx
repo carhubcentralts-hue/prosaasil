@@ -83,15 +83,28 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   // Handle iframe load events
   const handleIframeLoad = () => {
     console.log('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
+    // Set ready immediately to remove loading overlay
     setPdfReady(true);
     setPdfError(null);
+    // Also ensure loading is false
+    setLoading(false);
   };
 
   const handleIframeError = () => {
     console.error('[PDF_LOAD_ERROR] PDF iframe failed to load');
     setPdfError('שגיאה בטעינת PDF');
     setPdfReady(false);
+    setLoading(false);
   };
+
+  // Reset iframe load state when currentPage changes to handle navigation
+  useEffect(() => {
+    // Don't reset if pdfReady is already true and we're just changing pages
+    // This prevents flashing of loading overlay during page navigation
+    if (pdfReady) {
+      console.log('[PDF_NAV] Page changed, maintaining ready state');
+    }
+  }, [currentPage, pdfReady]);
 
   // Initialize canvas
   useEffect(() => {
@@ -305,13 +318,13 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
                 src={`${file.download_url}#page=${currentPage}&view=FitH`}
                 className="w-full min-h-[400px] h-[60vh] md:h-[70vh] max-h-[800px]"
                 title={file.filename}
-                style={{ border: 'none', display: 'block' }}
+                style={{ border: 'none', display: 'block', zIndex: 1 }}
                 onLoad={handleIframeLoad}
                 onError={handleIframeError}
               />
-              {/* Show loading overlay until PDF is ready */}
-              {!pdfReady && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none">
+              {/* Show loading overlay ONLY when loading AND not ready - remove as soon as PDF loads */}
+              {loading && !pdfReady && !pdfError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
                   <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
                     <p className="text-gray-600 text-sm">טוען PDF...</p>

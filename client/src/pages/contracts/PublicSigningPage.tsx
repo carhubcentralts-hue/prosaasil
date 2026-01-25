@@ -413,7 +413,9 @@ function PDFSigningView({
             title={file.filename}
             style={{ 
               border: 'none',
-              display: 'block'
+              display: 'block',
+              zIndex: 1,
+              position: 'relative',
             }}
           />
           
@@ -425,7 +427,8 @@ function PDFSigningView({
                 backgroundColor: 'rgba(34, 197, 94, 0.08)', // Green tint for signature mode
                 pointerEvents: 'auto',
                 backgroundImage: 'radial-gradient(circle, rgba(34, 197, 94, 0.15) 1px, transparent 1px)',
-                backgroundSize: '20px 20px'
+                backgroundSize: '20px 20px',
+                zIndex: 2,
               }}
               onDoubleClick={handlePdfDoubleClick}
               onTouchEnd={(e) => {
@@ -473,7 +476,7 @@ function PDFSigningView({
           )}
           
           {/* Overlay for signature placements on current page */}
-          <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 3 }}>
             {currentPageSignatures.map((sig) => {
               const pageInfo = pdfInfo.pages[currentPage];
               const containerWidth = pdfContainerRef.current?.offsetWidth || 800;
