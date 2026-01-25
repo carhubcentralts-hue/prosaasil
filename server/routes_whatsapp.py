@@ -1,4 +1,4 @@
-import os, requests, logging, csv, io, json
+import os, requests, logging, csv, io, json, threading
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
@@ -1289,7 +1289,9 @@ def baileys_webhook():
                     args=(app_instance, business_id, tenant_id, remote_jid, response_text, wa_msg.id),
                     daemon=True
                 )
+                log.info(f"[WA-OUTGOING] Thread created for message {wa_msg.id}")
                 send_thread.start()
+                log.info(f"[WA-OUTGOING] Thread started for message {wa_msg.id}")
                 
                 # Mark as processed immediately (actual sending happens in background)
                 processed_count += 1
