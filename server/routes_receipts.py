@@ -867,7 +867,7 @@ def download_receipt(receipt_id):
         signed_url = attachment_service.generate_signed_url(
             attachment_id=receipt.attachment.id,
             storage_key=receipt.attachment.storage_path,
-            ttl_minutes=5,  # Short TTL for download (5 minutes)
+            ttl_minutes=15,  # 15 minutes for download (generous for slow connections)
             mime_type=receipt.attachment.mime_type,
             filename=receipt.attachment.filename_original
         )
