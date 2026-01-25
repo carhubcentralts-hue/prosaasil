@@ -28,7 +28,14 @@ def initialize_production_database():
         logger.info("🔧 Starting database initialization...")
         
         # 0. Ensure System business exists for system_admin (FIX for business_id NOT NULL)
-        system_business = Business.query.filter_by(name="System").first()
+        try:
+            system_business = Business.query.filter_by(name="System").first()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[INIT_DB] Database error querying System business: {db_error}")
+            raise
+        
         if not system_business:
             logger.info("🏢 Creating System business for global admin...")
             logger.info("🏢 Creating System business for global admin...")
@@ -62,7 +69,14 @@ def initialize_production_database():
             logger.info(f"✅ System business exists (ID: {system_business.id})")
         
         # 1. Ensure at least one regular business exists
-        business = Business.query.filter(Business.name != "System").first()
+        try:
+            business = Business.query.filter(Business.name != "System").first()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[INIT_DB] Database error querying regular business: {db_error}")
+            raise
+        
         if not business:
             logger.info("📊 No regular business found, creating default business...")
             logger.info("📊 No regular business found, creating default business...")
@@ -96,7 +110,14 @@ def initialize_production_database():
             logger.info(f"✅ Regular business exists: {business.name} (ID: {business.id})")
         
         # 2. Ensure system admin user exists (FIXED: must have business_id)
-        admin = User.query.filter_by(email='admin@admin.com').first()
+        try:
+            admin = User.query.filter_by(email='admin@admin.com').first()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[INIT_DB] Database error querying admin user: {db_error}")
+            raise
+        
         if not admin:
             logger.info("👤 No system admin user found, creating system_admin...")
             logger.info("👤 No system admin user found, creating system_admin...")
@@ -143,7 +164,14 @@ def initialize_production_database():
                 logger.info(f"✅ Admin (admin@admin.com) updated successfully")
         
         # ✅ Print all users for debugging
-        all_users = User.query.all()
+        try:
+            all_users = User.query.all()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[INIT_DB] Database error querying all users: {db_error}")
+            raise
+        
         logger.info(f"\n📊 Total users in database: {len(all_users)}")
         logger.info(f"📊 Total users in database: {len(all_users)}")
         for u in all_users:
@@ -151,7 +179,14 @@ def initialize_production_database():
             logger.info(f"  - User {u.id}: {u.email} | role={u.role} | business_id={u.business_id}")
         
         # 4. Ensure default lead statuses exist for the regular business (not System)
-        existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()
+        try:
+            existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[INIT_DB] Database error querying lead statuses: {db_error}")
+            raise
+        
         if existing_statuses == 0:
             logger.info("📋 No lead statuses found, creating defaults...")
             logger.info("📋 No lead statuses found, creating defaults...")
@@ -196,13 +231,22 @@ def initialize_production_database():
             logger.info(f"✅ FAQs: {total_faqs} total (user creates FAQs via UI)")
         except Exception as e:
             # FAQs table doesn't exist yet (migrations haven't run)
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
             logger.warning(f"⚠️ FAQs table not ready: {e}")
             logger.info("   (This is normal on first deployment - table will be created by migrations)")
             logger.warning(f"FAQs table not ready: {e}")
         
         # 6. Ensure BusinessSettings exists for this business
         # CRITICAL FIX BUILD 111: Settings (slot_size, 24/7, etc.) must persist across deployments!
-        existing_settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+        try:
+            existing_settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+        except Exception as db_error:
+            # 🔥 CRITICAL FIX: Rollback transaction to prevent "InFailedSqlTransaction"
+            db.session.rollback()
+            logger.error(f"[INIT_DB] Database error querying business settings: {db_error}")
+            raise
+        
         if not existing_settings:
             logger.info("⚙️ No business_settings found, creating default settings...")
             logger.info("⚙️ No business_settings found, creating default settings...")
