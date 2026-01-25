@@ -432,7 +432,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 
 // Format currency
 const formatCurrency = (amount: number | null, currency: string = 'ILS') => {
-  if (amount === null) return '—';
+  if (amount === null) return 'לא זוהה סכום';
   
   const symbols: Record<string, string> = {
     'ILS': '₪',
@@ -678,29 +678,17 @@ const ReceiptDrawer: React.FC<{
         </div>
         
         <div className="p-4">
-          {/* Attachment preview - FIXED: Use same logic as list view */}
+          {/* Attachment preview - FIXED: Show ORIGINAL in detail view for best quality */}
           {(() => {
-            // Unified image source - prioritize preview, fallback to attachment
-            const previewUrl = receipt.preview_attachment?.signed_url;
+            // For detail view: prioritize ORIGINAL attachment over preview thumbnail
             const attachmentUrl = receipt.attachment?.signed_url;
-            const imageUrl = previewUrl || attachmentUrl;
+            const previewUrl = receipt.preview_attachment?.signed_url;
+            // Use original if available, otherwise fall back to preview
+            const imageUrl = attachmentUrl || previewUrl;
             
             if (!imageUrl) return null;
             
-            // If we have preview, show it as image
-            if (previewUrl) {
-              return (
-                <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
-                  <img
-                    src={previewUrl}
-                    alt={receipt.vendor_name || 'Receipt preview'}
-                    className="w-full h-auto"
-                  />
-                </div>
-              );
-            }
-            
-            // If only attachment, show based on type
+            // If we have the original attachment, show based on type
             if (attachmentUrl && receipt.attachment) {
               return (
                 <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
@@ -716,7 +704,8 @@ const ReceiptDrawer: React.FC<{
                     <img
                       src={attachmentUrl}
                       alt="Receipt"
-                      className="w-full h-auto"
+                      className="w-full h-auto max-w-full"
+                      style={{ maxHeight: '70vh', objectFit: 'contain' }}
                     />
                   ) : (
                     <div className="p-8 text-center text-gray-500">
@@ -724,6 +713,20 @@ const ReceiptDrawer: React.FC<{
                       <p>{receipt.attachment.filename}</p>
                     </div>
                   )}
+                </div>
+              );
+            }
+            
+            // Fallback to preview if original not available
+            if (previewUrl) {
+              return (
+                <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
+                  <img
+                    src={previewUrl}
+                    alt={receipt.vendor_name || 'Receipt preview'}
+                    className="w-full h-auto max-w-full"
+                    style={{ maxHeight: '70vh', objectFit: 'contain' }}
+                  />
                 </div>
               );
             }
@@ -805,15 +808,15 @@ const ReceiptDrawer: React.FC<{
           
           {/* Actions */}
           <div className="mt-6 space-y-3">
-            {receipt.attachment?.signed_url && (
+            {receipt.attachment && (
               <a
-                href={receipt.attachment.signed_url}
+                href={`/api/receipts/${receipt.id}/download`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
               >
                 <Download className="w-4 h-4 ml-2" />
-                הורד קובץ
+                הורד קבלה
               </a>
             )}
             

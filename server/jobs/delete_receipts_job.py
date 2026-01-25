@@ -60,7 +60,7 @@ def delete_receipts_batch_job(job_id: int):
         business_id = job.business_id
         
         logger.info("=" * 60)
-        logger.info(f"🗑️  JOB_START: Delete all receipts")
+        logger.info(f"🗑️  [RECEIPTS_DELETE] JOB_START: Delete all receipts")
         logger.info(f"  → job_id: {job_id}")
         logger.info(f"  → business_id: {business_id}")
         logger.info(f"  → batch_size: {BATCH_SIZE}")
@@ -133,7 +133,7 @@ def delete_receipts_batch_job(job_id: int):
                 
                 # Check if we're done
                 if not receipts:
-                    logger.info("✅ All receipts processed - job complete")
+                    logger.info("✅ [RECEIPTS_DELETE] All receipts processed - job complete")
                     job.status = 'completed'
                     job.finished_at = datetime.utcnow()
                     job.updated_at = datetime.utcnow()
@@ -191,12 +191,12 @@ def delete_receipts_batch_job(job_id: int):
                         consecutive_failures = 0
                     
                     logger.info(
-                        f"  ✓ Batch complete: {batch_succeeded} deleted, {batch_failed} failed "
+                        f"  ✓ [RECEIPTS_DELETE] Batch complete: {batch_succeeded} deleted, {batch_failed} failed "
                         f"({job.processed}/{job.total} = {job.percent:.1f}%) in {time.time() - batch_start:.2f}s"
                     )
                     
                 except Exception as e:
-                    logger.error(f"Batch processing failed: {e}", exc_info=True)
+                    logger.error(f"[RECEIPTS_DELETE] Batch processing failed: {e}", exc_info=True)
                     consecutive_failures += 1
                     job.failed_count += len(receipts)
                     job.last_error = str(e)[:200]
@@ -206,7 +206,7 @@ def delete_receipts_batch_job(job_id: int):
                     
                     # Check if we should stop due to repeated failures
                     if consecutive_failures >= MAX_BATCH_FAILURES:
-                        logger.error(f"❌ Too many consecutive failures ({consecutive_failures}) - stopping job")
+                        logger.error(f"❌ [RECEIPTS_DELETE] Too many consecutive failures ({consecutive_failures}) - stopping job")
                         job.status = 'failed'
                         job.finished_at = datetime.utcnow()
                         db.session.commit()
@@ -222,6 +222,8 @@ def delete_receipts_batch_job(job_id: int):
                     try:
                         from server.services.attachment_service import get_attachment_service
                         attachment_service = get_attachment_service()
+                        
+                        logger.info(f"    → [RECEIPTS_DELETE] Deleting {len(attachment_ids_to_delete)} attachments from storage")
                         
                         for att_id in attachment_ids_to_delete:
                             try:
@@ -244,17 +246,17 @@ def delete_receipts_batch_job(job_id: int):
                         # Commit attachment deletions
                         if deleted_attachments > 0:
                             db.session.commit()
-                            logger.info(f"    → Deleted {deleted_attachments} attachments from storage")
+                            logger.info(f"    → [RECEIPTS_DELETE] Deleted {deleted_attachments} attachments from storage")
                     
                     except Exception as e:
-                        logger.error(f"Attachment deletion failed (non-fatal): {e}")
+                        logger.error(f"[RECEIPTS_DELETE] Attachment deletion failed (non-fatal): {e}")
                         db.session.rollback()
                 
                 # Throttle between batches
                 time.sleep(THROTTLE_MS / 1000.0)
         
         except Exception as e:
-            logger.error(f"Job failed with unexpected error: {e}", exc_info=True)
+            logger.error(f"[RECEIPTS_DELETE] Job failed with unexpected error: {e}", exc_info=True)
             job.status = 'failed'
             job.last_error = str(e)[:200]
             job.finished_at = datetime.utcnow()

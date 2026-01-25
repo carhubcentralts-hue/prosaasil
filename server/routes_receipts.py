@@ -832,6 +832,58 @@ def get_receipt(receipt_id):
     return jsonify({"success": True, "receipt": result})
 
 
+@receipts_bp.route('/<int:receipt_id>/download', methods=['GET'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def download_receipt(receipt_id):
+    """
+    Download a single receipt file
+    
+    Returns a redirect to the signed URL for the receipt attachment.
+    This allows the browser to download the file directly from storage (R2/S3).
+    
+    Redirect approach is faster and more efficient than streaming through the server.
+    """
+    business_id = get_current_business_id()
+    
+    receipt = Receipt.query.filter_by(
+        id=receipt_id,
+        business_id=business_id,
+        is_deleted=False
+    ).first()
+    
+    if not receipt:
+        return jsonify({"success": False, "error": "Receipt not found"}), 404
+    
+    # Get the original attachment (not preview)
+    if not receipt.attachment_id or not receipt.attachment:
+        return jsonify({"success": False, "error": "Receipt has no attachment"}), 404
+    
+    # Generate signed URL with Content-Disposition header for download
+    try:
+        from server.services.attachment_service import get_attachment_service
+        attachment_service = get_attachment_service()
+        
+        signed_url = attachment_service.generate_signed_url(
+            attachment_id=receipt.attachment.id,
+            storage_key=receipt.attachment.storage_path,
+            ttl_minutes=15,  # 15 minutes for download (generous for slow connections)
+            mime_type=receipt.attachment.mime_type,
+            filename=receipt.attachment.filename_original
+        )
+        
+        if not signed_url:
+            logger.error(f"Failed to generate signed URL for receipt {receipt_id}")
+            return jsonify({"success": False, "error": "Failed to generate download URL"}), 500
+        
+        # Redirect to signed URL (browser will download the file)
+        return redirect(signed_url)
+    
+    except Exception as e:
+        logger.error(f"Failed to download receipt {receipt_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "Failed to generate download URL"}), 500
+
+
 @receipts_bp.route('/<int:receipt_id>/mark', methods=['PATCH'])
 @require_api_auth()
 @require_page_access('gmail_receipts')
@@ -2025,6 +2077,10 @@ def export_receipts():
         # or temporary file-based approach to reduce memory usage
         zip_buffer = io.BytesIO()
         
+        # Initialize AttachmentService for generating signed URLs
+        from server.services.attachment_service import get_attachment_service
+        attachment_service = get_attachment_service()
+        
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             downloaded_count = 0
             
@@ -2032,17 +2088,32 @@ def export_receipts():
                 # Try to get the preview first (thumbnail), then fall back to attachment
                 attachment_to_export = receipt.preview_attachment or receipt.attachment
                 
-                if not attachment_to_export or not attachment_to_export.signed_url:
+                if not attachment_to_export:
                     logger.warning(f"Receipt {receipt.id} has no attachment or preview to export")
                     continue
                 
                 try:
+                    # Generate signed URL for downloading the attachment
+                    try:
+                        signed_url = attachment_service.generate_signed_url(
+                            attachment_id=attachment_to_export.id,
+                            storage_key=attachment_to_export.storage_path,
+                            ttl_minutes=10  # Short TTL for export process
+                        )
+                    except Exception as e:
+                        logger.warning(f"Receipt {receipt.id}: Failed to generate signed URL: {e}")
+                        continue
+                    
+                    if not signed_url:
+                        logger.warning(f"Receipt {receipt.id}: No signed URL generated")
+                        continue
+                    
                     # Download the file from signed URL with SSL verification and size limit
                     # SECURITY: Limit download size to prevent memory exhaustion (100 MB max)
                     MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
                     
                     response = requests.get(
-                        attachment_to_export.signed_url, 
+                        signed_url, 
                         timeout=30,
                         stream=True,  # Stream to check size before loading into memory
                         verify=True  # SSL verification enabled
