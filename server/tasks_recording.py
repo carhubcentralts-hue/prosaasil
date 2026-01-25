@@ -458,7 +458,6 @@ def start_recording_worker(app):
                             # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
                             if retry_count < 2:
                                 import time
-                                import threading
                                 
                                 delay = 5  # Short delay for download retries
                                 logger.error(f"⚠️ [WORKER] Download failed for {call_sid}, retrying in {delay}s")
@@ -506,7 +505,6 @@ def start_recording_worker(app):
                         if success is False and retry_count < MAX_RETRIES:
                             # Recording not ready yet - schedule retry with backoff
                             import time
-                            import threading
                             
                             delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
                             logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
