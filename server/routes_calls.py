@@ -384,13 +384,29 @@ def download_recording(call_sid):
                 log.debug(f"Download recording: Slot acquired for call_sid={call_sid}, enqueuing download")
                 
                 from server.tasks_recording import enqueue_recording_download_only
-                enqueue_recording_download_only(
+                from server.recording_semaphore import release_slot
+                
+                # 🔥 CRITICAL: Check if job was actually enqueued
+                # If not (dedup hit), we must release the slot immediately
+                job_enqueued = enqueue_recording_download_only(
                     call_sid=call_sid,
                     recording_url=call.recording_url,
+                    recording_sid=call.recording_sid,  # 🔥 NEW: Pass recording_sid for better logging
                     business_id=business_id,
                     from_number=call.from_number or "",
                     to_number=call.to_number or ""
                 )
+                
+                if not job_enqueued:
+                    # Job was not enqueued (file cached or duplicate) - release slot immediately
+                    logger.info(f"🔧 [API DOWNLOAD] Job not enqueued for {call_sid} (dedup hit) - releasing slot")
+                    release_slot(business_id, call_sid)
+                    # File should be available now, return to caller
+                    return jsonify({
+                        "success": True,
+                        "status": "ready",
+                        "message": "Recording is ready"
+                    }), 200
                 
                 return jsonify({
                     "success": True,
@@ -672,13 +688,29 @@ def stream_recording(call_sid):
                 log.debug(f"Stream recording: Slot acquired for call_sid={call_sid}, enqueuing download")
                 
                 from server.tasks_recording import enqueue_recording_download_only
-                enqueue_recording_download_only(
+                from server.recording_semaphore import release_slot
+                
+                # 🔥 CRITICAL: Check if job was actually enqueued
+                # If not (dedup hit), we must release the slot immediately
+                job_enqueued = enqueue_recording_download_only(
                     call_sid=call_sid,
                     recording_url=call.recording_url,
+                    recording_sid=call.recording_sid,  # 🔥 NEW: Pass recording_sid for better logging
                     business_id=business_id,
                     from_number=call.from_number or "",
                     to_number=call.to_number or ""
                 )
+                
+                if not job_enqueued:
+                    # Job was not enqueued (file cached or duplicate) - release slot immediately
+                    logger.info(f"🔧 [API] Job not enqueued for {call_sid} (dedup hit) - releasing slot")
+                    release_slot(business_id, call_sid)
+                    # File should be available now, return to caller
+                    return jsonify({
+                        "success": True,
+                        "status": "ready",
+                        "message": "Recording is ready"
+                    }), 200
                 
                 return jsonify({
                     "success": True,
