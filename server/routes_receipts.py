@@ -1252,8 +1252,13 @@ def delete_all_receipts():
                     job_timeout='1h'  # 1 hour max per job execution
                 )
                 logger.info("=" * 60)
-                logger.info(f"🧾 receipts_delete enqueued job_id={rq_job.id} bg_job_id={job.id}")
-                logger.info(f"Enqueued job {job.id} to maintenance queue: {rq_job.id}")
+                logger.info(f"🔨 DELETE_RECEIPTS JOB ENQUEUED")
+                logger.info(f"  → queue_name: maintenance")
+                logger.info(f"  → rq_job_id: {rq_job.id}")
+                logger.info(f"  → bg_job_id: {job.id}")
+                logger.info(f"  → business_id: {business_id}")
+                logger.info(f"  → total_receipts: {total_receipts}")
+                logger.info(f"  → function: delete_receipts_batch_job")
                 logger.info("=" * 60)
             except Exception as e:
                 logger.error(f"Failed to enqueue job: {e}")

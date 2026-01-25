@@ -123,7 +123,14 @@ except Exception as e:
 # Create Queue objects for each configured queue
 try:
     QUEUES = [Queue(q, connection=redis_conn) for q in LISTEN_QUEUES]
-    logger.info(f"✓ Created {len(QUEUES)} queue(s): {LISTEN_QUEUES}")
+    logger.info("=" * 70)
+    logger.info("🔨 WORKER QUEUES CONFIGURATION")
+    logger.info("=" * 70)
+    logger.info(f"RQ_QUEUES env var: {RQ_QUEUES}")
+    logger.info(f"Listening to {len(QUEUES)} queue(s): {LISTEN_QUEUES}")
+    for q in LISTEN_QUEUES:
+        logger.info(f"  → {q}")
+    logger.info("=" * 70)
 except Exception as e:
     log_fatal_error("Creating RQ queues", e)
 
