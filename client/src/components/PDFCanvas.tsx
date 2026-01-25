@@ -121,13 +121,13 @@ export function PDFCanvas({
 
     // ✅ SET INITIAL WIDTH IMMEDIATELY (before creating observer)
     // This ensures containerWidth is set synchronously on mount
-    // If width is 0, container hasn't been laid out yet - observer will update it later
+    // Only set if width meets minimum requirement to avoid triggering unnecessary renders
     const initialWidth = container.clientWidth;
-    if (initialWidth > 0) {
+    if (initialWidth >= MIN_CONTAINER_WIDTH_FOR_RENDER) {
       logger.debug('[PDF_CANVAS] Setting initial container width:', initialWidth);
       setContainerWidth(initialWidth);
     } else {
-      logger.debug('[PDF_CANVAS] Container width is 0, waiting for layout');
+      logger.debug('[PDF_CANVAS] Container width too small, waiting for layout:', initialWidth);
     }
 
     const resizeObserver = new ResizeObserver((entries) => {
@@ -377,6 +377,10 @@ export function PDFCanvas({
               <div 
                 className="absolute top-0 left-0"
                 style={{
+                  // 🔥 FIX: Explicit positioning to ensure proper layering
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
                   // 🔥 FIX: Always use CSS display size, never internal canvas size
                   // Canvas internal size is high-DPI (e.g., 2000x3000), CSS size is display size (e.g., 1000x1500)
                   // Using internal size would make overlay huge and push PDF off-screen
