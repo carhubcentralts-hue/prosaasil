@@ -19,6 +19,7 @@ import time
 import logging
 import signal
 import traceback
+import threading
 from datetime import datetime, timezone
 
 # Setup logging
@@ -209,14 +210,10 @@ def main():
         logger.info("-" * 60)
         
         # Heartbeat thread for monitoring
-        import threading
-        
         def heartbeat_log():
             """Log worker heartbeat every 30 seconds"""
             while not shutdown_requested:
                 time.sleep(30)
-                if shutdown_requested:
-                    break
                 try:
                     queue_stats = []
                     for queue in QUEUES:
