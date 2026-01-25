@@ -2022,6 +2022,27 @@ def apply_migrations():
         
         checkpoint("✅ Migration 57 completed - Authentication system enhanced")
         
+        # Migration 57c: Add push_enabled to users table for push notification preference
+        # 🔒 CRITICAL FIX: This column is referenced in User model and routes_push.py but missing from DB
+        # Fixes: psycopg2.errors.UndefinedColumn: column users.push_enabled does not exist
+        if check_table_exists('users') and not check_column_exists('users', 'push_enabled'):
+            checkpoint("Migration 57c: Adding push_enabled column to users table")
+            try:
+                # Add push_enabled column with default value TRUE
+                # This represents user's preference for push notifications (opt-out model)
+                # Separate from subscription existence (device capability)
+                db.session.execute(text("""
+                    ALTER TABLE users 
+                    ADD COLUMN push_enabled BOOLEAN NOT NULL DEFAULT TRUE
+                """))
+                
+                migrations_applied.append('add_users_push_enabled')
+                checkpoint("✅ Applied migration 57c: add_users_push_enabled - Push notification user preference")
+            except Exception as e:
+                log.error(f"❌ Migration 57c failed: {e}")
+                db.session.rollback()
+                raise
+        
         # Migration 58: Add voice_id to business table for per-business voice selection
         # 🔒 CRITICAL FIX: This column is referenced in Business model but missing from DB
         # Fixes: psycopg2.errors.UndefinedColumn: column business.voice_id does not exist
