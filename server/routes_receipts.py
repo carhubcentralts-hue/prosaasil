@@ -92,6 +92,9 @@ except Exception as e:
     receipts_queue = None
     RQ_AVAILABLE = False
 
+# Rate limiting configuration
+RATE_LIMIT_DELETE_ALL_SECONDS = 60  # Max 1 delete_all request per 60 seconds per business
+
 # Helper function to check if RQ workers are active for specific queue
 def _has_worker_for_queue(redis_connection, queue_name: str = "default") -> bool:
     """
@@ -1069,14 +1072,14 @@ def delete_all_receipts():
         try:
             # Use SET NX (set if not exists) with expiry for atomic rate limiting
             # This prevents race conditions between check and set
-            was_set = redis_conn.set(rate_limit_key, "1", nx=True, ex=60)
+            was_set = redis_conn.set(rate_limit_key, "1", nx=True, ex=RATE_LIMIT_DELETE_ALL_SECONDS)
             
             if not was_set:
                 # Key already exists, get TTL for error message
                 ttl = redis_conn.ttl(rate_limit_key)
                 # Handle edge cases: -1 (no expiry), -2 (key doesn't exist)
                 if ttl < 0:
-                    ttl = 60  # Default to 60 seconds if TTL is invalid
+                    ttl = RATE_LIMIT_DELETE_ALL_SECONDS  # Default to configured value
                 return jsonify({
                     "success": False,
                     "error": f"Too many requests. Try again in {ttl} seconds."
