@@ -10,7 +10,7 @@ import queue
 import wave
 import contextlib
 import traceback
-from threading import Thread
+from threading import Thread, Semaphore
 import threading
 from datetime import datetime
 from typing import Optional
@@ -42,12 +42,83 @@ DEBUG = os.getenv("DEBUG", "1") == "1"
 _last_enqueue_time: dict = {}
 _enqueue_lock = threading.Lock()
 
-# Cooldown period in seconds - don't enqueue same call_sid more than once per minute
-ENQUEUE_COOLDOWN_SECONDS = 60
+# Cooldown period in seconds - don't enqueue same call_sid more than once per 10 minutes
+ENQUEUE_COOLDOWN_SECONDS = 600  # 🔥 FIX: Increased from 60s to 10min (600s)
+
+# 🔥 FIX: Concurrency limiter - max simultaneous recording downloads
+# This prevents overwhelming the system with too many parallel downloads
+MAX_CONCURRENT_DOWNLOADS = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
+_download_semaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
+
+# 🔥 FIX: Track active downloads with thread-safe counter (don't use Semaphore._value)
+_active_downloads_count = 0
+_active_downloads_lock = threading.Lock()
 
 # 🔥 AI Customer Service: Minimum call duration (in seconds) to generate full summary
 # Calls shorter than this get a simple "not answered" message instead of attempting full summary
 MIN_CALL_DURATION_FOR_SUMMARY = 5
+
+# 🔥 FIX: Redis-based deduplication for distributed systems
+# Fallback to in-memory if Redis not available
+_redis_client = None
+REDIS_DEDUP_ENABLED = False
+
+try:
+    import redis
+    REDIS_URL = os.getenv('REDIS_URL')
+    if REDIS_URL:
+        _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        _redis_client.ping()
+        REDIS_DEDUP_ENABLED = True
+        logger.info("✅ [RECORDING] Redis deduplication enabled")
+        log.info("[RECORDING] Redis-based job deduplication active")
+    else:
+        logger.info("ℹ️ [RECORDING] REDIS_URL not set - using in-memory deduplication")
+        log.info("[RECORDING] In-memory job deduplication active (for production use Redis)")
+except Exception as e:
+    logger.warning(f"⚠️ [RECORDING] Redis not available, using in-memory deduplication: {e}")
+    log.warning(f"[RECORDING] Redis initialization failed: {e}")
+
+
+def _acquire_redis_dedup_lock(call_sid: str, business_id: int, job_type: str = "download") -> tuple[bool, str]:
+    """
+    🔥 FIX: Try to acquire Redis-based deduplication lock for a job.
+    
+    Uses Redis SET with NX (only if not exists) and EX (expiry) to create distributed locks.
+    This prevents the same CallSid from being enqueued multiple times across workers/processes.
+    
+    🔥 CRITICAL: Key includes business_id to prevent cross-business blocking
+    
+    Args:
+        call_sid: The call SID to lock
+        business_id: Business ID to ensure cross-business isolation
+        job_type: Type of job ("download" or "full")
+    
+    Returns:
+        tuple: (acquired: bool, reason: str)
+    """
+    if not REDIS_DEDUP_ENABLED or not _redis_client:
+        return True, "redis_not_available"  # Fall through to in-memory check
+    
+    try:
+        # 🔥 FIX: Include business_id in key to prevent cross-business blocking
+        redis_key = f"recording_job:{business_id}:{job_type}:{call_sid}"
+        # Try to set key with 10-minute expiry (600 seconds)
+        # NX = only set if not exists (atomic operation)
+        acquired = _redis_client.set(redis_key, "locked", nx=True, ex=ENQUEUE_COOLDOWN_SECONDS)
+        
+        if acquired:
+            log.debug(f"[RECORDING] ✅ Redis dedup lock acquired for {call_sid} (business:{business_id}, {job_type})")
+            return True, "lock_acquired"
+        else:
+            # Key already exists - job recently enqueued
+            ttl = _redis_client.ttl(redis_key)
+            log.debug(f"[RECORDING] ⏭️  Redis dedup lock exists for {call_sid} (business:{business_id}, TTL: {ttl}s)")
+            return False, f"redis_locked (TTL: {ttl}s)"
+    except Exception as e:
+        logger.error(f"[RECORDING] Redis dedup error for {call_sid}: {e}")
+        # On Redis error, fall through to allow job (don't block on Redis failures)
+        return True, "redis_error_fallthrough"
 
 
 def normalize_call_direction(twilio_direction):
@@ -79,16 +150,20 @@ def normalize_call_direction(twilio_direction):
         return "unknown"
 
 
-def _should_enqueue_download(call_sid: str) -> tuple[bool, str]:
+def _should_enqueue_download(call_sid: str, business_id: int, job_type: str = "download") -> tuple[bool, str]:
     """
     🔥 DEDUPLICATION: Check if we should enqueue a download for this call_sid.
     
-    Prevents duplicate downloads by:
-    1. Checking if already in progress (via recording_service)
-    2. Checking if recently enqueued (cooldown period)
+    Prevents duplicate downloads by (in order):
+    1. Checking if file already cached locally
+    2. Checking if download already in progress (via recording_service)
+    3. Checking Redis dedup lock (distributed, 10min TTL, per-business)
+    4. Checking in-memory cooldown (fallback if Redis unavailable)
     
     Args:
         call_sid: The call SID to check
+        business_id: Business ID for cross-business isolation
+        job_type: Type of job ("download" or "full")
         
     Returns:
         tuple: (should_enqueue: bool, reason: str)
@@ -104,7 +179,14 @@ def _should_enqueue_download(call_sid: str) -> tuple[bool, str]:
     if is_download_in_progress(call_sid):
         return False, "download_in_progress"
     
-    # Check 3: Recently enqueued (cooldown)
+    # Check 3: Redis-based deduplication (distributed lock)
+    # 🔥 FIX: Pass business_id to prevent cross-business blocking
+    redis_acquired, redis_reason = _acquire_redis_dedup_lock(call_sid, business_id, job_type)
+    if not redis_acquired:
+        return False, redis_reason
+    
+    # Check 4: In-memory cooldown (fallback/additional safety)
+    # This is needed even with Redis for single-process deduplication
     with _enqueue_lock:
         last_time = _last_enqueue_time.get(call_sid)
         if last_time:
@@ -131,16 +213,17 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
     # 🔥 DEDUPLICATION: Check if we should enqueue this job
-    should_enqueue, reason = _should_enqueue_download(call_sid)
+    # 🔥 FIX: Pass business_id for cross-business isolation
+    should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="full")
     
     if not should_enqueue:
         # Don't enqueue - log at DEBUG level to reduce noise
         if reason == "already_cached":
-            log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} - skipping enqueue")
+            log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
         elif reason == "download_in_progress":
-            log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
-        elif reason.startswith("cooldown_active"):
-            log.debug(f"[OFFLINE_STT] ⏭️  Cooldown active for {call_sid} - skipping enqueue ({reason})")
+            log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
+        else:
+            log.debug(f"[OFFLINE_STT] ⏭️  Job blocked for {call_sid} (business:{business_id}) - {reason}")
         return  # Don't enqueue
     
     # Passed deduplication checks - safe to enqueue
@@ -172,16 +255,17 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
     # 🔥 DEDUPLICATION: Check if we should enqueue this download
-    should_enqueue, reason = _should_enqueue_download(call_sid)
+    # 🔥 FIX: Pass business_id for cross-business isolation
+    should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="download")
     
     if not should_enqueue:
         # Don't enqueue - log at DEBUG level to reduce noise
         if reason == "already_cached":
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} - skipping enqueue")
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
         elif reason == "download_in_progress":
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
-        elif reason.startswith("cooldown_active"):
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Cooldown active for {call_sid} - skipping enqueue ({reason})")
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
+        else:
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Job blocked for {call_sid} (business:{business_id}) - {reason}")
         return  # Don't enqueue
     
     # Passed deduplication checks - safe to enqueue
@@ -240,6 +324,49 @@ def start_recording_worker(app):
     logger.info("✅ [OFFLINE_STT] Recording worker loop started")
     log.info("[OFFLINE_STT] Recording worker thread initialized")
     
+    # 🔥 FIX: Start metrics logging thread
+    def log_system_metrics():
+        """Background thread to log queue metrics every 60 seconds"""
+        import time
+        
+        while True:
+            try:
+                # Get queue size
+                queue_size = RECORDING_QUEUE.qsize()
+                
+                # Get active downloads from thread-safe counter
+                with _active_downloads_lock:
+                    active_downloads = _active_downloads_count
+                
+                # Log metrics
+                if queue_size > 10:
+                    logger.warning(
+                        f"⚠️ [METRICS] Recording queue: {queue_size} jobs pending | "
+                        f"Active downloads: {active_downloads}/{MAX_CONCURRENT_DOWNLOADS} | "
+                        f"Dedup entries: {len(_last_enqueue_time)}"
+                    )
+                elif queue_size > 0 or active_downloads > 0:
+                    logger.info(
+                        f"📊 [METRICS] Recording queue: {queue_size} jobs pending | "
+                        f"Active downloads: {active_downloads}/{MAX_CONCURRENT_DOWNLOADS} | "
+                        f"Dedup entries: {len(_last_enqueue_time)}"
+                    )
+                else:
+                    logger.debug(
+                        f"📊 [METRICS] Recording queue: idle | "
+                        f"Dedup entries: {len(_last_enqueue_time)}"
+                    )
+            except Exception as e:
+                logger.error(f"[METRICS] Error logging metrics: {e}")
+            
+            # Sleep for 60 seconds before next log
+            time.sleep(60)
+    
+    # Start metrics thread (daemon so it stops when main thread exits)
+    metrics_thread = threading.Thread(target=log_system_metrics, daemon=True, name="RecordingMetrics")
+    metrics_thread.start()
+    logger.info("📊 [METRICS] System metrics logging started (every 60s)")
+    
     # Retry backoff delays in seconds (0s, 10s, 30s, 90s)
     RETRY_DELAYS = [0, 10, 30, 90]
     MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts
@@ -259,95 +386,115 @@ def start_recording_worker(app):
                 retry_count = job.get("retry_count", 0)
                 job_type = job.get("type", "full")  # 🔥 NEW: "full" or "download_only"
                 
-                # 🔥 FIX: Handle download_only jobs (priority for UI)
-                if job_type == "download_only":
-                    logger.info(f"⚡ [DOWNLOAD_ONLY] Processing priority download for {call_sid}")
-                    log.info(f"[DOWNLOAD_ONLY] Processing priority download: {call_sid}")
+                # 🔥 FIX: Acquire semaphore to limit concurrent downloads
+                # This prevents too many parallel downloads from overwhelming the system
+                log.debug(f"[RECORDING] Waiting for download slot (max {MAX_CONCURRENT_DOWNLOADS} concurrent)...")
+                _download_semaphore.acquire()
+                
+                # Increment active downloads counter
+                with _active_downloads_lock:
+                    global _active_downloads_count
+                    _active_downloads_count += 1
+                
+                try:
+                    log.debug(f"[RECORDING] Download slot acquired for {call_sid}")
                     
-                    # Just download the file, don't transcribe
-                    success = download_recording_only(call_sid, recording_url)
+                    # 🔥 FIX: Handle download_only jobs (priority for UI)
+                    if job_type == "download_only":
+                        logger.info(f"⚡ [DOWNLOAD_ONLY] Processing priority download for {call_sid}")
+                        log.info(f"[DOWNLOAD_ONLY] Processing priority download: {call_sid}")
+                        
+                        # Just download the file, don't transcribe
+                        success = download_recording_only(call_sid, recording_url)
+                        
+                        if success:
+                            logger.info(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
+                            log.info(f"[DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
+                        else:
+                            # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
+                            if retry_count < 2:
+                                import time
+                                import threading
+                                
+                                delay = 5  # Short delay for download retries
+                                logger.error(f"⚠️ [DOWNLOAD_ONLY] Download failed for {call_sid}, retrying in {delay}s")
+                                log.warning(f"[DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
+                                
+                                def delayed_retry():
+                                    time.sleep(delay)
+                                    enqueue_recording_download_only(
+                                        call_sid=call_sid,
+                                        recording_url=recording_url,
+                                        business_id=business_id,
+                                        from_number=from_number,
+                                        to_number=to_number,
+                                        retry_count=retry_count + 1  # 🔥 FIX: Increment retry count
+                                    )
+                                
+                                retry_thread = threading.Thread(target=delayed_retry, daemon=True)
+                                retry_thread.start()
+                            else:
+                                logger.error(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                                log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                        
+                        # 🔥 FIX: Mark as done and set flag to prevent double task_done()
+                        RECORDING_QUEUE.task_done()
+                        task_done_called = True
                     
-                    if success:
-                        logger.info(f"✅ [DOWNLOAD_ONLY] Recording downloaded for {call_sid}")
-                        log.info(f"[DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
+                    # Normal full processing (download + transcribe)
                     else:
-                        # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
-                        if retry_count < 2:
+                        logger.info(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
+                        log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
+                        
+                        # Build form_data for legacy processing function
+                        form_data = {
+                            "CallSid": call_sid,
+                            "RecordingUrl": recording_url,
+                            "From": from_number,
+                            "To": to_number,
+                        }
+                        
+                        # Process the recording
+                        success = process_recording_async(form_data)
+                        
+                        # Check if recording was actually processed (audio file existed)
+                        # If audio_file was None, we should retry
+                        if success is False and retry_count < MAX_RETRIES:
+                            # Recording not ready yet - schedule retry with backoff
                             import time
                             import threading
                             
-                            delay = 5  # Short delay for download retries
-                            logger.error(f"⚠️ [DOWNLOAD_ONLY] Download failed for {call_sid}, retrying in {delay}s")
-                            log.warning(f"[DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
+                            delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
+                            logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
+                            log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
                             
+                            # Schedule retry in background thread
                             def delayed_retry():
                                 time.sleep(delay)
-                                enqueue_recording_download_only(
+                                enqueue_recording_job(
                                     call_sid=call_sid,
                                     recording_url=recording_url,
                                     business_id=business_id,
                                     from_number=from_number,
                                     to_number=to_number,
-                                    retry_count=retry_count + 1  # 🔥 FIX: Increment retry count
+                                    retry_count=retry_count + 1
                                 )
                             
                             retry_thread = threading.Thread(target=delayed_retry, daemon=True)
                             retry_thread.start()
+                        elif retry_count >= MAX_RETRIES and not success:
+                            logger.error(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
+                            log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
                         else:
-                            logger.error(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
-                            log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
-                    
-                    # 🔥 FIX: Mark as done and set flag to prevent double task_done()
-                    RECORDING_QUEUE.task_done()
-                    task_done_called = True
-                    continue
+                            logger.info(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
+                            log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
                 
-                # Normal full processing (download + transcribe)
-                logger.info(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
-                log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
-                
-                # Build form_data for legacy processing function
-                form_data = {
-                    "CallSid": call_sid,
-                    "RecordingUrl": recording_url,
-                    "From": from_number,
-                    "To": to_number,
-                }
-                
-                # Process the recording
-                success = process_recording_async(form_data)
-                
-                # Check if recording was actually processed (audio file existed)
-                # If audio_file was None, we should retry
-                if success is False and retry_count < MAX_RETRIES:
-                    # Recording not ready yet - schedule retry with backoff
-                    import time
-                    import threading
-                    
-                    delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
-                    logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
-                    log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
-                    
-                    # Schedule retry in background thread
-                    def delayed_retry():
-                        time.sleep(delay)
-                        enqueue_recording_job(
-                            call_sid=call_sid,
-                            recording_url=recording_url,
-                            business_id=business_id,
-                            from_number=from_number,
-                            to_number=to_number,
-                            retry_count=retry_count + 1
-                        )
-                    
-                    retry_thread = threading.Thread(target=delayed_retry, daemon=True)
-                    retry_thread.start()
-                elif retry_count >= MAX_RETRIES and not success:
-                    logger.error(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
-                    log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
-                else:
-                    logger.info(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
-                    log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
+                finally:
+                    # 🔥 FIX: Always release semaphore to free download slot
+                    with _active_downloads_lock:
+                        _active_downloads_count -= 1
+                    _download_semaphore.release()
+                    log.debug(f"[RECORDING] Download slot released for {call_sid}")
                 
             except (OperationalError, DisconnectionError) as e:
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
