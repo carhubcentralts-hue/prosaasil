@@ -933,6 +933,91 @@ def get_contract_pdf_url(contract_id):
         return jsonify({'error': 'Failed to generate PDF URL'}), 500
 
 
+@contracts_bp.route('/<int:contract_id>/pdf-info', methods=['GET'])
+@require_api_auth
+@require_page_access('contracts')
+def get_contract_pdf_info(contract_id):
+    """
+    Get PDF info for signature field marking
+    
+    Returns page count and dimensions for proper signature placement UI
+    """
+    try:
+        business_id = get_current_business_id()
+        user_id = get_current_user_id()
+        
+        logger.info(f"[CONTRACT_PDF_INFO] Request for contract_id={contract_id}, business_id={business_id}, user_id={user_id}")
+        
+        if not business_id:
+            logger.warning(f"[CONTRACT_PDF_INFO] Missing business_id for contract {contract_id}")
+            return jsonify({'error': 'Business ID not found'}), 403
+        
+        # Verify contract exists and belongs to business
+        contract = Contract.query.filter_by(
+            id=contract_id,
+            business_id=business_id
+        ).first()
+        
+        if not contract:
+            return jsonify({'error': 'Contract not found'}), 404
+        
+        # Get the first PDF file (original purpose)
+        contract_file = ContractFile.query.filter_by(
+            contract_id=contract_id,
+            business_id=business_id,
+            purpose=CONTRACT_FILE_PURPOSE_ORIGINAL
+        ).filter(ContractFile.deleted_at.is_(None)).first()
+        
+        if not contract_file:
+            return jsonify({'error': 'No PDF file found for this contract'}), 404
+        
+        # Get attachment
+        attachment = Attachment.query.filter_by(
+            id=contract_file.attachment_id,
+            business_id=business_id
+        ).first()
+        
+        if not attachment:
+            return jsonify({'error': 'Attachment not found'}), 404
+        
+        # Verify it's a PDF
+        if attachment.mime_type != 'application/pdf':
+            return jsonify({'error': 'File is not a PDF'}), 400
+        
+        # Get file bytes from storage
+        attachment_service = get_attachment_service()
+        try:
+            filename, mime_type, pdf_data = attachment_service.open_file(
+                attachment.storage_path,
+                filename=attachment.filename_original,
+                mime_type=attachment.mime_type
+            )
+        except Exception as download_err:
+            logger.error(f"[CONTRACT_PDF_INFO] Failed to download PDF: {download_err}")
+            return jsonify({'error': 'Failed to load document'}), 500
+        
+        # Get PDF info
+        from server.services.pdf_signing_service import get_pdf_info
+        
+        try:
+            pdf_info = get_pdf_info(pdf_data)
+        except Exception as info_err:
+            logger.error(f"[CONTRACT_PDF_INFO] Failed to get PDF info: {info_err}")
+            return jsonify({'error': 'Failed to analyze PDF'}), 500
+        
+        logger.info(f"[CONTRACT_PDF_INFO] Successfully got info: contract_id={contract_id}, pages={pdf_info.get('page_count')}")
+        
+        return jsonify({
+            'contract_id': contract_id,
+            'filename': attachment.filename_original,
+            **pdf_info
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[CONTRACT_PDF_INFO] Error: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get PDF info'}), 500
+
+
 @contracts_bp.route('/<int:contract_id>/pdf', methods=['GET'])
 @require_api_auth
 @require_page_access('contracts')
