@@ -253,12 +253,6 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
         import traceback
         traceback.print_exc()
         return None
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"[RECORDING_SEM] Error releasing slot: {e}")
-        return None
 
 
 def check_status(business_id: int, call_sid: str) -> Tuple[str, dict]:
