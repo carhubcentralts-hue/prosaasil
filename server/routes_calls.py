@@ -121,6 +121,13 @@ def list_calls():
         total = query.count()
         calls = query.offset(offset).limit(limit).all()
         
+        # 🔥 FIX: DO NOT enqueue downloads here!
+        # This endpoint should ONLY return metadata.
+        # Downloads should ONLY be triggered when:
+        # 1. User clicks "play" button (calls stream_recording endpoint)
+        # 2. User opens call details page
+        # 3. Background cleanup runs (limited prefetch)
+        
         # Format response
         calls_data = []
         for call in calls:

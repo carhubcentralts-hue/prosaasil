@@ -180,13 +180,47 @@ def main():
         # Test that we can import job functions
         try:
             from server.jobs.gmail_sync_job import sync_gmail_receipts_job
+            from server.jobs.delete_receipts_job import delete_receipts_batch_job
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
+            logger.info(f"  → delete_receipts_batch_job: {delete_receipts_batch_job}")
         except (ImportError, ModuleNotFoundError) as e:
             log_fatal_error("Importing job functions", e)
         
         # Create worker
         try:
+            # Define custom job execution handler to log job pickup
+            def before_job_handler(job, connection, worker_name):
+                """Log when worker picks up a job from queue"""
+                # Get queue name from job
+                queue_name = getattr(job, 'origin', 'unknown')
+                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                job_args = getattr(job, 'args', ())
+                
+                logger.info("=" * 60)
+                logger.info(f"🔨 WORKER PICKED JOB from queue='{queue_name}' job_id={job.id}")
+                logger.info(f"   → function: {job_func_name}")
+                logger.info(f"   → args: {job_args}")
+                logger.info(f"   → worker: {worker_name}")
+                logger.info("=" * 60)
+            
+            def after_job_handler(job, connection, result, worker_name):
+                """Log when job completes"""
+                queue_name = getattr(job, 'origin', 'unknown')
+                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                logger.info("=" * 60)
+                logger.info(f"✅ JOB COMPLETED queue='{queue_name}' job_id={job.id} function={job_func_name}")
+                logger.info("=" * 60)
+            
+            def failed_job_handler(job, connection, type, value, traceback, worker_name):
+                """Log when job fails"""
+                queue_name = getattr(job, 'origin', 'unknown')
+                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                logger.error("=" * 60)
+                logger.error(f"❌ JOB FAILED queue='{queue_name}' job_id={job.id} function={job_func_name}")
+                logger.error(f"   → error: {value}")
+                logger.error("=" * 60)
+            
             worker = Worker(
                 QUEUES,
                 connection=redis_conn,
@@ -195,6 +229,12 @@ def main():
                 # This is fine for our use case (Gmail sync, Playwright, etc.)
                 disable_default_exception_handler=False,
             )
+            
+            # Register custom handlers for logging
+            import rq.worker
+            worker.push_exc_handler(failed_job_handler)
+            # Note: RQ doesn't have built-in before/after hooks, so we'll rely on job function logs
+            
             logger.info(f"✓ Worker created: {worker.name}")
             logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
         except Exception as e:

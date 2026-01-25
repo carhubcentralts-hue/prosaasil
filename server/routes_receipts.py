@@ -1279,7 +1279,26 @@ def get_job_status(job_id):
             "error": "Job not found"
         }), 404
     
-    return jsonify({
+    # Check if job is stuck (no worker processing it)
+    is_stuck = False
+    stuck_reason = None
+    
+    if job.status == 'queued':
+        # Job is queued but not picked up by worker
+        time_in_queue = (datetime.utcnow() - job.created_at).total_seconds() if job.created_at else 0
+        if time_in_queue > 60:  # Stuck in queue for more than 1 minute
+            is_stuck = True
+            stuck_reason = f"Job queued for {int(time_in_queue)}s but not picked up by worker. Worker may not be running or not listening to maintenance queue."
+    
+    elif job.status == 'running':
+        # Job is running but heartbeat is stale
+        if job.heartbeat_at:
+            seconds_since_heartbeat = (datetime.utcnow() - job.heartbeat_at).total_seconds()
+            if seconds_since_heartbeat > 120:  # No heartbeat for 2+ minutes
+                is_stuck = True
+                stuck_reason = f"No heartbeat for {int(seconds_since_heartbeat)}s. Worker may have crashed or database connection lost."
+    
+    response = {
         "success": True,
         "job_id": job.id,
         "job_type": job.job_type,
@@ -1294,8 +1313,12 @@ def get_job_status(job_id):
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
-        "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None
-    })
+        "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None,
+        "is_stuck": is_stuck,
+        "stuck_reason": stuck_reason
+    }
+    
+    return jsonify(response)
 
 
 @receipts_bp.route('/delete-job/status', methods=['GET'])
