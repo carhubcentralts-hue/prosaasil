@@ -443,9 +443,9 @@ def get_push_status():
             "enabled": enabled,  # Computed: preference AND subscription
             "user_id": user_id,
             "business_id": business_id,
-            # Backwards compatibility
+            # Backwards compatibility (old field names for existing clients)
             "configured": vapid_configured,
-            "subscriptionCount": subscription_count
+            "subscriptionCount": subscription_count  # Same as active_subscriptions_count
         })
         
     except Exception as e:
