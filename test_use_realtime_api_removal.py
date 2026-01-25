@@ -11,32 +11,36 @@ def test_no_global_use_realtime_api_checks():
     print("Validating USE_REALTIME_API Removal in media_ws_ai.py")
     print("=" * 80)
     
-    # Read the file
-    with open('/home/runner/work/prosaasil/prosaasil/server/media_ws_ai.py', 'r') as f:
+    # Read the file using relative path from test location
+    import os
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(test_dir, 'server', 'media_ws_ai.py')
+    
+    with open(file_path, 'r') as f:
         lines = f.readlines()
     
     # Find all lines that check USE_REALTIME_API
     problematic_lines = []
     for i, line in enumerate(lines, 1):
-        # Skip comments and boot logging
-        if '#' in line and 'USE_REALTIME_API' in line.split('#')[0]:
-            continue
-        if i < 1070 and 'BOOT' in line:  # Allow boot logs
+        # Skip comments (only check code before '#')
+        code_part = line.split('#')[0] if '#' in line else line
+        
+        # Skip boot logging section
+        if i < 1070:
             continue
             
         # Check for direct USE_REALTIME_API checks without getattr
-        if re.search(r'\bif\s+(not\s+)?USE_REALTIME_API\b', line) and 'getattr' not in line:
-            # Skip if this is inside getattr on the next line
+        if re.search(r'\bif\s+(not\s+)?USE_REALTIME_API\b', code_part) and 'getattr' not in line:
+            # Skip if the next line has getattr
             if i < len(lines) and 'getattr' in lines[i]:
                 continue
             problematic_lines.append((i, line.strip()))
-        elif re.search(r'\band\s+(not\s+)?USE_REALTIME_API\b', line) and 'getattr' not in line:
+        elif re.search(r'\band\s+(not\s+)?USE_REALTIME_API\b', code_part) and 'getattr' not in line:
             problematic_lines.append((i, line.strip()))
-        elif re.search(r'\bor\s+(not\s+)?USE_REALTIME_API\b', line) and 'getattr' not in line:
+        elif re.search(r'\bor\s+(not\s+)?USE_REALTIME_API\b', code_part) and 'getattr' not in line:
             problematic_lines.append((i, line.strip()))
     
-    # Filter out boot logs (line ~1058)
-    problematic_lines = [(num, line) for num, line in problematic_lines if num > 1070]
+    # Filter out boot logs (line ~1058) - already handled above
     
     if problematic_lines:
         print("❌ Found direct USE_REALTIME_API checks (should use per-call override):")
@@ -103,7 +107,11 @@ def test_provider_routing_logs():
     print("Validating Provider Routing Logs")
     print("=" * 80)
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/media_ws_ai.py', 'r') as f:
+    import os
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(test_dir, 'server', 'media_ws_ai.py')
+    
+    with open(file_path, 'r') as f:
         content = f.read()
     
     # Test 1: CALL_ROUTING log includes provider
@@ -139,12 +147,22 @@ def test_no_env_dependency():
     print("Validating No ENV Dependency for Routing")
     print("=" * 80)
     
-    with open('/home/runner/work/prosaasil/prosaasil/server/media_ws_ai.py', 'r') as f:
+    import os
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(test_dir, 'server', 'media_ws_ai.py')
+    
+    with open(file_path, 'r') as f:
         content = f.read()
     
     # Look for the routing decision
-    routing_section = content[content.find('use_realtime_for_this_call = (ai_provider'):
-                              content.find('use_realtime_for_this_call = (ai_provider') + 500]
+    routing_pattern = 'use_realtime_for_this_call = (ai_provider'
+    routing_index = content.find(routing_pattern)
+    
+    if routing_index == -1:
+        print("❌ Routing decision pattern not found")
+        return False
+    
+    routing_section = content[routing_index:routing_index + 500]
     
     # Verify no getenv in routing decision
     if 'getenv' not in routing_section[:200]:
