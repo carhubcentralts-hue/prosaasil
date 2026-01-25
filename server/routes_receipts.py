@@ -92,6 +92,9 @@ except Exception as e:
     receipts_queue = None
     RQ_AVAILABLE = False
 
+# Rate limiting configuration
+RATE_LIMIT_DELETE_ALL_SECONDS = 60  # Max 1 delete_all request per 60 seconds per business
+
 # Helper function to check if RQ workers are active for specific queue
 def _has_worker_for_queue(redis_connection, queue_name: str = "default") -> bool:
     """
@@ -1051,7 +1054,6 @@ def delete_all_receipts():
     - Only one active job per business allowed
     """
     from server.models_sql import BackgroundJob
-    from server.rate_limiter import rate_limit
     
     business_id = get_current_business_id()
     user_id = get_current_user_id()
@@ -1064,15 +1066,26 @@ def delete_all_receipts():
             "error": "Owner or admin permission required"
         }), 403
     
-    # Rate limiting: max 1 delete_all per minute per business
-    rate_limit_key = f"delete_all_receipts:{business_id}"
-    if hasattr(rate_limit, 'check'):
-        allowed, retry_after = rate_limit.check(rate_limit_key, limit=1, period=60)
-        if not allowed:
-            return jsonify({
-                "success": False,
-                "error": f"Too many requests. Try again in {retry_after} seconds."
-            }), 429
+    # Rate limiting: max 1 delete_all per minute per business (Redis-based)
+    if redis_conn:
+        rate_limit_key = f"rate_limit:delete_all_receipts:{business_id}"
+        try:
+            # Use SET NX (set if not exists) with expiry for atomic rate limiting
+            # This prevents race conditions between check and set
+            was_set = redis_conn.set(rate_limit_key, "1", nx=True, ex=RATE_LIMIT_DELETE_ALL_SECONDS)
+            
+            if not was_set:
+                # Key already exists, get TTL for error message
+                ttl = redis_conn.ttl(rate_limit_key)
+                # Handle edge cases: -1 (no expiry), -2 (key doesn't exist)
+                if ttl < 0:
+                    ttl = RATE_LIMIT_DELETE_ALL_SECONDS  # Default to configured value
+                return jsonify({
+                    "success": False,
+                    "error": f"Too many requests. Try again in {ttl} seconds."
+                }), 429
+        except Exception as e:
+            logger.warning(f"Rate limit check failed (proceeding anyway): {e}")
     
     try:
         # Check for existing active job
