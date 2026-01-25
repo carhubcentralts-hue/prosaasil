@@ -12,6 +12,7 @@ Key optimizations:
 import os
 import json
 from google.cloud import speech
+from google.oauth2 import service_account
 import base64
 import logging
 import threading
@@ -45,17 +46,18 @@ class GcpHebrewStreamerOptimized:
         self._flush_remaining = False
         
     def _ensure_client(self):
-        """Lazy initialization of Speech client"""
+        """Lazy initialization of Speech client with explicit service account credentials"""
         if self.client is None:
             try:
-                sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-                if sa_json:
-                    credentials_info = json.loads(sa_json)
-                    self.client = speech.SpeechClient.from_service_account_info(credentials_info)
-                    log.info("✅ Speech client initialized (service account)")
-                else:
-                    self.client = speech.SpeechClient()
-                    log.info("✅ Speech client initialized (default)")
+                credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+                if not credentials_path:
+                    raise ValueError("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set")
+                
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path
+                )
+                self.client = speech.SpeechClient(credentials=credentials)
+                log.info(f"✅ Speech client initialized with service account from {credentials_path}")
             except Exception as e:
                 log.error(f"❌ Failed to initialize Speech client: {e}")
                 raise
