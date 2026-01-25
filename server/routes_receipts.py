@@ -59,7 +59,7 @@ def safe_get_filename(attachment, default=None):
         Filename string or default value
     """
     if not attachment:
-        return default or f"attachment_{id(attachment)}"
+        return default or "unknown_file"
     
     # Try standard attributes in order of preference
     for attr in ['filename_original', 'filename', 'original_filename', 'file_name', 'name']:
@@ -1252,8 +1252,13 @@ def delete_all_receipts():
                     job_timeout='1h'  # 1 hour max per job execution
                 )
                 logger.info("=" * 60)
-                logger.info(f"🧾 receipts_delete enqueued job_id={rq_job.id} bg_job_id={job.id}")
-                logger.info(f"Enqueued job {job.id} to maintenance queue: {rq_job.id}")
+                logger.info(f"🔨 DELETE_RECEIPTS JOB ENQUEUED")
+                logger.info(f"  → queue_name: maintenance")
+                logger.info(f"  → rq_job_id: {rq_job.id}")
+                logger.info(f"  → bg_job_id: {job.id}")
+                logger.info(f"  → business_id: {business_id}")
+                logger.info(f"  → total_receipts: {total_receipts}")
+                logger.info(f"  → function: delete_receipts_batch_job")
                 logger.info("=" * 60)
             except Exception as e:
                 logger.error(f"Failed to enqueue job: {e}")
@@ -2330,7 +2335,8 @@ def export_receipts():
                         amount_str = f"{receipt.amount:.2f}{receipt.currency}" if receipt.amount else "0"
                         
                         # Get file extension from filename or mime type
-                        original_filename = attachment_to_export.filename or ""
+                        # 🔥 FIX: Use safe_get_filename to avoid AttributeError
+                        original_filename = safe_get_filename(attachment_to_export, "")
                         file_ext = Path(original_filename).suffix
                         
                         if not file_ext:

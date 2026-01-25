@@ -303,9 +303,13 @@ export function CallsPage() {
     
     setLoadingRecording(callSid);
     try {
-      const response = await fetch(`/api/recordings/${callSid}/stream`, {
+      // 🔥 SECURITY: Add explicit_user_action parameter to prevent mass enqueue
+      const response = await fetch(`/api/recordings/${callSid}/stream?explicit_user_action=true`, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'X-User-Action': 'play'  // 🔥 SECURITY: Add header for double protection
+        }
       });
       
       // Handle 202 Accepted - recording is being prepared

@@ -16,6 +16,7 @@ import os
 import logging
 import time
 import json
+import traceback
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -43,12 +44,30 @@ def delete_receipts_batch_job(job_id: int):
     Args:
         job_id: BackgroundJob ID to track progress
     """
-    from server.app_factory import create_app
-    from server.models_sql import db, BackgroundJob, Receipt, Attachment
-    from server.db import get_db_session
+    # 🔥 CRITICAL: Log IMMEDIATELY when job starts (before any imports/setup)
+    print(f"=" * 70)
+    print(f"🔨 JOB PICKED: function=delete_receipts_batch_job job_id={job_id}")
+    print(f"=" * 70)
+    logger.info(f"=" * 70)
+    logger.info(f"🔨 JOB PICKED: queue=maintenance function=delete_receipts_batch_job job_id={job_id}")
+    logger.info(f"=" * 70)
+    
+    try:
+        from server.app_factory import create_app
+        from server.models_sql import db, BackgroundJob, Receipt, Attachment
+        from server.db import get_db_session
+    except Exception as e:
+        logger.error(f"❌ JOB IMPORT ERROR: {e}")
+        logger.error(traceback.format_exc())
+        raise
     
     # Create app context for DB access
-    app = create_app()
+    try:
+        app = create_app()
+    except Exception as e:
+        logger.error(f"❌ JOB APP CREATION ERROR: {e}")
+        logger.error(traceback.format_exc())
+        raise
     
     with app.app_context():
         # Load job

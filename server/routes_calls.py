@@ -372,14 +372,31 @@ def stream_recording(call_sid):
     """
     🔥 FIX 502: Asynchronous recording streaming endpoint
     
+    🔥 SECURITY: Requires explicit user action to prevent mass enqueue
+    - Query param: explicit_user_action=true OR
+    - Header: X-User-Action: play
+    
     Returns:
     - 200 + audio file if recording is cached locally
     - 202 Accepted if recording needs to be downloaded (job enqueued)
+    - 400 Bad Request if explicit_user_action not provided
     - 403 Forbidden if call doesn't belong to user's tenant
     - 404 Not Found if call doesn't exist or no recording available
     - 410 Gone if recording is expired (>7 days)
     """
     try:
+        # 🔥 CRITICAL GUARD: Prevent accidental mass enqueue
+        # Require explicit user action parameter or header
+        explicit_action = request.args.get('explicit_user_action', '').lower() == 'true'
+        user_action_header = request.headers.get('X-User-Action', '').lower() == 'play'
+        
+        if not (explicit_action or user_action_header):
+            log.warning(f"Stream recording: Missing explicit_user_action for call_sid={call_sid}")
+            return jsonify({
+                "success": False, 
+                "error": "Missing required parameter: explicit_user_action=true or header X-User-Action: play"
+            }), 400
+        
         business_id = get_business_id()
         if not business_id:
             log.warning(f"Stream recording: No business_id for call_sid={call_sid}")

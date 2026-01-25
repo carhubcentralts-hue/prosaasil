@@ -104,7 +104,7 @@ services:
       FLASK_ENV: production
       RUN_MIGRATIONS_ON_START: 0
       PRODUCTION: ${PRODUCTION:-1}
-      RQ_QUEUES: high,default,low,receipts,receipts_sync
+      RQ_QUEUES: high,default,low,receipts,receipts_sync,maintenance,recordings,broadcasts
       # 🔥 SCHEDULERS: Enable schedulers only in worker to prevent duplicate cleanup logs
       ENABLE_SCHEDULERS: "true"
       # 🔥 LOGGING - Production mode (minimal logs)
