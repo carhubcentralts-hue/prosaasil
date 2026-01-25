@@ -1149,10 +1149,24 @@ def create_app():
     if os.getenv('MIGRATION_MODE') != '1':
         def _background_initialization():
             """Run migrations and initialization after server is listening"""
+            global _migrations_complete
             import time
             time.sleep(0.5)  # Let server bind to port first
             
+            # 🔥 CRITICAL: Workers must NEVER run migrations
+            # Migrations should only run in API service, not in workers
+            service_role = os.getenv('SERVICE_ROLE', '').lower()
             is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
+            
+            # Skip migrations entirely if this is a worker
+            if service_role == 'worker':
+                logger.info("=" * 80)
+                logger.info("🚫 WORKER MODE: Skipping migrations and initialization")
+                logger.info("   Workers use existing schema - migrations run only in API")
+                logger.info("=" * 80)
+                # Signal migrations complete so worker can proceed
+                _migrations_complete.set()
+                return
             
             if is_production:
                 try:
@@ -1169,7 +1183,6 @@ def create_app():
                         # 🔥 CRITICAL FIX: Signal that migrations are complete
                         # This prevents warmup from running before migrations finish
                         # Uses global _migrations_complete event (module-level)
-                        global _migrations_complete
                         _migrations_complete.set()
                         logger.info("🔒 Migrations complete - warmup can now proceed")
                         
@@ -1227,15 +1240,21 @@ def create_app():
                 # Development mode - use migrations (NOT db.create_all())
                 # 🔥 CRITICAL: All schema changes must go through migrations
                 # This prevents drift between dev and prod schemas
+                # 🔥 CRITICAL: Workers must NEVER run migrations, even in dev mode
                 try:
                     with app.app_context():
                         # Run migrations even in dev mode to ensure schema consistency
-                        logger.info("🔧 Running migrations in development mode...")
-                        from server.db_migrate import apply_migrations
-                        apply_migrations()
-                        # 🔥 CRITICAL FIX: Signal migrations complete in dev mode too
-                        _migrations_complete.set()
-                        logger.info("🔒 Dev mode DB setup complete - warmup can now proceed")
+                        # (but only if not a worker - double-check for safety)
+                        if service_role != 'worker':
+                            logger.info("🔧 Running migrations in development mode...")
+                            from server.db_migrate import apply_migrations
+                            apply_migrations()
+                            # 🔥 CRITICAL FIX: Signal migrations complete in dev mode too
+                            _migrations_complete.set()
+                            logger.info("🔒 Dev mode DB setup complete - warmup can now proceed")
+                        else:
+                            logger.info("🚫 Worker in dev mode - skipping migrations")
+                            _migrations_complete.set()
                 except Exception as e:
                     # Even on failure, allow warmup to proceed
                     logger.warning(f"⚠️ Dev mode migrations failed: {e}")

@@ -131,8 +131,26 @@ def apply_migrations():
     
     🔒 CONCURRENCY PROTECTION: Uses PostgreSQL advisory lock to prevent multiple
     processes from running migrations simultaneously (prevents deadlocks).
+    
+    🔒 WORKER PROTECTION: Workers should NEVER run migrations. Migrations only run
+    in API service during startup.
     """
+    import os
+    
+    # 🔥 CRITICAL: Hard gate - workers must NEVER run migrations
+    # Migrations should only run once during API startup, not on every job
+    service_role = os.getenv('SERVICE_ROLE', '').lower()
+    
+    # Skip migrations if this is a worker
+    if service_role == 'worker':
+        checkpoint("=" * 80)
+        checkpoint("🚫 MIGRATIONS_SKIPPED: service_role=worker")
+        checkpoint("   Workers use existing schema - migrations run only in API")
+        checkpoint("=" * 80)
+        return []
+    
     checkpoint("Starting apply_migrations()")
+    checkpoint(f"  SERVICE_ROLE: {service_role or 'not set'}")
     migrations_applied = []
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock
