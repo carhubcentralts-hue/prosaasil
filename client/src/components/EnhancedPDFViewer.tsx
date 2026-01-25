@@ -134,11 +134,11 @@ export function EnhancedPDFViewer({
     setIframeLoaded(false);
   };
 
-  // Reset load state when URL changes
+  // Reset load state when PDF URL changes (not on page navigation)
   useEffect(() => {
     setIframeLoaded(false);
     setIframeError(false);
-  }, [pdfUrl, currentPage]);
+  }, [pdfUrl]);
 
   // Toolbar component
   const Toolbar = () => (
@@ -268,11 +268,12 @@ export function EnhancedPDFViewer({
               border: 'none',
               transform: zoomMode === 'custom' ? `scale(${zoom / 100})` : 'none',
               transformOrigin: 'top center',
+              zIndex: 1,
             }}
           />
-          {/* Show loading overlay until iframe loads */}
+          {/* Show loading overlay ONLY when iframe is loading - remove as soon as it loads */}
           {!iframeLoaded && !iframeError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
               <div className="text-center">
                 <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mb-3"></div>
                 <p className="text-gray-600 text-sm font-medium">טוען תצוגת PDF...</p>
