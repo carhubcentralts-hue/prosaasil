@@ -10,6 +10,7 @@ Endpoints:
 - GET /api/receipts - List receipts with filtering
 - GET /api/receipts/:id - Get receipt details
 - POST /api/receipts/sync - Trigger manual sync (returns 202, queues job)
+- POST /api/receipts/export - Export receipts as ZIP file
 - PATCH /api/receipts/:id/mark - Mark receipt status
 - DELETE /api/receipts/:id - Soft delete receipt
 
@@ -20,7 +21,7 @@ Security:
 - Rate limiting for Gmail API calls
 """
 
-from flask import Blueprint, jsonify, request, g, redirect, url_for, session, current_app
+from flask import Blueprint, jsonify, request, g, redirect, url_for, session, current_app, send_file
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
 from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun, BackgroundJob
@@ -32,6 +33,10 @@ import json
 import secrets
 import threading
 from urllib.parse import urlencode
+import zipfile
+import io
+import requests
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -1934,6 +1939,188 @@ def get_receipt_stats():
             }
         }
     })
+
+
+@receipts_bp.route('/export', methods=['POST'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def export_receipts():
+    """
+    Export all receipts as a ZIP file
+    
+    Request body (optional filters):
+    {
+        "status": "approved|rejected|pending_review|not_receipt",
+        "from_date": "2024-01-01",
+        "to_date": "2024-12-31"
+    }
+    
+    Returns: ZIP file containing all receipt images/PDFs
+    """
+    try:
+        business_id = get_current_business_id()
+        
+        # Parse optional filters
+        data = request.get_json() or {}
+        status_filter = data.get('status')
+        from_date = data.get('from_date')
+        to_date = data.get('to_date')
+        
+        # Build query
+        query = Receipt.query.filter(
+            Receipt.business_id == business_id,
+            Receipt.is_deleted == False
+        )
+        
+        # Apply filters
+        if status_filter:
+            query = query.filter(Receipt.status == status_filter)
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                query = query.filter(Receipt.received_at >= from_dt)
+            except ValueError:
+                return jsonify({"success": False, "error": "Invalid from_date format"}), 400
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                query = query.filter(Receipt.received_at <= to_dt)
+            except ValueError:
+                return jsonify({"success": False, "error": "Invalid to_date format"}), 400
+        
+        # Get all matching receipts with attachments
+        receipts = query.options(
+            db.joinedload(Receipt.attachment),
+            db.joinedload(Receipt.preview_attachment)
+        ).all()
+        
+        if not receipts:
+            return jsonify({"success": False, "error": "No receipts found to export"}), 404
+        
+        # SECURITY: Limit number of receipts to prevent memory exhaustion
+        MAX_RECEIPTS = 1000
+        if len(receipts) > MAX_RECEIPTS:
+            return jsonify({
+                "success": False, 
+                "error": f"Too many receipts to export ({len(receipts)}). Maximum is {MAX_RECEIPTS}. Please use date filters to reduce the number."
+            }), 400
+        
+        # Create ZIP file in memory
+        # NOTE: For very large exports (>1000 receipts), consider implementing streaming ZIP
+        # or temporary file-based approach to reduce memory usage
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            downloaded_count = 0
+            
+            for receipt in receipts:
+                # Try to get the preview first (thumbnail), then fall back to attachment
+                attachment_to_export = receipt.preview_attachment or receipt.attachment
+                
+                if not attachment_to_export or not attachment_to_export.signed_url:
+                    logger.warning(f"Receipt {receipt.id} has no attachment or preview to export")
+                    continue
+                
+                try:
+                    # Download the file from signed URL with SSL verification and size limit
+                    # SECURITY: Limit download size to prevent memory exhaustion (100 MB max)
+                    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+                    
+                    response = requests.get(
+                        attachment_to_export.signed_url, 
+                        timeout=30,
+                        stream=True,  # Stream to check size before loading into memory
+                        verify=True  # SSL verification enabled
+                    )
+                    response.raise_for_status()
+                    
+                    # Check content length before downloading
+                    content_length = response.headers.get('content-length')
+                    if content_length and int(content_length) > MAX_FILE_SIZE:
+                        logger.warning(f"Receipt {receipt.id} file too large ({content_length} bytes), skipping")
+                        continue
+                    
+                    # Read content with size limit
+                    content = bytearray()
+                    for chunk in response.iter_content(chunk_size=8192):
+                        content.extend(chunk)
+                        if len(content) > MAX_FILE_SIZE:
+                            logger.warning(f"Receipt {receipt.id} exceeded size limit during download, skipping")
+                            break
+                    else:
+                        # Download completed successfully
+                        content = bytes(content)
+                    
+                        # Generate a safe filename with comprehensive sanitization
+                        vendor = (receipt.vendor_name or 'Unknown')
+                        # SECURITY: Comprehensive filename sanitization
+                        # Remove path separators, null bytes, control characters, and reserved names
+                        import re
+                        vendor = re.sub(r'[/\\<>:"|?*\x00-\x1f]', '-', vendor)
+                        vendor = vendor.strip('. ')  # Remove leading/trailing dots and spaces
+                        if not vendor or vendor.lower() in ('con', 'prn', 'aux', 'nul', 'com1', 'lpt1'):
+                            vendor = 'Unknown'
+                        
+                        date_str = receipt.received_at.strftime('%Y-%m-%d') if receipt.received_at else 'unknown'
+                        amount_str = f"{receipt.amount:.2f}{receipt.currency}" if receipt.amount else "0"
+                        
+                        # Get file extension from filename or mime type
+                        original_filename = attachment_to_export.filename or ""
+                        file_ext = Path(original_filename).suffix
+                        
+                        if not file_ext:
+                            # Guess extension from mime type
+                            mime_to_ext = {
+                                'image/jpeg': '.jpg',
+                                'image/png': '.png',
+                                'image/gif': '.gif',
+                                'image/webp': '.webp',
+                                'application/pdf': '.pdf'
+                            }
+                            file_ext = mime_to_ext.get(attachment_to_export.mime_type, '.bin')
+                        
+                        # Sanitize extension
+                        file_ext = re.sub(r'[^a-zA-Z0-9.]', '', file_ext)[:10]  # Max 10 chars for extension
+                        
+                        # Create filename: vendor_date_amount_id.ext (max 255 chars total)
+                        filename = f"{vendor[:100]}_{date_str}_{amount_str}_{receipt.id}{file_ext}"
+                        filename = filename[:255]  # Filesystem limit
+                        
+                        # Add to ZIP
+                        zip_file.writestr(filename, content)
+                        downloaded_count += 1
+                    
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Failed to download receipt {receipt.id}: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing receipt {receipt.id}: {e}")
+                    continue
+        
+        if downloaded_count == 0:
+            return jsonify({"success": False, "error": "No receipts could be downloaded"}), 500
+        
+        # Prepare the ZIP for download
+        zip_buffer.seek(0)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        zip_filename = f"receipts_export_{timestamp}.zip"
+        
+        logger.info(f"Exported {downloaded_count}/{len(receipts)} receipts for business {business_id}")
+        
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=zip_filename
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exporting receipts: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @receipts_bp.route('/sync/status', methods=['GET'])
