@@ -1051,7 +1051,6 @@ def delete_all_receipts():
     - Only one active job per business allowed
     """
     from server.models_sql import BackgroundJob
-    from server.rate_limiter import rate_limit
     
     business_id = get_current_business_id()
     user_id = get_current_user_id()
@@ -1064,15 +1063,21 @@ def delete_all_receipts():
             "error": "Owner or admin permission required"
         }), 403
     
-    # Rate limiting: max 1 delete_all per minute per business
-    rate_limit_key = f"delete_all_receipts:{business_id}"
-    if hasattr(rate_limit, 'check'):
-        allowed, retry_after = rate_limit.check(rate_limit_key, limit=1, period=60)
-        if not allowed:
-            return jsonify({
-                "success": False,
-                "error": f"Too many requests. Try again in {retry_after} seconds."
-            }), 429
+    # Rate limiting: max 1 delete_all per minute per business (Redis-based)
+    if redis_conn:
+        rate_limit_key = f"rate_limit:delete_all_receipts:{business_id}"
+        try:
+            # Check if key exists (request already made in the last 60 seconds)
+            if redis_conn.exists(rate_limit_key):
+                ttl = redis_conn.ttl(rate_limit_key)
+                return jsonify({
+                    "success": False,
+                    "error": f"Too many requests. Try again in {ttl} seconds."
+                }), 429
+            # Set key with 60 second expiration
+            redis_conn.setex(rate_limit_key, 60, "1")
+        except Exception as e:
+            logger.warning(f"Rate limit check failed (proceeding anyway): {e}")
     
     try:
         # Check for existing active job
