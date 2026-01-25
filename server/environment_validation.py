@@ -30,6 +30,9 @@ CRITICAL_COLUMNS = {
     'business': [
         'voice_id',  # Required for per-business voice selection in Realtime API
     ],
+    'users': [
+        'push_enabled',  # Required for push notification preferences (routes_push.py)
+    ],
     'receipt_sync_runs': [
         'from_date',  # Required for Gmail sync date range
         'to_date',  # Required for Gmail sync date range

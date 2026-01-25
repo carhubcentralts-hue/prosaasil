@@ -195,6 +195,62 @@ def check_auth_api_rollbacks():
         print(f"❌ Error checking file: {e}")
         return False
 
+def check_environment_validation():
+    """Verify environment_validation.py includes push_enabled"""
+    print("\n=== Checking environment_validation.py ===")
+    
+    filepath = 'server/environment_validation.py'
+    
+    try:
+        with open(filepath, 'r') as f:
+            content = f.read()
+        
+        all_ok = True
+        
+        # Check 1: CRITICAL_COLUMNS dictionary exists
+        if 'CRITICAL_COLUMNS' in content:
+            print("✅ CRITICAL_COLUMNS dictionary found")
+        else:
+            print("❌ CRITICAL_COLUMNS dictionary not found")
+            all_ok = False
+        
+        # Check 2: users table section exists
+        if "'users':" in content or '"users":' in content:
+            print("✅ users table section found in CRITICAL_COLUMNS")
+        else:
+            print("❌ users table section not found in CRITICAL_COLUMNS")
+            all_ok = False
+        
+        # Check 3: push_enabled in users table
+        # Look for push_enabled in context of users
+        if "'push_enabled'" in content or '"push_enabled"' in content:
+            # Verify it's in the users section
+            users_section_start = content.find("'users':")
+            if users_section_start == -1:
+                users_section_start = content.find('"users":')
+            
+            if users_section_start != -1:
+                # Find the next table section or end of dict
+                next_section = content.find("'", users_section_start + 10)
+                users_section = content[users_section_start:next_section+200]
+                
+                if 'push_enabled' in users_section:
+                    print("✅ push_enabled found in users CRITICAL_COLUMNS")
+                else:
+                    print("❌ push_enabled not in users section")
+                    all_ok = False
+            else:
+                print("⚠️ Could not verify push_enabled placement")
+        else:
+            print("❌ push_enabled not found in CRITICAL_COLUMNS")
+            all_ok = False
+        
+        return all_ok
+    
+    except Exception as e:
+        print(f"❌ Error checking file: {e}")
+        return False
+
 def main():
     """Run all validation checks"""
     print("=" * 70)
@@ -211,6 +267,9 @@ def main():
     
     # Check 3: auth_api rollbacks
     results.append(("auth_api Rollbacks", check_auth_api_rollbacks()))
+    
+    # Check 4: environment_validation
+    results.append(("environment_validation", check_environment_validation()))
     
     # Print summary
     print("\n" + "=" * 70)
