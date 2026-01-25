@@ -293,7 +293,7 @@ def create_app():
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
         'SQLALCHEMY_ENGINE_OPTIONS': {
             'pool_pre_ping': True,  # ✅ DB RESILIENCE: Verify connections before use (prevents stale connections)
-            'pool_recycle': 60,     # 🔥 CRITICAL FIX: Recycle connections after 1 min (forces refresh of stale connections)
+            'pool_recycle': 180,    # 🔥 FIX: Recycle connections after 3 min (before Supabase pooler timeout)
             # Fix for Eventlet + SQLAlchemy lock issue
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
