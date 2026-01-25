@@ -19,12 +19,15 @@ def test_no_google_auth_default_usage():
     """Verify that google.auth.default is not used in STT files"""
     logger.info("Checking for google.auth.default usage...")
     
+    # Use relative path from current working directory
+    files_to_check = [
+        "server/services/gcp_stt_stream.py",
+        "server/services/gcp_stt_stream_optimized.py",
+        "server/media_ws_ai.py"
+    ]
+    
     result = subprocess.run(
-        ["grep", "-r", "google.auth.default", 
-         "server/services/gcp_stt_stream.py",
-         "server/services/gcp_stt_stream_optimized.py",
-         "server/media_ws_ai.py"],
-        cwd="/home/runner/work/prosaasil/prosaasil",
+        ["grep", "-r", "google.auth.default"] + files_to_check,
         capture_output=True,
         text=True
     )
@@ -40,12 +43,14 @@ def test_explicit_credentials_import():
     """Verify that service_account module is imported"""
     logger.info("Checking for google.oauth2.service_account import...")
     
+    files_to_check = [
+        "server/services/gcp_stt_stream.py",
+        "server/services/gcp_stt_stream_optimized.py",
+        "server/media_ws_ai.py"
+    ]
+    
     result = subprocess.run(
-        ["grep", "-r", "from google.oauth2 import service_account", 
-         "server/services/gcp_stt_stream.py",
-         "server/services/gcp_stt_stream_optimized.py",
-         "server/media_ws_ai.py"],
-        cwd="/home/runner/work/prosaasil/prosaasil",
+        ["grep", "-r", "from google.oauth2 import service_account"] + files_to_check,
         capture_output=True,
         text=True
     )
@@ -66,12 +71,14 @@ def test_explicit_credentials_usage():
     """Verify that Credentials.from_service_account_file is used"""
     logger.info("Checking for explicit service account file loading...")
     
+    files_to_check = [
+        "server/services/gcp_stt_stream.py",
+        "server/services/gcp_stt_stream_optimized.py",
+        "server/media_ws_ai.py"
+    ]
+    
     result = subprocess.run(
-        ["grep", "-r", "Credentials.from_service_account_file", 
-         "server/services/gcp_stt_stream.py",
-         "server/services/gcp_stt_stream_optimized.py",
-         "server/media_ws_ai.py"],
-        cwd="/home/runner/work/prosaasil/prosaasil",
+        ["grep", "-r", "Credentials.from_service_account_file"] + files_to_check,
         capture_output=True,
         text=True
     )
@@ -92,12 +99,14 @@ def test_google_application_credentials_usage():
     """Verify that GOOGLE_APPLICATION_CREDENTIALS env var is checked"""
     logger.info("Checking for GOOGLE_APPLICATION_CREDENTIALS usage...")
     
+    files_to_check = [
+        "server/services/gcp_stt_stream.py",
+        "server/services/gcp_stt_stream_optimized.py",
+        "server/media_ws_ai.py"
+    ]
+    
     result = subprocess.run(
-        ["grep", "-r", "GOOGLE_APPLICATION_CREDENTIALS", 
-         "server/services/gcp_stt_stream.py",
-         "server/services/gcp_stt_stream_optimized.py",
-         "server/media_ws_ai.py"],
-        cwd="/home/runner/work/prosaasil/prosaasil",
+        ["grep", "-r", "GOOGLE_APPLICATION_CREDENTIALS"] + files_to_check,
         capture_output=True,
         text=True
     )
@@ -118,25 +127,36 @@ def test_no_gemini_key_for_stt():
     """Verify that GEMINI_API_KEY is not used for STT authentication in media_ws_ai.py"""
     logger.info("Checking that GEMINI_API_KEY is not used for STT authentication...")
     
-    # Check if the old pattern exists (setting GOOGLE_API_KEY from gemini_api_key)
-    result = subprocess.run(
-        ["grep", "-A", "5", "os.environ\\['GOOGLE_API_KEY'\\]", 
-         "server/media_ws_ai.py"],
-        cwd="/home/runner/work/prosaasil/prosaasil",
-        capture_output=True,
-        text=True
-    )
+    # Check for multiple patterns that could indicate GEMINI_API_KEY usage for STT
+    patterns = [
+        "GOOGLE_API_KEY.*gemini",
+        "gemini_api_key.*Speech",
+        "os.environ.*GOOGLE_API_KEY.*=",
+    ]
     
-    if result.returncode != 0:  # grep returns non-zero when no matches found
-        logger.info("✅ PASS: GEMINI_API_KEY is not used for STT authentication")
-        return True
-    else:
-        logger.error(f"❌ FAIL: Found GEMINI_API_KEY being used for STT:\n{result.stdout}")
-        return False
+    for pattern in patterns:
+        result = subprocess.run(
+            ["grep", "-i", pattern, "server/media_ws_ai.py"],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:  # Found a match
+            logger.error(f"❌ FAIL: Found pattern '{pattern}' in media_ws_ai.py:\n{result.stdout}")
+            return False
+    
+    logger.info("✅ PASS: GEMINI_API_KEY is not used for STT authentication")
+    return True
 
 def test_no_deprecated_env_vars():
     """Verify that deprecated env vars are not used"""
     logger.info("Checking for deprecated environment variables...")
+    
+    files_to_check = [
+        "server/services/gcp_stt_stream.py",
+        "server/services/gcp_stt_stream_optimized.py",
+        "server/media_ws_ai.py"
+    ]
     
     deprecated_vars = [
         "GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON",
@@ -147,11 +167,7 @@ def test_no_deprecated_env_vars():
     all_passed = True
     for var in deprecated_vars:
         result = subprocess.run(
-            ["grep", "-r", var, 
-             "server/services/gcp_stt_stream.py",
-             "server/services/gcp_stt_stream_optimized.py",
-             "server/media_ws_ai.py"],
-            cwd="/home/runner/work/prosaasil/prosaasil",
+            ["grep", "-r", var] + files_to_check,
             capture_output=True,
             text=True
         )
