@@ -102,3 +102,111 @@ def extract_inbound_text(msg: Dict[str, Any]) -> tuple[str, Optional[str]]:
     
     # Return empty string if no text found
     return '', None
+
+
+def normalize_whatsapp_to(
+    to: str,
+    lead_phone: Optional[str] = None,
+    lead_reply_jid: Optional[str] = None,
+    lead_id: Optional[int] = None,
+    business_id: Optional[int] = None
+) -> tuple[str, str]:
+    """
+    ✅ UNIFIED: Normalize WhatsApp destination JID with consistent logic
+    
+    This function ensures both /api/whatsapp/send and /api/crm/threads/{phone}/message
+    use the EXACT same normalization logic to prevent Baileys 500 errors.
+    
+    Priority:
+    1. If lead_reply_jid exists and is valid s.whatsapp.net → use it (most reliable)
+    2. Otherwise normalize 'to' parameter: remove +, spaces, dashes, add @s.whatsapp.net
+    3. If result is @g.us (group) → raise error (don't send to groups)
+    
+    Args:
+        to: Destination from client (can be +972XXX, 972XXX, or with @s.whatsapp.net)
+        lead_phone: Lead's phone_e164 from database (optional)
+        lead_reply_jid: Lead's reply_jid from database (optional, most reliable)
+        lead_id: Lead ID for logging (optional)
+        business_id: Business ID for logging (optional)
+    
+    Returns:
+        tuple: (normalized_jid, source) where source is 'reply_jid', 'to', or 'phone'
+        
+    Raises:
+        ValueError: If trying to send to group/broadcast
+        
+    Examples:
+        >>> normalize_whatsapp_to("+972509237456", None, "972509237456@s.whatsapp.net")
+        ("972509237456@s.whatsapp.net", "reply_jid")
+        
+        >>> normalize_whatsapp_to("+972509237456", None, None)
+        ("972509237456@s.whatsapp.net", "to")
+        
+        >>> normalize_whatsapp_to("972509237456@g.us", None, None)
+        ValueError: Cannot send to groups
+    """
+    source = "unknown"
+    jid = None
+    
+    # Priority 1: Use reply_jid if available and is s.whatsapp.net (most reliable)
+    if lead_reply_jid and isinstance(lead_reply_jid, str):
+        lead_reply_jid = lead_reply_jid.strip()
+        if '@s.whatsapp.net' in lead_reply_jid:
+            jid = lead_reply_jid
+            source = "reply_jid"
+            logger.debug(f"[WA-NORMALIZE] Using reply_jid: {jid}")
+    
+    # Priority 2: Normalize 'to' parameter
+    if not jid and to:
+        to_clean = str(to).strip()
+        
+        # 🔥 CRITICAL: Check for group/broadcast BEFORE normalization
+        if ('@g.us' in to_clean or 
+            '@broadcast' in to_clean or 
+            '@newsletter' in to_clean or
+            'status@broadcast' in to_clean):
+            logger.warning(f"[WA-NORMALIZE] ❌ BLOCKED: Attempt to send to non-private chat: {to_clean[:50]}")
+            raise ValueError("Cannot send to groups, broadcasts, or status updates")
+        
+        # If already has @s.whatsapp.net, use it
+        if '@s.whatsapp.net' in to_clean:
+            jid = to_clean
+            source = "to"
+        else:
+            # Remove @ suffix if present
+            to_clean = to_clean.split('@')[0]
+            
+            # Remove +, spaces, dashes, and any non-numeric characters
+            phone_only = ''.join(c for c in to_clean if c.isdigit())
+            
+            if phone_only:
+                jid = f"{phone_only}@s.whatsapp.net"
+                source = "to"
+                logger.debug(f"[WA-NORMALIZE] Normalized to: {to} → {jid}")
+    
+    # Priority 3: Fallback to lead_phone if provided
+    if not jid and lead_phone:
+        phone_clean = str(lead_phone).strip().replace('+', '').replace(' ', '').replace('-', '')
+        phone_only = ''.join(c for c in phone_clean if c.isdigit())
+        if phone_only:
+            jid = f"{phone_only}@s.whatsapp.net"
+            source = "phone"
+            logger.debug(f"[WA-NORMALIZE] Using lead phone: {jid}")
+    
+    # Validate we got a JID
+    if not jid:
+        logger.error(f"[WA-NORMALIZE] Failed to normalize: to={to}, lead_phone={lead_phone}, lead_reply_jid={lead_reply_jid}")
+        raise ValueError("Could not normalize WhatsApp destination")
+    
+    # 🔥 CRITICAL: Block sending to groups, broadcasts, newsletters
+    if (jid.endswith('@g.us') or 
+        jid.endswith('@broadcast') or 
+        jid.endswith('@newsletter') or
+        'status@broadcast' in jid):
+        logger.warning(f"[WA-NORMALIZE] ❌ BLOCKED: Attempt to send to non-private chat: {jid[:50]}")
+        raise ValueError("Cannot send to groups, broadcasts, or status updates")
+    
+    # Log final result
+    logger.info(f"[WA-SEND] normalized_to={jid} source={source} lead_id={lead_id} business_id={business_id}")
+    
+    return jid, source

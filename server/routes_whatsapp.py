@@ -1321,12 +1321,16 @@ def baileys_webhook():
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @api_handler
 def send_manual_message():
-    """שליחת הודעה ידנית מנציג - Agent Takeover - supports text and media attachments"""
+    """✅ UNIFIED: Send WhatsApp message - same logic as CRM thread endpoint"""
+    import time
+    start_time = time.time()
+    
     data = request.get_json(force=True)
     
     to_number = data.get('to')
     message = data.get('message')
     attachment_id = data.get('attachment_id')  # Optional media attachment
+    lead_id = data.get('lead_id')  # ✅ NEW: Optional lead_id to lookup reply_jid from Lead model (most reliable JID for Baileys)
     
     # 🔒 SECURITY: business_id from authenticated session via get_business_id()
     from server.routes_crm import get_business_id
@@ -1343,31 +1347,49 @@ def send_manual_message():
     try:
         # שליחת הודעה דרך WhatsApp provider
         from server.whatsapp_provider import get_whatsapp_service
+        from server.utils.whatsapp_utils import normalize_whatsapp_to
+        from server.models_sql import Lead
         
         # MULTI-TENANT: Create tenant_id from business_id
         if not business_id:
             return {"ok": False, "error": "no_business_id"}, 400
         tenant_id = f"business_{business_id}"
         
+        # ✅ NEW: Lookup lead for reply_jid if lead_id provided
+        lead_phone = None
+        lead_reply_jid = None
+        if lead_id:
+            try:
+                lead = db.session.query(Lead).filter_by(
+                    id=lead_id,
+                    business_id=business_id
+                ).first()
+                if lead:
+                    lead_phone = lead.phone_e164
+                    lead_reply_jid = lead.reply_jid
+                    log.debug(f"[WA-SEND] Found lead {lead_id}: phone={lead_phone}, reply_jid={lead_reply_jid}")
+            except Exception as e:
+                log.warning(f"[WA-SEND] Could not lookup lead {lead_id}: {e}")
+        
+        # ✅ UNIFIED: Use centralized normalization function
+        try:
+            formatted_number, jid_source = normalize_whatsapp_to(
+                to=to_number,
+                lead_phone=lead_phone,
+                lead_reply_jid=lead_reply_jid,
+                lead_id=lead_id,
+                business_id=business_id
+            )
+            log.info(f"[WA-SEND] from_page=whatsapp_send normalized_to={formatted_number} source={jid_source} lead_id={lead_id} business_id={business_id}")
+        except ValueError as e:
+            log.error(f"[WA-SEND] Normalization failed: {e}")
+            return {"ok": False, "error": str(e)}, 400
+        
         try:
             wa_service = get_whatsapp_service(tenant_id=tenant_id)
         except Exception as e:
             log.error(f"[WA-SEND] Failed to get WhatsApp service: {e}")
             return {"ok": False, "error": f"whatsapp_service_unavailable: {str(e)}"}, 503
-        
-        # התאמת פורמט המספר (אם נדרש)
-        formatted_number = to_number
-        if '@' not in formatted_number:
-            formatted_number = f"{to_number}@s.whatsapp.net"
-        
-        # 🔥 CRITICAL: Block sending to groups, broadcasts, newsletters, or status updates
-        # Bot ONLY sends to private 1-on-1 chats!
-        if (formatted_number.endswith('@g.us') or 
-            formatted_number.endswith('@broadcast') or 
-            formatted_number.endswith('@newsletter') or
-            'status@broadcast' in formatted_number):
-            log.warning(f"[WA-SEND] ❌ BLOCKED: Manual send to non-private chat {formatted_number[:30]}...")
-            return {"ok": False, "error": "cannot_send_to_non_private_chats"}, 400
         
         # Handle media attachment if provided
         message_type = 'text'
@@ -1412,6 +1434,7 @@ def send_manual_message():
             
             log.info(f"[WA-SEND] Sending {message_type} attachment: {attachment.filename_original}")
         
+        # ✅ FAST-FAIL: Send with timeout handling for better UX
         try:
             if media_url:
                 # Send media message - use send_media method
@@ -1424,9 +1447,30 @@ def send_manual_message():
             else:
                 # Send text message
                 send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
+                
+            # ✅ Log timing for SLOW_API detection
+            elapsed = time.time() - start_time
+            if elapsed > 5.0:
+                log.warning(f"SLOW_API: POST /api/whatsapp/send took {elapsed:.2f}s")
+            else:
+                log.info(f"[WA-SEND] Request completed in {elapsed:.2f}s")
+                
+        except requests.exceptions.Timeout as e:
+            elapsed = time.time() - start_time
+            log.error(f"[WA-SEND] Timeout after {elapsed:.2f}s: {e}")
+            # ✅ Fast fail - don't let timeout hang for 20 seconds
+            return {"ok": False, "error": "send_timeout", "elapsed": elapsed}, 504
         except Exception as e:
-            log.error(f"[WA-SEND] Send message failed: {e}")
-            return {"ok": False, "error": f"send_failed: {str(e)}"}, 500
+            elapsed = time.time() - start_time
+            log.error(f"[WA-SEND] Send message failed after {elapsed:.2f}s: {e}")
+            
+            # ✅ Check if this is a Baileys 500 error - fail fast
+            error_str = str(e).lower()
+            if '500' in error_str or 'service unavailable' in error_str:
+                log.error(f"[WA-SEND] Baileys 500 error detected - failing fast")
+                return {"ok": False, "error": "provider_error_500", "elapsed": elapsed}, 503
+            
+            return {"ok": False, "error": f"send_failed: {str(e)}", "elapsed": elapsed}, 500
         
         if not send_result:
             return {"ok": False, "error": "empty_response_from_provider"}, 500
