@@ -1067,15 +1067,20 @@ def delete_all_receipts():
     if redis_conn:
         rate_limit_key = f"rate_limit:delete_all_receipts:{business_id}"
         try:
-            # Check if key exists (request already made in the last 60 seconds)
-            if redis_conn.exists(rate_limit_key):
+            # Use SET NX (set if not exists) with expiry for atomic rate limiting
+            # This prevents race conditions between check and set
+            was_set = redis_conn.set(rate_limit_key, "1", nx=True, ex=60)
+            
+            if not was_set:
+                # Key already exists, get TTL for error message
                 ttl = redis_conn.ttl(rate_limit_key)
+                # Handle edge cases: -1 (no expiry), -2 (key doesn't exist)
+                if ttl < 0:
+                    ttl = 60  # Default to 60 seconds if TTL is invalid
                 return jsonify({
                     "success": False,
                     "error": f"Too many requests. Try again in {ttl} seconds."
                 }), 429
-            # Set key with 60 second expiration
-            redis_conn.setex(rate_limit_key, 60, "1")
         except Exception as e:
             logger.warning(f"Rate limit check failed (proceeding anyway): {e}")
     
