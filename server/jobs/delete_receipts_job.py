@@ -55,19 +55,41 @@ def delete_receipts_batch_job(job_id: int):
     try:
         from server.app_factory import create_app
         from server.models_sql import db, BackgroundJob, Receipt, Attachment
-        from server.db import get_db_session
-    except Exception as e:
+    except ImportError as e:
+        error_msg = f"Import failed: {str(e)}"
         logger.error(f"❌ JOB IMPORT ERROR: {e}")
         logger.error(traceback.format_exc())
-        raise
+        print(f"❌ FATAL IMPORT ERROR: {e}")
+        print(traceback.format_exc())
+        # Cannot proceed without imports - return error immediately
+        return {
+            "success": False,
+            "error": error_msg
+        }
+    except Exception as e:
+        error_msg = f"Import failed: {str(e)}"
+        logger.error(f"❌ JOB IMPORT ERROR: {e}")
+        logger.error(traceback.format_exc())
+        print(f"❌ FATAL IMPORT ERROR: {e}")
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
     
     # Create app context for DB access
     try:
         app = create_app()
     except Exception as e:
+        error_msg = f"App creation failed: {str(e)}"
         logger.error(f"❌ JOB APP CREATION ERROR: {e}")
         logger.error(traceback.format_exc())
-        raise
+        print(f"❌ FATAL APP CREATION ERROR: {e}")
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
     
     with app.app_context():
         # Load job
