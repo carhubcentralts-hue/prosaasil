@@ -189,29 +189,7 @@ def main():
         
         # Create worker
         try:
-            # Define custom job execution handler to log job pickup
-            def before_job_handler(job, connection, worker_name):
-                """Log when worker picks up a job from queue"""
-                # Get queue name from job
-                queue_name = getattr(job, 'origin', 'unknown')
-                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
-                job_args = getattr(job, 'args', ())
-                
-                logger.info("=" * 60)
-                logger.info(f"🔨 WORKER PICKED JOB from queue='{queue_name}' job_id={job.id}")
-                logger.info(f"   → function: {job_func_name}")
-                logger.info(f"   → args: {job_args}")
-                logger.info(f"   → worker: {worker_name}")
-                logger.info("=" * 60)
-            
-            def after_job_handler(job, connection, result, worker_name):
-                """Log when job completes"""
-                queue_name = getattr(job, 'origin', 'unknown')
-                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
-                logger.info("=" * 60)
-                logger.info(f"✅ JOB COMPLETED queue='{queue_name}' job_id={job.id} function={job_func_name}")
-                logger.info("=" * 60)
-            
+            # Define custom job failure handler to log errors
             def failed_job_handler(job, connection, type, value, traceback, worker_name):
                 """Log when job fails"""
                 queue_name = getattr(job, 'origin', 'unknown')
@@ -230,10 +208,11 @@ def main():
                 disable_default_exception_handler=False,
             )
             
-            # Register custom handlers for logging
+            # Register custom failure handler for better logging
             import rq.worker
             worker.push_exc_handler(failed_job_handler)
-            # Note: RQ doesn't have built-in before/after hooks, so we'll rely on job function logs
+            # Note: Job pickup/completion logging is handled by the job functions themselves
+            # (see delete_receipts_job.py and gmail_sync_job.py for examples)
             
             logger.info(f"✓ Worker created: {worker.name}")
             logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")

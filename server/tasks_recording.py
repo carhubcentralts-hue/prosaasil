@@ -260,6 +260,13 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
+    # 🔥 FIX: Check business rate limit FIRST (fail fast)
+    rate_limit_ok, rate_limit_reason = _check_business_rate_limit(business_id)
+    if not rate_limit_ok:
+        logger.info(f"🚫 BLOCKED: {rate_limit_reason} for call {call_sid} (business:{business_id})")
+        log.info(f"[OFFLINE_STT] BLOCKED: {rate_limit_reason} for {call_sid}")
+        return  # Don't enqueue
+    
     # 🔥 DEDUPLICATION: Check if we should enqueue this job
     # 🔥 FIX: Pass business_id for cross-business isolation
     should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="full")
@@ -311,6 +318,13 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
+    # 🔥 FIX: Check business rate limit FIRST (fail fast)
+    rate_limit_ok, rate_limit_reason = _check_business_rate_limit(business_id)
+    if not rate_limit_ok:
+        logger.info(f"🚫 BLOCKED: {rate_limit_reason} for call {call_sid} (business:{business_id})")
+        log.info(f"[DOWNLOAD_ONLY] BLOCKED: {rate_limit_reason} for {call_sid}")
+        return  # Don't enqueue
+    
     # 🔥 DEDUPLICATION: Check if we should enqueue this download
     # 🔥 FIX: Pass business_id for cross-business isolation
     should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="download")
