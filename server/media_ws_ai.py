@@ -9937,7 +9937,9 @@ class MediaStreamHandler:
                         _orig_print(f"⚠️ [TX_GUARD] TX loop already running - skipping duplicate start", flush=True)
                     
                     # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
-                    if not self.greeting_sent and USE_REALTIME_API:
+                    # 🔥 Check per-call override (set based on ai_provider)
+                    use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+                    if not self.greeting_sent and use_realtime_for_this_call:
                         self.t1_greeting_start = time.time()
                         if greet:
                             logger.info(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME!")
@@ -10807,7 +10809,9 @@ class MediaStreamHandler:
                 self.close_session("finally_block_fallback")
             
             # 💰 CALCULATE AND LOG CALL COST
-            if USE_REALTIME_API:
+            # 🔥 Check per-call override (set based on ai_provider)
+            use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+            if use_realtime_for_this_call:
                 self._calculate_and_log_cost()
             
             # 🔥 BUILD 331: OPENAI_USAGE_GUARD - Final logging regardless of exit path
@@ -11544,7 +11548,9 @@ class MediaStreamHandler:
         Runs _hebrew_stt in thread pool without blocking the event loop
         """
         # 🚀 REALTIME API: Skip Google STT completely in Realtime mode
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        if use_realtime_for_this_call:
             return ""
         
         try:
@@ -11561,7 +11567,9 @@ class MediaStreamHandler:
         Result is delivered via callback to avoid blocking.
         """
         # 🚀 REALTIME API: Skip Google STT completely in Realtime mode
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        if use_realtime_for_this_call:
             return
         
         # Submit to thread pool
@@ -11634,19 +11642,26 @@ class MediaStreamHandler:
         - OpenAI provider: NEVER CALLED - Uses OpenAI Realtime API (gpt-4o-transcribe built-in)
         - Gemini provider: Uses Google Cloud Speech-to-Text (NOT Gemini STT API)
         
-        This function is ONLY used for Gemini pipeline (when USE_REALTIME_API=False).
+        This function is ONLY used for Gemini pipeline (when use_realtime=False).
         OpenAI always uses Realtime API which handles STT internally.
         
         🚫 NO FALLBACK: If provider is misconfigured or keys missing, FAIL with clear error.
         """
-        # 🚀 CRITICAL: OpenAI NEVER uses this function - it uses Realtime API
-        # This check prevents duplication if somehow called for OpenAI
-        if USE_REALTIME_API:
-            logger.warning("⚠️ _hebrew_stt called with USE_REALTIME_API=True - this should not happen!")
-            return ""
+        # 🚀 CRITICAL: Check per-call override (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
         
         # Get ai_provider from handler instance
         ai_provider = getattr(self, '_ai_provider', 'openai')
+        
+        # 🔥 GUARD: Prevent Gemini from using realtime path - this is a critical bug
+        if ai_provider == 'gemini' and use_realtime_for_this_call:
+            logger.error("❌ BUG: Gemini cannot use realtime - provider routing is broken!")
+            raise RuntimeError("BUG: Gemini cannot use realtime. Check provider routing in START event handler.")
+        
+        # 🚀 CRITICAL: OpenAI NEVER uses this function - it uses Realtime API
+        if use_realtime_for_this_call:
+            logger.warning("⚠️ _hebrew_stt called with use_realtime=True - this should not happen!")
+            return ""
         
         # 🚫 CRITICAL: OpenAI should NEVER reach here - only Gemini uses this path
         if ai_provider == 'openai':
@@ -11728,12 +11743,14 @@ class MediaStreamHandler:
             return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
-        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
+        """🔥 BUILD 314: LEGACY CODE - Never used when use_realtime=True
         OpenAI Realtime API handles ALL transcription via gpt-4o-transcribe.
-        This is kept only for backwards compatibility if someone sets USE_REALTIME_API=False.
+        This is kept only for backwards compatibility if someone sets use_realtime=False.
         """
         # 🚀 REALTIME API: Skip Whisper completely - use gpt-4o-transcribe via Realtime API
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        if use_realtime_for_this_call:
             return ""
         
         try:
@@ -15419,7 +15436,9 @@ class MediaStreamHandler:
         skip_text = "אני מעדיף לא לתת את המספר"
         
         # 🚀 REALTIME API: Send via Realtime if enabled, otherwise use AgentKit
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        if use_realtime_for_this_call:
             logger.info(f"🚀 [REALTIME] Sending DTMF skip via Realtime API")
             # ✅ Queue the user's DTMF skip message (non-blocking, no fallback to AgentKit)
             try:
@@ -15517,7 +15536,9 @@ class MediaStreamHandler:
         # Otherwise, Caller ID is used automatically (no verbal/DTMF needed)
         
         # 🚀 REALTIME API: Send via system event (not user message!)
-        if USE_REALTIME_API:
+        # 🔥 Check per-call override (set based on ai_provider)
+        use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
+        if use_realtime_for_this_call:
             logger.info(f"🚀 [REALTIME] Sending DTMF phone as SYSTEM event: {phone_to_show}")
             # ✅ Send as system event (silent - AI reads but doesn't speak)
             try:
