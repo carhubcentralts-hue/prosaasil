@@ -18,6 +18,7 @@ export interface SignatureField {
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
 const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields
 const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field
+const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
 
 interface SignatureFieldMarkerProps {
   contractId: number;
@@ -62,11 +63,11 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
         logger.debug('[SignatureFieldMarker] PDF info loaded, pages:', data.page_count);
       } else {
         logger.error('[SignatureFieldMarker] Failed to load PDF info:', response.status);
-        setError('שגיאה בטעינת מידע על PDF');
+        setError(ERROR_LOADING_PDF_INFO);
       }
     } catch (err) {
       logger.error('[SignatureFieldMarker] Error loading PDF info:', err);
-      setError('שגיאה בטעינת מידע על PDF');
+      setError(ERROR_LOADING_PDF_INFO);
     } finally {
       setLoadingInfo(false);
     }

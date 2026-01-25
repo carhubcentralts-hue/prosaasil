@@ -6,6 +6,7 @@ import { PDFCanvas } from './PDFCanvas';
 
 // Constants
 const MIN_CONTAINER_WIDTH = 200; // Minimum container width for PDF rendering
+const ERROR_LOADING_PDF_INFO = 'שגיאה בטעינת מידע על PDF';
 
 interface SignatureField {
   id: string;
@@ -75,11 +76,11 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
         console.log('[PDF_LOAD_SUCCESS] PDF info loaded, pages:', data.page_count);
       } else {
         console.error('[PDF_LOAD_ERROR] Failed to load PDF info:', response.status);
-        setError('שגיאה בטעינת מידע על PDF');
+        setError(ERROR_LOADING_PDF_INFO);
       }
     } catch (err) {
       console.error('[PDF_LOAD_ERROR] Error loading PDF info:', err);
-      setError('שגיאה בטעינת מידע על PDF');
+      setError(ERROR_LOADING_PDF_INFO);
     } finally {
       setLoading(false);
     }
