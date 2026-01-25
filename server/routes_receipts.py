@@ -1185,7 +1185,10 @@ def delete_all_receipts():
         db.session.add(job)
         db.session.commit()
         
+        logger.info("=" * 60)
+        logger.info(f"🧾 receipts_delete requested business_id={business_id} count={total_receipts}")
         logger.info(f"Created delete_all job {job.id} for business {business_id} ({total_receipts} receipts)")
+        logger.info("=" * 60)
         
         # Enqueue to RQ maintenance queue
         if RQ_AVAILABLE and redis_conn:
@@ -1199,7 +1202,10 @@ def delete_all_receipts():
                     job.id,  # Pass job_id as first argument
                     job_timeout='1h'  # 1 hour max per job execution
                 )
+                logger.info("=" * 60)
+                logger.info(f"🧾 receipts_delete enqueued job_id={rq_job.id} bg_job_id={job.id}")
                 logger.info(f"Enqueued job {job.id} to maintenance queue: {rq_job.id}")
+                logger.info("=" * 60)
             except Exception as e:
                 logger.error(f"Failed to enqueue job: {e}")
                 job.status = 'failed'
@@ -1314,6 +1320,11 @@ def get_delete_job_status():
     
     business_id = get_current_business_id()
     
+    # CRITICAL: Heartbeat staleness detection threshold (2 minutes)
+    HEARTBEAT_STALENESS_SECONDS = 120
+    # CRITICAL: Update staleness detection threshold (5 minutes)
+    UPDATE_STALENESS_SECONDS = 300
+    
     # Find any active delete job
     job = BackgroundJob.query.filter(
         BackgroundJob.business_id == business_id,
@@ -1336,18 +1347,18 @@ def get_delete_job_status():
     # Check heartbeat staleness (120 seconds)
     if job.heartbeat_at:
         heartbeat_age = (now - job.heartbeat_at).total_seconds()
-        if heartbeat_age > 120:
+        if heartbeat_age > HEARTBEAT_STALENESS_SECONDS:
             is_stale = True
-            stale_reason = f"No heartbeat for {int(heartbeat_age)} seconds"
-            logger.warning(f"Detected stale job {job.id}: {stale_reason}")
+            stale_reason = f"No heartbeat for {int(heartbeat_age)} seconds (threshold {HEARTBEAT_STALENESS_SECONDS}s)"
+            logger.warning(f"⚠️ Detected stale job {job.id}: {stale_reason}")
     
     # Check updated_at staleness (5 minutes)
     if not is_stale and job.updated_at:
         updated_age = (now - job.updated_at).total_seconds()
-        if updated_age > 300:  # 5 minutes
+        if updated_age > UPDATE_STALENESS_SECONDS:
             is_stale = True
-            stale_reason = f"No updates for {int(updated_age)} seconds"
-            logger.warning(f"Detected stale job {job.id}: {stale_reason}")
+            stale_reason = f"No updates for {int(updated_age)} seconds (threshold {UPDATE_STALENESS_SECONDS}s)"
+            logger.warning(f"⚠️ Detected stale job {job.id}: {stale_reason}")
     
     # Mark stale job as failed
     if is_stale:
@@ -1357,7 +1368,7 @@ def get_delete_job_status():
         job.updated_at = datetime.utcnow()
         db.session.commit()
         
-        logger.info(f"Marked stale job {job.id} as failed: {stale_reason}")
+        logger.info(f"🔧 Marked stale job {job.id} as failed: {stale_reason}")
         
         return jsonify({
             "success": True,

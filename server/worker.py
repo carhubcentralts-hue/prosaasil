@@ -134,6 +134,7 @@ signal.signal(signal.SIGINT, handle_shutdown)
 def main():
     """Main worker loop"""
     logger.info("=" * 60)
+    logger.info("✅ RECEIPTS WORKER BOOTED pid=%s", os.getpid())
     logger.info("🔔 WORKER_START: ProSaaS Background Worker")
     logger.info("=" * 60)
     logger.info(f"Redis URL: {masked_redis_url}")
@@ -200,7 +201,34 @@ def main():
         logger.info("-" * 60)
         logger.info("🚀 Worker is now READY and LISTENING for jobs...")
         logger.info(f"📩 Waiting for jobs to be enqueued to {LISTEN_QUEUES} queues...")
+        logger.info(f"📍 CRITICAL: Worker handles ALL receipt operations:")
+        logger.info(f"   - Generate receipts (receipt generation)")
+        logger.info(f"   - Sync receipts (Gmail sync)")
+        logger.info(f"   - Delete receipts (batch delete)")
+        logger.info(f"   - Fetch receipt PDF (download operations)")
         logger.info("-" * 60)
+        
+        # Heartbeat thread for monitoring
+        import threading
+        
+        def heartbeat_log():
+            """Log worker heartbeat every 30 seconds"""
+            while not shutdown_requested:
+                time.sleep(30)
+                if shutdown_requested:
+                    break
+                try:
+                    queue_stats = []
+                    for queue in QUEUES:
+                        count = len(queue)
+                        queue_stats.append(f"{queue.name}={count}")
+                    logger.debug(f"💓 receipts_worker heartbeat pid={os.getpid()} queues=[{', '.join(queue_stats)}]")
+                except Exception as e:
+                    logger.error(f"Heartbeat log error: {e}")
+        
+        heartbeat_thread = threading.Thread(target=heartbeat_log, daemon=True)
+        heartbeat_thread.start()
+        logger.info("✅ Heartbeat monitoring started (logs every 30s)")
         
         # Start worker
         try:

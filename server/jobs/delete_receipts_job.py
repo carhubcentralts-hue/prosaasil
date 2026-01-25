@@ -60,6 +60,7 @@ def delete_receipts_batch_job(job_id: int):
         business_id = job.business_id
         
         logger.info("=" * 60)
+        logger.info(f"🧾 JOB start type=delete_receipts business_id={business_id} job_id={job_id}")
         logger.info(f"🗑️  [RECEIPTS_DELETE] JOB_START: Delete all receipts")
         logger.info(f"  → job_id: {job_id}")
         logger.info(f"  → business_id: {business_id}")
@@ -134,7 +135,13 @@ def delete_receipts_batch_job(job_id: int):
                 
                 # Check if we're done
                 if not receipts:
+                    logger.info("=" * 60)
+                    logger.info(f"🧾 JOB complete type=delete_receipts business_id={business_id} job_id={job_id}")
                     logger.info("✅ [RECEIPTS_DELETE] All receipts processed - job complete")
+                    logger.info(f"  → Total processed: {job.processed}")
+                    logger.info(f"  → Successfully deleted: {job.succeeded}")
+                    logger.info(f"  → Failed: {job.failed_count}")
+                    logger.info("=" * 60)
                     job.status = 'completed'
                     job.finished_at = datetime.utcnow()
                     job.updated_at = datetime.utcnow()
@@ -258,7 +265,10 @@ def delete_receipts_batch_job(job_id: int):
                 time.sleep(THROTTLE_MS / 1000.0)
         
         except Exception as e:
+            logger.error("=" * 60)
+            logger.error(f"🧾 JOB failed type=delete_receipts business_id={business_id} job_id={job_id}")
             logger.error(f"[RECEIPTS_DELETE] Job failed with unexpected error: {e}", exc_info=True)
+            logger.error("=" * 60)
             job.status = 'failed'
             job.last_error = str(e)[:200]
             job.finished_at = datetime.utcnow()
