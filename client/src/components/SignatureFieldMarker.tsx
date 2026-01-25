@@ -1,9 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Save, Trash2, Eye, Edit3 } from 'lucide-react';
+import { X, Save, Trash2, Eye, Edit3, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
-import { PDFCanvas } from './PDFCanvas';
 import { logger } from '../shared/utils/logger';
-import * as pdfjsLib from 'pdfjs-dist';
 
 export interface SignatureField {
   id: string;
@@ -19,6 +17,7 @@ export interface SignatureField {
 const MIN_FIELD_SIZE = 0.05; // Minimum 5% width/height for signature fields
 const FIELD_Z_INDEX_NORMAL = 5; // Z-index for normal signature fields
 const FIELD_Z_INDEX_SELECTED = 10; // Z-index for selected signature field
+const PDF_LOADING_TIMEOUT_MS = 10000; // Timeout for PDF loading (10 seconds)
 
 interface SignatureFieldMarkerProps {
   contractId: number;
@@ -38,45 +37,42 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [isResizing, setIsResizing] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; fieldX: number; fieldY: number; fieldW: number; fieldH: number } | null>(null);
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
-  const [scale, setScale] = useState(1.0);
-  // Remove duplicate PDF loading - PDFCanvas will handle it
-  const [pageViewport, setPageViewport] = useState<pdfjsLib.PageViewport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pdfReady, setPdfReady] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState(true);
   
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const loadTimeoutRef = useRef<number | null>(null);
 
-  // Get viewport for current page - compute from rendered canvas
-  useEffect(() => {
-    // Use a timeout to allow canvas to render first
-    const timer = setTimeout(() => {
-      const container = canvasContainerRef.current;
-      if (!container) return;
-
-      // Find the canvas element rendered by PDFCanvas
-      const canvas = container.querySelector('canvas') as HTMLCanvasElement;
-      if (!canvas) return;
-
-      // Get the CSS display size of the canvas
-      const cssWidth = parseFloat(canvas.style.width) || canvas.offsetWidth;
-      const cssHeight = parseFloat(canvas.style.height) || canvas.offsetHeight;
-
-      if (cssWidth > 0 && cssHeight > 0) {
-        // Create a mock viewport with the actual display dimensions
-        setPageViewport({
-          width: cssWidth,
-          height: cssHeight,
-        } as pdfjsLib.PageViewport);
-        
-        logger.debug('[SignatureFieldMarker] Viewport updated from canvas:', cssWidth, 'x', cssHeight);
-      }
-    }, 100); // Small delay to let PDFCanvas render
-
-    return () => clearTimeout(timer);
-  }, [currentPage, scale]); // Re-calculate when page or scale changes
-
-  // Load existing signature fields
+  // Load PDF info and signature fields
   useEffect(() => {
     loadSignatureFields();
+    loadPdfInfo();
   }, [contractId]);
+
+  const loadPdfInfo = async () => {
+    try {
+      logger.debug('[SignatureFieldMarker] Loading PDF info for contract:', contractId);
+      const response = await fetch(`/api/contracts/${contractId}/pdf-info`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setTotalPages(data.page_count || 1);
+        logger.debug('[SignatureFieldMarker] PDF info loaded, pages:', data.page_count);
+      } else {
+        logger.error('[SignatureFieldMarker] Failed to load PDF info:', response.status);
+        setPdfError('שגיאה בטעינת מידע על PDF');
+      }
+    } catch (err) {
+      logger.error('[SignatureFieldMarker] Error loading PDF info:', err);
+      setPdfError('שגיאה בטעינת מידע על PDF');
+    } finally {
+      setLoadingInfo(false);
+    }
+  };
 
   const loadSignatureFields = async () => {
     try {
@@ -91,6 +87,49 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
       logger.error('Error loading signature fields:', err);
     }
   };
+
+  // Handle iframe load events
+  const handleIframeLoad = () => {
+    logger.debug('[SignatureFieldMarker] PDF iframe loaded successfully');
+    setPdfReady(true);
+    setPdfError(null);
+    
+    // Clear timeout on successful load
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
+  };
+
+  const handleIframeError = () => {
+    logger.error('[SignatureFieldMarker] PDF iframe failed to load');
+    setPdfError('שגיאה בטעינת PDF');
+    setPdfReady(false);
+    
+    // Clear timeout on error
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
+  };
+
+  // Set timeout for iframe loading - if it takes too long, assume it loaded
+  useEffect(() => {
+    if (!pdfReady && !pdfError && !loadingInfo) {
+      // Start a timeout when iframe starts loading
+      loadTimeoutRef.current = setTimeout(() => {
+        logger.warn('[SignatureFieldMarker] PDF loading timeout - assuming loaded');
+        setPdfReady(true); // Force ready to allow interaction
+      }, PDF_LOADING_TIMEOUT_MS);
+    }
+    
+    return () => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
+    };
+  }, [pdfReady, pdfError, loadingInfo]);
 
   const handleSave = async () => {
     if (fields.length === 0) {
@@ -112,25 +151,25 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
-    if (!canvasContainerRef.current || !signatureMarkingMode || !pageViewport) return;
+    if (!pdfContainerRef.current || !signatureMarkingMode || !pdfReady) return;
     
-    const rect = canvasContainerRef.current.getBoundingClientRect();
+    const rect = pdfContainerRef.current.getBoundingClientRect();
     
-    // Get click position in pixels relative to canvas (PointerEvent has clientX/clientY)
+    // Get click position in pixels relative to container
     const clientX = e.clientX;
     const clientY = e.clientY;
     const clickX = clientX - rect.left;
     const clickY = clientY - rect.top;
     
-    // Convert to PDF units (0-1 relative to page dimensions)
-    const pdfX = clickX / pageViewport.width;
-    const pdfY = clickY / pageViewport.height;
+    // Convert to relative units (0-1) based on container dimensions
+    const relX = clickX / rect.width;
+    const relY = clickY / rect.height;
 
     // Check if clicking on existing field
     const clickedField = fields.find(f => 
       f.page === currentPage &&
-      pdfX >= f.x && pdfX <= f.x + f.w &&
-      pdfY >= f.y && pdfY <= f.y + f.h
+      relX >= f.x && relX <= f.x + f.w &&
+      relY >= f.y && relY <= f.y + f.h
     );
 
     if (clickedField) {
@@ -142,8 +181,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     const newField: SignatureField = {
       id: crypto.randomUUID ? crypto.randomUUID() : `field-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       page: currentPage,
-      x: Math.max(0, Math.min(1 - 0.15, pdfX - 0.075)), // Center the box on click
-      y: Math.max(0, Math.min(1 - 0.08, pdfY - 0.04)),
+      x: Math.max(0, Math.min(1 - 0.15, relX - 0.075)), // Center the box on click
+      y: Math.max(0, Math.min(1 - 0.08, relY - 0.04)),
       w: 0.15, // Default width 15%
       h: 0.08, // Default height 8%
       required: true,
@@ -161,14 +200,14 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
 
   const handleFieldMouseDown = (e: React.MouseEvent | React.PointerEvent, field: SignatureField, handle?: string) => {
     e.stopPropagation();
-    if (!canvasContainerRef.current || !pageViewport) return;
+    if (!pdfContainerRef.current || !pdfReady) return;
     
-    const rect = canvasContainerRef.current.getBoundingClientRect();
-    // PointerEvent has clientX/clientY directly, no need to check touches
+    const rect = pdfContainerRef.current.getBoundingClientRect();
+    // Get position as relative coordinates (0-1)
     const clientX = e.clientX;
     const clientY = e.clientY;
-    const x = (clientX - rect.left) / pageViewport.width;
-    const y = (clientY - rect.top) / pageViewport.height;
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
     
     if (handle) {
       setIsResizing(handle);
@@ -188,14 +227,14 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) => {
-    if (!canvasContainerRef.current || !dragStart || !selectedFieldId || !pageViewport) return;
+    if (!pdfContainerRef.current || !dragStart || !selectedFieldId || !pdfReady) return;
     
-    const rect = canvasContainerRef.current.getBoundingClientRect();
-    // PointerEvent has clientX/clientY directly
+    const rect = pdfContainerRef.current.getBoundingClientRect();
+    // Get position as relative coordinates (0-1)
     const clientX = e.clientX;
     const clientY = e.clientY;
-    const x = (clientX - rect.left) / pageViewport.width;
-    const y = (clientY - rect.top) / pageViewport.height;
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
     
     const dx = x - dragStart.x;
     const dy = y - dragStart.y;
@@ -276,20 +315,30 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     return fields.filter(f => f.page === currentPage);
   };
 
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+      // Note: Not resetting pdfReady to avoid interaction flash during page change
+      // The iframe will reload automatically and update when ready
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+      // Note: Not resetting pdfReady to avoid interaction flash during page change
+      // The iframe will reload automatically and update when ready
+    }
+  };
+
   // Render signature field overlay
   const renderSignatureFields = () => {
-    if (!pageViewport) return null;
+    if (!pdfReady) return null;
 
     // Create a map of field IDs to their global index for efficient lookup
     const fieldIndexMap = new Map(fields.map((f, i) => [f.id, i + 1]));
 
     return getCurrentPageFields().map((field) => {
-      // Convert PDF units to pixels
-      const left = field.x * pageViewport.width;
-      const top = field.y * pageViewport.height;
-      const width = field.w * pageViewport.width;
-      const height = field.h * pageViewport.height;
-      
       const fieldNumber = fieldIndexMap.get(field.id) || 1;
 
       return (
@@ -301,11 +350,10 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
               : 'border-green-600 bg-green-200 hover:border-green-700'
           } bg-opacity-40 cursor-move`}
           style={{
-            left: `${left}px`,
-            top: `${top}px`,
-            width: `${width}px`,
-            height: `${height}px`,
-            // 🔥 FIX: Ensure fields receive pointer events
+            left: `${field.x * 100}%`,
+            top: `${field.y * 100}%`,
+            width: `${field.w * 100}%`,
+            height: `${field.h * 100}%`,
             pointerEvents: 'auto',
             zIndex: selectedFieldId === field.id ? FIELD_Z_INDEX_SELECTED : FIELD_Z_INDEX_NORMAL,
           }}
@@ -417,44 +465,91 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
               </div>
             )}
 
-            {/* PDF Canvas with Overlay */}
-            <div className="flex-1 relative min-h-0">
-              <PDFCanvas
-                pdfUrl={`/api/contracts/${contractId}/pdf`}
-                currentPage={currentPage}
-                onPageChange={setCurrentPage}
-                onTotalPagesChange={setTotalPages}
-                scale={scale}
-                onScaleChange={setScale}
-                containerRef={canvasContainerRef}
-                className="rounded-lg border-2 border-gray-300"
-              >
-                {/* Canvas Overlay for Signature Fields */}
-                {pageViewport && (
+            {/* Page Navigation */}
+            {totalPages > 1 && (
+              <div className="mb-3 flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <button
+                  onClick={handlePrevPage}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  title="עמוד קודם"
+                >
+                  <ChevronRight className="w-5 h-5 text-blue-600" />
+                </button>
+                <span className="text-sm font-medium">
+                  עמוד {currentPage} מתוך {totalPages}
+                </span>
+                <button
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  title="עמוד הבא"
+                >
+                  <ChevronLeft className="w-5 h-5 text-blue-600" />
+                </button>
+              </div>
+            )}
+
+            {/* PDF with Overlay */}
+            <div className="flex-1 relative min-h-0 rounded-lg border-2 border-gray-300 bg-gray-100 overflow-hidden">
+              {loadingInfo ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div>
+                    <p className="text-gray-600 text-lg font-medium">טוען מידע על PDF...</p>
+                  </div>
+                </div>
+              ) : pdfError ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                  <div className="text-center max-w-md px-4">
+                    <p className="text-red-600 text-lg font-medium mb-2">שגיאה בטעינת המסמך</p>
+                    <p className="text-gray-600 text-sm">{pdfError}</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    key={`pdf-${contractId}-page-${currentPage}`}
+                    src={`/api/contracts/${contractId}/pdf#page=${currentPage}&view=FitH`}
+                    className="w-full h-full min-h-[60vh]"
+                    title="PDF Preview"
+                    style={{ border: 'none', display: 'block', zIndex: 1 }}
+                    onLoad={handleIframeLoad}
+                    onError={handleIframeError}
+                  />
+                  {/* Show loading overlay while iframe is loading */}
+                  {!pdfReady && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
+                      <div className="text-center">
+                        <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mb-3"></div>
+                        <p className="text-gray-600 text-sm font-medium">טוען תצוגת PDF...</p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Overlay for signature fields - always present */}
                   <div
-                    className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair' : 'cursor-default'}`}
-                    onClick={handleCanvasClick}
-                    onPointerDown={handleCanvasClick}
-                    onMouseMove={handleMouseMove}
-                    onPointerMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onPointerUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    onPointerLeave={handleMouseUp}
+                    ref={pdfContainerRef}
+                    className={`absolute inset-0 ${signatureMarkingMode && pdfReady ? 'cursor-crosshair' : 'cursor-default'}`}
+                    onClick={pdfReady ? handleCanvasClick : undefined}
+                    onPointerDown={pdfReady ? handleCanvasClick : undefined}
+                    onMouseMove={pdfReady ? handleMouseMove : undefined}
+                    onPointerMove={pdfReady ? handleMouseMove : undefined}
+                    onMouseUp={pdfReady ? handleMouseUp : undefined}
+                    onPointerUp={pdfReady ? handleMouseUp : undefined}
+                    onMouseLeave={pdfReady ? handleMouseUp : undefined}
+                    onPointerLeave={pdfReady ? handleMouseUp : undefined}
                     style={{
-                      // 🔥 FIX: Set proper size and pointer-events
-                      width: `${pageViewport.width}px`,
-                      height: `${pageViewport.height}px`,
-                      pointerEvents: signatureMarkingMode ? 'auto' : 'none',
+                      pointerEvents: signatureMarkingMode && pdfReady ? 'auto' : 'none',
                       zIndex: 2,
-                      // 🔥 FIX: Ensure transparent background (don't cover PDF)
                       backgroundColor: 'transparent',
                     }}
                   >
                     {renderSignatureFields()}
                   </div>
-                )}
-              </PDFCanvas>
+                </>
+              )}
             </div>
           </div>
 
