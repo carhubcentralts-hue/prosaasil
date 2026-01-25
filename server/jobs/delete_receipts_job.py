@@ -70,6 +70,7 @@ def delete_receipts_batch_job(job_id: int):
         # Update job status to running
         job.status = 'running'
         job.started_at = datetime.utcnow()
+        job.heartbeat_at = datetime.utcnow()  # Initialize heartbeat
         
         # Initialize cursor if not set (starting fresh)
         if not job.cursor:
@@ -182,6 +183,7 @@ def delete_receipts_batch_job(job_id: int):
                     job.succeeded += batch_succeeded
                     job.failed_count += batch_failed
                     job.updated_at = datetime.utcnow()
+                    job.heartbeat_at = datetime.utcnow()  # Update heartbeat every batch
                     
                     # Commit DB changes
                     db.session.commit()

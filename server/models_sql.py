@@ -1791,6 +1791,7 @@ class BackgroundJob(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     started_at = db.Column(db.DateTime, nullable=True)
     finished_at = db.Column(db.DateTime, nullable=True)
+    heartbeat_at = db.Column(db.DateTime, nullable=True)  # For stale job detection
     
     # Relationships
     business = db.relationship("Business", backref=db.backref("background_jobs", lazy="dynamic"))
