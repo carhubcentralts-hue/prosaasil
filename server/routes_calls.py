@@ -505,65 +505,78 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - check if download is in progress
-            # 🔥 USE PLAYBACK DEDUP: Lightweight, UX-friendly deduplication
-            # This prevents duplicate downloads of same recording within 15 seconds
-            # but doesn't block legitimate user retries or count against rate limits
-            try:
-                import redis
-                REDIS_URL = os.getenv('REDIS_URL')
-                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+            # File doesn't exist locally - use semaphore system for queue management
+            # 🔥 NEW: Per-business 3-concurrent limit with Redis queue
+            from server.recording_semaphore import try_acquire_slot, check_status
+            
+            # Check current status first (dedup + queue position)
+            status, info = check_status(business_id, call_sid)
+            
+            if status == "processing":
+                # Already being downloaded
+                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}")
+                return jsonify({
+                    "success": True,
+                    "status": "processing",
+                    "message": "Recording is being prepared, please retry in a few seconds"
+                }), 202
+            elif status == "queued":
+                # Already in queue
+                position = info.get("position", "?")
+                log.debug(f"Stream recording: Call {call_sid} in queue position {position}")
+                return jsonify({
+                    "success": True,
+                    "status": "queued",
+                    "message": f"Recording queued (position {position}), please retry in a few seconds"
+                }), 202
+            
+            # Try to acquire a slot (or add to queue)
+            acquired, slot_status = try_acquire_slot(business_id, call_sid)
+            
+            if acquired:
+                # Slot acquired! Enqueue download job - WORKER will do the actual download
+                logger.info(f"📤 [API] Slot acquired for {call_sid} - enqueuing to WORKER queue")
+                log.debug(f"Stream recording: Slot acquired for call_sid={call_sid}, enqueuing download")
                 
-                if redis_conn:
-                    from server.services.playback_dedup import get_playback_dedup
-                    playback_dedup = get_playback_dedup(redis_conn)
-                    
-                    if playback_dedup:
-                        # Check if already being downloaded
-                        in_progress, ttl = playback_dedup.is_in_progress(
-                            resource_type='recording',
-                            resource_id=call_sid,
-                            business_id=business_id
-                        )
-                        
-                        if in_progress:
-                            log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, ttl={ttl}s")
-                            return jsonify({
-                                "success": True,
-                                "status": "processing",
-                                "message": f"Recording is being prepared, please retry in {ttl} seconds"
-                            }), 202
-                        
-                        # Mark as in progress (15 second TTL)
-                        playback_dedup.mark_in_progress(
-                            resource_type='recording',
-                            resource_id=call_sid,
-                            business_id=business_id,
-                            ttl=15
-                        )
-            except Exception as e:
-                log.warning(f"PlaybackDedup check failed (proceeding anyway): {e}")
-            
-            # Not in progress and not cached - enqueue PRIORITY download job
-            log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
-            
-            # 🔥 FIX: Use download_only job for UI requests (fast!)
-            # This skips transcription and only downloads the file
-            from server.tasks_recording import enqueue_recording_download_only
-            enqueue_recording_download_only(
-                call_sid=call_sid,
-                recording_url=call.recording_url,
-                business_id=business_id,
-                from_number=call.from_number or "",
-                to_number=call.to_number or ""
-            )
-            
-            # Return 202 Accepted to indicate processing
-            return jsonify({
-                "success": True,
-                "status": "processing",
-                "message": "Recording is being prepared, please retry in a few seconds"
-            }), 202
+                from server.tasks_recording import enqueue_recording_download_only
+                enqueue_recording_download_only(
+                    call_sid=call_sid,
+                    recording_url=call.recording_url,
+                    business_id=business_id,
+                    from_number=call.from_number or "",
+                    to_number=call.to_number or ""
+                )
+                
+                return jsonify({
+                    "success": True,
+                    "status": "processing",
+                    "message": "Recording is being prepared, please retry in a few seconds"
+                }), 202
+            else:
+                # Added to queue (slots full)
+                if slot_status == "queued":
+                    logger.info(f"⏸️ [API] All slots busy - {call_sid} added to queue")
+                    log.debug(f"Stream recording: Call {call_sid} added to queue (all slots busy)")
+                    return jsonify({
+                        "success": True,
+                        "status": "queued",
+                        "message": "Recording queued, please retry in a few seconds"
+                    }), 202
+                elif slot_status == "inflight" or slot_status == "already_queued":
+                    # Duplicate request
+                    logger.debug(f"🔄 [API] Duplicate request for {call_sid} - already {slot_status}")
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
+                else:
+                    # Fallback
+                    return jsonify({
+                        "success": True,
+                        "status": "processing",
+                        "message": "Recording is being prepared, please retry in a few seconds"
+                    }), 202
         
     except Exception as e:
         log.error(f"Error streaming recording for {call_sid}: {e}")
