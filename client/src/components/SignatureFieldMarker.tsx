@@ -318,16 +318,16 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
-      // Reset load state for new page
-      setPdfReady(false);
+      // Note: Not resetting pdfReady to avoid interaction flash during page change
+      // The iframe will reload automatically and update when ready
     }
   };
 
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
-      // Reset load state for new page
-      setPdfReady(false);
+      // Note: Not resetting pdfReady to avoid interaction flash during page change
+      // The iframe will reload automatically and update when ready
     }
   };
 

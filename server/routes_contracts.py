@@ -940,7 +940,25 @@ def get_contract_pdf_info(contract_id):
     """
     Get PDF info for signature field marking
     
-    Returns page count and dimensions for proper signature placement UI
+    Returns page count and dimensions for proper signature placement UI.
+    This endpoint is used by the signature field marker to understand the
+    PDF structure before allowing users to place signature fields.
+    
+    Args:
+        contract_id (int): The contract ID to get PDF info for
+        
+    Returns:
+        JSON response with:
+        - contract_id (int): The contract ID
+        - filename (str): Original PDF filename
+        - page_count (int): Number of pages in the PDF
+        - pages (list): List of page info with width/height
+        
+    Raises:
+        403: If business_id is missing or contract doesn't belong to business
+        404: If contract or PDF file not found
+        400: If file is not a PDF
+        500: If PDF analysis fails
     """
     try:
         business_id = get_current_business_id()
