@@ -678,31 +678,58 @@ const ReceiptDrawer: React.FC<{
         </div>
         
         <div className="p-4">
-          {/* Attachment preview */}
-          {receipt.attachment?.signed_url && (
-            <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
-              {receipt.attachment.mime_type === 'application/pdf' ? (
-                <div className="aspect-[3/4] relative">
-                  <iframe
-                    src={`${receipt.attachment.signed_url}#view=FitH`}
-                    className="w-full h-full border-0"
-                    title="Receipt PDF"
+          {/* Attachment preview - FIXED: Use same logic as list view */}
+          {(() => {
+            // Unified image source - prioritize preview, fallback to attachment
+            const previewUrl = receipt.preview_attachment?.signed_url;
+            const attachmentUrl = receipt.attachment?.signed_url;
+            const imageUrl = previewUrl || attachmentUrl;
+            
+            if (!imageUrl) return null;
+            
+            // If we have preview, show it as image
+            if (previewUrl) {
+              return (
+                <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
+                  <img
+                    src={previewUrl}
+                    alt={receipt.vendor_name || 'Receipt preview'}
+                    className="w-full h-auto"
                   />
                 </div>
-              ) : receipt.attachment.mime_type.startsWith('image/') ? (
-                <img
-                  src={receipt.attachment.signed_url}
-                  alt="Receipt"
-                  className="w-full h-auto"
-                />
-              ) : (
-                <div className="p-8 text-center text-gray-500">
-                  <Receipt className="w-12 h-12 mx-auto mb-2" />
-                  <p>{receipt.attachment.filename}</p>
+              );
+            }
+            
+            // If only attachment, show based on type
+            if (attachmentUrl && receipt.attachment) {
+              return (
+                <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
+                  {receipt.attachment.mime_type === 'application/pdf' ? (
+                    <div className="aspect-[3/4] relative">
+                      <iframe
+                        src={`${attachmentUrl}#view=FitH`}
+                        className="w-full h-full border-0"
+                        title="Receipt PDF"
+                      />
+                    </div>
+                  ) : receipt.attachment.mime_type.startsWith('image/') ? (
+                    <img
+                      src={attachmentUrl}
+                      alt="Receipt"
+                      className="w-full h-auto"
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-gray-500">
+                      <Receipt className="w-12 h-12 mx-auto mb-2" />
+                      <p>{receipt.attachment.filename}</p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              );
+            }
+            
+            return null;
+          })()}
           
           {/* Details */}
           <div className="space-y-4">
