@@ -2330,7 +2330,8 @@ def export_receipts():
                         amount_str = f"{receipt.amount:.2f}{receipt.currency}" if receipt.amount else "0"
                         
                         # Get file extension from filename or mime type
-                        original_filename = attachment_to_export.filename or ""
+                        # 🔥 FIX: Use safe_get_filename to avoid AttributeError
+                        original_filename = safe_get_filename(attachment_to_export, "")
                         file_ext = Path(original_filename).suffix
                         
                         if not file_ext:

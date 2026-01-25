@@ -43,9 +43,17 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     setErrorMessage(null);
     
     try {
-      const response = await fetch(url, {
+      // 🔥 SECURITY: Add explicit_user_action parameter to prevent mass enqueue
+      const urlWithParam = url.includes('?') 
+        ? `${url}&explicit_user_action=true`
+        : `${url}?explicit_user_action=true`;
+      
+      const response = await fetch(urlWithParam, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'X-User-Action': 'play'  // 🔥 SECURITY: Add header for double protection
+        }
       });
 
       // Handle 202 Accepted - recording is being prepared
