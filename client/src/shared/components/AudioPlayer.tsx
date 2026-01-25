@@ -34,11 +34,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [prepareTriggered, setPrepareTriggered] = useState(false);
 
-  // 🔥 FIX: Exponential backoff for polling
-  const MAX_RETRIES = 20; // Max 20 retries
+  // 🔥 PERFORMANCE FIX: Reduced retry limit and improved backoff
+  const MAX_RETRIES = 10; // Reduced from 20 to prevent excessive polling
   const getRetryDelay = (retryCount: number) => {
-    // Exponential backoff: 3s → 5s → 8s → 12s → 15s (capped)
-    const delays = [3000, 5000, 8000, 12000, 15000];
+    // Exponential backoff: 3s → 5s → 8s → 12s → 20s → 30s (capped)
+    // Total max wait time: ~2 minutes before giving up
+    const delays = [3000, 5000, 8000, 12000, 20000, 30000];
     return delays[Math.min(retryCount, delays.length - 1)];
   };
 

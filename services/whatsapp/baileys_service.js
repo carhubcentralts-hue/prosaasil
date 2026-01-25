@@ -218,34 +218,8 @@ const DEDUP_CLEANUP_MS = 600000; // Clean dedup entries older than 10 minutes
 const DEDUP_CLEANUP_HOUR_MS = 3600000; // 1 hour for dedup entry retention
 const DEDUP_MAX_SIZE = 5000; // Increased from 1000 for high-volume usage
 
-// 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
-setInterval(() => {
-  const now = Date.now();
-  let cleaned = 0;
-  for (const [key, timestamp] of messageDedup.entries()) {
-    if (now - timestamp > DEDUP_CLEANUP_MS) {
-      messageDedup.delete(key);
-      cleaned++;
-    }
-  }
-  if (cleaned > 0) {
-    console.log(`[CLEANUP] Removed ${cleaned} old dedup entries (size: ${messageDedup.size})`);
-  }
-}, DEDUP_CLEANUP_MS);
-
-// Helper function to check if a message has actual content
-function hasTextContent(msgObj) {
-  return !!(
-    msgObj.conversation ||
-    msgObj.extendedTextMessage?.text ||
-    msgObj.imageMessage?.caption ||
-    msgObj.videoMessage?.caption ||
-    msgObj.audioMessage ||
-    msgObj.documentMessage
-  );
-}
-
-// 🔥 FIX: Periodic cleanup of dedup map to prevent memory leaks
+// 🔥 PERFORMANCE FIX: Single cleanup interval with longer period to reduce CPU usage
+// Cleanup dedup entries older than 10 minutes to prevent memory leaks
 setInterval(() => {
   const now = Date.now();
   let cleaned = 0;
@@ -260,7 +234,25 @@ setInterval(() => {
   if (cleaned > 0) {
     console.log(`[DEDUP] Cleaned ${cleaned} old entries from dedup map (size: ${messageDedup.size})`);
   }
-}, 300000); // Run cleanup every 5 minutes
+  
+  // 🔥 PERFORMANCE: Log memory usage every cleanup to detect leaks
+  if (messageDedup.size > DEDUP_MAX_SIZE) {
+    console.warn(`[DEDUP] ⚠️ Dedup map is large: ${messageDedup.size} entries (max: ${DEDUP_MAX_SIZE})`);
+  }
+}, 600000); // Run cleanup every 10 minutes (reduced from duplicate 5-minute intervals)
+
+// Helper function to check if a message has actual content
+function hasTextContent(msgObj) {
+  return !!(
+    msgObj.conversation ||
+    msgObj.extendedTextMessage?.text ||
+    msgObj.imageMessage?.caption ||
+    msgObj.videoMessage?.caption ||
+    msgObj.audioMessage ||
+    msgObj.documentMessage
+  );
+}
+
 
 // 🔥 FIX #1: Process message queue periodically
 setInterval(() => {

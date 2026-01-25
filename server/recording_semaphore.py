@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 log = logging.getLogger("recording_semaphore")
 
 # Max concurrent downloads per business
-MAX_SLOTS_PER_BUSINESS = 3
+# 🔥 PERFORMANCE FIX: Increased from 3 to 5 to improve throughput
+MAX_SLOTS_PER_BUSINESS = 5
 
 # TTL values
 INFLIGHT_TTL = 120  # 120 seconds - prevents double-clicks

@@ -406,9 +406,11 @@ def start_recording_worker(app):
     metrics_thread.start()
     logger.info("📊 [WORKER] System metrics logging started (every 60s)")
     
-    # Retry backoff delays in seconds (0s, 10s, 30s, 90s)
-    RETRY_DELAYS = [0, 10, 30, 90]
-    MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts
+    # 🔥 FIX: Hard limit on retries to prevent infinite loops
+    # Retry backoff delays in seconds (0s, 10s, 30s) - removed 90s to prevent long waits
+    RETRY_DELAYS = [0, 10, 30]
+    MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts (HARD LIMIT)
+    MAX_DOWNLOAD_RETRIES = 2  # Separate limit for download-only jobs
     
     with app.app_context():
         while True:
@@ -477,28 +479,26 @@ def start_recording_worker(app):
                             # 🔥 NEW: [DOWNLOAD_FAIL] log with reason
                             logger.error(f"❌ [DOWNLOAD_FAIL] call_sid={call_sid} reason=download_failed attempt={retry_count + 1} duration={download_duration_ms}ms")
                             
-                            # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
-                            if retry_count < 2:
+                            # 🔥 FIX: Retry download_only jobs on failure (up to MAX_DOWNLOAD_RETRIES)
+                            if retry_count < MAX_DOWNLOAD_RETRIES:
                                 delay = 5  # Short delay for download retries
                                 logger.error(f"⚠️ [WORKER] Download failed for {call_sid}, retrying in {delay}s")
                                 log.warning(f"[WORKER DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
                                 
-                                def delayed_retry():
-                                    time.sleep(delay)
-                                    enqueue_recording_download_only(
-                                        call_sid=call_sid,
-                                        recording_url=recording_url,
-                                        recording_sid=recording_sid,  # 🔥 NEW: Pass recording_sid through retries
-                                        business_id=business_id,
-                                        from_number=from_number,
-                                        to_number=to_number,
-                                        retry_count=retry_count + 1  # 🔥 FIX: Increment retry count
-                                    )
-                                
-                                retry_thread = threading.Thread(target=delayed_retry, daemon=True)
-                                retry_thread.start()
+                                # 🔥 PERFORMANCE FIX: Use sleep + re-enqueue instead of spawning thread
+                                # This prevents memory leaks from accumulating daemon threads
+                                time.sleep(delay)
+                                enqueue_recording_download_only(
+                                    call_sid=call_sid,
+                                    recording_url=recording_url,
+                                    recording_sid=recording_sid,  # 🔥 NEW: Pass recording_sid through retries
+                                    business_id=business_id,
+                                    from_number=from_number,
+                                    to_number=to_number,
+                                    retry_count=retry_count + 1  # 🔥 FIX: Increment retry count
+                                )
                             else:
-                                logger.error(f"❌ [DOWNLOAD_ONLY] Max retries reached for {call_sid}")
+                                logger.error(f"❌ [DOWNLOAD_ONLY] Max retries ({MAX_DOWNLOAD_RETRIES}) reached for {call_sid} - giving up")
                                 log.error(f"[DOWNLOAD_ONLY] Max retries reached for {call_sid}")
                         
                         # 🔥 FIX: Mark as done and set flag to prevent double task_done()
@@ -529,22 +529,19 @@ def start_recording_worker(app):
                             logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
                             log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
                             
-                            # Schedule retry in background thread
-                            def delayed_retry():
-                                time.sleep(delay)
-                                enqueue_recording_job(
-                                    call_sid=call_sid,
-                                    recording_url=recording_url,
-                                    business_id=business_id,
-                                    from_number=from_number,
-                                    to_number=to_number,
-                                    retry_count=retry_count + 1
-                                )
-                            
-                            retry_thread = threading.Thread(target=delayed_retry, daemon=True)
-                            retry_thread.start()
+                            # 🔥 PERFORMANCE FIX: Use sleep + re-enqueue instead of spawning thread
+                            # This prevents memory leaks from accumulating daemon threads
+                            time.sleep(delay)
+                            enqueue_recording_job(
+                                call_sid=call_sid,
+                                recording_url=recording_url,
+                                business_id=business_id,
+                                from_number=from_number,
+                                to_number=to_number,
+                                retry_count=retry_count + 1
+                            )
                         elif retry_count >= MAX_RETRIES and not success:
-                            logger.error(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
+                            logger.error(f"❌ [OFFLINE_STT] Max retries ({MAX_RETRIES}) reached for {call_sid} - giving up")
                             log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
                         else:
                             logger.info(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
