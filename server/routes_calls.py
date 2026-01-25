@@ -121,6 +121,13 @@ def list_calls():
         total = query.count()
         calls = query.offset(offset).limit(limit).all()
         
+        # 🔥 FIX: DO NOT enqueue downloads here!
+        # This endpoint should ONLY return metadata.
+        # Downloads should ONLY be triggered when:
+        # 1. User clicks "play" button (calls stream_recording endpoint)
+        # 2. User opens call details page
+        # 3. Background cleanup runs (limited prefetch)
+        
         # Format response
         calls_data = []
         for call in calls:
@@ -481,17 +488,44 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - check if download is in progress or enqueue
-            from server.services.recording_service import is_download_in_progress
-            
-            if is_download_in_progress(call_sid):
-                # Download already in progress - tell client to retry
-                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
-                return jsonify({
-                    "success": True,
-                    "status": "processing",
-                    "message": "Recording is being prepared, please retry in a few seconds"
-                }), 202
+            # File doesn't exist locally - check if download is in progress
+            # 🔥 USE PLAYBACK DEDUP: Lightweight, UX-friendly deduplication
+            # This prevents duplicate downloads of same recording within 15 seconds
+            # but doesn't block legitimate user retries or count against rate limits
+            try:
+                import redis
+                REDIS_URL = os.getenv('REDIS_URL')
+                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+                if redis_conn:
+                    from server.services.playback_dedup import get_playback_dedup
+                    playback_dedup = get_playback_dedup(redis_conn)
+                    
+                    if playback_dedup:
+                        # Check if already being downloaded
+                        in_progress, ttl = playback_dedup.is_in_progress(
+                            resource_type='recording',
+                            resource_id=call_sid,
+                            business_id=business_id
+                        )
+                        
+                        if in_progress:
+                            log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, ttl={ttl}s")
+                            return jsonify({
+                                "success": True,
+                                "status": "processing",
+                                "message": f"Recording is being prepared, please retry in {ttl} seconds"
+                            }), 202
+                        
+                        # Mark as in progress (15 second TTL)
+                        playback_dedup.mark_in_progress(
+                            resource_type='recording',
+                            resource_id=call_sid,
+                            business_id=business_id,
+                            ttl=15
+                        )
+            except Exception as e:
+                log.warning(f"PlaybackDedup check failed (proceeding anyway): {e}")
             
             # Not in progress and not cached - enqueue PRIORITY download job
             log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")

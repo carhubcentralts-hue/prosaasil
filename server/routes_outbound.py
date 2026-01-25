@@ -10,13 +10,13 @@ Endpoints:
 import os
 import re
 import logging
+import json
 import uuid
 from datetime import datetime, timedelta
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
-from threading import Thread
 from sqlalchemy import func
 from sqlalchemy import text
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, session
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings, OutboundCallRun, OutboundCallJob
 from server.auth_api import require_api_auth
 from server.security.permissions import require_page_access
@@ -1279,7 +1279,7 @@ def delete_imported_lead(lead_id: int):
 @require_page_access('calls_outbound')
 def bulk_delete_imported_leads():
     """
-    BUILD 182: Bulk delete imported leads
+    BUILD 182: Bulk delete imported leads - uses RQ worker for batch processing
     
     Request body:
     {
@@ -1301,48 +1301,132 @@ def bulk_delete_imported_leads():
     if not data:
         return jsonify({"error": "נתונים חסרים"}), 400
     
+    delete_all = data.get('delete_all', False)
+    lead_ids = data.get('lead_ids', [])
+    
+    if not delete_all and not lead_ids:
+        return jsonify({"error": "לא נבחרו לידים למחיקה"}), 400
+    
+    user = session.get('user', {})
+    
+    # 🔥 USE BULK GATE: Check if enqueue is allowed
     try:
-        if data.get('delete_all'):
-            # Delete all imported leads for this business
-            deleted = Lead.query.filter_by(
+        import redis
+        REDIS_URL = os.getenv('REDIS_URL')
+        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+        
+        if redis_conn:
+            from server.services.bulk_gate import get_bulk_gate
+            bulk_gate = get_bulk_gate(redis_conn)
+            
+            if bulk_gate:
+                # Check if enqueue is allowed
+                allowed, reason = bulk_gate.can_enqueue(
+                    business_id=tenant_id,
+                    operation_type='delete_imported_leads',
+                    user_id=user.get('id')
+                )
+                
+                if not allowed:
+                    return jsonify({"error": reason}), 429
+    except Exception as e:
+        log.warning(f"BulkGate check failed (proceeding anyway): {e}")
+    
+    try:
+        # Count total leads to delete
+        if delete_all:
+            total = Lead.query.filter_by(
                 tenant_id=tenant_id,
                 source="imported_outbound"
-            ).delete()
-            db.session.commit()
-            
-            log.info(f"🗑️ Bulk deleted {deleted} imported leads for business {tenant_id}")
-            
-            return jsonify({
-                "success": True,
-                "deleted_count": deleted,
-                "message": f"נמחקו {deleted} לידים"
-            })
+            ).count()
+        else:
+            total = Lead.query.filter(
+                Lead.id.in_(lead_ids),
+                Lead.tenant_id == tenant_id,
+                Lead.source == "imported_outbound"
+            ).count()
         
-        lead_ids = data.get('lead_ids', [])
-        if not lead_ids:
-            return jsonify({"error": "לא נבחרו לידים למחיקה"}), 400
+        if total == 0:
+            return jsonify({"error": "לא נמצאו לידים למחיקה"}), 404
         
-        # Only delete imported leads
-        deleted = Lead.query.filter(
-            Lead.id.in_(lead_ids),
-            Lead.tenant_id == tenant_id,
-            Lead.source == "imported_outbound"
-        ).delete(synchronize_session=False)
+        # Create BackgroundJob record
+        from server.models_sql import BackgroundJob
+        from rq import Queue
+        import redis
         
+        bg_job = BackgroundJob()
+        bg_job.business_id = tenant_id
+        bg_job.requested_by_user_id = user.get('id')
+        bg_job.job_type = 'delete_imported_leads'
+        bg_job.status = 'queued'
+        bg_job.total = total
+        bg_job.processed = 0
+        bg_job.succeeded = 0
+        bg_job.failed_count = 0
+        bg_job.cursor = json.dumps({
+            'delete_all': delete_all,
+            'lead_ids': lead_ids,
+            'last_id': 0
+        })
+        db.session.add(bg_job)
         db.session.commit()
         
-        log.info(f"🗑️ Bulk deleted {deleted} imported leads for business {tenant_id}")
+        # Enqueue to RQ maintenance queue
+        REDIS_URL = os.getenv('REDIS_URL')
+        if REDIS_URL:
+            redis_conn = redis.from_url(REDIS_URL)
+            queue = Queue('maintenance', connection=redis_conn)
+            
+            # Acquire lock and record enqueue BEFORE actually enqueuing
+            if redis_conn:
+                try:
+                    from server.services.bulk_gate import get_bulk_gate
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    
+                    if bulk_gate:
+                        # Acquire lock for this operation
+                        lock_acquired = bulk_gate.acquire_lock(
+                            business_id=tenant_id,
+                            operation_type='delete_imported_leads',
+                            job_id=bg_job.id
+                        )
+                        
+                        # Record the enqueue
+                        bulk_gate.record_enqueue(
+                            business_id=tenant_id,
+                            operation_type='delete_imported_leads'
+                        )
+                except Exception as e:
+                    log.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
+            
+            # Import and enqueue the job function
+            from server.jobs.delete_imported_leads_job import delete_imported_leads_batch_job
+            rq_job = queue.enqueue(
+                delete_imported_leads_batch_job,
+                bg_job.id,
+                job_timeout='30m',
+                job_id=f"delete_imported_leads_{bg_job.id}"
+            )
+            
+            log.info(f"🚀 Enqueued RQ job for delete imported leads, job_id={bg_job.id}, rq_job_id={rq_job.id}")
+        else:
+            log.warning(f"⚠️ REDIS_URL not set, cannot enqueue delete job")
+            bg_job.status = 'failed'
+            bg_job.last_error = 'Redis not configured'
+            db.session.commit()
+            return jsonify({"error": "Job queue not available"}), 503
         
         return jsonify({
             "success": True,
-            "deleted_count": deleted,
-            "message": f"נמחקו {deleted} לידים"
-        })
+            "message": f"נוצרה משימת מחיקה עבור {total} לידים",
+            "job_id": bg_job.id,
+            "total_leads": total
+        }), 202  # 202 Accepted - processing in background
         
     except Exception as e:
-        log.error(f"Error bulk deleting imported leads: {e}")
+        log.error(f"Error creating bulk delete job: {e}")
         db.session.rollback()
-        return jsonify({"error": "שגיאה במחיקת הלידים"}), 500
+        return jsonify({"error": "שגיאה ביצירת משימת מחיקה"}), 500
 
 
 @outbound_bp.route("/api/outbound/import-lists", methods=["GET"])
@@ -1443,6 +1527,31 @@ def bulk_enqueue_outbound_calls():
     if project_id and not _validate_project_access(project_id, tenant_id):
         return jsonify({"error": "פרויקט לא נמצא"}), 404
     
+    user = session.get('user', {})
+    
+    # 🔥 USE BULK GATE: Check if enqueue is allowed
+    try:
+        import redis
+        REDIS_URL = os.getenv('REDIS_URL')
+        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+        
+        if redis_conn:
+            from server.services.bulk_gate import get_bulk_gate
+            bulk_gate = get_bulk_gate(redis_conn)
+            
+            if bulk_gate:
+                # Check if enqueue is allowed
+                allowed, reason = bulk_gate.can_enqueue(
+                    business_id=tenant_id,
+                    operation_type='enqueue_outbound_calls',
+                    user_id=user.get('id')
+                )
+                
+                if not allowed:
+                    return jsonify({"error": reason}), 429
+    except Exception as e:
+        log.warning(f"BulkGate check failed (proceeding anyway): {e}")
+    
     try:
         # Verify all leads belong to this tenant
         leads = Lead.query.filter(
@@ -1460,7 +1569,7 @@ def bulk_enqueue_outbound_calls():
         run.concurrency = concurrency
         run.total_leads = len(lead_ids)
         run.queued_count = len(lead_ids)
-        run.status = "running"
+        run.status = "queued"  # Start as queued, worker will update to running when processing starts
         db.session.add(run)
         db.session.flush()
         
@@ -1483,14 +1592,79 @@ def bulk_enqueue_outbound_calls():
         
         log.info(f"✅ Created bulk call run {run.id} with {len(lead_ids)} leads, concurrency={concurrency}, project_id={project_id}")
         
-        # Start background worker to process the queue
-        thread = Thread(target=process_bulk_call_run, args=(run.id,), daemon=True)
-        thread.start()
+        # Create BackgroundJob record and enqueue to RQ
+        from server.models_sql import BackgroundJob
+        from rq import Queue
+        import redis
+        
+        bg_job = BackgroundJob()
+        bg_job.business_id = tenant_id
+        bg_job.requested_by_user_id = user.get('id')
+        bg_job.job_type = 'enqueue_outbound_calls'
+        bg_job.status = 'queued'
+        bg_job.total = len(lead_ids)
+        bg_job.processed = 0
+        bg_job.succeeded = 0
+        bg_job.failed_count = 0
+        bg_job.cursor = json.dumps({
+            'run_id': run.id,
+            'last_id': 0
+        })
+        db.session.add(bg_job)
+        db.session.commit()
+        
+        # Enqueue to RQ default queue (for call processing)
+        REDIS_URL = os.getenv('REDIS_URL')
+        if REDIS_URL:
+            redis_conn = redis.from_url(REDIS_URL)
+            queue = Queue('default', connection=redis_conn)
+            
+            # Acquire lock and record enqueue BEFORE actually enqueuing
+            if redis_conn:
+                try:
+                    from server.services.bulk_gate import get_bulk_gate
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    
+                    if bulk_gate:
+                        # Acquire lock for this operation
+                        lock_acquired = bulk_gate.acquire_lock(
+                            business_id=tenant_id,
+                            operation_type='enqueue_outbound_calls',
+                            job_id=bg_job.id
+                        )
+                        
+                        # Record the enqueue
+                        bulk_gate.record_enqueue(
+                            business_id=tenant_id,
+                            operation_type='enqueue_outbound_calls'
+                        )
+                except Exception as e:
+                    log.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
+            
+            # Import and enqueue the job function
+            from server.jobs.enqueue_outbound_calls_job import enqueue_outbound_calls_batch_job
+            rq_job = queue.enqueue(
+                enqueue_outbound_calls_batch_job,
+                bg_job.id,
+                job_timeout='60m',  # Longer timeout for calls
+                job_id=f"outbound_calls_{bg_job.id}"
+            )
+            
+            log.info(f"🚀 Enqueued RQ job for outbound calls, job_id={bg_job.id}, rq_job_id={rq_job.id}")
+        else:
+            log.warning(f"⚠️ REDIS_URL not set, cannot enqueue outbound calls job")
+            bg_job.status = 'failed'
+            bg_job.last_error = 'Redis not configured'
+            run.status = 'failed'
+            db.session.commit()
+            return jsonify({"error": "Job queue not available"}), 503
         
         return jsonify({
+            "success": True,
             "run_id": run.id,
+            "job_id": bg_job.id,
             "queued": len(lead_ids)
-        }), 201
+        }), 202  # 202 Accepted - processing in background
         
     except Exception as e:
         log.error(f"Error creating bulk call run: {e}")

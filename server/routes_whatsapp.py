@@ -1,5 +1,4 @@
 import os, requests, logging, csv, io, json
-import threading
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
@@ -2895,6 +2894,30 @@ def create_broadcast():
         user = session.get('al_user') or session.get('user', {})
         user_id = user.get('id')
         
+        # 🔥 USE BULK GATE: Check if enqueue is allowed
+        try:
+            import redis
+            import os
+            REDIS_URL = os.getenv('REDIS_URL')
+            redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+            
+            if redis_conn:
+                from server.services.bulk_gate import get_bulk_gate
+                bulk_gate = get_bulk_gate(redis_conn)
+                
+                if bulk_gate:
+                    # Check if enqueue is allowed
+                    allowed, reason = bulk_gate.can_enqueue(
+                        business_id=business_id,
+                        operation_type='broadcast_whatsapp',
+                        user_id=user_id
+                    )
+                    
+                    if not allowed:
+                        return jsonify({"ok": False, "error": reason}), 429
+        except Exception as e:
+            logger.warning(f"BulkGate check failed (proceeding anyway): {e}")
+        
         # ✅ FIX: Log incoming request for debugging
         log.info(f"[WA_BROADCAST] Incoming request from business_id={business_id}, user={user_id}")
         log.info(f"[WA_BROADCAST] Content-Type: {request.content_type}")
@@ -3146,33 +3169,90 @@ def create_broadcast():
         
         log.info(f"✅ [WA_BROADCAST] broadcast_id={broadcast.id} total={len(normalized_recipients)} queued={len(normalized_recipients)}")
         
-        # Trigger background worker to process the broadcast
+        # Enqueue background job to process the broadcast
+        bg_job = None  # Initialize to None for error handling
         try:
-            import threading
-            from server.services.broadcast_worker import process_broadcast
+            from server.models_sql import BackgroundJob
+            from rq import Queue
+            import redis
             
-            # Run in background thread
-            thread = threading.Thread(
-                target=process_broadcast,
-                args=(broadcast.id,),
-                daemon=True
-            )
-            thread.start()
-            log.info(f"🚀 [WA_BROADCAST] Started worker thread for broadcast_id={broadcast.id}")
+            # Create BackgroundJob record
+            bg_job = BackgroundJob()
+            bg_job.business_id = business_id
+            bg_job.requested_by_user_id = user_id
+            bg_job.job_type = 'broadcast'
+            bg_job.status = 'queued'
+            bg_job.total = len(normalized_recipients)
+            bg_job.processed = 0
+            bg_job.succeeded = 0
+            bg_job.failed_count = 0
+            bg_job.cursor = json.dumps({
+                'broadcast_id': broadcast.id,
+                'last_id': 0
+            })
+            db.session.add(bg_job)
+            db.session.commit()
+            
+            # Enqueue to RQ broadcasts queue
+            REDIS_URL = os.getenv('REDIS_URL')
+            if REDIS_URL:
+                redis_conn = redis.from_url(REDIS_URL)
+                queue = Queue('broadcasts', connection=redis_conn)
+                
+                # Acquire lock and record enqueue BEFORE actually enqueuing
+                if redis_conn:
+                    try:
+                        from server.services.bulk_gate import get_bulk_gate
+                        bulk_gate = get_bulk_gate(redis_conn)
+                        
+                        if bulk_gate:
+                            # Acquire lock for this operation
+                            lock_acquired = bulk_gate.acquire_lock(
+                                business_id=business_id,
+                                operation_type='broadcast_whatsapp',
+                                job_id=bg_job.id
+                            )
+                            
+                            # Record the enqueue
+                            bulk_gate.record_enqueue(
+                                business_id=business_id,
+                                operation_type='broadcast_whatsapp'
+                            )
+                    except Exception as e:
+                        log.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
+                
+                # Import and enqueue the job function
+                from server.jobs.broadcast_job import process_broadcast_job
+                rq_job = queue.enqueue(
+                    process_broadcast_job,
+                    bg_job.id,
+                    job_timeout='30m',
+                    job_id=f"broadcast_{bg_job.id}"
+                )
+                
+                log.info(f"🚀 [WA_BROADCAST] Enqueued RQ job for broadcast_id={broadcast.id}, job_id={bg_job.id}, rq_job_id={rq_job.id}")
+            else:
+                log.warning(f"⚠️ REDIS_URL not set, cannot enqueue broadcast job")
+                bg_job.status = 'failed'
+                bg_job.last_error = 'Redis not configured'
+                db.session.commit()
+                
         except Exception as worker_err:
-            log.error(f"❌ [WA_BROADCAST] Failed to start worker: {worker_err}")
-            # Don't fail the request - campaign is created, worker can be triggered manually
+            log.error(f"❌ [WA_BROADCAST] Failed to enqueue job: {worker_err}")
+            import traceback
+            traceback.print_exc()
+            # Don't fail the request - campaign is created, can be retried
         
         # ✅ FIX: Return proof of queuing (never return success without queued_count > 0)
         return jsonify({
             'success': True,
             'broadcast_id': broadcast.id,
+            'job_id': bg_job.id if bg_job else None,
             'queued_count': len(normalized_recipients),
             'total_recipients': len(normalized_recipients),
             'sent_count': 0,  # Will be updated as broadcast progresses
-            'job_id': f"broadcast_{broadcast.id}",  # For tracking
             'message': f'תפוצה נוצרה עם {len(normalized_recipients)} נמענים'
-        }), 201
+        }), 202  # 202 Accepted - processing in background
         
     except Exception as e:
         db.session.rollback()

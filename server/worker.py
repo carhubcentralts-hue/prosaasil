@@ -81,8 +81,15 @@ logger.info(f"REDIS_URL: {masked_redis_url}")
 logger.info(f"Python executable: {sys.executable}")
 logger.info(f"Python version: {sys.version.split()[0]}")
 
-# Get queues to listen to from environment (default: high,default,low)
-RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low')
+# Get queues to listen to from environment
+# Queue purposes:
+#   high       - High priority tasks
+#   default    - Standard tasks (calls, general processing)
+#   low        - Low priority background tasks  
+#   maintenance - Database maintenance (bulk deletes, updates)
+#   broadcasts  - WhatsApp broadcast processing
+#   recordings  - Recording transcription and processing
+RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low,maintenance,broadcasts,recordings')
 LISTEN_QUEUES = [q.strip() for q in RQ_QUEUES.split(',') if q.strip()]
 logger.info(f"RQ_QUEUES configuration: {RQ_QUEUES}")
 logger.info(f"Will listen to queues: {LISTEN_QUEUES}")
@@ -180,13 +187,35 @@ def main():
         # Test that we can import job functions
         try:
             from server.jobs.gmail_sync_job import sync_gmail_receipts_job
+            from server.jobs.delete_receipts_job import delete_receipts_batch_job
+            from server.jobs.broadcast_job import process_broadcast_job
+            from server.jobs.delete_leads_job import delete_leads_batch_job
+            from server.jobs.update_leads_job import update_leads_batch_job
+            from server.jobs.delete_imported_leads_job import delete_imported_leads_batch_job
+            from server.jobs.enqueue_outbound_calls_job import enqueue_outbound_calls_batch_job
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
+            logger.info(f"  → delete_receipts_batch_job: {delete_receipts_batch_job}")
+            logger.info(f"  → process_broadcast_job: {process_broadcast_job}")
+            logger.info(f"  → delete_leads_batch_job: {delete_leads_batch_job}")
+            logger.info(f"  → update_leads_batch_job: {update_leads_batch_job}")
+            logger.info(f"  → delete_imported_leads_batch_job: {delete_imported_leads_batch_job}")
+            logger.info(f"  → enqueue_outbound_calls_batch_job: {enqueue_outbound_calls_batch_job}")
         except (ImportError, ModuleNotFoundError) as e:
             log_fatal_error("Importing job functions", e)
         
         # Create worker
         try:
+            # Define custom job failure handler to log errors
+            def failed_job_handler(job, connection, type, value, traceback, worker_name):
+                """Log when job fails"""
+                queue_name = getattr(job, 'origin', 'unknown')
+                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                logger.error("=" * 60)
+                logger.error(f"❌ JOB FAILED queue='{queue_name}' job_id={job.id} function={job_func_name}")
+                logger.error(f"   → error: {value}")
+                logger.error("=" * 60)
+            
             worker = Worker(
                 QUEUES,
                 connection=redis_conn,
@@ -195,8 +224,31 @@ def main():
                 # This is fine for our use case (Gmail sync, Playwright, etc.)
                 disable_default_exception_handler=False,
             )
+            
+            # Monkey-patch the execute_job method to add logging
+            original_execute_job = worker.execute_job
+            def logged_execute_job(job, queue):
+                """Wrapper that logs before executing job"""
+                queue_name = queue.name if queue else 'unknown'
+                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                logger.info("=" * 60)
+                logger.info(f"🔨 JOB PICKED queue='{queue_name}' job_id={job.id} function={job_func_name}")
+                logger.info(f"   → args: {getattr(job, 'args', ())}")
+                logger.info(f"   → worker: {worker.name}")
+                logger.info("=" * 60)
+                
+                # Call original implementation
+                return original_execute_job(job, queue)
+            
+            worker.execute_job = logged_execute_job
+            
+            # Register custom failure handler for better logging
+            import rq.worker
+            worker.push_exc_handler(failed_job_handler)
+            
             logger.info(f"✓ Worker created: {worker.name}")
             logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
+            logger.info(f"✓ Worker will log: 🔨 JOB PICKED when picking up jobs")
         except Exception as e:
             log_fatal_error("Creating RQ Worker instance", e)
         logger.info("-" * 60)

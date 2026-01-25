@@ -40,6 +40,40 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# 🔥 FIX: Helper function to safely get filename from Attachment object
+# Handles different attribute names across migrations and model versions
+def safe_get_filename(attachment, default=None):
+    """
+    Safely extract filename from Attachment object.
+    
+    Handles different attribute names:
+    - filename_original (current standard for Attachment model)
+    - filename (legacy or other models like LeadAttachment)
+    - name, file_name, original_filename (fallback)
+    
+    Args:
+        attachment: Attachment object or similar
+        default: Default value if no filename found
+        
+    Returns:
+        Filename string or default value
+    """
+    if not attachment:
+        return default or f"attachment_{id(attachment)}"
+    
+    # Try standard attributes in order of preference
+    for attr in ['filename_original', 'filename', 'original_filename', 'file_name', 'name']:
+        if hasattr(attachment, attr):
+            value = getattr(attachment, attr, None)
+            if value:
+                return value
+    
+    # Last resort: generate from ID
+    if hasattr(attachment, 'id'):
+        return default or f"attachment_{attachment.id}"
+    
+    return default or "unknown_file"
+
 # Redis Queue integration
 try:
     import redis
@@ -651,74 +685,89 @@ def list_receipts():
     # Build response
     items = []
     for receipt in receipts:
-        item = {
-            "id": receipt.id,
-            "source": receipt.source,
-            "gmail_message_id": receipt.gmail_message_id,
-            "from_email": receipt.from_email,
-            "subject": receipt.subject,
-            "received_at": receipt.received_at.isoformat() if receipt.received_at else None,
-            "vendor_name": receipt.vendor_name,
-            "amount": float(receipt.amount) if receipt.amount else None,
-            "currency": receipt.currency,
-            "invoice_number": receipt.invoice_number,
-            "invoice_date": receipt.invoice_date.isoformat() if receipt.invoice_date else None,
-            "confidence": receipt.confidence,
-            "status": receipt.status,
-            "attachment_id": receipt.attachment_id,
-            "preview_attachment_id": receipt.preview_attachment_id,  # NEW: Include preview attachment ID
-            "preview_status": receipt.preview_status,  # NEW: Include preview generation status
-            "preview_failure_reason": receipt.preview_failure_reason,  # NEW: Include failure reason if any
-            "created_at": receipt.created_at.isoformat() if receipt.created_at else None,
-        }
-        
-        # Include attachment info if available
-        if receipt.attachment_id and receipt.attachment:
-            # Get signed URL for attachment viewing
-            try:
-                from server.services.attachment_service import get_attachment_service
-                attachment_service = get_attachment_service()
-                signed_url = attachment_service.generate_signed_url(
-                    attachment_id=receipt.attachment.id,
-                    storage_key=receipt.attachment.storage_path,
-                    ttl_minutes=60
-                )
-            except Exception as e:
-                logger.warning(f"Failed to generate signed URL for attachment {receipt.attachment.id}: {e}")
-                signed_url = None
-            
-            item["attachment"] = {
-                "id": receipt.attachment.id,
-                "filename": receipt.attachment.filename_original,
-                "mime_type": receipt.attachment.mime_type,
-                "size": receipt.attachment.file_size,
-                "signed_url": signed_url,  # NEW: Include signed URL for download
+        # 🔥 FIX: Wrap each receipt processing in try/except
+        # to prevent single attachment error from failing entire list
+        try:
+            item = {
+                "id": receipt.id,
+                "source": receipt.source,
+                "gmail_message_id": receipt.gmail_message_id,
+                "from_email": receipt.from_email,
+                "subject": receipt.subject,
+                "received_at": receipt.received_at.isoformat() if receipt.received_at else None,
+                "vendor_name": receipt.vendor_name,
+                "amount": float(receipt.amount) if receipt.amount else None,
+                "currency": receipt.currency,
+                "invoice_number": receipt.invoice_number,
+                "invoice_date": receipt.invoice_date.isoformat() if receipt.invoice_date else None,
+                "confidence": receipt.confidence,
+                "status": receipt.status,
+                "attachment_id": receipt.attachment_id,
+                "preview_attachment_id": receipt.preview_attachment_id,  # NEW: Include preview attachment ID
+                "preview_status": receipt.preview_status,  # NEW: Include preview generation status
+                "preview_failure_reason": receipt.preview_failure_reason,  # NEW: Include failure reason if any
+                "created_at": receipt.created_at.isoformat() if receipt.created_at else None,
             }
-        
-        # NEW: Include preview attachment info if available (for thumbnail display in UI)
-        if receipt.preview_attachment_id and receipt.preview_attachment:
-            # Get signed URL for preview viewing
-            try:
-                from server.services.attachment_service import get_attachment_service
-                attachment_service = get_attachment_service()
-                preview_signed_url = attachment_service.generate_signed_url(
-                    attachment_id=receipt.preview_attachment.id,
-                    storage_key=receipt.preview_attachment.storage_path,
-                    ttl_minutes=60
-                )
-            except Exception as e:
-                logger.warning(f"Failed to generate signed URL for preview {receipt.preview_attachment.id}: {e}")
-                preview_signed_url = None
             
-            item["preview_attachment"] = {
-                "id": receipt.preview_attachment.id,
-                "filename": receipt.preview_attachment.filename_original,
-                "mime_type": receipt.preview_attachment.mime_type,
-                "size": receipt.preview_attachment.file_size,
-                "signed_url": preview_signed_url,  # Signed URL for preview display
-            }
-        
-        items.append(item)
+            # Include attachment info if available
+            if receipt.attachment_id and receipt.attachment:
+                # Get signed URL for attachment viewing
+                try:
+                    from server.services.attachment_service import get_attachment_service
+                    attachment_service = get_attachment_service()
+                    signed_url = attachment_service.generate_signed_url(
+                        attachment_id=receipt.attachment.id,
+                        storage_key=receipt.attachment.storage_path,
+                        ttl_minutes=60
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate signed URL for attachment {receipt.attachment.id}: {e}")
+                    signed_url = None
+                
+                # 🔥 FIX: Use safe_get_filename to handle different attribute names
+                item["attachment"] = {
+                    "id": receipt.attachment.id,
+                    "filename": safe_get_filename(receipt.attachment, f"receipt_{receipt.id}"),
+                    "mime_type": getattr(receipt.attachment, 'mime_type', 'application/octet-stream'),
+                    "size": getattr(receipt.attachment, 'file_size', 0),
+                    "signed_url": signed_url,  # NEW: Include signed URL for download
+                }
+            
+            # NEW: Include preview attachment info if available (for thumbnail display in UI)
+            if receipt.preview_attachment_id and receipt.preview_attachment:
+                # Get signed URL for preview viewing
+                try:
+                    from server.services.attachment_service import get_attachment_service
+                    attachment_service = get_attachment_service()
+                    preview_signed_url = attachment_service.generate_signed_url(
+                        attachment_id=receipt.preview_attachment.id,
+                        storage_key=receipt.preview_attachment.storage_path,
+                        ttl_minutes=60
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate signed URL for preview {receipt.preview_attachment.id}: {e}")
+                    preview_signed_url = None
+                
+                # 🔥 FIX: Use safe_get_filename for preview attachment too
+                item["preview_attachment"] = {
+                    "id": receipt.preview_attachment.id,
+                    "filename": safe_get_filename(receipt.preview_attachment, f"preview_{receipt.id}"),
+                    "mime_type": getattr(receipt.preview_attachment, 'mime_type', 'image/png'),
+                    "size": getattr(receipt.preview_attachment, 'file_size', 0),
+                    "signed_url": preview_signed_url,  # Signed URL for preview display
+                }
+            
+            items.append(item)
+            
+        except Exception as e:
+            # 🔥 FIX: Don't fail entire list if single receipt has error
+            logger.error(f"Failed to serialize receipt {receipt.id}: {e}", exc_info=True)
+            # Add partial item with error flag
+            items.append({
+                "id": receipt.id,
+                "error": True,
+                "error_message": f"Failed to load receipt details: {str(e)[:100]}"
+            })
     
     return jsonify({
         "success": True,
@@ -798,11 +847,12 @@ def get_receipt(receipt_id):
         except Exception as e:
             logger.warning(f"Failed to generate signed URL: {e}")
         
+        # 🔥 FIX: Use safe_get_filename
         result["attachment"] = {
             "id": receipt.attachment.id,
-            "filename": receipt.attachment.filename_original,
-            "mime_type": receipt.attachment.mime_type,
-            "size": receipt.attachment.file_size,
+            "filename": safe_get_filename(receipt.attachment, f"receipt_{receipt.id}"),
+            "mime_type": getattr(receipt.attachment, 'mime_type', 'application/octet-stream'),
+            "size": getattr(receipt.attachment, 'file_size', 0),
             "signed_url": signed_url
         }
     
@@ -821,11 +871,12 @@ def get_receipt(receipt_id):
         except Exception as e:
             logger.warning(f"Failed to generate signed URL for preview: {e}")
         
+        # 🔥 FIX: Use safe_get_filename for preview
         result["preview_attachment"] = {
             "id": receipt.preview_attachment.id,
-            "filename": receipt.preview_attachment.filename_original,
-            "mime_type": receipt.preview_attachment.mime_type,
-            "size": receipt.preview_attachment.file_size,
+            "filename": safe_get_filename(receipt.preview_attachment, f"preview_{receipt.id}"),
+            "mime_type": getattr(receipt.preview_attachment, 'mime_type', 'image/png'),
+            "size": getattr(receipt.preview_attachment, 'file_size', 0),
             "signed_url": preview_signed_url
         }
     
@@ -1118,29 +1169,27 @@ def delete_all_receipts():
             "error": "Owner or admin permission required"
         }), 403
     
-    # Rate limiting: max 1 delete_all per minute per business (Redis-based)
+    # 🔥 USE BULK GATE: Unified rate limiting + deduplication + active job check
     if redis_conn:
-        rate_limit_key = f"rate_limit:delete_all_receipts:{business_id}"
-        try:
-            # Use SET NX (set if not exists) with expiry for atomic rate limiting
-            # This prevents race conditions between check and set
-            was_set = redis_conn.set(rate_limit_key, "1", nx=True, ex=RATE_LIMIT_DELETE_ALL_SECONDS)
+        from server.services.bulk_gate import get_bulk_gate
+        bulk_gate = get_bulk_gate(redis_conn)
+        
+        if bulk_gate:
+            # Check if enqueue is allowed
+            allowed, reason = bulk_gate.can_enqueue(
+                business_id=business_id,
+                operation_type='delete_receipts_all',
+                user_id=user_id
+            )
             
-            if not was_set:
-                # Key already exists, get TTL for error message
-                ttl = redis_conn.ttl(rate_limit_key)
-                # Handle edge cases: -1 (no expiry), -2 (key doesn't exist)
-                if ttl < 0:
-                    ttl = RATE_LIMIT_DELETE_ALL_SECONDS  # Default to configured value
+            if not allowed:
                 return jsonify({
                     "success": False,
-                    "error": f"Too many requests. Try again in {ttl} seconds."
+                    "error": reason
                 }), 429
-        except Exception as e:
-            logger.warning(f"Rate limit check failed (proceeding anyway): {e}")
     
     try:
-        # Check for existing active job
+        # Check for existing active job (extra safety, BulkGate already checked)
         existing_job = BackgroundJob.query.filter(
             BackgroundJob.business_id == business_id,
             BackgroundJob.job_type == 'delete_receipts_all',
@@ -1279,7 +1328,26 @@ def get_job_status(job_id):
             "error": "Job not found"
         }), 404
     
-    return jsonify({
+    # Check if job is stuck (no worker processing it)
+    is_stuck = False
+    stuck_reason = None
+    
+    if job.status == 'queued':
+        # Job is queued but not picked up by worker
+        time_in_queue = (datetime.utcnow() - job.created_at).total_seconds() if job.created_at else 0
+        if time_in_queue > 60:  # Stuck in queue for more than 1 minute
+            is_stuck = True
+            stuck_reason = f"Job queued for {int(time_in_queue)}s but not picked up by worker. Worker may not be running or not listening to maintenance queue."
+    
+    elif job.status == 'running':
+        # Job is running but heartbeat is stale
+        if job.heartbeat_at:
+            seconds_since_heartbeat = (datetime.utcnow() - job.heartbeat_at).total_seconds()
+            if seconds_since_heartbeat > 120:  # No heartbeat for 2+ minutes
+                is_stuck = True
+                stuck_reason = f"No heartbeat for {int(seconds_since_heartbeat)}s. Worker may have crashed or database connection lost."
+    
+    response = {
         "success": True,
         "job_id": job.id,
         "job_type": job.job_type,
@@ -1294,8 +1362,12 @@ def get_job_status(job_id):
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
-        "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None
-    })
+        "heartbeat_at": job.heartbeat_at.isoformat() if job.heartbeat_at else None,
+        "is_stuck": is_stuck,
+        "stuck_reason": stuck_reason
+    }
+    
+    return jsonify(response)
 
 
 @receipts_bp.route('/delete-job/status', methods=['GET'])

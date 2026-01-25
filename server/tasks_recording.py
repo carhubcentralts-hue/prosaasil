@@ -45,6 +45,12 @@ _enqueue_lock = threading.Lock()
 # Cooldown period in seconds - don't enqueue same call_sid more than once per 10 minutes
 ENQUEUE_COOLDOWN_SECONDS = 600  # 🔥 FIX: Increased from 60s to 10min (600s)
 
+# 🔥 FIX: Per-business rate limiting to prevent mass downloads
+# Key: business_id, Value: list of enqueue timestamps in last minute
+_business_enqueue_history: dict = {}
+_business_rate_limit_lock = threading.Lock()
+MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE = int(os.getenv("MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE", "10"))
+
 # 🔥 FIX: Concurrency limiter - max simultaneous recording downloads
 # This prevents overwhelming the system with too many parallel downloads
 MAX_CONCURRENT_DOWNLOADS = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
@@ -78,6 +84,48 @@ try:
 except Exception as e:
     logger.warning(f"⚠️ [RECORDING] Redis not available, using in-memory deduplication: {e}")
     log.warning(f"[RECORDING] Redis initialization failed: {e}")
+
+
+def _check_business_rate_limit(business_id: int) -> tuple[bool, str]:
+    """
+    🔥 FIX: Check if business has exceeded rate limit for enqueues.
+    
+    Rate limit: MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE jobs per minute per business.
+    This prevents a single business from overwhelming the recording system.
+    
+    Args:
+        business_id: Business ID to check
+        
+    Returns:
+        tuple: (allowed: bool, reason: str)
+    """
+    if business_id is None:
+        return True, "no_business_id"  # Allow if business_id not available
+    
+    import time
+    now = time.time()
+    one_minute_ago = now - 60
+    
+    with _business_rate_limit_lock:
+        # Get or create history for this business
+        if business_id not in _business_enqueue_history:
+            _business_enqueue_history[business_id] = []
+        
+        history = _business_enqueue_history[business_id]
+        
+        # Remove old entries (older than 1 minute)
+        _business_enqueue_history[business_id] = [t for t in history if t > one_minute_ago]
+        history = _business_enqueue_history[business_id]
+        
+        # Check if limit exceeded
+        if len(history) >= MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE:
+            logger.info(f"🚫 BLOCKED: Rate limit exceeded for business {business_id} ({len(history)}/{MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE} per minute)")
+            return False, f"rate_limit ({len(history)}/{MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE} per minute)"
+        
+        # Add current enqueue to history
+        _business_enqueue_history[business_id].append(now)
+        
+    return True, "ok"
 
 
 def _acquire_redis_dedup_lock(call_sid: str, business_id: int, job_type: str = "download") -> tuple[bool, str]:
@@ -212,18 +260,34 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
+    # 🔥 FIX: Check business rate limit FIRST (fail fast)
+    rate_limit_ok, rate_limit_reason = _check_business_rate_limit(business_id)
+    if not rate_limit_ok:
+        logger.info(f"🚫 BLOCKED: {rate_limit_reason} for call {call_sid} (business:{business_id})")
+        log.info(f"[OFFLINE_STT] BLOCKED: {rate_limit_reason} for {call_sid}")
+        return  # Don't enqueue
+    
     # 🔥 DEDUPLICATION: Check if we should enqueue this job
     # 🔥 FIX: Pass business_id for cross-business isolation
     should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="full")
     
     if not should_enqueue:
-        # Don't enqueue - log at DEBUG level to reduce noise
+        # Don't enqueue - log BLOCKED at INFO level for visibility
         if reason == "already_cached":
-            log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
+            logger.info(f"🚫 BLOCKED: File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
+            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - already_cached for {call_sid}")
         elif reason == "download_in_progress":
-            log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
+            logger.info(f"🚫 BLOCKED: Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
+            log.info(f"[OFFLINE_STT] BLOCKED: download_in_progress for {call_sid}")
+        elif "redis_locked" in reason:
+            logger.info(f"🚫 BLOCKED: Redis dedup for {call_sid} (business:{business_id}) - {reason}")
+            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - {reason} for {call_sid}")
+        elif "cooldown_active" in reason:
+            logger.info(f"🚫 BLOCKED: Cooldown active for {call_sid} (business:{business_id}) - {reason}")
+            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - {reason} for {call_sid}")
         else:
-            log.debug(f"[OFFLINE_STT] ⏭️  Job blocked for {call_sid} (business:{business_id}) - {reason}")
+            logger.info(f"🚫 BLOCKED: Job blocked for {call_sid} (business:{business_id}) - {reason}")
+            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - {reason} for {call_sid}")
         return  # Don't enqueue
     
     # Passed deduplication checks - safe to enqueue
@@ -254,18 +318,34 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
+    # 🔥 FIX: Check business rate limit FIRST (fail fast)
+    rate_limit_ok, rate_limit_reason = _check_business_rate_limit(business_id)
+    if not rate_limit_ok:
+        logger.info(f"🚫 BLOCKED: {rate_limit_reason} for call {call_sid} (business:{business_id})")
+        log.info(f"[DOWNLOAD_ONLY] BLOCKED: {rate_limit_reason} for {call_sid}")
+        return  # Don't enqueue
+    
     # 🔥 DEDUPLICATION: Check if we should enqueue this download
     # 🔥 FIX: Pass business_id for cross-business isolation
     should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="download")
     
     if not should_enqueue:
-        # Don't enqueue - log at DEBUG level to reduce noise
+        # Don't enqueue - log BLOCKED at INFO level for visibility
         if reason == "already_cached":
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
+            logger.info(f"🚫 BLOCKED: File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
+            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - already_cached for {call_sid}")
         elif reason == "download_in_progress":
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
+            logger.info(f"🚫 BLOCKED: Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
+            log.info(f"[DOWNLOAD_ONLY] BLOCKED: download_in_progress for {call_sid}")
+        elif "redis_locked" in reason:
+            logger.info(f"🚫 BLOCKED: Redis dedup for {call_sid} (business:{business_id}) - {reason}")
+            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - {reason} for {call_sid}")
+        elif "cooldown_active" in reason:
+            logger.info(f"🚫 BLOCKED: Cooldown active for {call_sid} (business:{business_id}) - {reason}")
+            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - {reason} for {call_sid}")
         else:
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Job blocked for {call_sid} (business:{business_id}) - {reason}")
+            logger.info(f"🚫 BLOCKED: Job blocked for {call_sid} (business:{business_id}) - {reason}")
+            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - {reason} for {call_sid}")
         return  # Don't enqueue
     
     # Passed deduplication checks - safe to enqueue
