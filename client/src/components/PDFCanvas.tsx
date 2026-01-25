@@ -121,9 +121,14 @@ export function PDFCanvas({
 
     // ✅ SET INITIAL WIDTH IMMEDIATELY (before creating observer)
     // This ensures containerWidth is set synchronously on mount
+    // If width is 0, container hasn't been laid out yet - observer will update it later
     const initialWidth = container.clientWidth;
-    logger.debug('[PDF_CANVAS] Setting initial container width:', initialWidth);
-    setContainerWidth(initialWidth);
+    if (initialWidth > 0) {
+      logger.debug('[PDF_CANVAS] Setting initial container width:', initialWidth);
+      setContainerWidth(initialWidth);
+    } else {
+      logger.debug('[PDF_CANVAS] Container width is 0, waiting for layout');
+    }
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -149,7 +154,8 @@ export function PDFCanvas({
     if (!context) return;
 
     // ✅ Get actual container width from ref (not state) to avoid timing issues
-    // Use nullish coalescing (??) to only fallback if undefined/null, not if 0
+    // Use nullish coalescing (??) to prioritize ref's clientWidth unless it's null/undefined
+    // If clientWidth is 0, that's a valid value (container not yet laid out)
     const container = containerRef?.current || containerDivRef.current;
     const actualWidth = container?.clientWidth ?? containerWidth;
 
