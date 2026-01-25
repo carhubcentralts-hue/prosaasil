@@ -50,6 +50,10 @@ ENQUEUE_COOLDOWN_SECONDS = 600  # 🔥 FIX: Increased from 60s to 10min (600s)
 MAX_CONCURRENT_DOWNLOADS = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
 _download_semaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
 
+# 🔥 FIX: Track active downloads with thread-safe counter (don't use Semaphore._value)
+_active_downloads_count = 0
+_active_downloads_lock = threading.Lock()
+
 # 🔥 AI Customer Service: Minimum call duration (in seconds) to generate full summary
 # Calls shorter than this get a simple "not answered" message instead of attempting full summary
 MIN_CALL_DURATION_FOR_SUMMARY = 5
@@ -322,8 +326,9 @@ def start_recording_worker(app):
                 # Get queue size
                 queue_size = RECORDING_QUEUE.qsize()
                 
-                # Get active downloads (semaphore value shows available slots)
-                active_downloads = MAX_CONCURRENT_DOWNLOADS - _download_semaphore._value
+                # Get active downloads from thread-safe counter
+                with _active_downloads_lock:
+                    active_downloads = _active_downloads_count
                 
                 # Log metrics
                 if queue_size > 10:
@@ -377,6 +382,12 @@ def start_recording_worker(app):
                 # This prevents too many parallel downloads from overwhelming the system
                 log.debug(f"[RECORDING] Waiting for download slot (max {MAX_CONCURRENT_DOWNLOADS} concurrent)...")
                 _download_semaphore.acquire()
+                
+                # Increment active downloads counter
+                with _active_downloads_lock:
+                    global _active_downloads_count
+                    _active_downloads_count += 1
+                
                 try:
                     log.debug(f"[RECORDING] Download slot acquired for {call_sid}")
                     
@@ -472,6 +483,8 @@ def start_recording_worker(app):
                 
                 finally:
                     # 🔥 FIX: Always release semaphore to free download slot
+                    with _active_downloads_lock:
+                        _active_downloads_count -= 1
                     _download_semaphore.release()
                     log.debug(f"[RECORDING] Download slot released for {call_sid}")
                 

@@ -19,6 +19,28 @@ api_adapter_bp = Blueprint('api_adapter', __name__)
 _dashboard_stats_cache = {}
 _cache_lock = threading.Lock()
 DASHBOARD_CACHE_TTL = 45  # Cache for 45 seconds (reduced from potential 64s query time)
+DASHBOARD_CACHE_MAX_SIZE = 100  # 🔥 FIX: Maximum cache entries before cleanup
+
+def _cleanup_expired_cache():
+    """Remove expired cache entries to prevent memory leaks"""
+    current_time = time.time()
+    with _cache_lock:
+        # Remove expired entries
+        expired_keys = [
+            key for key, value in _dashboard_stats_cache.items()
+            if current_time - value['timestamp'] > DASHBOARD_CACHE_TTL
+        ]
+        for key in expired_keys:
+            del _dashboard_stats_cache[key]
+        
+        # If cache is still too large, remove oldest entries
+        if len(_dashboard_stats_cache) > DASHBOARD_CACHE_MAX_SIZE:
+            # Sort by timestamp and remove oldest
+            sorted_items = sorted(_dashboard_stats_cache.items(), key=lambda x: x[1]['timestamp'])
+            to_remove = len(_dashboard_stats_cache) - DASHBOARD_CACHE_MAX_SIZE
+            for key, _ in sorted_items[:to_remove]:
+                del _dashboard_stats_cache[key]
+            logger.info(f"[DASHBOARD] Cache cleanup: removed {to_remove} old entries")
 
 def check_permissions(required_roles):
     """Check user permissions for adapter endpoints with proper impersonation support"""
@@ -84,6 +106,12 @@ def dashboard_stats():
         
         # 🔥 FIX: Check cache first
         cache_key = f"dashboard_stats:{tenant_id}:{time_filter}:{start_date}:{end_date}"
+        
+        # 🔥 FIX: Periodic cache cleanup (every ~10th request to avoid overhead)
+        import random
+        if random.randint(1, 10) == 1:
+            _cleanup_expired_cache()
+        
         with _cache_lock:
             if cache_key in _dashboard_stats_cache:
                 cached = _dashboard_stats_cache[cache_key]
