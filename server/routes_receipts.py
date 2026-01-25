@@ -2548,25 +2548,37 @@ def get_sync_status():
                 "error": f"Job not found or error fetching job status: {str(e)}"
             }), 404
     
-    # Get sync run
-    run_id = request.args.get('run_id', type=int)
+    # Get sync run - with DB connection error handling
+    from sqlalchemy.exc import OperationalError
     
-    if run_id:
-        sync_run = ReceiptSyncRun.query.filter_by(
-            id=run_id,
-            business_id=business_id
-        ).first()
-    else:
-        # Get most recent sync run
-        sync_run = ReceiptSyncRun.query.filter_by(
-            business_id=business_id
-        ).order_by(ReceiptSyncRun.started_at.desc()).first()
-    
-    if not sync_run:
+    try:
+        run_id = request.args.get('run_id', type=int)
+        
+        if run_id:
+            sync_run = ReceiptSyncRun.query.filter_by(
+                id=run_id,
+                business_id=business_id
+            ).first()
+        else:
+            # Get most recent sync run
+            sync_run = ReceiptSyncRun.query.filter_by(
+                business_id=business_id
+            ).order_by(ReceiptSyncRun.started_at.desc()).first()
+        
+        if not sync_run:
+            return jsonify({
+                "success": False,
+                "error": "No sync runs found"
+            }), 404
+    except OperationalError as e:
+        # DB connection lost (e.g., SSL closed unexpectedly)
+        db.session.rollback()
+        logger.exception("[DB] OperationalError on receipts sync status")
         return jsonify({
-            "success": False,
-            "error": "No sync runs found"
-        }), 404
+            "error": "db_connection_lost",
+            "retry": True,
+            "message": "Database connection lost. Please retry in a moment."
+        }), 503
     
     # Calculate duration
     duration_seconds = None
