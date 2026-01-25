@@ -219,6 +219,59 @@ def check_env_example_documentation():
         return False
 
 
+def check_jobs_use_current_app():
+    """Verify that job files use current_app instead of create_app"""
+    print("\n=== Checking Jobs Use current_app (Not create_app) ===")
+    
+    import glob
+    
+    job_files = glob.glob('server/jobs/*.py')
+    all_ok = True
+    
+    for filepath in job_files:
+        if filepath.endswith('__init__.py'):
+            continue
+            
+        try:
+            with open(filepath, 'r') as f:
+                content = f.read()
+            
+            job_name = filepath.split('/')[-1]
+            
+            # Check if uses current_app
+            has_current_app = "from flask import current_app" in content
+            
+            # Check if still has create_app import (bad)
+            has_create_app_import = "from server.app_factory import create_app" in content
+            
+            # Check if creates app (bad)
+            creates_app = "app = create_app()" in content
+            
+            # Check if job uses Flask at all (some jobs might not)
+            uses_flask_app_context = "app_context()" in content or "BackgroundJob.query" in content or "db.session" in content
+            
+            if has_create_app_import or creates_app:
+                print(f"  ❌ {job_name}: Still uses create_app()")
+                if has_create_app_import:
+                    print(f"      - Has create_app import")
+                if creates_app:
+                    print(f"      - Calls create_app()")
+                all_ok = False
+            elif uses_flask_app_context and not has_current_app:
+                # Uses Flask but doesn't import current_app - might be OK if worker provides context
+                print(f"  ✅ {job_name}: Uses Flask context (worker provides app_context)")
+            elif has_current_app:
+                print(f"  ✅ {job_name}: Uses current_app correctly")
+            else:
+                print(f"  ℹ️  {job_name}: Doesn't use Flask app (independent job)")
+                    
+        except Exception as e:
+            print(f"  ❌ Error checking {filepath}: {e}")
+            all_ok = False
+    
+    return all_ok
+
+
 def main():
     """Run all verification checks"""
     print("=" * 80)
@@ -230,6 +283,7 @@ def main():
         'app_factory.py Worker Guard': check_app_factory_worker_guard(),
         'docker-compose.yml Service Roles': check_docker_compose_service_roles(),
         '.env.example Documentation': check_env_example_documentation(),
+        'Jobs Use current_app': check_jobs_use_current_app(),
     }
     
     print("\n" + "=" * 80)
@@ -252,10 +306,12 @@ def main():
         print("2. ✅ app_factory skips migrations in worker mode")
         print("3. ✅ docker-compose.yml sets SERVICE_ROLE correctly")
         print("4. ✅ .env.example documents SERVICE_ROLE usage")
+        print("5. ✅ All jobs use current_app (no duplicate app creation)")
         print("\nWorkers will NOT run migrations, preventing:")
         print("  - pg_advisory_lock timeouts")
         print("  - Duplicate migration runs")
         print("  - Unnecessary database load")
+        print("  - Duplicate Flask app instances")
         return 0
     else:
         print("\n❌ SOME CHECKS FAILED - Review the issues above")

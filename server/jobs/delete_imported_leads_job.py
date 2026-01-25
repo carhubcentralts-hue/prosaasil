@@ -49,7 +49,7 @@ def delete_imported_leads_batch_job(job_id: int):
     logger.info(f"=" * 70)
     
     try:
-        from server.app_factory import create_app
+        from flask import current_app
         from server.models_sql import db, BackgroundJob, Lead
     except ImportError as e:
         error_msg = f"Import failed: {str(e)}"
@@ -74,263 +74,248 @@ def delete_imported_leads_batch_job(job_id: int):
             "error": error_msg
         }
     
-    # Create app context for DB access
+    # Use current app context (worker already created it)
+    # Load job
+    job = BackgroundJob.query.get(job_id)
+    if not job:
+        logger.error(f"Job {job_id} not found")
+        return {"success": False, "error": "Job not found"}
+        
+    business_id = job.business_id
+        
+    # Extract parameters from job metadata
+    metadata = job.cursor and json.loads(job.cursor) or {}
+    delete_all = metadata.get('delete_all', False)
+    lead_ids = metadata.get('lead_ids', [])
+        
+    logger.info("=" * 60)
+    logger.info(f"🗑️  JOB start type=delete_imported_leads business_id={business_id} job_id={job_id}")
+    logger.info(f"🗑️  [DELETE_IMPORTED_LEADS] JOB_START: Delete imported leads")
+    logger.info(f"  → job_id: {job_id}")
+    logger.info(f"  → business_id: {business_id}")
+    logger.info(f"  → delete_all: {delete_all}")
+    logger.info(f"  → specific_lead_ids: {len(lead_ids) if lead_ids else 'N/A'}")
+    logger.info(f"  → batch_size: {BATCH_SIZE}")
+    logger.info(f"  → throttle: {THROTTLE_MS}ms")
+    logger.info("=" * 60)
+        
+    # Update job status to running
+    job.status = 'running'
+    job.started_at = datetime.utcnow()
+    job.heartbeat_at = datetime.utcnow()
+        
+    # Initialize cursor if not set (starting fresh)
+    if 'last_id' not in metadata:
+        metadata['last_id'] = 0
+        metadata['delete_all'] = delete_all
+        metadata['lead_ids'] = lead_ids
+        
+    # Count total if not set
+    if job.total == 0:
+        if delete_all:
+            job.total = Lead.query.filter_by(
+                tenant_id=business_id,
+                source="imported_outbound"
+            ).count()
+        else:
+            job.total = Lead.query.filter(
+                Lead.id.in_(lead_ids),
+                Lead.tenant_id == business_id,
+                Lead.source == "imported_outbound"
+            ).count()
+        logger.info(f"  → Total leads to delete: {job.total}")
+        
+    job.cursor = json.dumps(metadata)
+    db.session.commit()
+        
+    start_time = time.time()
+    consecutive_failures = 0
+        
     try:
-        app = create_app()
-    except Exception as e:
-        error_msg = f"App creation failed: {str(e)}"
-        logger.error(f"❌ JOB APP CREATION ERROR: {e}")
-        print(f"❌ FATAL APP CREATION ERROR: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        print(traceback.format_exc())
-        return {
-            "success": False,
-            "error": error_msg
-        }
-    
-    with app.app_context():
-        # Load job
-        job = BackgroundJob.query.get(job_id)
-        if not job:
-            logger.error(f"Job {job_id} not found")
-            return {"success": False, "error": "Job not found"}
-        
-        business_id = job.business_id
-        
-        # Extract parameters from job metadata
-        metadata = job.cursor and json.loads(job.cursor) or {}
-        delete_all = metadata.get('delete_all', False)
-        lead_ids = metadata.get('lead_ids', [])
-        
-        logger.info("=" * 60)
-        logger.info(f"🗑️  JOB start type=delete_imported_leads business_id={business_id} job_id={job_id}")
-        logger.info(f"🗑️  [DELETE_IMPORTED_LEADS] JOB_START: Delete imported leads")
-        logger.info(f"  → job_id: {job_id}")
-        logger.info(f"  → business_id: {business_id}")
-        logger.info(f"  → delete_all: {delete_all}")
-        logger.info(f"  → specific_lead_ids: {len(lead_ids) if lead_ids else 'N/A'}")
-        logger.info(f"  → batch_size: {BATCH_SIZE}")
-        logger.info(f"  → throttle: {THROTTLE_MS}ms")
-        logger.info("=" * 60)
-        
-        # Update job status to running
-        job.status = 'running'
-        job.started_at = datetime.utcnow()
-        job.heartbeat_at = datetime.utcnow()
-        
-        # Initialize cursor if not set (starting fresh)
-        if 'last_id' not in metadata:
-            metadata['last_id'] = 0
-            metadata['delete_all'] = delete_all
-            metadata['lead_ids'] = lead_ids
-        
-        # Count total if not set
-        if job.total == 0:
+        while True:
+            # CRITICAL: Check if job was cancelled
+            db.session.refresh(job)
+            if job.status == 'cancelled':
+                logger.info(f"🛑 Job {job_id} was cancelled - stopping")
+                job.finished_at = datetime.utcnow()
+                job.updated_at = datetime.utcnow()
+                db.session.commit()
+                return {
+                    "success": True,
+                    "cancelled": True,
+                    "message": "Job was cancelled by user",
+                    "processed": job.processed,
+                    "total": job.total
+                }
+                
+            # Check runtime limit
+            elapsed = time.time() - start_time
+            if elapsed > MAX_RUNTIME_SECONDS:
+                logger.warning(f"⏱️  Runtime limit reached ({MAX_RUNTIME_SECONDS}s) - pausing job")
+                job.status = 'paused'
+                job.updated_at = datetime.utcnow()
+                db.session.commit()
+                return {
+                    "success": True,
+                    "paused": True,
+                    "message": f"Job paused after {elapsed:.1f}s. Resume to continue.",
+                    "processed": job.processed,
+                    "total": job.total
+                }
+                
+            # Load cursor
+            metadata = json.loads(job.cursor)
+            last_id = metadata.get('last_id', 0)
+                
+            # Fetch next batch using cursor (ID-based pagination)
             if delete_all:
-                job.total = Lead.query.filter_by(
-                    tenant_id=business_id,
-                    source="imported_outbound"
-                ).count()
+                leads = Lead.query.filter(
+                    Lead.tenant_id == business_id,
+                    Lead.source == "imported_outbound",
+                    Lead.id > last_id
+                ).order_by(Lead.id).limit(BATCH_SIZE).all()
             else:
-                job.total = Lead.query.filter(
+                leads = Lead.query.filter(
                     Lead.id.in_(lead_ids),
                     Lead.tenant_id == business_id,
-                    Lead.source == "imported_outbound"
-                ).count()
-            logger.info(f"  → Total leads to delete: {job.total}")
-        
-        job.cursor = json.dumps(metadata)
-        db.session.commit()
-        
-        start_time = time.time()
-        consecutive_failures = 0
-        
-        try:
-            while True:
-                # CRITICAL: Check if job was cancelled
-                db.session.refresh(job)
-                if job.status == 'cancelled':
-                    logger.info(f"🛑 Job {job_id} was cancelled - stopping")
-                    job.finished_at = datetime.utcnow()
-                    job.updated_at = datetime.utcnow()
-                    db.session.commit()
-                    return {
-                        "success": True,
-                        "cancelled": True,
-                        "message": "Job was cancelled by user",
-                        "processed": job.processed,
-                        "total": job.total
-                    }
+                    Lead.source == "imported_outbound",
+                    Lead.id > last_id
+                ).order_by(Lead.id).limit(BATCH_SIZE).all()
                 
-                # Check runtime limit
-                elapsed = time.time() - start_time
-                if elapsed > MAX_RUNTIME_SECONDS:
-                    logger.warning(f"⏱️  Runtime limit reached ({MAX_RUNTIME_SECONDS}s) - pausing job")
-                    job.status = 'paused'
-                    job.updated_at = datetime.utcnow()
-                    db.session.commit()
-                    return {
-                        "success": True,
-                        "paused": True,
-                        "message": f"Job paused after {elapsed:.1f}s. Resume to continue.",
-                        "processed": job.processed,
-                        "total": job.total
-                    }
-                
-                # Load cursor
-                metadata = json.loads(job.cursor)
-                last_id = metadata.get('last_id', 0)
-                
-                # Fetch next batch using cursor (ID-based pagination)
-                if delete_all:
-                    leads = Lead.query.filter(
-                        Lead.tenant_id == business_id,
-                        Lead.source == "imported_outbound",
-                        Lead.id > last_id
-                    ).order_by(Lead.id).limit(BATCH_SIZE).all()
-                else:
-                    leads = Lead.query.filter(
-                        Lead.id.in_(lead_ids),
-                        Lead.tenant_id == business_id,
-                        Lead.source == "imported_outbound",
-                        Lead.id > last_id
-                    ).order_by(Lead.id).limit(BATCH_SIZE).all()
-                
-                # Check if we're done
-                if not leads:
-                    logger.info("=" * 60)
-                    logger.info(f"🗑️  JOB complete type=delete_imported_leads business_id={business_id} job_id={job_id}")
-                    logger.info("✅ [DELETE_IMPORTED_LEADS] All leads processed - job complete")
-                    logger.info(f"  → Total processed: {job.processed}")
-                    logger.info(f"  → Successfully deleted: {job.succeeded}")
-                    logger.info(f"  → Failed: {job.failed_count}")
-                    logger.info("=" * 60)
-                    job.status = 'completed'
-                    job.finished_at = datetime.utcnow()
-                    job.updated_at = datetime.utcnow()
-                    db.session.commit()
+            # Check if we're done
+            if not leads:
+                logger.info("=" * 60)
+                logger.info(f"🗑️  JOB complete type=delete_imported_leads business_id={business_id} job_id={job_id}")
+                logger.info("✅ [DELETE_IMPORTED_LEADS] All leads processed - job complete")
+                logger.info(f"  → Total processed: {job.processed}")
+                logger.info(f"  → Successfully deleted: {job.succeeded}")
+                logger.info(f"  → Failed: {job.failed_count}")
+                logger.info("=" * 60)
+                job.status = 'completed'
+                job.finished_at = datetime.utcnow()
+                job.updated_at = datetime.utcnow()
+                db.session.commit()
                     
-                    # Release BulkGate lock
-                    try:
-                        import redis
-                        import os
-                        from server.services.bulk_gate import get_bulk_gate
-                        REDIS_URL = os.getenv('REDIS_URL')
-                        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
-                        
-                        if redis_conn:
-                            bulk_gate = get_bulk_gate(redis_conn)
-                            if bulk_gate:
-                                bulk_gate.release_lock(
-                                    business_id=business_id,
-                                    operation_type='delete_imported_leads'
-                                )
-                    except Exception as e:
-                        logger.warning(f"Failed to release BulkGate lock: {e}")
-                    
-                    return {
-                        "success": True,
-                        "message": "All imported leads deleted successfully",
-                        "total": job.total,
-                        "succeeded": job.succeeded,
-                        "failed_count": job.failed_count
-                    }
-                
-                # Process batch
-                batch_start = time.time()
-                batch_succeeded = 0
-                batch_failed = 0
-                
+                # Release BulkGate lock
                 try:
-                    # Delete leads in batch
-                    for lead in leads:
-                        try:
-                            db.session.delete(lead)
-                            batch_succeeded += 1
-                        except Exception as e:
-                            logger.error(f"Failed to delete lead {lead.id}: {e}")
-                            batch_failed += 1
-                            job.last_error = f"Lead {lead.id}: {str(e)[:200]}"
-                    
-                    # Update cursor to last processed ID
-                    max_id = max(l.id for l in leads)
-                    metadata['last_id'] = max_id
-                    job.cursor = json.dumps(metadata)
-                    
-                    # Update progress counters
-                    job.processed += len(leads)
-                    job.succeeded += batch_succeeded
-                    job.failed_count += batch_failed
-                    job.updated_at = datetime.utcnow()
-                    job.heartbeat_at = datetime.utcnow()
-                    
-                    # Commit DB changes
-                    db.session.commit()
-                    
-                    # Reset consecutive failures on successful batch
-                    if batch_failed == 0:
-                        consecutive_failures = 0
-                    
-                    logger.info(
-                        f"  ✓ [DELETE_IMPORTED_LEADS] Batch complete: {batch_succeeded} deleted, {batch_failed} failed "
-                        f"({job.processed}/{job.total} = {job.percent:.1f}%) in {time.time() - batch_start:.2f}s"
-                    )
-                    
+                    import redis
+                    import os
+                    from server.services.bulk_gate import get_bulk_gate
+                    REDIS_URL = os.getenv('REDIS_URL')
+                    redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                        
+                    if redis_conn:
+                        bulk_gate = get_bulk_gate(redis_conn)
+                        if bulk_gate:
+                            bulk_gate.release_lock(
+                                business_id=business_id,
+                                operation_type='delete_imported_leads'
+                            )
                 except Exception as e:
-                    logger.error(f"[DELETE_IMPORTED_LEADS] Batch processing failed: {e}", exc_info=True)
-                    consecutive_failures += 1
-                    job.failed_count += len(leads)
-                    job.last_error = str(e)[:200]
-                    job.updated_at = datetime.utcnow()
-                    db.session.rollback()
-                    db.session.commit()
+                    logger.warning(f"Failed to release BulkGate lock: {e}")
                     
-                    # Check if we should stop due to repeated failures
-                    if consecutive_failures >= MAX_BATCH_FAILURES:
-                        logger.error(f"❌ [DELETE_IMPORTED_LEADS] Too many consecutive failures ({consecutive_failures}) - stopping job")
-                        job.status = 'failed'
-                        job.finished_at = datetime.utcnow()
-                        db.session.commit()
-                        return {
-                            "success": False,
-                            "error": f"Job failed after {consecutive_failures} consecutive batch failures",
-                            "last_error": job.last_error
-                        }
+                return {
+                    "success": True,
+                    "message": "All imported leads deleted successfully",
+                    "total": job.total,
+                    "succeeded": job.succeeded,
+                    "failed_count": job.failed_count
+                }
                 
-                # Throttle between batches
-                time.sleep(THROTTLE_MS / 1000.0)
-        
-        except Exception as e:
-            logger.error("=" * 60)
-            logger.error(f"🗑️  JOB failed type=delete_imported_leads business_id={business_id} job_id={job_id}")
-            logger.error(f"[DELETE_IMPORTED_LEADS] Job failed with unexpected error: {e}", exc_info=True)
-            logger.error("=" * 60)
-            job.status = 'failed'
-            job.last_error = str(e)[:200]
-            job.finished_at = datetime.utcnow()
-            job.updated_at = datetime.utcnow()
-            db.session.commit()
-            
-            # Release BulkGate lock even on failure
+            # Process batch
+            batch_start = time.time()
+            batch_succeeded = 0
+            batch_failed = 0
+                
             try:
-                import redis
-                import os
-                from server.services.bulk_gate import get_bulk_gate
-                REDIS_URL = os.getenv('REDIS_URL')
-                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                # Delete leads in batch
+                for lead in leads:
+                    try:
+                        db.session.delete(lead)
+                        batch_succeeded += 1
+                    except Exception as e:
+                        logger.error(f"Failed to delete lead {lead.id}: {e}")
+                        batch_failed += 1
+                        job.last_error = f"Lead {lead.id}: {str(e)[:200]}"
+                    
+                # Update cursor to last processed ID
+                max_id = max(l.id for l in leads)
+                metadata['last_id'] = max_id
+                job.cursor = json.dumps(metadata)
+                    
+                # Update progress counters
+                job.processed += len(leads)
+                job.succeeded += batch_succeeded
+                job.failed_count += batch_failed
+                job.updated_at = datetime.utcnow()
+                job.heartbeat_at = datetime.utcnow()
+                    
+                # Commit DB changes
+                db.session.commit()
+                    
+                # Reset consecutive failures on successful batch
+                if batch_failed == 0:
+                    consecutive_failures = 0
+                    
+                logger.info(
+                    f"  ✓ [DELETE_IMPORTED_LEADS] Batch complete: {batch_succeeded} deleted, {batch_failed} failed "
+                    f"({job.processed}/{job.total} = {job.percent:.1f}%) in {time.time() - batch_start:.2f}s"
+                )
+                    
+            except Exception as e:
+                logger.error(f"[DELETE_IMPORTED_LEADS] Batch processing failed: {e}", exc_info=True)
+                consecutive_failures += 1
+                job.failed_count += len(leads)
+                job.last_error = str(e)[:200]
+                job.updated_at = datetime.utcnow()
+                db.session.rollback()
+                db.session.commit()
+                    
+                # Check if we should stop due to repeated failures
+                if consecutive_failures >= MAX_BATCH_FAILURES:
+                    logger.error(f"❌ [DELETE_IMPORTED_LEADS] Too many consecutive failures ({consecutive_failures}) - stopping job")
+                    job.status = 'failed'
+                    job.finished_at = datetime.utcnow()
+                    db.session.commit()
+                    return {
+                        "success": False,
+                        "error": f"Job failed after {consecutive_failures} consecutive batch failures",
+                        "last_error": job.last_error
+                    }
                 
-                if redis_conn:
-                    bulk_gate = get_bulk_gate(redis_conn)
-                    if bulk_gate:
-                        bulk_gate.release_lock(
-                            business_id=business_id,
-                            operation_type='delete_imported_leads'
-                        )
-            except Exception as lock_err:
-                logger.warning(f"Failed to release BulkGate lock: {lock_err}")
+            # Throttle between batches
+            time.sleep(THROTTLE_MS / 1000.0)
+        
+    except Exception as e:
+        logger.error("=" * 60)
+        logger.error(f"🗑️  JOB failed type=delete_imported_leads business_id={business_id} job_id={job_id}")
+        logger.error(f"[DELETE_IMPORTED_LEADS] Job failed with unexpected error: {e}", exc_info=True)
+        logger.error("=" * 60)
+        job.status = 'failed'
+        job.last_error = str(e)[:200]
+        job.finished_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        db.session.commit()
             
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        # Release BulkGate lock even on failure
+        try:
+            import redis
+            import os
+            from server.services.bulk_gate import get_bulk_gate
+            REDIS_URL = os.getenv('REDIS_URL')
+            redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+            if redis_conn:
+                bulk_gate = get_bulk_gate(redis_conn)
+                if bulk_gate:
+                    bulk_gate.release_lock(
+                        business_id=business_id,
+                        operation_type='delete_imported_leads'
+                    )
+        except Exception as lock_err:
+            logger.warning(f"Failed to release BulkGate lock: {lock_err}")
+            
+        return {
+            "success": False,
+            "error": str(e)
+        }
