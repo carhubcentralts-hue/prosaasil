@@ -312,6 +312,48 @@ def start_recording_worker(app):
     logger.info("✅ [OFFLINE_STT] Recording worker loop started")
     log.info("[OFFLINE_STT] Recording worker thread initialized")
     
+    # 🔥 FIX: Start metrics logging thread
+    def log_system_metrics():
+        """Background thread to log queue metrics every 60 seconds"""
+        import time
+        
+        while True:
+            try:
+                # Get queue size
+                queue_size = RECORDING_QUEUE.qsize()
+                
+                # Get active downloads (semaphore value shows available slots)
+                active_downloads = MAX_CONCURRENT_DOWNLOADS - _download_semaphore._value
+                
+                # Log metrics
+                if queue_size > 10:
+                    logger.warning(
+                        f"⚠️ [METRICS] Recording queue: {queue_size} jobs pending | "
+                        f"Active downloads: {active_downloads}/{MAX_CONCURRENT_DOWNLOADS} | "
+                        f"Dedup entries: {len(_last_enqueue_time)}"
+                    )
+                elif queue_size > 0 or active_downloads > 0:
+                    logger.info(
+                        f"📊 [METRICS] Recording queue: {queue_size} jobs pending | "
+                        f"Active downloads: {active_downloads}/{MAX_CONCURRENT_DOWNLOADS} | "
+                        f"Dedup entries: {len(_last_enqueue_time)}"
+                    )
+                else:
+                    logger.debug(
+                        f"📊 [METRICS] Recording queue: idle | "
+                        f"Dedup entries: {len(_last_enqueue_time)}"
+                    )
+            except Exception as e:
+                logger.error(f"[METRICS] Error logging metrics: {e}")
+            
+            # Sleep for 60 seconds before next log
+            time.sleep(60)
+    
+    # Start metrics thread (daemon so it stops when main thread exits)
+    metrics_thread = threading.Thread(target=log_system_metrics, daemon=True, name="RecordingMetrics")
+    metrics_thread.start()
+    logger.info("📊 [METRICS] System metrics logging started (every 60s)")
+    
     # Retry backoff delays in seconds (0s, 10s, 30s, 90s)
     RETRY_DELAYS = [0, 10, 30, 90]
     MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts
