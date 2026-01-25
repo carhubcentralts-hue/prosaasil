@@ -1498,7 +1498,7 @@ def bulk_enqueue_outbound_calls():
         run.concurrency = concurrency
         run.total_leads = len(lead_ids)
         run.queued_count = len(lead_ids)
-        run.status = "queued"  # Changed from "running" - will be updated by job
+        run.status = "queued"  # Start as queued, worker will update to running when processing starts
         db.session.add(run)
         db.session.flush()
         

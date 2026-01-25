@@ -3146,6 +3146,7 @@ def create_broadcast():
         log.info(f"✅ [WA_BROADCAST] broadcast_id={broadcast.id} total={len(normalized_recipients)} queued={len(normalized_recipients)}")
         
         # Enqueue background job to process the broadcast
+        bg_job = None  # Initialize to None for error handling
         try:
             from server.models_sql import BackgroundJob
             from rq import Queue
@@ -3200,7 +3201,7 @@ def create_broadcast():
         return jsonify({
             'success': True,
             'broadcast_id': broadcast.id,
-            'job_id': bg_job.id if 'bg_job' in locals() else None,
+            'job_id': bg_job.id if bg_job else None,
             'queued_count': len(normalized_recipients),
             'total_recipients': len(normalized_recipients),
             'sent_count': 0,  # Will be updated as broadcast progresses

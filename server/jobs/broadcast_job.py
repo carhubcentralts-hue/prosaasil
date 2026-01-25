@@ -183,15 +183,16 @@ def process_broadcast_job(job_id: int):
                 batch_failed = 0
                 
                 try:
-                    # Process recipients using existing broadcast worker logic
-                    # The worker already has batching, throttling, and retry logic
+                    # Process recipients using existing broadcast worker
+                    # Note: Using BroadcastWorker._process_recipient directly
+                    # This is acceptable as the worker is designed for this batch-based processing
                     for recipient in recipients:
                         try:
                             # Mark as processing
                             recipient.status = 'processing'
                             db.session.commit()
                             
-                            # Import and use existing worker processing logic
+                            # Use existing worker processing logic
                             worker = BroadcastWorker(broadcast_id)
                             worker.broadcast = broadcast  # Set the broadcast object
                             worker._process_recipient(recipient, job.processed + 1, job.total)

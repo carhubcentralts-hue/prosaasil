@@ -216,7 +216,7 @@ def delete_leads_batch_job(job_id: int):
                             WhatsAppConversation.query.filter(
                                 WhatsAppConversation.lead_id.in_(actual_lead_ids)
                             ).update(
-                                {WhatsAppConversation.lead_id: None},
+                                {'lead_id': None},  # Use dict with string key for column update
                                 synchronize_session=False
                             )
                         except Exception as wa_err:

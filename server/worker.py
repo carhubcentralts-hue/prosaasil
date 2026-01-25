@@ -81,7 +81,14 @@ logger.info(f"REDIS_URL: {masked_redis_url}")
 logger.info(f"Python executable: {sys.executable}")
 logger.info(f"Python version: {sys.version.split()[0]}")
 
-# Get queues to listen to from environment (default includes all necessary queues)
+# Get queues to listen to from environment
+# Queue purposes:
+#   high       - High priority tasks
+#   default    - Standard tasks (calls, general processing)
+#   low        - Low priority background tasks  
+#   maintenance - Database maintenance (bulk deletes, updates)
+#   broadcasts  - WhatsApp broadcast processing
+#   recordings  - Recording transcription and processing
 RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low,maintenance,broadcasts,recordings')
 LISTEN_QUEUES = [q.strip() for q in RQ_QUEUES.split(',') if q.strip()]
 logger.info(f"RQ_QUEUES configuration: {RQ_QUEUES}")

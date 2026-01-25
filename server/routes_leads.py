@@ -1492,7 +1492,7 @@ def bulk_delete_leads():
     log.info(f"🗑️ Bulk delete: user={user.get('email') if user else 'unknown'}, is_system_admin={is_system_admin}, tenant_id={tenant_id}, lead_ids={lead_ids}")
     
     try:
-        # Validate tenant access
+        # Validate tenant access - ensure we have leads to process
         if tenant_id:
             # Verify all requested leads belong to this tenant
             accessible_leads = Lead.query.filter(
@@ -1506,7 +1506,10 @@ def bulk_delete_leads():
         if len(accessible_leads) == 0:
             return jsonify({"error": "No leads found or access denied", "success": False}), 404
         
-        log.info(f"🗑️ Creating bulk delete job: {len(accessible_leads)} leads (tenant={tenant_id})")
+        # Extract business_id for BackgroundJob (use tenant or first lead's tenant)
+        business_id = tenant_id if tenant_id else accessible_leads[0].tenant_id
+        
+        log.info(f"🗑️ Creating bulk delete job: {len(accessible_leads)} leads (tenant={business_id})")
         
         # Create BackgroundJob record
         from server.models_sql import BackgroundJob
@@ -1514,7 +1517,7 @@ def bulk_delete_leads():
         import redis
         
         bg_job = BackgroundJob()
-        bg_job.business_id = tenant_id or accessible_leads[0].tenant_id  # Use first lead's tenant if system admin
+        bg_job.business_id = business_id
         bg_job.requested_by_user_id = user.get('id') if user else None
         bg_job.job_type = 'delete_leads'
         bg_job.status = 'queued'
