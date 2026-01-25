@@ -1330,7 +1330,7 @@ def send_manual_message():
     to_number = data.get('to')
     message = data.get('message')
     attachment_id = data.get('attachment_id')  # Optional media attachment
-    lead_id = data.get('lead_id')  # NEW: Optional lead_id for reply_jid lookup
+    lead_id = data.get('lead_id')  # ✅ NEW: Optional lead_id to lookup reply_jid from Lead model (most reliable JID for Baileys)
     
     # 🔒 SECURITY: business_id from authenticated session via get_business_id()
     from server.routes_crm import get_business_id

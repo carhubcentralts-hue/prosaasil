@@ -297,11 +297,27 @@ def api_send_thread_message(thread_id):
         # thread_id is the phone number - try to find matching lead
         thread_phone_clean = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
         try:
-            # Look for lead by phone
+            # Look for lead by phone - try exact match first, then partial match
+            # Try exact match with +
             lead = db.session.query(Lead).filter(
                 Lead.business_id == business_id,
-                Lead.phone_e164.like(f"%{thread_phone_clean[-8:]}")  # Match last 8 digits
+                Lead.phone_e164 == f"+{thread_phone_clean}"
             ).first()
+            
+            # Try exact match without +
+            if not lead:
+                lead = db.session.query(Lead).filter(
+                    Lead.business_id == business_id,
+                    Lead.phone_e164 == thread_phone_clean
+                ).first()
+            
+            # ⚠️ Fallback: Try partial match on last 9 digits (Israeli mobile)
+            # Only if exact match fails and phone is long enough
+            if not lead and len(thread_phone_clean) >= 9:
+                lead = db.session.query(Lead).filter(
+                    Lead.business_id == business_id,
+                    Lead.phone_e164.like(f"%{thread_phone_clean[-9:]}")
+                ).first()
             
             if lead:
                 lead_id = lead.id
