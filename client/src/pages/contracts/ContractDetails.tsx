@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, FileText, Upload, Send, Download, Ban, Calendar, User, Clock, CheckCircle, Edit3, Trash2, Eye, Save, Edit } from 'lucide-react';
 import { formatDate } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
@@ -788,15 +789,16 @@ export function ContractDetails({ contractId, onClose, onUpdate }: ContractDetai
         </div>
       </div>
 
-      {/* Signature Field Marker Modal */}
-      {showSignatureMarker && contract.files.length > 0 && (
+      {/* Signature Field Marker Modal - Render using Portal to avoid z-index stacking issues */}
+      {showSignatureMarker && contract.files.length > 0 && createPortal(
         <SignatureFieldMarker
           contractId={contractId}
           onClose={() => {
             setShowSignatureMarker(false);
           }}
           onSave={handleSaveSignatureFields}
-        />
+        />,
+        document.body
       )}
     </div>
   );
