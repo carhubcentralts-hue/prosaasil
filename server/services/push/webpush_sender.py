@@ -148,12 +148,18 @@ class WebPushSender:
             error_message = str(e)
             
             # Check if subscription is invalid (410 Gone, 404 Not Found)
-            should_deactivate = error_code in (404, 410)
+            # Also check message text for "410" or "expired" patterns
+            should_deactivate = (
+                error_code in (404, 410) or
+                "410" in error_message or
+                "Gone" in error_message or
+                "unsubscribed or expired" in error_message.lower()
+            )
             
             if should_deactivate:
-                # 🔥 PRODUCTION: Log as INFO (not WARNING) to reduce log spam
-                # 410 Gone is expected when user unsubscribes/changes device
-                log.info(f"WebPush subscription expired (HTTP {error_code}), will deactivate")
+                # 🔥 410 Gone is expected when user unsubscribes/changes device
+                # Log as INFO to reduce log spam in production
+                log.info(f"[PUSH] WebPush subscription expired/gone (HTTP {error_code}) -> will deactivate")
             else:
                 log.error(f"WebPush failed: {error_message}")
             

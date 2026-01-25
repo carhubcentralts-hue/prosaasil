@@ -14,8 +14,11 @@ import { http } from './http';
 export interface PushStatus {
   supported: boolean;
   permission: NotificationPermission | 'unsupported';
-  subscribed: boolean;
+  push_enabled: boolean;  // User preference
+  subscribed: boolean;  // Has device subscription
+  enabled: boolean;  // Computed: preference AND subscription
   configured: boolean;
+  active_subscriptions_count?: number;
 }
 
 interface VapidKeyResponse {
@@ -33,8 +36,10 @@ interface SubscribeResponse {
 interface StatusResponse {
   success: boolean;
   configured: boolean;
+  push_enabled: boolean;  // User preference
   subscriptionCount: number;
-  enabled: boolean;
+  active_subscriptions_count: number;
+  enabled: boolean;  // Computed state
 }
 
 interface TestResponse {
@@ -82,20 +87,31 @@ export async function getPushStatus(): Promise<PushStatus> {
   const supported = isPushSupported();
   const permission = getPermissionStatus();
   
+  let push_enabled = false;
   let subscribed = false;
+  let enabled = false;
   let configured = false;
   
-  if (supported && permission === 'granted') {
+  if (supported) {
     try {
       const response = await http.get<StatusResponse>('/api/push/status');
-      subscribed = response.enabled;
-      configured = response.configured;
+      push_enabled = response.push_enabled ?? false;
+      subscribed = response.subscriptionCount > 0;
+      enabled = response.enabled ?? false;
+      configured = response.configured ?? false;
     } catch (error) {
       console.error('Error checking push status:', error);
     }
   }
   
-  return { supported, permission, subscribed, configured };
+  return { 
+    supported, 
+    permission, 
+    push_enabled,
+    subscribed, 
+    enabled,
+    configured 
+  };
 }
 
 // Register service worker
@@ -215,6 +231,43 @@ export async function unsubscribeFromPush(): Promise<{ success: boolean; message
   } catch (error) {
     console.error('[Push] Unsubscribe error:', error);
     return { success: false, message: 'שגיאה בביטול התראות' };
+  }
+}
+
+// Toggle push enabled preference (without subscribing/unsubscribing)
+export async function togglePushEnabled(enabled: boolean): Promise<{ success: boolean; message: string; push_enabled: boolean; enabled: boolean }> {
+  try {
+    const response = await http.post<{
+      success: boolean;
+      push_enabled: boolean;
+      enabled: boolean;
+      message?: string;
+      error?: string;
+    }>('/api/push/toggle', { enabled });
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message || (enabled ? 'ההתראות הופעלו' : 'ההתראות בוטלו'),
+        push_enabled: response.push_enabled,
+        enabled: response.enabled
+      };
+    } else {
+      return {
+        success: false,
+        message: response.error || 'שגיאה בעדכון הגדרות',
+        push_enabled: response.push_enabled,
+        enabled: response.enabled
+      };
+    }
+  } catch (error) {
+    console.error('[Push] Toggle error:', error);
+    return {
+      success: false,
+      message: 'שגיאה בעדכון הגדרות',
+      push_enabled: !enabled,
+      enabled: false
+    };
   }
 }
 
