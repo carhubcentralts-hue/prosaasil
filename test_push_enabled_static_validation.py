@@ -222,27 +222,35 @@ def check_environment_validation():
             all_ok = False
         
         # Check 3: push_enabled in users table
-        # Look for push_enabled in context of users
+        # Simple check: both 'users' and 'push_enabled' should be in the file
+        # and push_enabled should appear near users in CRITICAL_COLUMNS section
         if "'push_enabled'" in content or '"push_enabled"' in content:
-            # Verify it's in the users section
-            users_section_start = content.find("'users':")
-            if users_section_start == -1:
-                users_section_start = content.find('"users":')
-            
-            if users_section_start != -1:
-                # Find the next table section or end of dict
-                next_section = content.find("'", users_section_start + 10)
-                users_section = content[users_section_start:next_section+200]
+            # Find CRITICAL_COLUMNS section
+            critical_start = content.find('CRITICAL_COLUMNS')
+            if critical_start != -1:
+                # Get the section from CRITICAL_COLUMNS to next major section or end
+                # Look for 500 chars after users section starts
+                users_start = content.find("'users':", critical_start)
+                if users_start == -1:
+                    users_start = content.find('"users":', critical_start)
                 
-                if 'push_enabled' in users_section:
-                    print("✅ push_enabled found in users CRITICAL_COLUMNS")
+                if users_start != -1:
+                    # Check within 500 chars of users section start
+                    users_section = content[users_start:users_start+500]
+                    
+                    if 'push_enabled' in users_section:
+                        print("✅ push_enabled found in users CRITICAL_COLUMNS")
+                    else:
+                        print("❌ push_enabled not in users section")
+                        all_ok = False
                 else:
-                    print("❌ push_enabled not in users section")
+                    print("❌ Could not find users section")
                     all_ok = False
             else:
-                print("⚠️ Could not verify push_enabled placement")
+                print("❌ Could not find CRITICAL_COLUMNS section")
+                all_ok = False
         else:
-            print("❌ push_enabled not found in CRITICAL_COLUMNS")
+            print("❌ push_enabled not found in file")
             all_ok = False
         
         return all_ok
