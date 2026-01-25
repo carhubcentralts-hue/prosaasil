@@ -12,6 +12,7 @@ from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 import logging
 import os
+import json
 import uuid
 from werkzeug.utils import secure_filename
 
@@ -1491,104 +1492,72 @@ def bulk_delete_leads():
     log.info(f"🗑️ Bulk delete: user={user.get('email') if user else 'unknown'}, is_system_admin={is_system_admin}, tenant_id={tenant_id}, lead_ids={lead_ids}")
     
     try:
-        # BUILD 157: Find leads - use tenant filtering when available
+        # Validate tenant access
         if tenant_id:
-            leads = Lead.query.filter(
+            # Verify all requested leads belong to this tenant
+            accessible_leads = Lead.query.filter(
                 Lead.id.in_(lead_ids),
                 Lead.tenant_id == tenant_id
             ).all()
         else:
-            # System admin without impersonation - can delete any lead
-            leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
+            # System admin without impersonation
+            accessible_leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
         
-        log.info(f"🗑️ Found {len(leads)} leads out of {len(lead_ids)} requested")
-        
-        # BUILD 157: Allow deletion of found leads - don't fail if some not found
-        if len(leads) == 0:
+        if len(accessible_leads) == 0:
             return jsonify({"error": "No leads found or access denied", "success": False}), 404
         
-        # BUILD 172: Delete related records FIRST to avoid FK constraint violations
-        actual_lead_ids = [lead.id for lead in leads]
+        log.info(f"🗑️ Creating bulk delete job: {len(accessible_leads)} leads (tenant={tenant_id})")
         
-        # Delete LeadActivity records
-        LeadActivity.query.filter(LeadActivity.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
+        # Create BackgroundJob record
+        from server.models_sql import BackgroundJob
+        from rq import Queue
+        import redis
         
-        # Delete LeadReminder records
-        LeadReminder.query.filter(LeadReminder.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
-        
-        # Delete LeadNote records (has cascade but be explicit)
-        # BUILD 173: Handle missing table on older production DBs
-        try:
-            LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
-        except Exception as note_err:
-            err_str = str(note_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_notes' in err_str:
-                log.warning(f"⚠️ LeadNote delete skipped (table does not exist)")
-            else:
-                log.error(f"❌ LeadNote delete error: {note_err}")
-                raise  # Re-raise unexpected errors
-        
-        # Delete LeadMergeCandidate records
-        # BUILD 173: Handle missing table on older production DBs
-        try:
-            LeadMergeCandidate.query.filter(
-                db.or_(
-                    LeadMergeCandidate.lead_id.in_(actual_lead_ids),
-                    LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
-                )
-            ).delete(synchronize_session=False)
-        except Exception as merge_err:
-            err_str = str(merge_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_merge_candidates' in err_str:
-                log.warning(f"⚠️ LeadMergeCandidate delete skipped (table does not exist)")
-            else:
-                log.error(f"❌ LeadMergeCandidate delete error: {merge_err}")
-                raise  # Re-raise unexpected errors
-        
-        # Clear lead_id references in WhatsAppConversation (set to NULL)
-        # BUILD 174: Handle missing models gracefully - use WhatsAppConversation which has lead_id
-        try:
-            from server.models_sql import WhatsAppConversation
-            WhatsAppConversation.query.filter(WhatsAppConversation.lead_id.in_(actual_lead_ids)).update(
-                {"lead_id": None}, synchronize_session=False
-            )
-        except Exception as wa_err:
-            err_str = str(wa_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'cannot import' in err_str:
-                log.warning(f"⚠️ WhatsApp conversation clear skipped (table/model not available)")
-            else:
-                log.warning(f"⚠️ WhatsApp conversation clear skipped: {wa_err}")
-        
-        # Clear lead_id references in CallLog (set to NULL)
-        # BUILD 174: CallLog has lead_id for outbound calls
-        try:
-            CallLog.query.filter(CallLog.lead_id.in_(actual_lead_ids)).update(
-                {"lead_id": None}, synchronize_session=False
-            )
-        except Exception as call_err:
-            log.warning(f"⚠️ CallLog clear skipped: {call_err}")
-        
-        # Now delete the leads
-        deleted_count = 0
-        deleted_names = []
-        
-        for lead in leads:
-            deleted_names.append(lead.full_name or f"Lead #{lead.id}")
-            db.session.delete(lead)
-            deleted_count += 1
-        
+        bg_job = BackgroundJob()
+        bg_job.business_id = tenant_id or accessible_leads[0].tenant_id  # Use first lead's tenant if system admin
+        bg_job.requested_by_user_id = user.get('id') if user else None
+        bg_job.job_type = 'delete_leads'
+        bg_job.status = 'queued'
+        bg_job.total = len(accessible_leads)
+        bg_job.processed = 0
+        bg_job.succeeded = 0
+        bg_job.failed_count = 0
+        bg_job.cursor = json.dumps({
+            'lead_ids': [lead.id for lead in accessible_leads],
+            'processed_ids': []
+        })
+        db.session.add(bg_job)
         db.session.commit()
         
-        # Log summary after commit
-        log.info(f"🗑️ Bulk deleted by {user.get('email') if user else 'unknown'}: {deleted_names}")
-        log.info(f"✅ Bulk delete completed: {deleted_count}/{len(lead_ids)} leads deleted")
+        # Enqueue to RQ maintenance queue
+        REDIS_URL = os.getenv('REDIS_URL')
+        if REDIS_URL:
+            redis_conn = redis.from_url(REDIS_URL)
+            queue = Queue('maintenance', connection=redis_conn)
+            
+            # Import and enqueue the job function
+            from server.jobs.delete_leads_job import delete_leads_batch_job
+            rq_job = queue.enqueue(
+                delete_leads_batch_job,
+                bg_job.id,
+                job_timeout='30m',
+                job_id=f"delete_leads_{bg_job.id}"
+            )
+            
+            log.info(f"🚀 Enqueued RQ job for bulk delete, job_id={bg_job.id}, rq_job_id={rq_job.id}")
+        else:
+            log.warning(f"⚠️ REDIS_URL not set, cannot enqueue delete job")
+            bg_job.status = 'failed'
+            bg_job.last_error = 'Redis not configured'
+            db.session.commit()
+            return jsonify({"error": "Job queue not available", "success": False}), 503
         
         return jsonify({
             "success": True,
-            "message": f"Bulk delete completed: {deleted_count} leads deleted",
-            "deleted_count": deleted_count,
-            "total_requested": len(lead_ids)
-        })
+            "message": f"Bulk delete job created for {len(accessible_leads)} leads",
+            "job_id": bg_job.id,
+            "total_leads": len(accessible_leads)
+        }), 202  # 202 Accepted - processing in background
         
     except Exception as e:
         db.session.rollback()
@@ -1600,7 +1569,7 @@ def bulk_delete_leads():
 @leads_bp.route("/api/leads/bulk", methods=["PATCH"])
 @require_api_auth()  # BUILD 137: Added missing decorator
 def bulk_update_leads():
-    """Bulk update multiple leads"""
+    """Bulk update multiple leads - uses RQ worker for batch processing"""
     # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     tenant_id = get_current_tenant()
@@ -1626,44 +1595,69 @@ def bulk_update_leads():
     if len(leads) != len(lead_ids):
         return jsonify({"error": "Some leads not found or access denied"}), 404
     
-    # Apply updates
-    updated_count = 0
     user = get_current_user()
     
-    for lead in leads:
-        changes = {}
+    try:
+        # Create BackgroundJob record
+        from server.models_sql import BackgroundJob
+        from rq import Queue
+        import redis
         
-        # Update allowed fields
-        for field in ['status', 'owner_user_id', 'tags']:
-            if field in updates:
-                old_value = getattr(lead, field)
-                new_value = updates[field]
-                if old_value != new_value:
-                    changes[field] = {"from": old_value, "to": new_value}
-                    setattr(lead, field, new_value)
+        bg_job = BackgroundJob()
+        bg_job.business_id = tenant_id
+        bg_job.requested_by_user_id = user.get('id') if user else None
+        bg_job.job_type = 'update_leads'
+        bg_job.status = 'queued'
+        bg_job.total = len(lead_ids)
+        bg_job.processed = 0
+        bg_job.succeeded = 0
+        bg_job.failed_count = 0
+        bg_job.cursor = json.dumps({
+            'lead_ids': lead_ids,
+            'updates': updates,
+            'user_email': user.get('email', 'unknown') if user else 'unknown',
+            'user_id': user.get('id') if user else None,
+            'processed_ids': []
+        })
+        db.session.add(bg_job)
+        db.session.commit()
         
-        if changes:
-            lead.updated_at = datetime.utcnow()
-            updated_count += 1
+        # Enqueue to RQ maintenance queue
+        REDIS_URL = os.getenv('REDIS_URL')
+        if REDIS_URL:
+            redis_conn = redis.from_url(REDIS_URL)
+            queue = Queue('maintenance', connection=redis_conn)
             
-            # Log bulk update
-            create_activity(
-                lead.id,
-                "bulk_update",
-                {
-                    "changes": changes,
-                    "updated_by": user.get('email', 'unknown') if user else 'unknown'
-                },
-                user.get('id') if user else None
+            # Import and enqueue the job function
+            from server.jobs.update_leads_job import update_leads_batch_job
+            rq_job = queue.enqueue(
+                update_leads_batch_job,
+                bg_job.id,
+                job_timeout='30m',
+                job_id=f"update_leads_{bg_job.id}"
             )
-    
-    db.session.commit()
-    
-    return jsonify({
-        "message": f"Bulk update completed: {updated_count} leads updated",
-        "updated_count": updated_count,
-        "total_requested": len(lead_ids)
-    })
+            
+            log.info(f"🚀 Enqueued RQ job for bulk update, job_id={bg_job.id}, rq_job_id={rq_job.id}")
+        else:
+            log.warning(f"⚠️ REDIS_URL not set, cannot enqueue update job")
+            bg_job.status = 'failed'
+            bg_job.last_error = 'Redis not configured'
+            db.session.commit()
+            return jsonify({"error": "Job queue not available"}), 503
+        
+        return jsonify({
+            "success": True,
+            "message": f"Bulk update job created for {len(lead_ids)} leads",
+            "job_id": bg_job.id,
+            "total_leads": len(lead_ids)
+        }), 202  # 202 Accepted - processing in background
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"❌ Bulk update error: {e}")
+        import traceback
+        log.error(traceback.format_exc())
+        return jsonify({"error": f"Failed to create update job: {str(e)}"}), 500
 
 # Placeholder for WhatsApp integration - will be implemented in task 7
 @leads_bp.route("/api/leads/<int:lead_id>/message/whatsapp", methods=["POST"])

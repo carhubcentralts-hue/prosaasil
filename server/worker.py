@@ -81,8 +81,8 @@ logger.info(f"REDIS_URL: {masked_redis_url}")
 logger.info(f"Python executable: {sys.executable}")
 logger.info(f"Python version: {sys.version.split()[0]}")
 
-# Get queues to listen to from environment (default: high,default,low)
-RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low')
+# Get queues to listen to from environment (default includes all necessary queues)
+RQ_QUEUES = os.getenv('RQ_QUEUES', 'high,default,low,maintenance,broadcasts,recordings')
 LISTEN_QUEUES = [q.strip() for q in RQ_QUEUES.split(',') if q.strip()]
 logger.info(f"RQ_QUEUES configuration: {RQ_QUEUES}")
 logger.info(f"Will listen to queues: {LISTEN_QUEUES}")
@@ -181,9 +181,19 @@ def main():
         try:
             from server.jobs.gmail_sync_job import sync_gmail_receipts_job
             from server.jobs.delete_receipts_job import delete_receipts_batch_job
+            from server.jobs.broadcast_job import process_broadcast_job
+            from server.jobs.delete_leads_job import delete_leads_batch_job
+            from server.jobs.update_leads_job import update_leads_batch_job
+            from server.jobs.delete_imported_leads_job import delete_imported_leads_batch_job
+            from server.jobs.enqueue_outbound_calls_job import enqueue_outbound_calls_batch_job
             logger.info("✓ Job functions imported successfully")
             logger.info(f"  → sync_gmail_receipts_job: {sync_gmail_receipts_job}")
             logger.info(f"  → delete_receipts_batch_job: {delete_receipts_batch_job}")
+            logger.info(f"  → process_broadcast_job: {process_broadcast_job}")
+            logger.info(f"  → delete_leads_batch_job: {delete_leads_batch_job}")
+            logger.info(f"  → update_leads_batch_job: {update_leads_batch_job}")
+            logger.info(f"  → delete_imported_leads_batch_job: {delete_imported_leads_batch_job}")
+            logger.info(f"  → enqueue_outbound_calls_batch_job: {enqueue_outbound_calls_batch_job}")
         except (ImportError, ModuleNotFoundError) as e:
             log_fatal_error("Importing job functions", e)
         
