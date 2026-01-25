@@ -12,6 +12,9 @@ import {
 } from 'lucide-react';
 import { logger } from '../shared/utils/logger';
 
+// Constants
+const IFRAME_TIMEOUT_MS = 10000; // Timeout for iframe loading to prevent stuck overlays (10 seconds)
+
 export interface PDFViewerProps {
   pdfUrl: string;
   currentPage: number;
@@ -51,7 +54,7 @@ export function EnhancedPDFViewer({
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeError, setIframeError] = useState(false);
-  const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadTimeoutRef = useRef<number | null>(null);
 
   // Fullscreen handling
   useEffect(() => {
@@ -164,7 +167,7 @@ export function EnhancedPDFViewer({
       loadTimeoutRef.current = setTimeout(() => {
         logger.error('[PDF_IFRAME_TIMEOUT] Iframe loading timeout - forcing load complete');
         setIframeLoaded(true); // Force loaded to clear overlay
-      }, 10000); // 10 seconds timeout
+      }, IFRAME_TIMEOUT_MS);
     }
     
     return () => {

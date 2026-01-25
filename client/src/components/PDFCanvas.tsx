@@ -17,6 +17,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.js/pdf.worker.min.js';
 // Constants
 const MIN_CONTAINER_WIDTH_FOR_RENDER = 200; // Minimum container width before rendering PDF (px)
 const PDF_OVERLAY_Z_INDEX = 2; // Z-index for overlay (signature fields, etc.)
+const RENDER_TIMEOUT_MS = 10000; // Timeout for rendering to prevent stuck overlays (10 seconds)
 
 export interface PDFCanvasProps {
   pdfUrl: string;
@@ -58,7 +59,7 @@ export function PDFCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerDivRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
-  const renderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const renderTimeoutRef = useRef<number | null>(null);
 
   // Load PDF document - only when URL changes
   useEffect(() => {
@@ -189,7 +190,7 @@ export function PDFCanvas({
       logger.error('[PDF_CANVAS] Render timeout - forcing isRendering to false');
       setIsRendering(false);
       renderTaskRef.current = null;
-    }, 10000);
+    }, RENDER_TIMEOUT_MS);
 
     pdf.getPage(currentPage)
       .then((page) => {

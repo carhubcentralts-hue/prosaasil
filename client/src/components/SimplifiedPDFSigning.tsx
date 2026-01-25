@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CheckCircle, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '../shared/components/ui/Button';
+import { logger } from '../shared/utils/logger';
+
+// Constants
+const LOADING_TIMEOUT_MS = 10000; // Timeout for PDF loading to prevent stuck overlays (10 seconds)
 
 interface SignatureField {
   id: string;
@@ -41,7 +45,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadTimeoutRef = useRef<number | null>(null);
 
   // Load signature fields and PDF info
   useEffect(() => {
@@ -83,7 +87,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
 
   // Handle iframe load events
   const handleIframeLoad = () => {
-    console.log('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
+    logger.debug('[PDF_LOAD_SUCCESS] PDF iframe loaded successfully');
     setPdfReady(true);
     setPdfError(null);
     setLoading(false);
@@ -96,7 +100,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
   };
 
   const handleIframeError = () => {
-    console.error('[PDF_LOAD_ERROR] PDF iframe failed to load');
+    logger.error('[PDF_LOAD_ERROR] PDF iframe failed to load');
     setPdfError('שגיאה בטעינת PDF');
     setPdfReady(false);
     setLoading(false);
@@ -113,10 +117,10 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     if (loading && !pdfReady && !pdfError) {
       // Start a timeout when loading begins
       loadTimeoutRef.current = setTimeout(() => {
-        console.error('[PDF_LOAD_TIMEOUT] PDF loading timeout - forcing load complete');
+        logger.error('[PDF_LOAD_TIMEOUT] PDF loading timeout - forcing load complete');
         setLoading(false);
         setPdfError('זמן הטעינה חרג מהמותר. נסה לרענן את הדף.');
-      }, 10000); // 10 seconds timeout
+      }, LOADING_TIMEOUT_MS);
     }
     
     return () => {
