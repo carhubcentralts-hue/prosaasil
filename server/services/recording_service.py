@@ -1,13 +1,15 @@
 """
 Recording Service - שירות מאוחד להורדה ושמירה של הקלטות
 משמש גם ל-UI וגם ל-offline worker - single source of truth
+
+🔥 PERFORMANCE: Includes circuit breaker to prevent cascading failures
 """
 import os
 import logging
 import requests
 import time
 import fcntl
-from typing import Optional, Set
+from typing import Optional, Set, Dict
 from server.models_sql import CallLog
 from flask import current_app, has_app_context
 import threading
@@ -26,6 +28,35 @@ _download_in_progress_lock = threading.Lock()
 # 🔥 Track when each download started (for stale cleanup)
 _download_start_time: dict = {}
 DOWNLOAD_STALE_TIMEOUT = 300  # 5 minutes - consider download stale if not finished
+
+# 🔥 PERFORMANCE: Circuit breaker for failed downloads
+# Prevents retry storms for permanently failed recordings
+_circuit_breaker_failures: Dict[str, int] = {}  # call_sid -> failure_count
+_circuit_breaker_lock = threading.Lock()
+CIRCUIT_BREAKER_THRESHOLD = 3  # Open circuit after 3 failures
+CIRCUIT_BREAKER_RESET_TIME = 3600  # Reset circuit after 1 hour
+
+def _is_circuit_open(call_sid: str) -> bool:
+    """Check if circuit breaker is open for this call_sid"""
+    with _circuit_breaker_lock:
+        failure_count = _circuit_breaker_failures.get(call_sid, 0)
+        return failure_count >= CIRCUIT_BREAKER_THRESHOLD
+
+def _record_failure(call_sid: str):
+    """Record a download failure for circuit breaker"""
+    with _circuit_breaker_lock:
+        _circuit_breaker_failures[call_sid] = _circuit_breaker_failures.get(call_sid, 0) + 1
+        failure_count = _circuit_breaker_failures[call_sid]
+        if failure_count >= CIRCUIT_BREAKER_THRESHOLD:
+            log.warning(f"[CIRCUIT_BREAKER] OPEN for {call_sid} - {failure_count} failures")
+
+def _record_success(call_sid: str):
+    """Record a successful download - reset circuit breaker"""
+    with _circuit_breaker_lock:
+        if call_sid in _circuit_breaker_failures:
+            del _circuit_breaker_failures[call_sid]
+            log.info(f"[CIRCUIT_BREAKER] CLOSED for {call_sid} - download succeeded")
+
 
 def _get_recordings_dir() -> str:
     """
@@ -99,6 +130,11 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     # Use the primary call_sid for download path
     local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
     
+    # 🔥 PERFORMANCE: Check circuit breaker before attempting download
+    if _is_circuit_open(call_sid):
+        log.warning(f"[CIRCUIT_BREAKER] Skipping download for {call_sid} - too many failures")
+        return None
+    
     # 🔥 FIX: Check if download is already in progress (by another thread/process)
     if is_download_in_progress(call_sid):
         log.info(f"[RECORDING_SERVICE] Download already in progress for {call_sid} (another worker) - waiting...")
@@ -108,6 +144,7 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
             time.sleep(delay)
             if check_local_recording_exists(call_sid):
                 log.info(f"[RECORDING_SERVICE] ✅ File became available while waiting: {local_path}")
+                _record_success(call_sid)
                 return local_path
         log.warning(f"[RECORDING_SERVICE] Timeout waiting for in-progress download for {call_sid}")
         return None
@@ -206,6 +243,7 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
             
             if not recording_content:
                 log.error(f"[RECORDING_SERVICE] Failed to download recording for {call_sid}")
+                _record_failure(call_sid)  # 🔥 CIRCUIT_BREAKER: Record failure
                 return None
             
             # 3. Save to local disk
@@ -220,10 +258,12 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
                     log.warning(f"[RECORDING_SERVICE] ⚠️  Slow download detected ({download_time:.2f}s) - consider pre-downloading in webhook/worker to avoid 502")
                 
                 download_success = True  # 🔥 FIX: Mark successful download
+                _record_success(call_sid)  # 🔥 CIRCUIT_BREAKER: Record success, reset failures
                 return local_path
                 
             except Exception as e:
                 log.error(f"[RECORDING_SERVICE] Failed to save recording to disk: {e}")
+                _record_failure(call_sid)  # 🔥 CIRCUIT_BREAKER: Record failure
                 return None
         
         finally:
