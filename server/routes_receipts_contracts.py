@@ -354,7 +354,7 @@ def create_contract():
                     attachment.business_id = business_id
                     attachment.entity_type = 'contract'
                     attachment.entity_id = contract.id
-                    attachment.filename = file.filename
+                    attachment.filename_original = file.filename  # 🔥 FIX: Use filename_original not filename
                     attachment.mime_type = file.content_type or 'application/octet-stream'
                     attachment.created_at = datetime.utcnow()
                     
