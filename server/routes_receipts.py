@@ -935,6 +935,63 @@ def download_receipt(receipt_id):
         return jsonify({"success": False, "error": "Failed to generate download URL"}), 500
 
 
+@receipts_bp.route('/<int:receipt_id>/preview/download', methods=['GET'])
+@require_api_auth()
+@require_page_access('gmail_receipts')
+def download_receipt_preview(receipt_id):
+    """
+    🔥 NEW: Download receipt preview (thumbnail/optimized image)
+    
+    Returns a redirect to the signed URL for the receipt preview attachment.
+    This allows the browser to download the preview file directly from storage (R2/S3).
+    """
+    business_id = get_current_business_id()
+    
+    receipt = Receipt.query.filter_by(
+        id=receipt_id,
+        business_id=business_id,
+        is_deleted=False
+    ).first()
+    
+    if not receipt:
+        return jsonify({"success": False, "error": "Receipt not found"}), 404
+    
+    # Get the preview attachment
+    if not receipt.preview_attachment_id or not receipt.preview_attachment:
+        return jsonify({
+            "success": False, 
+            "error": "preview_not_available",
+            "message": "Preview not available for this receipt"
+        }), 404
+    
+    # Generate signed URL with Content-Disposition header for download
+    try:
+        from server.services.attachment_service import get_attachment_service
+        attachment_service = get_attachment_service()
+        
+        # Get safe filename for preview
+        preview_filename = safe_get_filename(receipt.preview_attachment, f"preview_{receipt_id}.jpg")
+        
+        signed_url = attachment_service.generate_signed_url(
+            attachment_id=receipt.preview_attachment.id,
+            storage_key=receipt.preview_attachment.storage_path,
+            ttl_minutes=15,  # 15 minutes for download
+            mime_type=getattr(receipt.preview_attachment, 'mime_type', 'image/jpeg'),
+            filename=preview_filename
+        )
+        
+        if not signed_url:
+            logger.error(f"Failed to generate signed URL for preview of receipt {receipt_id}")
+            return jsonify({"success": False, "error": "Failed to generate download URL"}), 500
+        
+        # Redirect to signed URL (browser will download the file)
+        return redirect(signed_url)
+    
+    except Exception as e:
+        logger.error(f"Failed to download preview for receipt {receipt_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "Failed to generate download URL"}), 500
+
+
 @receipts_bp.route('/<int:receipt_id>/mark', methods=['PATCH'])
 @require_api_auth()
 @require_page_access('gmail_receipts')
@@ -2269,58 +2326,63 @@ def export_receipts():
             downloaded_count = 0
             
             for receipt in receipts:
-                # Try to get the preview first (thumbnail), then fall back to attachment
-                attachment_to_export = receipt.preview_attachment or receipt.attachment
+                # 🔥 FIX: Export BOTH source and preview (if available), not just one
+                # This ensures ZIP always contains maximum information
+                files_added_for_receipt = 0
                 
-                if not attachment_to_export:
-                    logger.warning(f"Receipt {receipt.id} has no attachment or preview to export")
-                    continue
-                
-                try:
-                    # Generate signed URL for downloading the attachment
+                # Helper function to download and add file to ZIP
+                def add_file_to_zip(attachment, file_type_suffix):
+                    """Helper to download and add attachment to ZIP"""
+                    nonlocal files_added_for_receipt
+                    
+                    if not attachment:
+                        return False
+                    
                     try:
-                        signed_url = attachment_service.generate_signed_url(
-                            attachment_id=attachment_to_export.id,
-                            storage_key=attachment_to_export.storage_path,
-                            ttl_minutes=10  # Short TTL for export process
+                        # Generate signed URL for downloading the attachment
+                        try:
+                            signed_url = attachment_service.generate_signed_url(
+                                attachment_id=attachment.id,
+                                storage_key=attachment.storage_path,
+                                ttl_minutes=10  # Short TTL for export process
+                            )
+                        except Exception as e:
+                            logger.warning(f"[RECEIPTS_EXPORT] Receipt {receipt.id} {file_type_suffix}: Failed to generate signed URL: {e}")
+                            return False
+                        
+                        if not signed_url:
+                            logger.warning(f"[RECEIPTS_EXPORT] Receipt {receipt.id} {file_type_suffix}: No signed URL generated")
+                            return False
+                        
+                        # Download the file from signed URL with SSL verification and size limit
+                        # SECURITY: Limit download size to prevent memory exhaustion (100 MB max)
+                        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+                        
+                        response = requests.get(
+                            signed_url, 
+                            timeout=30,
+                            stream=True,  # Stream to check size before loading into memory
+                            verify=True  # SSL verification enabled
                         )
-                    except Exception as e:
-                        logger.warning(f"Receipt {receipt.id}: Failed to generate signed URL: {e}")
-                        continue
-                    
-                    if not signed_url:
-                        logger.warning(f"Receipt {receipt.id}: No signed URL generated")
-                        continue
-                    
-                    # Download the file from signed URL with SSL verification and size limit
-                    # SECURITY: Limit download size to prevent memory exhaustion (100 MB max)
-                    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
-                    
-                    response = requests.get(
-                        signed_url, 
-                        timeout=30,
-                        stream=True,  # Stream to check size before loading into memory
-                        verify=True  # SSL verification enabled
-                    )
-                    response.raise_for_status()
-                    
-                    # Check content length before downloading
-                    content_length = response.headers.get('content-length')
-                    if content_length and int(content_length) > MAX_FILE_SIZE:
-                        logger.warning(f"Receipt {receipt.id} file too large ({content_length} bytes), skipping")
-                        continue
-                    
-                    # Read content with size limit
-                    content = bytearray()
-                    for chunk in response.iter_content(chunk_size=8192):
-                        content.extend(chunk)
-                        if len(content) > MAX_FILE_SIZE:
-                            logger.warning(f"Receipt {receipt.id} exceeded size limit during download, skipping")
-                            break
-                    else:
+                        response.raise_for_status()
+                        
+                        # Check content length before downloading
+                        content_length = response.headers.get('content-length')
+                        if content_length and int(content_length) > MAX_FILE_SIZE:
+                            logger.warning(f"[RECEIPTS_EXPORT] Receipt {receipt.id} {file_type_suffix} too large ({content_length} bytes), skipping")
+                            return False
+                        
+                        # Read content with size limit
+                        content = bytearray()
+                        for chunk in response.iter_content(chunk_size=8192):
+                            content.extend(chunk)
+                            if len(content) > MAX_FILE_SIZE:
+                                logger.warning(f"[RECEIPTS_EXPORT] Receipt {receipt.id} {file_type_suffix} exceeded size limit during download, skipping")
+                                return False
+                        
                         # Download completed successfully
                         content = bytes(content)
-                    
+                        
                         # Generate a safe filename with comprehensive sanitization
                         vendor = (receipt.vendor_name or 'Unknown')
                         # SECURITY: Comprehensive filename sanitization
@@ -2335,8 +2397,7 @@ def export_receipts():
                         amount_str = f"{receipt.amount:.2f}{receipt.currency}" if receipt.amount else "0"
                         
                         # Get file extension from filename or mime type
-                        # 🔥 FIX: Use safe_get_filename to avoid AttributeError
-                        original_filename = safe_get_filename(attachment_to_export, "")
+                        original_filename = safe_get_filename(attachment, "")
                         file_ext = Path(original_filename).suffix
                         
                         if not file_ext:
@@ -2348,25 +2409,41 @@ def export_receipts():
                                 'image/webp': '.webp',
                                 'application/pdf': '.pdf'
                             }
-                            file_ext = mime_to_ext.get(attachment_to_export.mime_type, '.bin')
+                            file_ext = mime_to_ext.get(getattr(attachment, 'mime_type', ''), '.bin')
                         
                         # Sanitize extension
                         file_ext = re.sub(r'[^a-zA-Z0-9.]', '', file_ext)[:10]  # Max 10 chars for extension
                         
-                        # Create filename: vendor_date_amount_id.ext (max 255 chars total)
-                        filename = f"{vendor[:100]}_{date_str}_{amount_str}_{receipt.id}{file_ext}"
+                        # Create filename with type suffix: receipt_123_source.pdf or receipt_123_preview.jpg
+                        filename = f"{vendor[:100]}_{date_str}_{amount_str}_{receipt.id}_{file_type_suffix}{file_ext}"
                         filename = filename[:255]  # Filesystem limit
                         
                         # Add to ZIP
                         zip_file.writestr(filename, content)
-                        downloaded_count += 1
-                    
-                except requests.exceptions.RequestException as e:
-                    logger.error(f"Failed to download receipt {receipt.id}: {e}")
-                    continue
-                except Exception as e:
-                    logger.error(f"Error processing receipt {receipt.id}: {e}")
-                    continue
+                        files_added_for_receipt += 1
+                        return True
+                        
+                    except requests.exceptions.RequestException as e:
+                        logger.error(f"[RECEIPTS_EXPORT] Failed to download receipt {receipt.id} {file_type_suffix}: {e}")
+                        return False
+                    except Exception as e:
+                        logger.error(f"[RECEIPTS_EXPORT] Error processing receipt {receipt.id} {file_type_suffix}: {e}")
+                        return False
+                
+                # Add source (original) attachment if exists
+                if receipt.attachment:
+                    add_file_to_zip(receipt.attachment, "source")
+                
+                # Add preview attachment if exists
+                if receipt.preview_attachment:
+                    add_file_to_zip(receipt.preview_attachment, "preview")
+                
+                # Track total count
+                if files_added_for_receipt > 0:
+                    downloaded_count += files_added_for_receipt
+                else:
+                    # 🔥 LOG: No files added for this receipt
+                    logger.warning(f"[RECEIPTS_EXPORT] preview_missing receipt_id={receipt.id} (no source or preview available)")
         
         if downloaded_count == 0:
             return jsonify({"success": False, "error": "No receipts could be downloaded"}), 500

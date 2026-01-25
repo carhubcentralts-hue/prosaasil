@@ -18,6 +18,7 @@ import logging
 import urllib.parse
 
 log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # Alias for consistency with other modules
 
 calls_bp = Blueprint("calls", __name__)
 
@@ -233,7 +234,12 @@ def get_call_details(call_sid):
 @require_api_auth()
 @require_page_access('calls_inbound')
 def download_recording(call_sid):
-    """הורדה מאובטחת של הקלטה דרך השרת - with Range support for iOS"""
+    """
+    🔥 FIX: Download recording - API should NOT download, only serve if cached or queue to worker
+    
+    This endpoint is similar to stream_recording but for download (as attachment).
+    Uses the same semaphore system to queue downloads to worker.
+    """
     try:
         business_id = get_business_id()
         if not business_id:
@@ -254,112 +260,151 @@ def download_recording(call_sid):
             log.info(f"Download recording: Recording expired for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording expired and deleted"}), 410
         
-        # 🔥 FIX 502: Check if recording_url exists before attempting download
+        # Check if recording_url exists
         if not call.recording_url:
             log.warning(f"Download recording: No recording_url for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording URL not available"}), 404
         
-        # ✅ Use unified recording service - same source as worker
-        from server.services.recording_service import get_recording_file_for_call
+        # 🔥 FIX: Check if file exists locally - do NOT download in API!
+        from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
         
-        # 🔥 FIX 502: Wrap in try-except to prevent crashes from Twilio failures
-        try:
-            audio_path = get_recording_file_for_call(call)
-        except Exception as fetch_error:
-            log.error(f"Download recording: Failed to fetch recording for call_sid={call_sid}: {fetch_error}")
-            return jsonify({"success": False, "error": "Failed to fetch recording from Twilio"}), 500
-        
-        if not audio_path:
-            log.warning(f"Download recording: No audio_path returned for call_sid={call_sid}")
-            return jsonify({"success": False, "error": "Recording not available"}), 404
-        
-        # 🔥 FIX 502: Verify file exists and is readable before attempting to serve
-        if not os.path.exists(audio_path):
-            log.error(f"Download recording: File does not exist at path={audio_path}")
-            return jsonify({"success": False, "error": "Recording file not found"}), 404
-        
-        # 🎯 iOS FIX: Support Range requests for audio streaming
-        # Get file size for Content-Length and Range calculations
-        file_size = os.path.getsize(audio_path)
-        
-        # Check if Range header is present (iOS requires this)
-        range_header = request.headers.get('Range', None)
-        
-        if range_header:
-            # Parse Range header (format: "bytes=start-end")
-            # Supports: bytes=0-999, bytes=0-, bytes=-500 (last 500 bytes)
-            byte_range = range_header.replace('bytes=', '').split('-')
+        if check_local_recording_exists(call_sid):
+            # File exists - serve it immediately for download
+            recordings_dir = _get_recordings_dir()
+            audio_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
             
-            # Handle suffix-byte-range-spec: bytes=-500 (last N bytes)
-            if not byte_range[0] and byte_range[1]:
-                # Request for last N bytes
-                suffix_length = int(byte_range[1])
-                start = max(0, file_size - suffix_length)
-                end = file_size - 1
+            # 🎯 Support Range requests for audio streaming
+            # Get file size for Content-Length and Range calculations
+            file_size = os.path.getsize(audio_path)
+            
+            # Check if Range header is present (iOS requires this)
+            range_header = request.headers.get('Range', None)
+            
+            if range_header:
+                # Parse Range header (format: "bytes=start-end")
+                # Supports: bytes=0-999, bytes=0-, bytes=-500 (last 500 bytes)
+                byte_range = range_header.replace('bytes=', '').split('-')
+                
+                # Handle suffix-byte-range-spec: bytes=-500 (last N bytes)
+                if not byte_range[0] and byte_range[1]:
+                    # Request for last N bytes
+                    suffix_length = int(byte_range[1])
+                    start = max(0, file_size - suffix_length)
+                    end = file_size - 1
+                else:
+                    # Normal range or open-ended range
+                    start = int(byte_range[0]) if byte_range[0] else 0
+                    end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+                
+                # Ensure valid range
+                if start >= file_size:
+                    return Response(status=416)  # Range Not Satisfiable
+                
+                end = min(end, file_size - 1)
+                length = end - start + 1
+                
+                # Read partial content
+                with open(audio_path, 'rb') as f:
+                    f.seek(start)
+                    data = f.read(length)
+                
+                # Return 206 Partial Content with proper headers
+                rv = Response(
+                    data,
+                    206,
+                    mimetype='audio/mpeg',
+                    direct_passthrough=True
+                )
+                rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
+                rv.headers.add('Accept-Ranges', 'bytes')
+                rv.headers.add('Content-Length', str(length))
+                rv.headers.add('Content-Disposition', 'attachment')  # Download as attachment
+                
+                # CORS headers
+                origin = request.headers.get('Origin')
+                if origin:
+                    rv.headers.add('Access-Control-Allow-Origin', origin)
+                    rv.headers.add('Access-Control-Allow-Credentials', 'true')
+                    rv.headers.add('Vary', 'Origin')
+                    rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
+                return rv
             else:
-                # Normal range or open-ended range
-                start = int(byte_range[0]) if byte_range[0] else 0
-                end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
-            
-            # Ensure valid range
-            if start >= file_size:
-                return Response(status=416)  # Range Not Satisfiable
-            
-            end = min(end, file_size - 1)
-            length = end - start + 1
-            
-            # Read partial content
-            with open(audio_path, 'rb') as f:
-                f.seek(start)
-                data = f.read(length)
-            
-            # Return 206 Partial Content with proper headers
-            rv = Response(
-                data,
-                206,
-                mimetype='audio/mpeg',
-                direct_passthrough=True
-            )
-            rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
-            rv.headers.add('Accept-Ranges', 'bytes')
-            rv.headers.add('Content-Length', str(length))
-            # 🎯 FIX: Content-Disposition inline for browser playback (required for iOS/Chrome)
-            rv.headers.add('Content-Disposition', 'inline')
-            # 🎯 FIX: CORS headers for cross-origin requests (if frontend on different domain)
-            # Security: Use specific origin from request header, NOT wildcard with credentials
-            origin = request.headers.get('Origin')
-            if origin:
-                rv.headers.add('Access-Control-Allow-Origin', origin)
-                rv.headers.add('Access-Control-Allow-Credentials', 'true')
-                # 🎯 FIX: Vary header for proper caching with multiple origins
-                rv.headers.add('Vary', 'Origin')
-                # 🎯 FIX: Expose headers so UI can read them during Range requests
-                rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
-            return rv
+                # No Range header - serve entire file for download
+                response = make_response(send_file(
+                    audio_path,
+                    mimetype="audio/mpeg",
+                    as_attachment=True,  # Force download
+                    download_name=f"recording_{call_sid}.mp3",
+                    conditional=True,
+                    max_age=3600
+                ))
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['Content-Length'] = str(file_size)
+                
+                # CORS headers
+                origin = request.headers.get('Origin')
+                if origin:
+                    response.headers['Access-Control-Allow-Origin'] = origin
+                    response.headers['Access-Control-Allow-Credentials'] = 'true'
+                    response.headers['Vary'] = 'Origin'
+                    response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
+                return response
         else:
-            # No Range header - serve entire file with Accept-Ranges header
-            response = make_response(send_file(
-                audio_path,
-                mimetype="audio/mpeg",
-                as_attachment=False,
-                conditional=True,  # Enable conditional requests
-                max_age=3600  # Cache for 1 hour
-            ))
-            # 🎯 FIX: Add required headers for audio streaming (iOS/Android compatibility)
-            response.headers['Accept-Ranges'] = 'bytes'
-            response.headers['Content-Disposition'] = 'inline'
-            response.headers['Content-Length'] = str(file_size)
-            # 🎯 FIX: CORS headers for cross-origin requests
-            # Security: Use specific origin from request header, NOT wildcard with credentials
-            origin = request.headers.get('Origin')
-            if origin:
-                response.headers['Access-Control-Allow-Origin'] = origin
-                response.headers['Access-Control-Allow-Credentials'] = 'true'
-                # 🎯 FIX: Vary header for proper caching with multiple origins
-                response.headers['Vary'] = 'Origin'
-                # 🎯 FIX: Expose headers so UI can read them during Range requests
-                response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
-            return response
+            # File doesn't exist locally - use semaphore system for queue management
+            # 🔥 NEW: Per-business 3-concurrent limit with Redis queue
+            from server.recording_semaphore import try_acquire_slot, check_status
+            
+            # Check current status first (dedup + queue position)
+            status, info = check_status(business_id, call_sid)
+            
+            if status == "processing":
+                # Already being downloaded
+                log.debug(f"Download recording: Download in progress for call_sid={call_sid}")
+                return jsonify({
+                    "success": True,
+                    "status": "processing",
+                    "message": "Recording is being prepared, please retry in a few seconds"
+                }), 202
+            elif status == "queued":
+                # Already in queue
+                position = info.get("position", "?")
+                log.debug(f"Download recording: Call {call_sid} in queue position {position}")
+                return jsonify({
+                    "success": True,
+                    "status": "queued",
+                    "message": f"Recording queued (position {position}), please retry in a few seconds"
+                }), 202
+            
+            # Try to acquire a slot (or add to queue)
+            acquired, slot_status = try_acquire_slot(business_id, call_sid)
+            
+            if acquired:
+                # Slot acquired! Enqueue download job - WORKER will do the actual download
+                logger.info(f"📤 [API DOWNLOAD] Slot acquired for {call_sid} - enqueuing to WORKER queue")
+                log.debug(f"Download recording: Slot acquired for call_sid={call_sid}, enqueuing download")
+                
+                from server.tasks_recording import enqueue_recording_download_only
+                enqueue_recording_download_only(
+                    call_sid=call_sid,
+                    recording_url=call.recording_url,
+                    business_id=business_id,
+                    from_number=call.from_number or "",
+                    to_number=call.to_number or ""
+                )
+                
+                return jsonify({
+                    "success": True,
+                    "status": "queued",
+                    "message": "Recording download started, please retry in a few seconds"
+                }), 202
+            else:
+                # Added to queue
+                log.debug(f"Download recording: Call {call_sid} added to queue, status={slot_status}")
+                return jsonify({
+                    "success": True,
+                    "status": slot_status,
+                    "message": "Recording queued for download, please retry in a few seconds"
+                }), 202
         
     except Exception as e:
         log.error(f"Error downloading recording: {e}")
