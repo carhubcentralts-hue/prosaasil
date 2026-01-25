@@ -303,7 +303,7 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
               containerRef={pdfContainerRef}
             >
               {/* Overlay showing where signatures will be placed */}
-              <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute inset-0 pointer-events-none" style={{ background: 'transparent' }}>
                 {getCurrentPageFields().map((field, index) => (
                   <div
                     key={field.id}

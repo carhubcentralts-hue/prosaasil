@@ -418,18 +418,16 @@ export function PDFCanvas({
               <div 
                 className="absolute top-0 left-0"
                 style={{
-                  // 🔥 FIX: Explicit positioning to ensure proper layering
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  // 🔥 FIX: Always use CSS display size, never internal canvas size
+                  // Always use CSS display size, never internal canvas size
                   // Canvas internal size is high-DPI (e.g., 2000x3000), CSS size is display size (e.g., 1000x1500)
                   // Using internal size would make overlay huge and push PDF off-screen
                   width: canvasRef.current.style.width,
                   height: canvasRef.current.style.height,
-                  // 🔥 FIX: Default to pointer-events none, let children override
+                  // Transparent background prevents white box covering PDF
+                  background: 'transparent',
+                  // Default to pointer-events none, let children override
                   pointerEvents: 'none',
-                  // 🔥 FIX: Ensure proper z-index layering
+                  // Ensure proper z-index layering above canvas
                   zIndex: PDF_OVERLAY_Z_INDEX,
                 }}
               >
