@@ -142,8 +142,8 @@ export function InboundCallsPage() {
     refetchInterval: activeRunId ? 10000 : false, // Only poll when queue is running
     enabled: true, // Always enabled for initial fetch
     retry: 1,
-    staleTime: 0, // ✅ FIX: Always fetch fresh data, no cache
-    gcTime: 0, // ✅ FIX: Don't keep in cache (renamed from cacheTime in v5)
+    staleTime: 30000, // 🔥 FIX: 30s cache instead of 0 - reduce load on API
+    gcTime: 60000, // 🔥 FIX: Keep in cache for 1 minute (renamed from cacheTime in v5)
   });
 
   // Fetch lead statuses for both Kanban and Table views

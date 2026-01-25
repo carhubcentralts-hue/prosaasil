@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
 
-const POLLING_INTERVAL = 30000; // Check for new notifications every 30 seconds
+const POLLING_INTERVAL = 60000; // 🔥 FIX: Check for new notifications every 60 seconds (reduced from 30s)
 
 export interface Notification {
   id: string;
@@ -255,7 +255,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         refreshNotifications();
       }, POLLING_INTERVAL);
       
-      console.log('🔔 Notification polling started (every 30s)');
+      console.log('🔔 Notification polling started (every 60s)');
     }
     
     // Cleanup on unmount or when user logs out
