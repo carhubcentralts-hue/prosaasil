@@ -93,7 +93,7 @@ def test_safe_get_filename_in_receipts():
     # Look for unsafe filename access patterns
     unsafe_patterns = [
         'attachment_to_export.filename',
-        'attachment.filename '
+        'attachment.filename'
     ]
     
     for pattern in unsafe_patterns:

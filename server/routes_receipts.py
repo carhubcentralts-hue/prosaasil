@@ -59,7 +59,7 @@ def safe_get_filename(attachment, default=None):
         Filename string or default value
     """
     if not attachment:
-        return default or f"attachment_{id(attachment)}"
+        return default or "unknown_file"
     
     # Try standard attributes in order of preference
     for attr in ['filename_original', 'filename', 'original_filename', 'file_name', 'name']:
