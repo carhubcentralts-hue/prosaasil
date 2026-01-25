@@ -69,6 +69,7 @@ export function PDFCanvas({
     logger.debug('[PDF_CANVAS] Loading PDF from:', pdfUrl);
 
     // Load PDF with credentials if it's a backend URL
+    // AbortController not needed here as pdf.js handles cancellation via isCancelled
     const loadingTask = pdfjsLib.getDocument({
       url: pdfUrl,
       withCredentials: pdfUrl.startsWith('/api/'), // Include auth cookies for backend endpoints
@@ -96,9 +97,12 @@ export function PDFCanvas({
 
     return () => {
       isCancelled = true;
+      // Cancel any ongoing render task
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
       }
+      // Destroy the loading task to free resources
+      loadingTask.destroy();
     };
     // Only depend on pdfUrl - onTotalPagesChange is called but not depended on
     // to avoid re-fetching when parent updates the callback
