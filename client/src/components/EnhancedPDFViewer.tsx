@@ -273,8 +273,8 @@ export function EnhancedPDFViewer({
               zIndex: 1,
             }}
           />
-          {/* Show loading overlay ONLY when iframe is loading AND not loaded yet - with defensive check */}
-          {!iframeLoaded && !iframeError && !loading && (
+          {/* Show loading overlay ONLY when iframe is loading - remove as soon as it loads */}
+          {!iframeLoaded && !iframeError && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
               <div className="text-center">
                 <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mb-3"></div>

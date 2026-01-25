@@ -97,15 +97,6 @@ export function SimplifiedPDFSigning({ file, token, signerName, onSigningComplet
     setLoading(false);
   };
 
-  // Reset iframe load state when currentPage changes to handle navigation
-  useEffect(() => {
-    // Don't reset if pdfReady is already true and we're just changing pages
-    // This prevents flashing of loading overlay during page navigation
-    if (pdfReady) {
-      console.log('[PDF_NAV] Page changed, maintaining ready state');
-    }
-  }, [currentPage, pdfReady]);
-
   // Initialize canvas
   useEffect(() => {
     const canvas = canvasRef.current;
