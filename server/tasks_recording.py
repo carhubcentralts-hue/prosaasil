@@ -45,12 +45,6 @@ _enqueue_lock = threading.Lock()
 # Cooldown period in seconds - don't enqueue same call_sid more than once per 10 minutes
 ENQUEUE_COOLDOWN_SECONDS = 600  # 🔥 FIX: Increased from 60s to 10min (600s)
 
-# 🔥 FIX: Per-business rate limiting to prevent mass downloads
-# Key: business_id, Value: list of enqueue timestamps in last minute
-_business_enqueue_history: dict = {}
-_business_rate_limit_lock = threading.Lock()
-MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE = int(os.getenv("MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE", "10"))
-
 # 🔥 FIX: Concurrency limiter - max simultaneous recording downloads
 # This prevents overwhelming the system with too many parallel downloads
 MAX_CONCURRENT_DOWNLOADS = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "3"))
@@ -84,48 +78,6 @@ try:
 except Exception as e:
     logger.warning(f"⚠️ [RECORDING] Redis not available, using in-memory deduplication: {e}")
     log.warning(f"[RECORDING] Redis initialization failed: {e}")
-
-
-def _check_business_rate_limit(business_id: int) -> tuple[bool, str]:
-    """
-    🔥 FIX: Check if business has exceeded rate limit for enqueues.
-    
-    Rate limit: MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE jobs per minute per business.
-    This prevents a single business from overwhelming the recording system.
-    
-    Args:
-        business_id: Business ID to check
-        
-    Returns:
-        tuple: (allowed: bool, reason: str)
-    """
-    if business_id is None:
-        return True, "no_business_id"  # Allow if business_id not available
-    
-    import time
-    now = time.time()
-    one_minute_ago = now - 60
-    
-    with _business_rate_limit_lock:
-        # Get or create history for this business
-        if business_id not in _business_enqueue_history:
-            _business_enqueue_history[business_id] = []
-        
-        history = _business_enqueue_history[business_id]
-        
-        # Remove old entries (older than 1 minute)
-        _business_enqueue_history[business_id] = [t for t in history if t > one_minute_ago]
-        history = _business_enqueue_history[business_id]
-        
-        # Check if limit exceeded
-        if len(history) >= MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE:
-            logger.info(f"🚫 BLOCKED: Rate limit exceeded for business {business_id} ({len(history)}/{MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE} per minute)")
-            return False, f"rate_limit ({len(history)}/{MAX_ENQUEUES_PER_BUSINESS_PER_MINUTE} per minute)"
-        
-        # Add current enqueue to history
-        _business_enqueue_history[business_id].append(now)
-        
-    return True, "ok"
 
 
 def _acquire_redis_dedup_lock(call_sid: str, business_id: int, job_type: str = "download") -> tuple[bool, str]:
@@ -458,7 +410,6 @@ def start_recording_worker(app):
                             # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
                             if retry_count < 2:
                                 import time
-                                import threading
                                 
                                 delay = 5  # Short delay for download retries
                                 logger.error(f"⚠️ [WORKER] Download failed for {call_sid}, retrying in {delay}s")
@@ -506,7 +457,6 @@ def start_recording_worker(app):
                         if success is False and retry_count < MAX_RETRIES:
                             # Recording not ready yet - schedule retry with backoff
                             import time
-                            import threading
                             
                             delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
                             logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")

@@ -5,10 +5,10 @@ Recording Download Semaphore System
 Per-business 3-concurrent-downloads limit using Redis.
 
 Redis Keys:
-- rec_slots:{business_id} - Counter of active downloads (0-3)
-- rec_inflight:{business_id}:{call_sid} - Dedup lock (TTL 90s)
-- rec_queued:{business_id} - SET of call_sids waiting in queue (TTL 20 min)
-- rec_queue:{business_id} - FIFO LIST of waiting call_sids
+- rec_slots:{business_id} - SET of active call_sid (not counter)
+- rec_inflight:{business_id}:{call_sid} - STRING with TTL 120s (dedup/double-click prevention)
+- rec_queued:{business_id} - SET of call_sids waiting in queue
+- rec_queue:{business_id} - FIFO LIST of waiting call_sids (RPUSH/LPOP)
 """
 import logging
 import os
@@ -21,7 +21,7 @@ log = logging.getLogger("recording_semaphore")
 MAX_SLOTS_PER_BUSINESS = 3
 
 # TTL values
-INFLIGHT_TTL = 90  # 90 seconds - prevents double-clicks
+INFLIGHT_TTL = 120  # 120 seconds - prevents double-clicks
 QUEUED_TTL = 1200  # 20 minutes - prevents re-adding to queue
 
 # Redis client (initialized in init_redis)
@@ -82,38 +82,52 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
             return False, "already_queued"
         
         # Check 3: Try to acquire slot atomically using Lua script
+        # 🔥 NEW: Use SET instead of counter for rec_slots
         slots_key = f"rec_slots:{business_id}"
         queue_list_key = f"rec_queue:{business_id}"
         
-        # Lua script for atomic slot acquisition
+        # Lua script for atomic slot acquisition using SET
+        # 🔥 ATOMIC: Both SADD and SETEX happen in same transaction
         # Returns 1 if slot acquired, 0 if all slots busy
         lua_script = """
         local slots_key = KEYS[1]
-        local max_slots = tonumber(ARGV[1])
-        local current = tonumber(redis.call('GET', slots_key) or 0)
+        local inflight_key = KEYS[2]
+        local call_sid = ARGV[1]
+        local max_slots = tonumber(ARGV[2])
+        local inflight_ttl = tonumber(ARGV[3])
+        local current = redis.call('SCARD', slots_key)
         
         if current < max_slots then
-            redis.call('INCR', slots_key)
+            -- Atomically add to slots and mark as inflight
+            redis.call('SADD', slots_key, call_sid)
+            redis.call('SETEX', inflight_key, inflight_ttl, 'processing')
             return 1
         else
             return 0
         end
         """
         
-        # Execute atomic slot acquisition
-        acquired = _redis_client.eval(lua_script, 1, slots_key, MAX_SLOTS_PER_BUSINESS)
+        # Execute atomic slot acquisition + inflight marking
+        acquired = _redis_client.eval(
+            lua_script, 
+            2,  # 2 keys
+            slots_key, 
+            inflight_key,
+            call_sid, 
+            MAX_SLOTS_PER_BUSINESS,
+            INFLIGHT_TTL
+        )
         
         if acquired == 1:
-            # Slot acquired! Mark as inflight
-            _redis_client.setex(inflight_key, INFLIGHT_TTL, "processing")
-            
+            # Slot acquired! (inflight already marked by Lua script)
             # Get current count for logging
-            current_slots = int(_redis_client.get(slots_key) or 0)
-            logger.info(f"🎧 RECORDING_ENQUEUE bid={business_id} sid={call_sid[:8]}... slots={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
+            current_slots = int(_redis_client.scard(slots_key) or 0)
+            logger.info(f"🎧 RECORDING_ENQUEUE business_id={business_id} sid={call_sid[:8]}... active={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
             return True, "acquired"
         else:
             # No slots available - add to queue atomically
             # Use Lua to add to both SET and LIST atomically
+            # 🔥 FIX: Add TTL to queued_set to prevent memory leaks
             lua_queue_script = """
             local queued_set = KEYS[1]
             local queue_list = KEYS[2]
@@ -125,7 +139,7 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
                 return 0
             end
             
-            -- Add to set with TTL
+            -- Add to set with TTL (cleanup if never processed)
             redis.call('SADD', queued_set, call_sid)
             redis.call('EXPIRE', queued_set, ttl)
             
@@ -142,16 +156,16 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
                 2, 
                 queued_set_key, 
                 queue_list_key, 
-                call_sid, 
-                QUEUED_TTL
+                call_sid,
+                QUEUED_TTL  # Add TTL for cleanup
             )
             
             if queue_len == 0:
                 # Already in queue
                 return False, "already_queued"
             
-            current_slots = int(_redis_client.get(slots_key) or 0)
-            logger.info(f"⏳ RECORDING_QUEUED bid={business_id} sid={call_sid[:8]}... slots={current_slots}/{MAX_SLOTS_PER_BUSINESS} queue_len={queue_len}")
+            current_slots = int(_redis_client.scard(slots_key) or 0)
+            logger.info(f"⏳ RECORDING_QUEUED business_id={business_id} sid={call_sid[:8]}... active={current_slots}/{MAX_SLOTS_PER_BUSINESS} queue_len={queue_len}")
             return False, "queued"
             
     except Exception as e:
@@ -184,23 +198,22 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
         queue_list_key = f"rec_queue:{business_id}"
         
         # 🔥 ATOMIC: Release slot + pop next from queue using Lua script
-        # This prevents race conditions where multiple workers compete for slots
+        # 🔥 NEW: Use SREM instead of DECR for SET-based slots
         lua_release_script = """
         local slots_key = KEYS[1]
         local inflight_key = KEYS[2]
         local queued_set = KEYS[3]
         local queue_list = KEYS[4]
-        local inflight_ttl = tonumber(ARGV[1])
+        local call_sid = ARGV[1]
+        local inflight_ttl = tonumber(ARGV[2])
+        local business_id = ARGV[3]
         
-        -- Step 1: Remove inflight marker
+        -- Step 1: Remove from slots SET
+        redis.call('SREM', slots_key, call_sid)
+        local current = redis.call('SCARD', slots_key)
+        
+        -- Step 2: Remove inflight marker
         redis.call('DEL', inflight_key)
-        
-        -- Step 2: Decrement slots (with protection against negative)
-        local current = tonumber(redis.call('GET', slots_key) or 0)
-        if current > 0 then
-            redis.call('DECR', slots_key)
-            current = current - 1
-        end
         
         -- Step 3: Try to get next from queue
         local next_sid = redis.call('LPOP', queue_list)
@@ -209,15 +222,16 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
             -- Step 4: Remove from queued set
             redis.call('SREM', queued_set, next_sid)
             
-            -- Step 5: Increment slots for next job
-            redis.call('INCR', slots_key)
+            -- Step 5: Add next to slots SET
+            redis.call('SADD', slots_key, next_sid)
             
             -- Step 6: Mark next as inflight
-            local next_inflight_key = 'rec_inflight:' .. ARGV[2] .. ':' .. next_sid
+            local next_inflight_key = 'rec_inflight:' .. business_id .. ':' .. next_sid
             redis.call('SETEX', next_inflight_key, inflight_ttl, 'processing')
             
             -- Return: [current_slots_after_release, next_sid, new_slots_after_acquire]
-            return {current, next_sid, current + 1}
+            local new_count = redis.call('SCARD', slots_key)
+            return {current, next_sid, new_count}
         else
             -- No work waiting
             return {current, nil, current}
@@ -232,8 +246,9 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
             inflight_key,
             queued_set_key,
             queue_list_key,
+            call_sid,
             INFLIGHT_TTL,
-            str(business_id)  # Used to construct next_inflight_key
+            str(business_id)
         )
         
         slots_after_release = result[0]
@@ -241,11 +256,11 @@ def release_slot(business_id: int, call_sid: str) -> Optional[str]:
         slots_after_acquire = result[2] if len(result) > 2 else slots_after_release
         
         if next_sid:
-            logger.info(f"✅ RECORDING_DONE bid={business_id} sid={call_sid[:8]}... slots_now={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
-            logger.info(f"➡️ RECORDING_NEXT bid={business_id} next_sid={next_sid[:8]}... slots={slots_after_acquire}/{MAX_SLOTS_PER_BUSINESS}")
+            logger.info(f"✅ RECORDING_DONE business_id={business_id} sid={call_sid[:8]}... active={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
+            logger.info(f"➡️ RECORDING_NEXT business_id={business_id} sid={next_sid[:8]}... active={slots_after_acquire}/{MAX_SLOTS_PER_BUSINESS}")
             return next_sid
         else:
-            logger.info(f"✅ RECORDING_DONE bid={business_id} sid={call_sid[:8]}... slots_now={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
+            logger.info(f"✅ RECORDING_DONE business_id={business_id} sid={call_sid[:8]}... active={slots_after_release}/{MAX_SLOTS_PER_BUSINESS}")
             return None
         
     except Exception as e:
