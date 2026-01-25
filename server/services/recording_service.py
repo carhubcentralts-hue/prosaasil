@@ -313,9 +313,10 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
                 
                 # Check for 404 - might need to wait for Twilio processing
                 if response.status_code == 404:
+                    # 🔥 PERFORMANCE FIX: Reduce wait time from 5s to 2s
                     if attempt == 1:
-                        log.debug("[RECORDING_SERVICE] Got 404, waiting 5s before next format...")
-                        time.sleep(5)
+                        log.debug("[RECORDING_SERVICE] Got 404, waiting 2s before next format...")
+                        time.sleep(2)
                     continue
                 
                 # 🔥 FIX 502: Handle other error codes explicitly
