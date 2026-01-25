@@ -11948,7 +11948,6 @@ class MediaStreamHandler:
                 audio_content = audio_file.read()
             
             # Clean up temp file
-            import os
             os.unlink(temp_wav.name)
             
             # Configure recognition
