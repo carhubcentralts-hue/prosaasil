@@ -488,41 +488,44 @@ def stream_recording(call_sid):
                     response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
                 return response
         else:
-            # File doesn't exist locally - check if download is in progress or enqueue
-            from server.services.recording_service import is_download_in_progress
-            
-            if is_download_in_progress(call_sid):
-                # Download already in progress - tell client to retry
-                log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, returning 202")
-                return jsonify({
-                    "success": True,
-                    "status": "processing",
-                    "message": "Recording is being prepared, please retry in a few seconds"
-                }), 202
-            
-            # 🔥 USE BULK GATE: Check if download enqueue is allowed
+            # File doesn't exist locally - check if download is in progress
+            # 🔥 USE PLAYBACK DEDUP: Lightweight, UX-friendly deduplication
+            # This prevents duplicate downloads of same recording within 15 seconds
+            # but doesn't block legitimate user retries or count against rate limits
             try:
                 import redis
                 REDIS_URL = os.getenv('REDIS_URL')
                 redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
                 
                 if redis_conn:
-                    from server.services.bulk_gate import get_bulk_gate
-                    bulk_gate = get_bulk_gate(redis_conn)
+                    from server.services.playback_dedup import get_playback_dedup
+                    playback_dedup = get_playback_dedup(redis_conn)
                     
-                    if bulk_gate:
-                        # Check if enqueue is allowed (use call_sid as dedup key)
-                        allowed, reason = bulk_gate.can_enqueue(
-                            business_id=business_id,
-                            operation_type='recording_download',
-                            user_id=None,  # No user context for recording downloads
-                            params_hash=call_sid
+                    if playback_dedup:
+                        # Check if already being downloaded
+                        in_progress, ttl = playback_dedup.is_in_progress(
+                            resource_type='recording',
+                            resource_id=call_sid,
+                            business_id=business_id
                         )
                         
-                        if not allowed:
-                            return jsonify({"success": False, "error": reason}), 429
+                        if in_progress:
+                            log.debug(f"Stream recording: Download in progress for call_sid={call_sid}, ttl={ttl}s")
+                            return jsonify({
+                                "success": True,
+                                "status": "processing",
+                                "message": f"Recording is being prepared, please retry in {ttl} seconds"
+                            }), 202
+                        
+                        # Mark as in progress (15 second TTL)
+                        playback_dedup.mark_in_progress(
+                            resource_type='recording',
+                            resource_id=call_sid,
+                            business_id=business_id,
+                            ttl=15
+                        )
             except Exception as e:
-                log.warning(f"BulkGate check failed (proceeding anyway): {e}")
+                log.warning(f"PlaybackDedup check failed (proceeding anyway): {e}")
             
             # Not in progress and not cached - enqueue PRIORITY download job
             log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")

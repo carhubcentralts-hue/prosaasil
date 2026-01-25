@@ -50,9 +50,12 @@ class BulkGate:
     Unified gate for bulk operations - prevents enqueue flooding
     
     Rules enforced:
-    1. Max 1 active job per business per operation type
-    2. Rate limit: Max N enqueues per minute per business
+    1. Max 1 active job per business per operation type (lock per operation)
+    2. Rate limit: Max N enqueues per minute per business per operation
     3. Deduplication: Same params within cooldown period
+    
+    NOTE: Lock is per business_id:operation_type - different operations
+    can run simultaneously for the same business.
     """
     
     # Rate limits per operation type (enqueues per minute)
@@ -64,7 +67,6 @@ class BulkGate:
         'broadcast_whatsapp': 3,          # Max 3 broadcasts per minute
         'export_receipts': 5,             # Max 5 exports per minute
         'enqueue_outbound_calls': 2,      # Max 2 bulk call enqueues per minute
-        'recording_download': 10,         # Max 10 recording downloads per minute per business
         'default': 10                     # Default for unlisted operations
     }
     
@@ -76,7 +78,6 @@ class BulkGate:
         'delete_imported_leads': 1800,    # 30 minutes
         'broadcast_whatsapp': 7200,       # 2 hours
         'enqueue_outbound_calls': 3600,   # 1 hour
-        'recording_download': 300,        # 5 minutes (quick operation)
         'default': 1800                   # 30 minutes
     }
     

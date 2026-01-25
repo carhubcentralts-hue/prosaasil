@@ -216,7 +216,22 @@ def main():
                 logger.error(f"   → error: {value}")
                 logger.error("=" * 60)
             
-            worker = Worker(
+            # Create custom worker class that logs job pickup
+            class LoggingWorker(Worker):
+                def perform_job(self, job, queue):
+                    """Override to log when job is picked up"""
+                    queue_name = queue.name if queue else 'unknown'
+                    job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                    logger.info("=" * 60)
+                    logger.info(f"🔨 JOB PICKED queue='{queue_name}' job_id={job.id} function={job_func_name}")
+                    logger.info(f"   → args: {getattr(job, 'args', ())}")
+                    logger.info(f"   → worker: {self.name}")
+                    logger.info("=" * 60)
+                    
+                    # Call parent implementation
+                    return super().perform_job(job, queue)
+            
+            worker = LoggingWorker(
                 QUEUES,
                 connection=redis_conn,
                 name=f'prosaas-worker-{os.getpid()}',
@@ -228,11 +243,10 @@ def main():
             # Register custom failure handler for better logging
             import rq.worker
             worker.push_exc_handler(failed_job_handler)
-            # Note: Job pickup/completion logging is handled by the job functions themselves
-            # (see delete_receipts_job.py and gmail_sync_job.py for examples)
             
             logger.info(f"✓ Worker created: {worker.name}")
             logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
+            logger.info(f"✓ LoggingWorker will log: 🔨 JOB PICKED when picking up jobs")
         except Exception as e:
             log_fatal_error("Creating RQ Worker instance", e)
         logger.info("-" * 60)
