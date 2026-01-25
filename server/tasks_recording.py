@@ -10,6 +10,7 @@ import queue
 import wave
 import contextlib
 import traceback
+import time  # 🔥 FIX: Import time at module level
 from threading import Thread, Semaphore
 import threading
 from datetime import datetime
@@ -168,7 +169,6 @@ def _should_enqueue_download(call_sid: str, business_id: int, job_type: str = "d
     Returns:
         tuple: (should_enqueue: bool, reason: str)
     """
-    import time
     from server.services.recording_service import is_download_in_progress, check_local_recording_exists
     
     # Check 1: File already cached locally
@@ -368,8 +368,6 @@ def start_recording_worker(app):
     # 🔥 FIX: Start metrics logging thread
     def log_system_metrics():
         """Background thread to log queue metrics every 60 seconds"""
-        import time
-        
         while True:
             try:
                 # Get queue size
@@ -451,21 +449,19 @@ def start_recording_worker(app):
                         log.info(f"[WORKER DOWNLOAD_ONLY] Processing priority download: {call_sid}")
                         
                         # Track download start time for metrics
-                        import time as time_module
-                        download_start_time = time_module.time()
+                        download_start_time = time.time()
                         
                         # Just download the file, don't transcribe
                         success = download_recording_only(call_sid, recording_url)
                         
                         # Calculate download duration
-                        download_duration_ms = int((time_module.time() - download_start_time) * 1000)
+                        download_duration_ms = int((time.time() - download_start_time) * 1000)
                         
                         if success:
                             # 🔥 NEW: [DOWNLOAD_OK] log with size and duration
                             try:
-                                from server.services.recording_service import check_local_recording_exists
-                                import os
-                                recordings_dir = "/app/server/recordings"
+                                from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
+                                recordings_dir = _get_recordings_dir()
                                 local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
                                 if os.path.exists(local_path):
                                     file_size = os.path.getsize(local_path)
@@ -483,8 +479,6 @@ def start_recording_worker(app):
                             
                             # 🔥 FIX: Retry download_only jobs on failure (up to 2 retries)
                             if retry_count < 2:
-                                import time
-                                
                                 delay = 5  # Short delay for download retries
                                 logger.error(f"⚠️ [WORKER] Download failed for {call_sid}, retrying in {delay}s")
                                 log.warning(f"[WORKER DOWNLOAD_ONLY] Download failed for {call_sid}, scheduling retry {retry_count + 1}")
@@ -531,8 +525,6 @@ def start_recording_worker(app):
                         # If audio_file was None, we should retry
                         if success is False and retry_count < MAX_RETRIES:
                             # Recording not ready yet - schedule retry with backoff
-                            import time
-                            
                             delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
                             logger.info(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
                             log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
