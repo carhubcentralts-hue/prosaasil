@@ -909,6 +909,7 @@ export function ReceiptsPage() {
     failed_count: number;
     percent: number;
     last_error?: string;
+    heartbeat_stale?: boolean;  // Flag to indicate heartbeat is old
   } | null>(null);
   const [showDeleteProgress, setShowDeleteProgress] = useState(false);
   const deleteProgressRef = useRef<{ active: boolean; jobId: number | null }>({ active: false, jobId: null });
@@ -1555,6 +1556,21 @@ export function ReceiptsPage() {
       
       if (response.data.success) {
         const progress = response.data;
+        
+        // CRITICAL: Check if heartbeat is stale (similar to backend check)
+        // If job is running but heartbeat is old, detect and warn user
+        const now = new Date();
+        let isHeartbeatStale = false;
+        if (progress.status === 'running' && progress.heartbeat_at) {
+          const heartbeatTime = new Date(progress.heartbeat_at);
+          const heartbeatAge = (now.getTime() - heartbeatTime.getTime()) / 1000;
+          // Warn if heartbeat is > 90 seconds old (before backend's 120s threshold)
+          if (heartbeatAge > 90) {
+            isHeartbeatStale = true;
+            console.warn(`⚠️ Job ${jobId} heartbeat is stale (${heartbeatAge.toFixed(0)}s old)`);
+          }
+        }
+        
         setDeleteProgress({
           status: progress.status,
           total: progress.total,
@@ -1562,7 +1578,8 @@ export function ReceiptsPage() {
           succeeded: progress.succeeded,
           failed_count: progress.failed_count,
           percent: progress.percent,
-          last_error: progress.last_error
+          last_error: progress.last_error,
+          heartbeat_stale: isHeartbeatStale  // Add flag for UI to show warning
         });
         
         // Check if job is complete
@@ -2497,7 +2514,11 @@ export function ReceiptsPage() {
               </div>
               <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                 <div 
-                  className="bg-blue-600 h-full transition-all duration-300 ease-out rounded-full"
+                  className={`h-full transition-all duration-300 ease-out rounded-full ${
+                    deleteProgress.heartbeat_stale 
+                      ? 'bg-yellow-500' 
+                      : 'bg-blue-600'
+                  }`}
                   style={{ width: `${deleteProgress.percent}%` }}
                 />
               </div>
@@ -2526,6 +2547,19 @@ export function ReceiptsPage() {
                 </span>
               </div>
             </div>
+            
+            {/* Heartbeat Stale Warning */}
+            {deleteProgress.heartbeat_stale && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                <div className="flex items-start">
+                  <AlertCircle className="h-5 w-5 text-yellow-600 ml-2 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-yellow-800">
+                    <p className="font-semibold mb-1">⚠️ המחיקה עלולה להיות תקועה</p>
+                    <p>Worker לא מעדכן את ה-heartbeat. ייתכן שהשרת אותחל מחדש. אם ההתקדמות לא משתנה תוך דקה, בטל ונסה שוב.</p>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* Error Message */}
             {deleteProgress.last_error && (
