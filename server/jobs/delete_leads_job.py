@@ -266,6 +266,24 @@ def delete_leads_batch_job(job_id: int):
                     # Commit DB changes
                     db.session.commit()
                     
+                    # Refresh BulkGate lock TTL on heartbeat
+                    try:
+                        import redis
+                        import os
+                        from server.services.bulk_gate import get_bulk_gate
+                        REDIS_URL = os.getenv('REDIS_URL')
+                        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                        
+                        if redis_conn:
+                            bulk_gate = get_bulk_gate(redis_conn)
+                            if bulk_gate:
+                                bulk_gate.refresh_lock_ttl(
+                                    business_id=business_id,
+                                    operation_type='delete_leads_bulk'
+                                )
+                    except Exception as lock_err:
+                        logger.debug(f"Failed to refresh lock TTL: {lock_err}")
+                    
                     # Reset consecutive failures on successful batch
                     if batch_failed == 0:
                         consecutive_failures = 0

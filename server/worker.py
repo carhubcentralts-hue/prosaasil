@@ -216,22 +216,7 @@ def main():
                 logger.error(f"   → error: {value}")
                 logger.error("=" * 60)
             
-            # Create custom worker class that logs job pickup
-            class LoggingWorker(Worker):
-                def perform_job(self, job, queue):
-                    """Override to log when job is picked up"""
-                    queue_name = queue.name if queue else 'unknown'
-                    job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
-                    logger.info("=" * 60)
-                    logger.info(f"🔨 JOB PICKED queue='{queue_name}' job_id={job.id} function={job_func_name}")
-                    logger.info(f"   → args: {getattr(job, 'args', ())}")
-                    logger.info(f"   → worker: {self.name}")
-                    logger.info("=" * 60)
-                    
-                    # Call parent implementation
-                    return super().perform_job(job, queue)
-            
-            worker = LoggingWorker(
+            worker = Worker(
                 QUEUES,
                 connection=redis_conn,
                 name=f'prosaas-worker-{os.getpid()}',
@@ -240,13 +225,30 @@ def main():
                 disable_default_exception_handler=False,
             )
             
+            # Monkey-patch the execute_job method to add logging
+            original_execute_job = worker.execute_job
+            def logged_execute_job(job, queue):
+                """Wrapper that logs before executing job"""
+                queue_name = queue.name if queue else 'unknown'
+                job_func_name = job.func_name if hasattr(job, 'func_name') else 'unknown'
+                logger.info("=" * 60)
+                logger.info(f"🔨 JOB PICKED queue='{queue_name}' job_id={job.id} function={job_func_name}")
+                logger.info(f"   → args: {getattr(job, 'args', ())}")
+                logger.info(f"   → worker: {worker.name}")
+                logger.info("=" * 60)
+                
+                # Call original implementation
+                return original_execute_job(job, queue)
+            
+            worker.execute_job = logged_execute_job
+            
             # Register custom failure handler for better logging
             import rq.worker
             worker.push_exc_handler(failed_job_handler)
             
             logger.info(f"✓ Worker created: {worker.name}")
             logger.info(f"✓ Worker will process jobs from queues: {[q.name for q in worker.queues]}")
-            logger.info(f"✓ LoggingWorker will log: 🔨 JOB PICKED when picking up jobs")
+            logger.info(f"✓ Worker will log: 🔨 JOB PICKED when picking up jobs")
         except Exception as e:
             log_fatal_error("Creating RQ Worker instance", e)
         logger.info("-" * 60)

@@ -9,7 +9,7 @@ user-facing playback actions where we want to prevent duplicate requests
 but NOT block legitimate user retries.
 
 Key Differences from BulkGate:
-- Very short TTL (10-30 seconds)
+- Very short TTL (15 seconds default)
 - Per-resource deduplication (e.g., per call_sid)
 - No rate limiting (users can play different recordings)
 - No 429 errors - just returns existing operation status
@@ -94,7 +94,9 @@ class PlaybackDedup:
                 f"⏳ PLAYBACK_DEDUP: In progress "
                 f"type={resource_type} id={resource_id} ttl={ttl}s"
             )
-            return True, max(ttl, 0)  # Return 0 if TTL is -1 or -2
+            # Return 0 if TTL is -1 (key exists with no expiry) or -2 (key doesn't exist)
+            # These shouldn't happen since we always set TTL, but handle gracefully
+            return True, max(ttl, 0)
         
         return False, 0
     

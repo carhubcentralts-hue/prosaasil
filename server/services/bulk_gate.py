@@ -224,6 +224,42 @@ class BulkGate:
         
         return deleted > 0
     
+    def refresh_lock_ttl(
+        self,
+        business_id: int,
+        operation_type: str,
+        ttl: Optional[int] = None
+    ):
+        """
+        Refresh TTL of existing lock (used on heartbeat)
+        
+        This prevents lock expiration for long-running jobs that use
+        pause/resume. Called on each heartbeat to keep lock alive.
+        
+        Args:
+            business_id: Business ID
+            operation_type: Type of operation
+            ttl: New TTL in seconds (uses default if not provided)
+        """
+        lock_key = f"bulk_gate:lock:{business_id}:{operation_type}"
+        lock_ttl = ttl or self.LOCK_TTL.get(operation_type, self.LOCK_TTL['default'])
+        
+        # Check if lock exists
+        if self.redis.exists(lock_key):
+            # Refresh TTL
+            self.redis.expire(lock_key, lock_ttl)
+            logger.debug(
+                f"🔄 BULK_GATE: Lock TTL refreshed "
+                f"business_id={business_id} operation={operation_type} ttl={lock_ttl}s"
+            )
+            return True
+        else:
+            logger.warning(
+                f"⚠️  BULK_GATE: Cannot refresh TTL - lock not found "
+                f"business_id={business_id} operation={operation_type}"
+            )
+            return False
+    
     def record_enqueue(
         self,
         business_id: int,
