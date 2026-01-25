@@ -87,28 +87,39 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
         queue_list_key = f"rec_queue:{business_id}"
         
         # Lua script for atomic slot acquisition using SET
+        # 🔥 ATOMIC: Both SADD and SETEX happen in same transaction
         # Returns 1 if slot acquired, 0 if all slots busy
         lua_script = """
         local slots_key = KEYS[1]
+        local inflight_key = KEYS[2]
         local call_sid = ARGV[1]
         local max_slots = tonumber(ARGV[2])
+        local inflight_ttl = tonumber(ARGV[3])
         local current = redis.call('SCARD', slots_key)
         
         if current < max_slots then
+            -- Atomically add to slots and mark as inflight
             redis.call('SADD', slots_key, call_sid)
+            redis.call('SETEX', inflight_key, inflight_ttl, 'processing')
             return 1
         else
             return 0
         end
         """
         
-        # Execute atomic slot acquisition
-        acquired = _redis_client.eval(lua_script, 1, slots_key, call_sid, MAX_SLOTS_PER_BUSINESS)
+        # Execute atomic slot acquisition + inflight marking
+        acquired = _redis_client.eval(
+            lua_script, 
+            2,  # 2 keys
+            slots_key, 
+            inflight_key,
+            call_sid, 
+            MAX_SLOTS_PER_BUSINESS,
+            INFLIGHT_TTL
+        )
         
         if acquired == 1:
-            # Slot acquired! Mark as inflight
-            _redis_client.setex(inflight_key, INFLIGHT_TTL, "processing")
-            
+            # Slot acquired! (inflight already marked by Lua script)
             # Get current count for logging
             current_slots = int(_redis_client.scard(slots_key) or 0)
             logger.info(f"🎧 RECORDING_ENQUEUE business_id={business_id} sid={call_sid[:8]}... active={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
@@ -116,18 +127,21 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
         else:
             # No slots available - add to queue atomically
             # Use Lua to add to both SET and LIST atomically
+            # 🔥 FIX: Add TTL to queued_set to prevent memory leaks
             lua_queue_script = """
             local queued_set = KEYS[1]
             local queue_list = KEYS[2]
             local call_sid = ARGV[1]
+            local ttl = tonumber(ARGV[2])
             
             -- Check if already in set (double-check)
             if redis.call('SISMEMBER', queued_set, call_sid) == 1 then
                 return 0
             end
             
-            -- Add to set (no TTL on set, items removed when dequeued)
+            -- Add to set with TTL (cleanup if never processed)
             redis.call('SADD', queued_set, call_sid)
+            redis.call('EXPIRE', queued_set, ttl)
             
             -- Add to list (FIFO)
             redis.call('RPUSH', queue_list, call_sid)
@@ -142,7 +156,8 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
                 2, 
                 queued_set_key, 
                 queue_list_key, 
-                call_sid
+                call_sid,
+                QUEUED_TTL  # Add TTL for cleanup
             )
             
             if queue_len == 0:
