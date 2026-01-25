@@ -5193,7 +5193,7 @@ def apply_migrations():
                         SET heartbeat_at = COALESCE(updated_at, started_at, created_at)
                         WHERE status IN ('running', 'queued') AND heartbeat_at IS NULL
                     """))
-                    updated_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                    updated_count = result.rowcount
                     if updated_count > 0:
                         checkpoint(f"  ✅ Initialized heartbeat for {updated_count} existing job(s)")
                     
