@@ -140,7 +140,6 @@ def apply_migrations():
     # 🔥 CRITICAL: Hard gate - workers must NEVER run migrations
     # Migrations should only run once during API startup, not on every job
     service_role = os.getenv('SERVICE_ROLE', '').lower()
-    run_migrations = os.getenv('RUN_MIGRATIONS', '').lower() in ('1', 'true')
     
     # Skip migrations if this is a worker
     if service_role == 'worker':
@@ -150,22 +149,8 @@ def apply_migrations():
         checkpoint("=" * 80)
         return []
     
-    # Skip migrations if explicitly disabled (unless we're in API service)
-    if not run_migrations and service_role != 'api':
-        # Allow migrations in dev mode even without RUN_MIGRATIONS flag
-        flask_env = os.getenv('FLASK_ENV', 'development')
-        production = os.getenv('PRODUCTION', '0') in ('1', 'true', 'True')
-        
-        if production:
-            checkpoint("=" * 80)
-            checkpoint("🚫 MIGRATIONS_SKIPPED: RUN_MIGRATIONS not set and not in API service")
-            checkpoint("   Set RUN_MIGRATIONS=1 or SERVICE_ROLE=api to run migrations")
-            checkpoint("=" * 80)
-            return []
-    
     checkpoint("Starting apply_migrations()")
     checkpoint(f"  SERVICE_ROLE: {service_role or 'not set'}")
-    checkpoint(f"  RUN_MIGRATIONS: {run_migrations}")
     migrations_applied = []
     
     # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock
