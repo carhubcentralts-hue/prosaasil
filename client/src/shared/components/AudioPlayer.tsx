@@ -71,8 +71,7 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         // Still processing/queued - continue polling with backoff
         if (currentRetry < MAX_RETRIES) {
           const delay = getRetryDelay(currentRetry);
-          const secondsWaited = currentRetry * 3; // Approximate
-          console.log(`Recording ${data.status} (${secondsWaited}s elapsed), checking again in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
+          console.log(`Recording ${data.status}, checking again in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
           setRetryCount(currentRetry + 1);
           
           // Clear any existing timeout

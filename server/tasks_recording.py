@@ -269,7 +269,7 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
             if not acquired:
                 # Job already enqueued - skip duplicate
                 ttl = _redis_client.ttl(job_key)
-                log.info(f"[DOWNLOAD_ONLY] ⏭️  Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
+                log.info(f"[DOWNLOAD_ONLY] Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
                 return
             else:
                 log.debug(f"[DOWNLOAD_ONLY] ✅ Job lock acquired for {call_sid}")

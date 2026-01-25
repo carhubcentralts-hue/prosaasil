@@ -445,7 +445,7 @@ def get_recording_status(call_sid):
             return jsonify({"success": False, "error": "Recording not found"}), 404
         
         # Check if recording is expired (7 days)
-        if call.created_at and (datetime.now(timezone.utc).replace(tzinfo=None) - call.created_at).days > 7:
+        if call.created_at and (datetime.utcnow() - call.created_at).days > 7:
             log.info(f"Get recording status: Recording expired for call_sid={call_sid}")
             return jsonify({"success": False, "error": "Recording expired"}), 410
         
