@@ -124,7 +124,7 @@ def _do_dispatch(
             log.debug(f"No active push subscriptions for user {user_id}")
             return result
         
-        log.info(f"Dispatching push to {len(subscriptions)} subscription(s) for user {user_id}")
+        log.info(f"[PUSH] Dispatching push to {len(subscriptions)} subscription(s) for user {user_id}")
         
         # Send to each subscription
         subscriptions_to_deactivate: List[int] = []
@@ -145,6 +145,7 @@ def _do_dispatch(
                     result.failed += 1
                     if send_result.get("should_deactivate"):
                         subscriptions_to_deactivate.append(sub.id)
+                        log.info(f"[PUSH] 410 Gone -> marking subscription id={sub.id} user={user_id} for removal")
                         
             except Exception as e:
                 log.error(f"Error sending push to subscription {sub.id}: {e}")
@@ -158,13 +159,13 @@ def _do_dispatch(
                 ).update({PushSubscription.is_active: False}, synchronize_session=False)
                 db.session.commit()
                 result.deactivated = len(subscriptions_to_deactivate)
-                # 🔥 PRODUCTION: Log as INFO (not separate log) to reduce verbosity
-                log.info(f"Push dispatch complete: {result.successful}/{result.total_subscriptions} successful, {result.deactivated} expired subscriptions deactivated")
+                # Enhanced logging with removed_expired count
+                log.info(f"[PUSH] Push dispatch complete: {result.successful}/{result.total_subscriptions} successful, removed_expired={result.deactivated}")
             except Exception as e:
                 log.error(f"Error deactivating subscriptions: {e}")
                 db.session.rollback()
         else:
-            log.info(f"Push dispatch complete: {result.successful}/{result.total_subscriptions} successful")
+            log.info(f"[PUSH] Push dispatch complete: {result.successful}/{result.total_subscriptions} successful")
         return result
         
     except Exception as e:

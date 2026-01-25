@@ -12,6 +12,7 @@ import {
   getPushStatus, 
   subscribeToPush, 
   unsubscribeFromPush, 
+  togglePushEnabled,
   sendTestNotification,
   type PushStatus 
 } from '@/services/push';
@@ -307,28 +308,58 @@ export function SettingsPage() {
     setPushSuccess(null);
     
     try {
-      if (pushStatus?.subscribed) {
-        const result = await unsubscribeFromPush();
+      if (pushStatus?.enabled) {
+        // User wants to turn OFF
+        // Use toggle endpoint to set preference and deactivate subscriptions
+        const result = await togglePushEnabled(false);
         if (result.success) {
           setPushSuccess(result.message);
-          setPushStatus(prev => prev ? { ...prev, subscribed: false } : null);
+          setPushStatus(prev => prev ? { 
+            ...prev, 
+            push_enabled: false, 
+            enabled: false,
+            subscribed: false  // Subscriptions deactivated
+          } : null);
         } else {
           setPushError(result.message);
         }
       } else {
-        const result = await subscribeToPush();
-        if (result.success) {
-          setPushSuccess(result.message);
-          setPushStatus(prev => prev ? { ...prev, subscribed: true, permission: 'granted' } : null);
+        // User wants to turn ON
+        // First set preference to true
+        const toggleResult = await togglePushEnabled(true);
+        if (!toggleResult.success) {
+          setPushError(toggleResult.message);
+          setPushLoading(false);
+          return;
+        }
+        
+        // Then subscribe to push
+        const subscribeResult = await subscribeToPush();
+        if (subscribeResult.success) {
+          setPushSuccess(subscribeResult.message);
+          setPushStatus(prev => prev ? { 
+            ...prev, 
+            push_enabled: true,
+            subscribed: true, 
+            enabled: true,
+            permission: 'granted' 
+          } : null);
         } else {
-          setPushError(result.message);
+          // Subscription failed, but preference is set
+          setPushError(subscribeResult.message);
+          setPushStatus(prev => prev ? { 
+            ...prev, 
+            push_enabled: true,
+            subscribed: false,
+            enabled: false  // Not enabled because no subscription
+          } : null);
         }
       }
     } catch (error) {
       setPushError('שגיאה לא צפויה');
     } finally {
       setPushLoading(false);
-      // Refresh status
+      // Refresh status from server
       const newStatus = await getPushStatus();
       setPushStatus(newStatus);
     }
@@ -345,7 +376,19 @@ export function SettingsPage() {
       if (result.success) {
         setPushSuccess(result.message || 'התראת בדיקה נשלחה בהצלחה!');
       } else {
-        setPushError(result.error || 'שגיאה בשליחת התראת בדיקה');
+        // Handle specific error codes
+        if (result.error === 'no_active_subscription') {
+          setPushError('לא נמצאו מכשירים פעילים. אנא אשר התראות בדפדפן.');
+        } else if (result.error === 'subscription_expired_need_resubscribe') {
+          setPushError('המנוי להתראות פג תוקף. אנא אשר מחדש התראות בדפדפן.');
+          // Refresh status to reflect expired subscriptions
+          const newStatus = await getPushStatus();
+          setPushStatus(newStatus);
+        } else if (result.error === 'push_disabled') {
+          setPushError('התראות מבוטלות. אנא הפעל אותן תחילה.');
+        } else {
+          setPushError(result.error || 'שגיאה בשליחת התראת בדיקה');
+        }
       }
     } catch (error) {
       setPushError('שגיאה בשליחת התראת בדיקה');
@@ -1173,7 +1216,7 @@ export function SettingsPage() {
               <div className="flex items-center gap-3 mb-4">
                 <Bell className="w-6 h-6 text-blue-600" />
                 <h3 className="text-lg font-semibold text-gray-900">התראות לטלפון (Push)</h3>
-                {pushStatus?.subscribed ? (
+                {pushStatus?.enabled ? (
                   <Badge variant="success">פעיל ✅</Badge>
                 ) : pushStatus?.permission === 'denied' ? (
                   <Badge variant="destructive">חסום</Badge>
@@ -1198,6 +1241,16 @@ export function SettingsPage() {
               {pushSuccess && (
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
                   ✅ {pushSuccess}
+                </div>
+              )}
+              
+              {/* Need Re-subscription Message */}
+              {pushStatus?.push_enabled && !pushStatus?.subscribed && pushStatus?.permission !== 'denied' && (
+                <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h4 className="font-medium text-yellow-800 mb-2">⚠️ נדרשת הרשמה מחדש</h4>
+                  <p className="text-sm text-yellow-700">
+                    ההגדרה להתראות מופעלת, אך המכשיר לא רשום. לחץ על הכפתור להפעלת התראות כדי לאשר מחדש בדפדפן.
+                  </p>
                 </div>
               )}
               
@@ -1251,13 +1304,17 @@ export function SettingsPage() {
                     <div>
                       <h4 className="font-medium text-gray-900">הפעל התראות Push</h4>
                       <p className="text-sm text-gray-600">
-                        {pushStatus.subscribed ? 'ההתראות פעילות ותישלחנה למכשיר זה' : 'לחץ כדי להפעיל התראות למכשיר זה'}
+                        {pushStatus.enabled 
+                          ? 'ההתראות פעילות ותישלחנה למכשיר זה' 
+                          : pushStatus.push_enabled && !pushStatus.subscribed
+                          ? 'לחץ כדי לאשר התראות בדפדפן'
+                          : 'לחץ כדי להפעיל התראות למכשיר זה'}
                       </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={pushStatus.subscribed}
+                        checked={pushStatus.enabled}
                         onChange={handlePushToggle}
                         disabled={pushLoading}
                         className="sr-only peer"
@@ -1268,7 +1325,7 @@ export function SettingsPage() {
                   </div>
                   
                   {/* Test Notification Button */}
-                  {pushStatus.subscribed && (
+                  {pushStatus.enabled && (
                     <Button
                       variant="outline"
                       onClick={handleTestPush}

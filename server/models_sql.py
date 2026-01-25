@@ -951,6 +951,9 @@ class User(db.Model):
     reset_token_expiry = db.Column(db.DateTime, nullable=True)  # Token expiration time
     reset_token_used = db.Column(db.Boolean, default=False)  # One-time use flag
     
+    # Push notification preference (user's choice to receive notifications)
+    push_enabled = db.Column(db.Boolean, default=True)  # User preference for push notifications
+    
     business = db.relationship("Business", backref="users")
     
     # ✅ Optional properties for first_name/last_name split (if needed by downstream code)

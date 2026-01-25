@@ -124,6 +124,12 @@ def subscribe_push():
             db.session.add(new_sub)
             log.info(f"Created new push subscription for user {user_id}")
         
+        # Set user's push_enabled preference to True when subscribing
+        from server.models_sql import User
+        user_record = User.query.get(user_id)
+        if user_record:
+            user_record.push_enabled = True
+        
         db.session.commit()
         
         return jsonify({
@@ -171,8 +177,15 @@ def unsubscribe_push():
         if subscription:
             subscription.is_active = False
             subscription.updated_at = datetime.utcnow()
-            db.session.commit()
             log.info(f"Deactivated push subscription {subscription.id} for user {user_id}")
+        
+        # Set user's push_enabled preference to False when unsubscribing
+        from server.models_sql import User
+        user_record = User.query.get(user_id)
+        if user_record:
+            user_record.push_enabled = False
+        
+        db.session.commit()
         
         return jsonify({
             "success": True,
@@ -185,14 +198,24 @@ def unsubscribe_push():
         return jsonify({"error": "Internal error"}), 500
 
 
-@push_bp.route("/api/push/test", methods=["POST"])
+@push_bp.route("/api/push/toggle", methods=["POST"])
 @require_api_auth()
-def send_test_push():
+def toggle_push():
     """
-    POST /api/push/test
-    Send a test push notification to the current user
+    POST /api/push/toggle
+    Toggle user's push notification preference
     
-    For testing/debugging purposes
+    Body:
+    {
+        "enabled": true/false
+    }
+    
+    This is separate from subscribe/unsubscribe:
+    - subscribe/unsubscribe: Manage device subscriptions
+    - toggle: Manage user preference
+    
+    If user toggles OFF: Deactivate all their subscriptions
+    If user toggles ON: Set preference but require re-subscription
     """
     try:
         user = g.user
@@ -205,6 +228,98 @@ def send_test_push():
         if not business_id:
             return jsonify({"error": "No business context"}), 403
         
+        data = request.get_json()
+        if data is None or 'enabled' not in data:
+            return jsonify({"error": "Missing 'enabled' field"}), 400
+        
+        enabled = bool(data['enabled'])
+        
+        # Get user record
+        from server.models_sql import User
+        user_record = User.query.get(user_id)
+        if not user_record:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Update user's preference
+        user_record.push_enabled = enabled
+        
+        # If disabling, deactivate all user's subscriptions for this business
+        if not enabled:
+            PushSubscription.query.filter_by(
+                user_id=user_id,
+                business_id=business_id,
+                is_active=True
+            ).update(
+                {PushSubscription.is_active: False},
+                synchronize_session=False
+            )
+            log.info(f"Disabled push for user {user_id} - deactivated subscriptions")
+        else:
+            log.info(f"Enabled push preference for user {user_id}")
+        
+        db.session.commit()
+        
+        # Count active subscriptions
+        subscription_count = PushSubscription.query.filter_by(
+            user_id=user_id,
+            business_id=business_id,
+            is_active=True
+        ).count()
+        
+        # Compute effective enabled state
+        effective_enabled = enabled and subscription_count > 0
+        
+        return jsonify({
+            "success": True,
+            "push_enabled": enabled,
+            "active_subscriptions_count": subscription_count,
+            "enabled": effective_enabled,
+            "message": "התראות הופעלו" if enabled else "התראות בוטלו"
+        })
+        
+    except Exception as e:
+        log.error(f"Error toggling push: {e}")
+        db.session.rollback()
+        return jsonify({"error": "Internal error"}), 500
+
+
+@push_bp.route("/api/push/test", methods=["POST"])
+@require_api_auth()
+def send_test_push():
+    """
+    POST /api/push/test
+    Send a test push notification to the current user
+    
+    For testing/debugging purposes
+    
+    Returns:
+    - success: true if at least one notification sent
+    - error: specific error code if failed:
+      - "no_active_subscription": User has no active subscriptions
+      - "subscription_expired_need_resubscribe": All subscriptions expired (410)
+      - "push_disabled": User has disabled push notifications
+    """
+    try:
+        user = g.user
+        if not user:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        user_id = user.get('id')
+        business_id = g.tenant
+        
+        if not business_id:
+            return jsonify({"error": "No business context"}), 403
+        
+        # Check if user has enabled push notifications
+        from server.models_sql import User
+        user_record = User.query.get(user_id)
+        if not user_record or not user_record.push_enabled:
+            return jsonify({
+                "success": False,
+                "error": "push_disabled",
+                "message": "התראות מבוטלות. אנא הפעל אותן בהגדרות."
+            }), 400
+        
         # Check if user has any active subscriptions
         subscription_count = PushSubscription.query.filter_by(
             user_id=user_id,
@@ -215,7 +330,8 @@ def send_test_push():
         if subscription_count == 0:
             return jsonify({
                 "success": False,
-                "error": "No active push subscriptions found"
+                "error": "no_active_subscription",
+                "message": "לא נמצאו מכשירים פעילים. אנא אשר התראות בדפדפן."
             }), 400
         
         # Send test notification
@@ -232,9 +348,23 @@ def send_test_push():
         from server.services.notifications.dispatcher import dispatch_push_sync
         result = dispatch_push_sync(user_id, business_id, payload)
         
+        # If all subscriptions were deactivated due to 410, return specific error
+        if result.deactivated > 0 and result.successful == 0:
+            return jsonify({
+                "success": False,
+                "error": "subscription_expired_need_resubscribe",
+                "message": "המנוי להתראות פג תוקף. אנא אשר מחדש התראות בדפדפן.",
+                "result": {
+                    "total": result.total_subscriptions,
+                    "successful": result.successful,
+                    "failed": result.failed,
+                    "deactivated": result.deactivated
+                }
+            }), 400
+        
         return jsonify({
             "success": result.successful > 0,
-            "message": f"Test notification sent to {result.successful}/{result.total_subscriptions} devices",
+            "message": f"התראת בדיקה נשלחה ל-{result.successful} מתוך {result.total_subscriptions} מכשירים",
             "result": {
                 "total": result.total_subscriptions,
                 "successful": result.successful,
@@ -258,8 +388,10 @@ def get_push_status():
     Returns comprehensive diagnostic info:
     - supported: True (backend always supports push)
     - vapid_configured: Whether VAPID keys are set
+    - push_enabled: User's preference (True/False)
     - subscribed: Whether user has active subscriptions
     - active_subscriptions_count: Number of active subscriptions
+    - enabled: Computed as push_enabled AND has_active_subscriptions
     - user_id: Current user ID
     - business_id: Current business ID
     """
@@ -270,6 +402,11 @@ def get_push_status():
         
         user_id = user.get('id')
         business_id = g.tenant
+        
+        # Get user's push preference from DB
+        from server.models_sql import User
+        user_record = User.query.get(user_id)
+        push_enabled = user_record.push_enabled if user_record else True
         
         # Check if push is configured (VAPID keys present)
         sender = get_webpush_sender()
@@ -291,19 +428,24 @@ def get_push_status():
             is_active=True
         ).count()
         
+        # Compute effective enabled state
+        # enabled = user wants push AND has working subscription
+        enabled = push_enabled and subscription_count > 0
+        
         return jsonify({
             "success": True,
             "supported": True,  # Backend always supports push
             "vapid_configured": vapid_configured,
-            "subscribed": subscription_count > 0,
+            "push_enabled": push_enabled,  # User preference
+            "subscribed": subscription_count > 0,  # Has device subscription
             "active_subscriptions_count": subscription_count,
             "all_user_subscriptions": all_user_subscriptions,
+            "enabled": enabled,  # Computed: preference AND subscription
             "user_id": user_id,
             "business_id": business_id,
             # Backwards compatibility
             "configured": vapid_configured,
-            "subscriptionCount": subscription_count,
-            "enabled": subscription_count > 0
+            "subscriptionCount": subscription_count
         })
         
     except Exception as e:
