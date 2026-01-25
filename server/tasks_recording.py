@@ -258,57 +258,35 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
         to_number: Called phone number
         retry_count: Current retry attempt (0-2 allowed, max 3 attempts total)
     
-    🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
+    🔥 NEW: Rate limiting removed - now using semaphore system for UI-triggered downloads
+    This function is for webhook-triggered background processing only
     """
-    # 🔥 FIX: Check business rate limit FIRST (fail fast)
-    rate_limit_ok, rate_limit_reason = _check_business_rate_limit(business_id)
-    if not rate_limit_ok:
-        logger.info(f"🚫 BLOCKED: {rate_limit_reason} for call {call_sid} (business:{business_id})")
-        log.info(f"[OFFLINE_STT] BLOCKED: {rate_limit_reason} for {call_sid}")
+    # 🔥 REMOVED: rate_limit check - only applies to UI-triggered downloads
+    
+    # Basic deduplication: Check if file already cached
+    from server.services.recording_service import check_local_recording_exists
+    if check_local_recording_exists(call_sid):
+        log.debug(f"[OFFLINE_STT] File already cached for {call_sid}")
         return  # Don't enqueue
     
-    # 🔥 DEDUPLICATION: Check if we should enqueue this job
-    # 🔥 FIX: Pass business_id for cross-business isolation
-    should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="full")
-    
-    if not should_enqueue:
-        # Don't enqueue - log BLOCKED at INFO level for visibility
-        if reason == "already_cached":
-            logger.info(f"🚫 BLOCKED: File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
-            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - already_cached for {call_sid}")
-        elif reason == "download_in_progress":
-            logger.info(f"🚫 BLOCKED: Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
-            log.info(f"[OFFLINE_STT] BLOCKED: download_in_progress for {call_sid}")
-        elif "redis_locked" in reason:
-            logger.info(f"🚫 BLOCKED: Redis dedup for {call_sid} (business:{business_id}) - {reason}")
-            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - {reason} for {call_sid}")
-        elif "cooldown_active" in reason:
-            logger.info(f"🚫 BLOCKED: Cooldown active for {call_sid} (business:{business_id}) - {reason}")
-            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - {reason} for {call_sid}")
-        else:
-            logger.info(f"🚫 BLOCKED: Job blocked for {call_sid} (business:{business_id}) - {reason}")
-            log.info(f"[OFFLINE_STT] BLOCKED: dedup hit - {reason} for {call_sid}")
-        return  # Don't enqueue
-    
-    # Passed deduplication checks - safe to enqueue
+    # Enqueue full processing job (download + transcribe)
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
         "business_id": business_id,
         "from_number": from_number,
         "to_number": to_number,
-        "retry_count": retry_count,  # Track retry attempts
-        "type": "full"  # Default: full processing (download + transcribe)
+        "retry_count": retry_count,
+        "type": "full"  # Full processing (download + transcribe)
     })
+    
     if retry_count == 0:
-        logger.info(f"✅ [OFFLINE_STT] Job enqueued for {call_sid} (dedup key acquired)")
         log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
     else:
-        logger.info(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
         log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
 
 
-def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
+def enqueue_recording_download_only(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0, skip_slot_check=False):
     """
     🔥 FIX: Enqueue PRIORITY job to download recording (without transcription)
     Used by UI when user clicks "play" to get recording ASAP
@@ -316,53 +294,31 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     This creates a high-priority job that only downloads the file, skipping transcription.
     Transcription will happen later via the normal webhook flow.
     
-    🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
+    🔥 NEW: Uses semaphore system instead of rate limiting
+    - skip_slot_check: If True, assumes slot already acquired (from stream_recording)
     """
-    # 🔥 FIX: Check business rate limit FIRST (fail fast)
-    rate_limit_ok, rate_limit_reason = _check_business_rate_limit(business_id)
-    if not rate_limit_ok:
-        logger.info(f"🚫 BLOCKED: {rate_limit_reason} for call {call_sid} (business:{business_id})")
-        log.info(f"[DOWNLOAD_ONLY] BLOCKED: {rate_limit_reason} for {call_sid}")
+    # 🔥 REMOVED: rate_limit check - replaced by semaphore system in stream_recording
+    
+    # Basic deduplication: Check if file already cached
+    from server.services.recording_service import check_local_recording_exists
+    if check_local_recording_exists(call_sid):
+        log.debug(f"[DOWNLOAD_ONLY] File already cached for {call_sid}")
         return  # Don't enqueue
     
-    # 🔥 DEDUPLICATION: Check if we should enqueue this download
-    # 🔥 FIX: Pass business_id for cross-business isolation
-    should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="download")
-    
-    if not should_enqueue:
-        # Don't enqueue - log BLOCKED at INFO level for visibility
-        if reason == "already_cached":
-            logger.info(f"🚫 BLOCKED: File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
-            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - already_cached for {call_sid}")
-        elif reason == "download_in_progress":
-            logger.info(f"🚫 BLOCKED: Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
-            log.info(f"[DOWNLOAD_ONLY] BLOCKED: download_in_progress for {call_sid}")
-        elif "redis_locked" in reason:
-            logger.info(f"🚫 BLOCKED: Redis dedup for {call_sid} (business:{business_id}) - {reason}")
-            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - {reason} for {call_sid}")
-        elif "cooldown_active" in reason:
-            logger.info(f"🚫 BLOCKED: Cooldown active for {call_sid} (business:{business_id}) - {reason}")
-            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - {reason} for {call_sid}")
-        else:
-            logger.info(f"🚫 BLOCKED: Job blocked for {call_sid} (business:{business_id}) - {reason}")
-            log.info(f"[DOWNLOAD_ONLY] BLOCKED: dedup hit - {reason} for {call_sid}")
-        return  # Don't enqueue
-    
-    # Passed deduplication checks - safe to enqueue
+    # Enqueue download job
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
         "business_id": business_id,
         "from_number": from_number,
         "to_number": to_number,
-        "retry_count": retry_count,  # 🔥 FIX: Track retry count
-        "type": "download_only"  # 🔥 NEW: Just download, skip transcription
+        "retry_count": retry_count,
+        "type": "download_only"  # Just download, skip transcription
     })
+    
     if retry_count == 0:
-        logger.info(f"⚡ [DOWNLOAD_ONLY] Priority download job enqueued for {call_sid} (dedup key acquired)")
         log.info(f"[DOWNLOAD_ONLY] Priority download job enqueued: {call_sid}")
     else:
-        logger.info(f"🔁 [DOWNLOAD_ONLY] Retry {retry_count} enqueued for {call_sid}")
         log.info(f"[DOWNLOAD_ONLY] Retry {retry_count} enqueued: {call_sid}")
 
 def enqueue_recording(form_data):
@@ -570,7 +526,33 @@ def start_recording_worker(app):
                             log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
                 
                 finally:
-                    # 🔥 FIX: Always release semaphore to free download slot
+                    # 🔥 NEW: Release semaphore slot and process next from queue
+                    # This must happen whether download succeeded or failed
+                    if job_type == "download_only":
+                        # Release slot and get next from queue
+                        from server.recording_semaphore import release_slot
+                        next_call_sid = release_slot(business_id, call_sid)
+                        
+                        # If there's a next job waiting, enqueue it
+                        if next_call_sid:
+                            # Get call info for next job
+                            try:
+                                from server.models_sql import CallLog
+                                next_call = CallLog.query.filter_by(call_sid=next_call_sid).first()
+                                if next_call and next_call.recording_url:
+                                    log.info(f"[RECORDING_SEM] Processing next from queue: {next_call_sid}")
+                                    enqueue_recording_download_only(
+                                        call_sid=next_call_sid,
+                                        recording_url=next_call.recording_url,
+                                        business_id=business_id,
+                                        from_number=next_call.from_number or "",
+                                        to_number=next_call.to_number or "",
+                                        skip_slot_check=True
+                                    )
+                            except Exception as e:
+                                logger.error(f"[RECORDING_SEM] Error enqueuing next job: {e}")
+                    
+                    # Always release global semaphore
                     with _active_downloads_lock:
                         _active_downloads_count -= 1
                     _download_semaphore.release()
