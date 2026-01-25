@@ -27,7 +27,7 @@ export interface PDFCanvasProps {
   onScaleChange?: (scale: number) => void;
   showControls?: boolean;
   className?: string;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   children?: React.ReactNode;
 }
 

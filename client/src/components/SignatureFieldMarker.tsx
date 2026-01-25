@@ -360,7 +360,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-2 md:p-4" dir="rtl">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] overflow-y-auto p-2 md:p-4" dir="rtl">
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-[95vw] mx-auto my-4 flex flex-col h-[95vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
