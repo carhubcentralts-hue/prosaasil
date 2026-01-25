@@ -37,9 +37,10 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   const [isResizing, setIsResizing] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; fieldX: number; fieldY: number; fieldW: number; fieldH: number } | null>(null);
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [pdfReady, setPdfReady] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState(true);
   
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -69,7 +70,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
       logger.error('[SignatureFieldMarker] Error loading PDF info:', err);
       setPdfError('שגיאה בטעינת מידע על PDF');
     } finally {
-      setLoading(false);
+      setLoadingInfo(false);
     }
   };
 
@@ -92,7 +93,6 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     logger.debug('[SignatureFieldMarker] PDF iframe loaded successfully');
     setPdfReady(true);
     setPdfError(null);
-    setLoading(false);
     
     // Clear timeout on successful load
     if (loadTimeoutRef.current) {
@@ -105,7 +105,6 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     logger.error('[SignatureFieldMarker] PDF iframe failed to load');
     setPdfError('שגיאה בטעינת PDF');
     setPdfReady(false);
-    setLoading(false);
     
     // Clear timeout on error
     if (loadTimeoutRef.current) {
@@ -114,14 +113,13 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
     }
   };
 
-  // Set timeout for loading - if it takes too long, force clear the overlay
+  // Set timeout for iframe loading - if it takes too long, assume it loaded
   useEffect(() => {
-    if (loading && !pdfReady && !pdfError) {
-      // Start a timeout when loading begins
+    if (!pdfReady && !pdfError && !loadingInfo) {
+      // Start a timeout when iframe starts loading
       loadTimeoutRef.current = setTimeout(() => {
-        logger.error('[SignatureFieldMarker] PDF loading timeout - forcing load complete');
-        setLoading(false);
-        setPdfError('זמן הטעינה חרג מהמותר. נסה לרענן את הדף.');
+        logger.warn('[SignatureFieldMarker] PDF loading timeout - assuming loaded');
+        setPdfReady(true); // Force ready to allow interaction
       }, PDF_LOADING_TIMEOUT_MS);
     }
     
@@ -131,7 +129,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
         loadTimeoutRef.current = null;
       }
     };
-  }, [loading, pdfReady, pdfError]);
+  }, [pdfReady, pdfError, loadingInfo]);
 
   const handleSave = async () => {
     if (fields.length === 0) {
@@ -318,19 +316,17 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
   };
 
   const handlePrevPage = () => {
-    if (currentPage > 1 && !loading) {
+    if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
       // Reset load state for new page
-      setLoading(true);
       setPdfReady(false);
     }
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages && !loading) {
+    if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
       // Reset load state for new page
-      setLoading(true);
       setPdfReady(false);
     }
   };
@@ -474,7 +470,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
               <div className="mb-3 flex items-center justify-between bg-blue-50 p-3 rounded-lg border border-blue-200">
                 <button
                   onClick={handlePrevPage}
-                  disabled={currentPage === 1 || loading}
+                  disabled={currentPage === 1}
                   className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="עמוד קודם"
                 >
@@ -485,7 +481,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                 </span>
                 <button
                   onClick={handleNextPage}
-                  disabled={currentPage === totalPages || loading}
+                  disabled={currentPage === totalPages}
                   className="p-2 rounded-lg bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="עמוד הבא"
                 >
@@ -496,11 +492,11 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
 
             {/* PDF with Overlay */}
             <div className="flex-1 relative min-h-0 rounded-lg border-2 border-gray-300 bg-gray-100 overflow-hidden">
-              {loading ? (
+              {loadingInfo ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
                   <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div>
-                    <p className="text-gray-600 text-lg font-medium">טוען PDF...</p>
+                    <p className="text-gray-600 text-lg font-medium">טוען מידע על PDF...</p>
                   </div>
                 </div>
               ) : pdfError ? (
@@ -522,8 +518,8 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     onLoad={handleIframeLoad}
                     onError={handleIframeError}
                   />
-                  {/* Show loading overlay only when needed - removed when iframe loads OR timeout occurs */}
-                  {loading && !pdfReady && !pdfError && (
+                  {/* Show loading overlay while iframe is loading */}
+                  {!pdfReady && (
                     <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
                       <div className="text-center">
                         <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mb-3"></div>
@@ -532,28 +528,26 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     </div>
                   )}
                   
-                  {/* Overlay for signature fields - only show when PDF is ready */}
-                  {pdfReady && (
-                    <div
-                      ref={pdfContainerRef}
-                      className={`absolute inset-0 ${signatureMarkingMode ? 'cursor-crosshair' : 'cursor-default'}`}
-                      onClick={handleCanvasClick}
-                      onPointerDown={handleCanvasClick}
-                      onMouseMove={handleMouseMove}
-                      onPointerMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onPointerUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
-                      onPointerLeave={handleMouseUp}
-                      style={{
-                        pointerEvents: signatureMarkingMode ? 'auto' : 'none',
-                        zIndex: 2,
-                        backgroundColor: 'transparent',
-                      }}
-                    >
-                      {renderSignatureFields()}
-                    </div>
-                  )}
+                  {/* Overlay for signature fields - always present */}
+                  <div
+                    ref={pdfContainerRef}
+                    className={`absolute inset-0 ${signatureMarkingMode && pdfReady ? 'cursor-crosshair' : 'cursor-default'}`}
+                    onClick={pdfReady ? handleCanvasClick : undefined}
+                    onPointerDown={pdfReady ? handleCanvasClick : undefined}
+                    onMouseMove={pdfReady ? handleMouseMove : undefined}
+                    onPointerMove={pdfReady ? handleMouseMove : undefined}
+                    onMouseUp={pdfReady ? handleMouseUp : undefined}
+                    onPointerUp={pdfReady ? handleMouseUp : undefined}
+                    onMouseLeave={pdfReady ? handleMouseUp : undefined}
+                    onPointerLeave={pdfReady ? handleMouseUp : undefined}
+                    style={{
+                      pointerEvents: signatureMarkingMode && pdfReady ? 'auto' : 'none',
+                      zIndex: 2,
+                      backgroundColor: 'transparent',
+                    }}
+                  >
+                    {renderSignatureFields()}
+                  </div>
                 </>
               )}
             </div>
