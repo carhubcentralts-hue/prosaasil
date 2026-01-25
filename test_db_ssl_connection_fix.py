@@ -59,9 +59,10 @@ def test_sync_status_endpoint_has_error_handling():
     with open('server/routes_receipts.py', 'r') as f:
         content = f.read()
     
-    # Verify OperationalError is imported
-    assert 'from sqlalchemy.exc import OperationalError' in content, \
-        "OperationalError should be imported"
+    # Verify OperationalError is imported at the top
+    import_section = content[:5000]  # Check first 5000 chars for imports
+    assert 'from sqlalchemy.exc import OperationalError' in import_section, \
+        "OperationalError should be imported at the top of file"
     
     # Verify error handling is in place
     assert 'except OperationalError' in content, \
@@ -78,6 +79,11 @@ def test_sync_status_endpoint_has_error_handling():
     # Verify retry flag is set
     assert '"retry": True' in content or "'retry': True" in content, \
         "Should set retry flag on connection error"
+    
+    # Verify success: False is included in error response
+    error_response_section = content[content.find('except OperationalError'):content.find('except OperationalError') + 500]
+    assert '"success": False' in error_response_section or "'success': False" in error_response_section, \
+        "Error response should include 'success': False"
     
     print("✅ sync/status endpoint has proper error handling")
 

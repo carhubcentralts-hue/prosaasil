@@ -27,6 +27,7 @@ from server.security.permissions import require_page_access
 from server.models_sql import GmailConnection, Receipt, Attachment, User, ReceiptSyncRun, BackgroundJob
 from server.db import db
 from datetime import datetime, timezone, timedelta
+from sqlalchemy.exc import OperationalError
 import logging
 import os
 import json
@@ -2549,8 +2550,6 @@ def get_sync_status():
             }), 404
     
     # Get sync run - with DB connection error handling
-    from sqlalchemy.exc import OperationalError
-    
     try:
         run_id = request.args.get('run_id', type=int)
         
@@ -2575,6 +2574,7 @@ def get_sync_status():
         db.session.rollback()
         logger.exception("[DB] OperationalError on receipts sync status")
         return jsonify({
+            "success": False,
             "error": "db_connection_lost",
             "retry": True,
             "message": "Database connection lost. Please retry in a moment."
