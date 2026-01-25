@@ -694,7 +694,7 @@ const ReceiptDrawer: React.FC<{
               return (
                 <div className="mb-4 bg-gray-100 rounded-lg overflow-hidden">
                   {receipt.attachment.mime_type === 'application/pdf' ? (
-                    <div className="aspect-[3/4] relative">
+                    <div className="aspect-[3/4] relative" style={{ minHeight: '500px' }}>
                       <iframe
                         src={`${attachmentUrl}#view=FitH`}
                         className="w-full h-full border-0"
@@ -706,7 +706,7 @@ const ReceiptDrawer: React.FC<{
                       src={attachmentUrl}
                       alt="Receipt"
                       className="w-full h-auto max-w-full"
-                      style={{ maxHeight: '70vh', objectFit: 'contain' }}
+                      style={{ maxHeight: '80vh', objectFit: 'contain' }}
                     />
                   ) : (
                     <div className="p-8 text-center text-gray-500">
@@ -726,7 +726,7 @@ const ReceiptDrawer: React.FC<{
                     src={previewUrl}
                     alt={receipt.vendor_name || 'Receipt preview'}
                     className="w-full h-auto max-w-full"
-                    style={{ maxHeight: '70vh', objectFit: 'contain' }}
+                    style={{ maxHeight: '80vh', objectFit: 'contain' }}
                   />
                 </div>
               );
@@ -817,7 +817,19 @@ const ReceiptDrawer: React.FC<{
                 className="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
               >
                 <Download className="w-4 h-4 ml-2" />
-                הורד קבלה
+                הורד מקור
+              </a>
+            )}
+            
+            {receipt.preview_attachment_id && (
+              <a
+                href={`/api/receipts/${receipt.id}/preview/download`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center px-4 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors"
+              >
+                <Eye className="w-4 h-4 ml-2" />
+                הורד Preview
               </a>
             )}
             
