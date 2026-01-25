@@ -228,7 +228,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       setMessages(prev => [...prev, optimisticMessage]);
       setNewMessage('');
 
-      // Send to API
+      // ✅ UNIFIED: Send to /api/whatsapp/send with lead_id for reply_jid lookup
       const response = await http.post<{
         ok: boolean;
         success?: boolean;
@@ -237,7 +237,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       }>('/api/whatsapp/send', {
         to: lead.phone_e164,
         message: newMessage.trim(),
-        attachment_id: attachmentId,  // NEW: include attachment
+        attachment_id: attachmentId,
+        lead_id: lead.id,  // ✅ NEW: Include lead_id for reply_jid lookup
         business_id: getBusinessId(),
         provider: selectedProvider
       });

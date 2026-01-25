@@ -223,12 +223,17 @@ def api_thread_messages(thread_id):
 @crm_bp.post("/api/crm/threads/<thread_id>/message")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_send_thread_message(thread_id):
-    """Send a message to a WhatsApp thread with optional media - BUILD 170.1 + MEDIA SUPPORT"""
+    """✅ UNIFIED: Send message to WhatsApp thread - same logic as /api/whatsapp/send"""
     import logging
+    import time
+    import requests
     log = logging.getLogger("crm")
+    start_time = time.time()
     
     try:
         from server.whatsapp_provider import get_whatsapp_service
+        from server.utils.whatsapp_utils import normalize_whatsapp_to
+        from server.models_sql import Lead
         
         business_id = get_business_id()
         if not business_id:
@@ -284,9 +289,41 @@ def api_send_thread_message(thread_id):
             if not text:
                 return jsonify({"success": False, "error": "empty_message"}), 400
         
-        # Normalize phone number
-        to_number = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
-        formatted_number = f"{to_number}@s.whatsapp.net"
+        # ✅ NEW: Try to find lead for reply_jid lookup
+        lead_phone = None
+        lead_reply_jid = None
+        lead_id = None
+        
+        # thread_id is the phone number - try to find matching lead
+        thread_phone_clean = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
+        try:
+            # Look for lead by phone
+            lead = db.session.query(Lead).filter(
+                Lead.business_id == business_id,
+                Lead.phone_e164.like(f"%{thread_phone_clean[-8:]}")  # Match last 8 digits
+            ).first()
+            
+            if lead:
+                lead_id = lead.id
+                lead_phone = lead.phone_e164
+                lead_reply_jid = lead.reply_jid
+                log.debug(f"[CRM-SEND] Found lead {lead_id} for thread {thread_id}: reply_jid={lead_reply_jid}")
+        except Exception as e:
+            log.warning(f"[CRM-SEND] Could not lookup lead for thread {thread_id}: {e}")
+        
+        # ✅ UNIFIED: Use centralized normalization function
+        try:
+            formatted_number, jid_source = normalize_whatsapp_to(
+                to=thread_id,
+                lead_phone=lead_phone,
+                lead_reply_jid=lead_reply_jid,
+                lead_id=lead_id,
+                business_id=business_id
+            )
+            log.info(f"[CRM-SEND] from_page=whatsapp_page normalized_to={formatted_number} source={jid_source} lead_id={lead_id} business_id={business_id}")
+        except ValueError as e:
+            log.error(f"[CRM-SEND] Normalization failed: {e}")
+            return jsonify({"success": False, "error": str(e)}), 400
         
         # Get WhatsApp service
         tenant_id = f"business_{business_id}"
@@ -296,7 +333,7 @@ def api_send_thread_message(thread_id):
             log.error(f"[CRM-SEND] Failed to get WhatsApp service: {e}")
             return jsonify({"success": False, "error": f"whatsapp_service_unavailable"}), 503
         
-        # Send message (with or without media)
+        # ✅ FAST-FAIL: Send with timeout handling for better UX
         try:
             if file_data:
                 # Send media message
@@ -320,13 +357,29 @@ def api_send_thread_message(thread_id):
             else:
                 # Send text message
                 send_result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
+                
+            # ✅ Log timing for SLOW_API detection
+            elapsed = time.time() - start_time
+            if elapsed > 5.0:
+                log.warning(f"SLOW_API: POST /api/crm/threads/{thread_id}/message took {elapsed:.2f}s")
+            else:
+                log.info(f"[CRM-SEND] Request completed in {elapsed:.2f}s")
+                
+        except requests.exceptions.Timeout as e:
+            elapsed = time.time() - start_time
+            log.error(f"[CRM-SEND] Timeout after {elapsed:.2f}s: {e}")
+            return jsonify({"success": False, "error": "send_timeout", "elapsed": elapsed}), 504
         except Exception as e:
-            log.error(f"[CRM-SEND] Send message failed: {e}")
-            return jsonify({"success": False, "error": f"send_failed: {str(e)}"}), 500
-        
-        if not send_result or send_result.get('status') != 'sent':
-            error_msg = send_result.get('error', 'send_failed') if send_result else 'empty_response'
-            return jsonify({"success": False, "error": error_msg}), 500
+            elapsed = time.time() - start_time
+            log.error(f"[CRM-SEND] Send message failed after {elapsed:.2f}s: {e}")
+            
+            # ✅ Check if this is a Baileys 500 error - fail fast
+            error_str = str(e).lower()
+            if '500' in error_str or 'service unavailable' in error_str:
+                log.error(f"[CRM-SEND] Baileys 500 error detected - failing fast")
+                return jsonify({"success": False, "error": "provider_error_500", "elapsed": elapsed}), 503
+            
+            return jsonify({"success": False, "error": f"send_failed: {str(e)}", "elapsed": elapsed}), 500
         
         # Save message to database
         try:
