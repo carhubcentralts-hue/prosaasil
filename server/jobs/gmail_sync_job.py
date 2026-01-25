@@ -94,6 +94,7 @@ def sync_gmail_receipts_job(
     try:
         # Enhanced logging with all parameters for debugging
         logger.info("=" * 60)
+        logger.info(f"🧾 JOB start type=gmail_sync business_id={business_id} job_id={job_id or 'N/A'}")
         logger.info(f"🔔 JOB_START: Gmail receipts sync")
         logger.info(f"  → job_id: {job_id or 'N/A'}")
         logger.info(f"  → business_id: {business_id}")
@@ -177,6 +178,7 @@ def sync_gmail_receipts_job(
         
         duration = (sync_run.finished_at - sync_run.started_at).total_seconds()
         logger.info("=" * 60)
+        logger.info(f"🧾 JOB complete type=gmail_sync business_id={business_id} job_id={job_id or 'N/A'}")
         logger.info(f"🔔 JOB_DONE: Gmail sync completed successfully")
         logger.info(f"  → job_id: {job_id or 'N/A'}")
         logger.info(f"  → business_id: {business_id}")
@@ -196,6 +198,7 @@ def sync_gmail_receipts_job(
         
     except Exception as e:
         logger.error("=" * 60)
+        logger.error(f"🧾 JOB failed type=gmail_sync business_id={business_id} job_id={job_id or 'N/A'}")
         logger.error(f"🔔 JOB_FAIL: Gmail sync failed")
         logger.error(f"  → job_id: {job_id or 'N/A'}")
         logger.error(f"  → business_id: {business_id}")
