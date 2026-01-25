@@ -480,6 +480,7 @@ export function SignatureFieldMarker({ contractId, onClose, onSave }: SignatureF
                     onMouseLeave={handleMouseUp}
                     onPointerLeave={handleMouseUp}
                     style={{
+                      background: 'transparent',
                       pointerEvents: signatureMarkingMode ? 'auto' : 'none',
                     }}
                   >

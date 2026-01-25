@@ -427,6 +427,8 @@ export function PDFCanvas({
                   // Using internal size would make overlay huge and push PDF off-screen
                   width: canvasRef.current.style.width,
                   height: canvasRef.current.style.height,
+                  // 🔥 FIX: CRITICAL - Transparent background to prevent white box covering PDF
+                  background: 'transparent',
                   // 🔥 FIX: Default to pointer-events none, let children override
                   pointerEvents: 'none',
                   // 🔥 FIX: Ensure proper z-index layering
