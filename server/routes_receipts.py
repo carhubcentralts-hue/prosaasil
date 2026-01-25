@@ -1999,7 +1999,17 @@ def export_receipts():
         if not receipts:
             return jsonify({"success": False, "error": "No receipts found to export"}), 404
         
+        # SECURITY: Limit number of receipts to prevent memory exhaustion
+        MAX_RECEIPTS = 1000
+        if len(receipts) > MAX_RECEIPTS:
+            return jsonify({
+                "success": False, 
+                "error": f"Too many receipts to export ({len(receipts)}). Maximum is {MAX_RECEIPTS}. Please use date filters to reduce the number."
+            }), 400
+        
         # Create ZIP file in memory
+        # NOTE: For very large exports (>1000 receipts), consider implementing streaming ZIP
+        # or temporary file-based approach to reduce memory usage
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -2014,36 +2024,73 @@ def export_receipts():
                     continue
                 
                 try:
-                    # Download the file from signed URL
-                    response = requests.get(attachment_to_export.signed_url, timeout=30)
+                    # Download the file from signed URL with SSL verification and size limit
+                    # SECURITY: Limit download size to prevent memory exhaustion (100 MB max)
+                    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+                    
+                    response = requests.get(
+                        attachment_to_export.signed_url, 
+                        timeout=30,
+                        stream=True,  # Stream to check size before loading into memory
+                        verify=True  # SSL verification enabled
+                    )
                     response.raise_for_status()
                     
-                    # Generate a safe filename
-                    vendor = (receipt.vendor_name or 'Unknown').replace('/', '-').replace('\\', '-')
-                    date_str = receipt.received_at.strftime('%Y-%m-%d') if receipt.received_at else 'unknown'
-                    amount_str = f"{receipt.amount:.2f}{receipt.currency}" if receipt.amount else "0"
+                    # Check content length before downloading
+                    content_length = response.headers.get('content-length')
+                    if content_length and int(content_length) > MAX_FILE_SIZE:
+                        logger.warning(f"Receipt {receipt.id} file too large ({content_length} bytes), skipping")
+                        continue
                     
-                    # Get file extension from filename or mime type
-                    original_filename = attachment_to_export.filename or ""
-                    file_ext = Path(original_filename).suffix
+                    # Read content with size limit
+                    content = bytearray()
+                    for chunk in response.iter_content(chunk_size=8192):
+                        content.extend(chunk)
+                        if len(content) > MAX_FILE_SIZE:
+                            logger.warning(f"Receipt {receipt.id} exceeded size limit during download, skipping")
+                            break
+                    else:
+                        # Download completed successfully
+                        content = bytes(content)
                     
-                    if not file_ext:
-                        # Guess extension from mime type
-                        mime_to_ext = {
-                            'image/jpeg': '.jpg',
-                            'image/png': '.png',
-                            'image/gif': '.gif',
-                            'image/webp': '.webp',
-                            'application/pdf': '.pdf'
-                        }
-                        file_ext = mime_to_ext.get(attachment_to_export.mime_type, '.bin')
-                    
-                    # Create filename: vendor_date_amount_id.ext
-                    filename = f"{vendor}_{date_str}_{amount_str}_{receipt.id}{file_ext}"
-                    
-                    # Add to ZIP
-                    zip_file.writestr(filename, response.content)
-                    downloaded_count += 1
+                        # Generate a safe filename with comprehensive sanitization
+                        vendor = (receipt.vendor_name or 'Unknown')
+                        # SECURITY: Comprehensive filename sanitization
+                        # Remove path separators, null bytes, control characters, and reserved names
+                        import re
+                        vendor = re.sub(r'[/\\<>:"|?*\x00-\x1f]', '-', vendor)
+                        vendor = vendor.strip('. ')  # Remove leading/trailing dots and spaces
+                        if not vendor or vendor.lower() in ('con', 'prn', 'aux', 'nul', 'com1', 'lpt1'):
+                            vendor = 'Unknown'
+                        
+                        date_str = receipt.received_at.strftime('%Y-%m-%d') if receipt.received_at else 'unknown'
+                        amount_str = f"{receipt.amount:.2f}{receipt.currency}" if receipt.amount else "0"
+                        
+                        # Get file extension from filename or mime type
+                        original_filename = attachment_to_export.filename or ""
+                        file_ext = Path(original_filename).suffix
+                        
+                        if not file_ext:
+                            # Guess extension from mime type
+                            mime_to_ext = {
+                                'image/jpeg': '.jpg',
+                                'image/png': '.png',
+                                'image/gif': '.gif',
+                                'image/webp': '.webp',
+                                'application/pdf': '.pdf'
+                            }
+                            file_ext = mime_to_ext.get(attachment_to_export.mime_type, '.bin')
+                        
+                        # Sanitize extension
+                        file_ext = re.sub(r'[^a-zA-Z0-9.]', '', file_ext)[:10]  # Max 10 chars for extension
+                        
+                        # Create filename: vendor_date_amount_id.ext (max 255 chars total)
+                        filename = f"{vendor[:100]}_{date_str}_{amount_str}_{receipt.id}{file_ext}"
+                        filename = filename[:255]  # Filesystem limit
+                        
+                        # Add to ZIP
+                        zip_file.writestr(filename, content)
+                        downloaded_count += 1
                     
                 except requests.exceptions.RequestException as e:
                     logger.error(f"Failed to download receipt {receipt.id}: {e}")
