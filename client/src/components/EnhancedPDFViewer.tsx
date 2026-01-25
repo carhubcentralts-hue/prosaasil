@@ -51,6 +51,7 @@ export function EnhancedPDFViewer({
   const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeError, setIframeError] = useState(false);
+  const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fullscreen handling
   useEffect(() => {
@@ -98,14 +99,18 @@ export function EnhancedPDFViewer({
   };
 
   const handlePrevPage = () => {
-    if (currentPage > 1) {
+    if (currentPage > 1 && !loading && iframeLoaded) {
       onPageChange(currentPage - 1);
+      // Reset iframe state for new page
+      setIframeLoaded(false);
     }
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages) {
+    if (currentPage < totalPages && !loading && iframeLoaded) {
       onPageChange(currentPage + 1);
+      // Reset iframe state for new page
+      setIframeLoaded(false);
     }
   };
 
@@ -126,12 +131,24 @@ export function EnhancedPDFViewer({
     logger.debug('PDF iframe loaded successfully');
     setIframeLoaded(true);
     setIframeError(false);
+    
+    // Clear timeout on successful load
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
   };
 
   const handleIframeError = () => {
     logger.error('PDF iframe failed to load');
     setIframeError(true);
     setIframeLoaded(false);
+    
+    // Clear timeout on error
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
   };
 
   // Reset load state when PDF URL changes (not on page navigation)
@@ -139,6 +156,24 @@ export function EnhancedPDFViewer({
     setIframeLoaded(false);
     setIframeError(false);
   }, [pdfUrl]);
+
+  // Set timeout for iframe loading - if it takes too long, force clear the overlay
+  useEffect(() => {
+    if (!iframeLoaded && !iframeError && pdfUrl) {
+      // Start a timeout when iframe starts loading
+      loadTimeoutRef.current = setTimeout(() => {
+        logger.error('[PDF_IFRAME_TIMEOUT] Iframe loading timeout - forcing load complete');
+        setIframeLoaded(true); // Force loaded to clear overlay
+      }, 10000); // 10 seconds timeout
+    }
+    
+    return () => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
+    };
+  }, [iframeLoaded, iframeError, pdfUrl]);
 
   // Toolbar component
   const Toolbar = () => (
@@ -148,7 +183,7 @@ export function EnhancedPDFViewer({
         <div className="flex items-center gap-2">
           <button
             onClick={handlePrevPage}
-            disabled={currentPage === 1}
+            disabled={currentPage === 1 || loading || !iframeLoaded}
             className="p-2 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="עמוד קודם"
           >
@@ -159,7 +194,7 @@ export function EnhancedPDFViewer({
           </span>
           <button
             onClick={handleNextPage}
-            disabled={currentPage === totalPages}
+            disabled={currentPage === totalPages || loading || !iframeLoaded}
             className="p-2 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="עמוד הבא"
           >
@@ -257,7 +292,7 @@ export function EnhancedPDFViewer({
         <>
           <iframe
             ref={iframeRef}
-            key={pdfUrl}
+            key={`pdf-${pdfUrl}-page-${currentPage}-zoom-${zoom}`}
             src={getIframeSrc()}
             className="absolute inset-0 w-full h-full"
             title="PDF Preview"
@@ -271,7 +306,7 @@ export function EnhancedPDFViewer({
               zIndex: 1,
             }}
           />
-          {/* Show loading overlay ONLY when iframe is loading - remove as soon as it loads */}
+          {/* Show loading overlay ONLY when iframe is loading - removed when iframe loads OR timeout occurs */}
           {!iframeLoaded && !iframeError && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 pointer-events-none" style={{ zIndex: 10 }}>
               <div className="text-center">
