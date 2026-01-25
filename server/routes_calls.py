@@ -500,6 +500,30 @@ def stream_recording(call_sid):
                     "message": "Recording is being prepared, please retry in a few seconds"
                 }), 202
             
+            # 🔥 USE BULK GATE: Check if download enqueue is allowed
+            try:
+                import redis
+                REDIS_URL = os.getenv('REDIS_URL')
+                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+                if redis_conn:
+                    from server.services.bulk_gate import get_bulk_gate
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    
+                    if bulk_gate:
+                        # Check if enqueue is allowed (use call_sid as dedup key)
+                        allowed, reason = bulk_gate.can_enqueue(
+                            business_id=business_id,
+                            operation_type='recording_download',
+                            user_id=None,  # No user context for recording downloads
+                            params_hash=call_sid
+                        )
+                        
+                        if not allowed:
+                            return jsonify({"success": False, "error": reason}), 429
+            except Exception as e:
+                log.warning(f"BulkGate check failed (proceeding anyway): {e}")
+            
             # Not in progress and not cached - enqueue PRIORITY download job
             log.debug(f"Stream recording: File not cached for call_sid={call_sid}, enqueuing priority download")
             

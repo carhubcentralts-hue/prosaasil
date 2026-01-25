@@ -1491,6 +1491,29 @@ def bulk_delete_leads():
     
     log.info(f"🗑️ Bulk delete: user={user.get('email') if user else 'unknown'}, is_system_admin={is_system_admin}, tenant_id={tenant_id}, lead_ids={lead_ids}")
     
+    # 🔥 USE BULK GATE: Check if enqueue is allowed
+    try:
+        import redis
+        REDIS_URL = os.getenv('REDIS_URL')
+        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+        
+        if redis_conn:
+            from server.services.bulk_gate import get_bulk_gate
+            bulk_gate = get_bulk_gate(redis_conn)
+            
+            if bulk_gate:
+                # Check if enqueue is allowed
+                allowed, reason = bulk_gate.can_enqueue(
+                    business_id=tenant_id,
+                    operation_type='delete_leads_bulk',
+                    user_id=user.get('id') if user else None
+                )
+                
+                if not allowed:
+                    return jsonify({"error": reason}), 429
+    except Exception as e:
+        logger.warning(f"BulkGate check failed (proceeding anyway): {e}")
+    
     try:
         # Validate tenant access - ensure we have leads to process
         if tenant_id:
@@ -1537,6 +1560,28 @@ def bulk_delete_leads():
         if REDIS_URL:
             redis_conn = redis.from_url(REDIS_URL)
             queue = Queue('maintenance', connection=redis_conn)
+            
+            # Acquire lock and record enqueue BEFORE actually enqueuing
+            if redis_conn:
+                try:
+                    from server.services.bulk_gate import get_bulk_gate
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    
+                    if bulk_gate:
+                        # Acquire lock for this operation
+                        lock_acquired = bulk_gate.acquire_lock(
+                            business_id=business_id,
+                            operation_type='delete_leads_bulk',
+                            job_id=bg_job.id
+                        )
+                        
+                        # Record the enqueue
+                        bulk_gate.record_enqueue(
+                            business_id=business_id,
+                            operation_type='delete_leads_bulk'
+                        )
+                except Exception as e:
+                    logger.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
             
             # Import and enqueue the job function
             from server.jobs.delete_leads_job import delete_leads_batch_job
@@ -1589,6 +1634,31 @@ def bulk_update_leads():
     if not isinstance(lead_ids, list) or len(lead_ids) == 0:
         return jsonify({"error": "lead_ids must be a non-empty array"}), 400
     
+    user = get_current_user()
+    
+    # 🔥 USE BULK GATE: Check if enqueue is allowed
+    try:
+        import redis
+        REDIS_URL = os.getenv('REDIS_URL')
+        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+        
+        if redis_conn:
+            from server.services.bulk_gate import get_bulk_gate
+            bulk_gate = get_bulk_gate(redis_conn)
+            
+            if bulk_gate:
+                # Check if enqueue is allowed
+                allowed, reason = bulk_gate.can_enqueue(
+                    business_id=tenant_id,
+                    operation_type='update_leads_bulk',
+                    user_id=user.get('id') if user else None
+                )
+                
+                if not allowed:
+                    return jsonify({"error": reason}), 429
+    except Exception as e:
+        logger.warning(f"BulkGate check failed (proceeding anyway): {e}")
+    
     # Validate access to all leads
     leads = Lead.query.filter(
         Lead.id.in_(lead_ids),
@@ -1597,8 +1667,6 @@ def bulk_update_leads():
     
     if len(leads) != len(lead_ids):
         return jsonify({"error": "Some leads not found or access denied"}), 404
-    
-    user = get_current_user()
     
     try:
         # Create BackgroundJob record
@@ -1630,6 +1698,28 @@ def bulk_update_leads():
         if REDIS_URL:
             redis_conn = redis.from_url(REDIS_URL)
             queue = Queue('maintenance', connection=redis_conn)
+            
+            # Acquire lock and record enqueue BEFORE actually enqueuing
+            if redis_conn:
+                try:
+                    from server.services.bulk_gate import get_bulk_gate
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    
+                    if bulk_gate:
+                        # Acquire lock for this operation
+                        lock_acquired = bulk_gate.acquire_lock(
+                            business_id=tenant_id,
+                            operation_type='update_leads_bulk',
+                            job_id=bg_job.id
+                        )
+                        
+                        # Record the enqueue
+                        bulk_gate.record_enqueue(
+                            business_id=tenant_id,
+                            operation_type='update_leads_bulk'
+                        )
+                except Exception as e:
+                    logger.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
             
             # Import and enqueue the job function
             from server.jobs.update_leads_job import update_leads_batch_job

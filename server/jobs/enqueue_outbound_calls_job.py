@@ -93,6 +93,24 @@ def enqueue_outbound_calls_batch_job(job_id: int):
             job.updated_at = datetime.utcnow()
             db.session.commit()
             
+            # Release BulkGate lock
+            try:
+                import redis
+                import os
+                from server.services.bulk_gate import get_bulk_gate
+                REDIS_URL = os.getenv('REDIS_URL')
+                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+                if redis_conn:
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    if bulk_gate:
+                        bulk_gate.release_lock(
+                            business_id=business_id,
+                            operation_type='enqueue_outbound_calls'
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to release BulkGate lock: {e}")
+            
             logger.info("=" * 60)
             logger.info(f"📞 JOB complete type=enqueue_outbound_calls business_id={business_id} job_id={job_id}")
             logger.info(f"✅ [OUTBOUND_CALLS] All calls processed")
@@ -120,6 +138,25 @@ def enqueue_outbound_calls_batch_job(job_id: int):
             job.updated_at = datetime.utcnow()
             run.status = 'failed'
             db.session.commit()
+            
+            # Release BulkGate lock even on failure
+            try:
+                import redis
+                import os
+                from server.services.bulk_gate import get_bulk_gate
+                REDIS_URL = os.getenv('REDIS_URL')
+                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+                if redis_conn:
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    if bulk_gate:
+                        bulk_gate.release_lock(
+                            business_id=business_id,
+                            operation_type='enqueue_outbound_calls'
+                        )
+            except Exception as lock_err:
+                logger.warning(f"Failed to release BulkGate lock: {lock_err}")
+            
             return {
                 "success": False,
                 "error": str(e)

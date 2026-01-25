@@ -169,6 +169,25 @@ def process_broadcast_job(job_id: int):
                     broadcast.updated_at = datetime.utcnow()
                     
                     db.session.commit()
+                    
+                    # Release BulkGate lock
+                    try:
+                        import redis
+                        import os
+                        from server.services.bulk_gate import get_bulk_gate
+                        REDIS_URL = os.getenv('REDIS_URL')
+                        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                        
+                        if redis_conn:
+                            bulk_gate = get_bulk_gate(redis_conn)
+                            if bulk_gate:
+                                bulk_gate.release_lock(
+                                    business_id=business_id,
+                                    operation_type='broadcast_whatsapp'
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to release BulkGate lock: {e}")
+                    
                     return {
                         "success": True,
                         "message": "Broadcast completed successfully",
@@ -277,6 +296,25 @@ def process_broadcast_job(job_id: int):
             job.updated_at = datetime.utcnow()
             broadcast.status = 'failed'
             db.session.commit()
+            
+            # Release BulkGate lock even on failure
+            try:
+                import redis
+                import os
+                from server.services.bulk_gate import get_bulk_gate
+                REDIS_URL = os.getenv('REDIS_URL')
+                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+                if redis_conn:
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    if bulk_gate:
+                        bulk_gate.release_lock(
+                            business_id=business_id,
+                            operation_type='broadcast_whatsapp'
+                        )
+            except Exception as lock_err:
+                logger.warning(f"Failed to release BulkGate lock: {lock_err}")
+            
             return {
                 "success": False,
                 "error": str(e)

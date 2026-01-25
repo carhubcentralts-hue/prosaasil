@@ -2894,6 +2894,30 @@ def create_broadcast():
         user = session.get('al_user') or session.get('user', {})
         user_id = user.get('id')
         
+        # 🔥 USE BULK GATE: Check if enqueue is allowed
+        try:
+            import redis
+            import os
+            REDIS_URL = os.getenv('REDIS_URL')
+            redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+            
+            if redis_conn:
+                from server.services.bulk_gate import get_bulk_gate
+                bulk_gate = get_bulk_gate(redis_conn)
+                
+                if bulk_gate:
+                    # Check if enqueue is allowed
+                    allowed, reason = bulk_gate.can_enqueue(
+                        business_id=business_id,
+                        operation_type='broadcast_whatsapp',
+                        user_id=user_id
+                    )
+                    
+                    if not allowed:
+                        return jsonify({"ok": False, "error": reason}), 429
+        except Exception as e:
+            logger.warning(f"BulkGate check failed (proceeding anyway): {e}")
+        
         # ✅ FIX: Log incoming request for debugging
         log.info(f"[WA_BROADCAST] Incoming request from business_id={business_id}, user={user_id}")
         log.info(f"[WA_BROADCAST] Content-Type: {request.content_type}")
@@ -3174,6 +3198,28 @@ def create_broadcast():
             if REDIS_URL:
                 redis_conn = redis.from_url(REDIS_URL)
                 queue = Queue('broadcasts', connection=redis_conn)
+                
+                # Acquire lock and record enqueue BEFORE actually enqueuing
+                if redis_conn:
+                    try:
+                        from server.services.bulk_gate import get_bulk_gate
+                        bulk_gate = get_bulk_gate(redis_conn)
+                        
+                        if bulk_gate:
+                            # Acquire lock for this operation
+                            lock_acquired = bulk_gate.acquire_lock(
+                                business_id=business_id,
+                                operation_type='broadcast_whatsapp',
+                                job_id=bg_job.id
+                            )
+                            
+                            # Record the enqueue
+                            bulk_gate.record_enqueue(
+                                business_id=business_id,
+                                operation_type='broadcast_whatsapp'
+                            )
+                    except Exception as e:
+                        log.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
                 
                 # Import and enqueue the job function
                 from server.jobs.broadcast_job import process_broadcast_job

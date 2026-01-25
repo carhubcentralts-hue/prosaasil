@@ -167,6 +167,25 @@ def delete_imported_leads_batch_job(job_id: int):
                     job.finished_at = datetime.utcnow()
                     job.updated_at = datetime.utcnow()
                     db.session.commit()
+                    
+                    # Release BulkGate lock
+                    try:
+                        import redis
+                        import os
+                        from server.services.bulk_gate import get_bulk_gate
+                        REDIS_URL = os.getenv('REDIS_URL')
+                        redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                        
+                        if redis_conn:
+                            bulk_gate = get_bulk_gate(redis_conn)
+                            if bulk_gate:
+                                bulk_gate.release_lock(
+                                    business_id=business_id,
+                                    operation_type='delete_imported_leads'
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to release BulkGate lock: {e}")
+                    
                     return {
                         "success": True,
                         "message": "All imported leads deleted successfully",
@@ -249,6 +268,25 @@ def delete_imported_leads_batch_job(job_id: int):
             job.finished_at = datetime.utcnow()
             job.updated_at = datetime.utcnow()
             db.session.commit()
+            
+            # Release BulkGate lock even on failure
+            try:
+                import redis
+                import os
+                from server.services.bulk_gate import get_bulk_gate
+                REDIS_URL = os.getenv('REDIS_URL')
+                redis_conn = redis.from_url(REDIS_URL) if REDIS_URL else None
+                
+                if redis_conn:
+                    bulk_gate = get_bulk_gate(redis_conn)
+                    if bulk_gate:
+                        bulk_gate.release_lock(
+                            business_id=business_id,
+                            operation_type='delete_imported_leads'
+                        )
+            except Exception as lock_err:
+                logger.warning(f"Failed to release BulkGate lock: {lock_err}")
+            
             return {
                 "success": False,
                 "error": str(e)

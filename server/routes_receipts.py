@@ -1169,29 +1169,27 @@ def delete_all_receipts():
             "error": "Owner or admin permission required"
         }), 403
     
-    # Rate limiting: max 1 delete_all per minute per business (Redis-based)
+    # 🔥 USE BULK GATE: Unified rate limiting + deduplication + active job check
     if redis_conn:
-        rate_limit_key = f"rate_limit:delete_all_receipts:{business_id}"
-        try:
-            # Use SET NX (set if not exists) with expiry for atomic rate limiting
-            # This prevents race conditions between check and set
-            was_set = redis_conn.set(rate_limit_key, "1", nx=True, ex=RATE_LIMIT_DELETE_ALL_SECONDS)
+        from server.services.bulk_gate import get_bulk_gate
+        bulk_gate = get_bulk_gate(redis_conn)
+        
+        if bulk_gate:
+            # Check if enqueue is allowed
+            allowed, reason = bulk_gate.can_enqueue(
+                business_id=business_id,
+                operation_type='delete_receipts_all',
+                user_id=user_id
+            )
             
-            if not was_set:
-                # Key already exists, get TTL for error message
-                ttl = redis_conn.ttl(rate_limit_key)
-                # Handle edge cases: -1 (no expiry), -2 (key doesn't exist)
-                if ttl < 0:
-                    ttl = RATE_LIMIT_DELETE_ALL_SECONDS  # Default to configured value
+            if not allowed:
                 return jsonify({
                     "success": False,
-                    "error": f"Too many requests. Try again in {ttl} seconds."
+                    "error": reason
                 }), 429
-        except Exception as e:
-            logger.warning(f"Rate limit check failed (proceeding anyway): {e}")
     
     try:
-        # Check for existing active job
+        # Check for existing active job (extra safety, BulkGate already checked)
         existing_job = BackgroundJob.query.filter(
             BackgroundJob.business_id == business_id,
             BackgroundJob.job_type == 'delete_receipts_all',
