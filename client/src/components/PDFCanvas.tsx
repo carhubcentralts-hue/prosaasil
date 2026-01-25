@@ -110,6 +110,12 @@ export function PDFCanvas({
     const container = containerRef?.current || containerDivRef.current;
     if (!container) return;
 
+    // ✅ SET INITIAL WIDTH IMMEDIATELY (before creating observer)
+    // This ensures containerWidth is set synchronously on mount
+    const initialWidth = container.clientWidth;
+    logger.debug('[PDF_CANVAS] Setting initial container width:', initialWidth);
+    setContainerWidth(initialWidth);
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect.width;
@@ -119,8 +125,6 @@ export function PDFCanvas({
     });
 
     resizeObserver.observe(container);
-    // Set initial width
-    setContainerWidth(container.clientWidth);
 
     return () => {
       resizeObserver.disconnect();
@@ -135,9 +139,13 @@ export function PDFCanvas({
     const context = canvas.getContext('2d');
     if (!context) return;
 
+    // ✅ Get actual container width from ref (not state) to avoid timing issues
+    const container = containerRef?.current || containerDivRef.current;
+    const actualWidth = container?.clientWidth || containerWidth;
+
     // Don't render if container is too small (waiting for layout)
-    if (containerWidth < MIN_CONTAINER_WIDTH_FOR_RENDER) {
-      logger.debug('[PDF_CANVAS] Container too small, waiting for layout. Width:', containerWidth);
+    if (actualWidth < MIN_CONTAINER_WIDTH_FOR_RENDER) {
+      logger.debug('[PDF_CANVAS] Container too small, waiting for layout. Width:', actualWidth);
       return;
     }
 
@@ -147,7 +155,7 @@ export function PDFCanvas({
       renderTaskRef.current = null;
     }
 
-    logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', containerWidth);
+    logger.debug('[PDF_CANVAS] Rendering page:', currentPage, 'scale:', scale, 'containerWidth:', actualWidth);
 
     pdf.getPage(currentPage)
       .then((page) => {
