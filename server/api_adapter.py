@@ -7,10 +7,18 @@ from server.models_sql import Business, CallLog, WhatsAppMessage, Customer, User
 from server.auth_api import require_api_auth  # BUILD 136: Added for proper authentication
 from datetime import datetime, timedelta
 import logging
+import time
+import threading
 
 logger = logging.getLogger(__name__)
 
 api_adapter_bp = Blueprint('api_adapter', __name__)
+
+# 🔥 FIX: In-memory cache for dashboard stats to reduce DB load
+# Format: {cache_key: {'data': stats_dict, 'timestamp': unix_time}}
+_dashboard_stats_cache = {}
+_cache_lock = threading.Lock()
+DASHBOARD_CACHE_TTL = 45  # Cache for 45 seconds (reduced from potential 64s query time)
 
 def check_permissions(required_roles):
     """Check user permissions for adapter endpoints with proper impersonation support"""
@@ -55,8 +63,13 @@ def check_permissions(required_roles):
 @api_adapter_bp.route('/api/dashboard/stats', methods=['GET'])
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])  # BUILD 138 FIX: Use current role names only
 def dashboard_stats():
-    """BUILD 136: Business-scoped dashboard stats - uses g.tenant from @require_api_auth"""
+    """BUILD 136: Business-scoped dashboard stats - uses g.tenant from @require_api_auth
+    🔥 FIX: Added caching and timing to prevent 64s queries from overloading system
+    """
     import traceback
+    
+    # 🔥 FIX: Track request start time for performance monitoring
+    request_start = time.time()
     
     try:
         # BUILD 136 FIX: Use g.tenant populated by @require_api_auth
@@ -68,6 +81,23 @@ def dashboard_stats():
         time_filter = request.args.get('time_filter', 'today')
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
+        
+        # 🔥 FIX: Check cache first
+        cache_key = f"dashboard_stats:{tenant_id}:{time_filter}:{start_date}:{end_date}"
+        with _cache_lock:
+            if cache_key in _dashboard_stats_cache:
+                cached = _dashboard_stats_cache[cache_key]
+                age = time.time() - cached['timestamp']
+                if age < DASHBOARD_CACHE_TTL:
+                    elapsed = (time.time() - request_start) * 1000
+                    logger.info(f"⚡ [DASHBOARD] Cache HIT for {tenant_id} (age: {age:.1f}s, response: {elapsed:.0f}ms)")
+                    return jsonify(cached['data'])
+                else:
+                    # Cache expired, remove it
+                    logger.debug(f"[DASHBOARD] Cache expired for {cache_key} (age: {age:.1f}s > {DASHBOARD_CACHE_TTL}s)")
+                    del _dashboard_stats_cache[cache_key]
+        
+        logger.info(f"🔍 [DASHBOARD] Cache MISS for {tenant_id} - fetching from DB...")
         
         # Calculate date range based on filter
         today = datetime.utcnow().date()
@@ -93,22 +123,35 @@ def dashboard_stats():
         from sqlalchemy import func as sql_func
         
         # 🔥 BUILD 171: Wrap each query in try-except for better error isolation
+        # 🔥 FIX: Add timing for each query to identify slow ones
+        query_start = time.time()
         try:
             calls_in_range = CallLog.query.filter(
                 CallLog.business_id == tenant_id,
                 db.func.date(CallLog.created_at) >= date_start,
                 db.func.date(CallLog.created_at) <= date_end
             ).count()
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:  # Log if > 1s
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: calls_in_range took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] calls_in_range: {query_time:.0f}ms")
         except Exception as e:
             logger.error(f"Error in calls_in_range query: {e}")
             db.session.rollback()
             calls_in_range = 0
         
+        query_start = time.time()
         try:
             calls_last7d = CallLog.query.filter(
                 CallLog.business_id == tenant_id,
                 CallLog.created_at >= week_ago
             ).count()
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: calls_last7d took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] calls_last7d: {query_time:.0f}ms")
         except Exception as e:
             logger.error(f"Error in calls_last7d query: {e}")
             db.session.rollback()
@@ -118,6 +161,7 @@ def dashboard_stats():
         avg_handle_sec = 0
         
         # BUILD 156: WhatsApp stats - COUNT UNIQUE CHATS (not messages)
+        query_start = time.time()
         try:
             # Count distinct phone numbers that had conversations in date range
             whatsapp_in_range = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
@@ -125,28 +169,45 @@ def dashboard_stats():
                 db.func.date(WhatsAppMessage.created_at) >= date_start,
                 db.func.date(WhatsAppMessage.created_at) <= date_end
             ).scalar() or 0
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: whatsapp_in_range took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] whatsapp_in_range: {query_time:.0f}ms")
         except Exception as e:
             logger.error(f"Error in whatsapp_in_range query: {e}")
             db.session.rollback()
             whatsapp_in_range = 0
         
+        query_start = time.time()
         try:
             # Count distinct phone numbers that had conversations in last 7 days
             whatsapp_last7d = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
                 WhatsAppMessage.business_id == tenant_id,
                 WhatsAppMessage.created_at >= week_ago
             ).scalar() or 0
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: whatsapp_last7d took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] whatsapp_last7d: {query_time:.0f}ms")
         except Exception as e:
             logger.error(f"Error in whatsapp_last7d query: {e}")
             db.session.rollback()
             whatsapp_last7d = 0
         
+        query_start = time.time()
         try:
             # BUILD 156: Count unique chats with unread messages (not individual messages)
             unread = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
                 WhatsAppMessage.business_id == tenant_id,
                 WhatsAppMessage.status == 'received'
             ).scalar() or 0
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: unread took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] unread: {query_time:.0f}ms")
         except Exception as e:
             logger.error(f"Error in unread query: {e}")
             db.session.rollback()
@@ -158,12 +219,18 @@ def dashboard_stats():
         revenue_this_month = 0
         revenue_ytd = 0
         revenue_degraded = False  # Flag to indicate degraded data
+        query_start = time.time()
         try:
             revenue_this_month = Payment.query.with_entities(func.sum(Payment.amount)).filter(
                 Payment.business_id == tenant_id,
                 func.extract('month', Payment.created_at) == today.month,
                 func.extract('year', Payment.created_at) == today.year
             ).scalar() or 0
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: revenue_this_month took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] revenue_this_month: {query_time:.0f}ms")
         except Exception as e:
             err_str = str(e).lower()
             if 'undefinedtable' in err_str or 'does not exist' in err_str or 'payments' in err_str:
@@ -174,11 +241,17 @@ def dashboard_stats():
                 revenue_degraded = True
             db.session.rollback()
             
+        query_start = time.time()
         try:
             revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
                 Payment.business_id == tenant_id,
                 func.extract('year', Payment.created_at) == today.year
             ).scalar() or 0
+            query_time = (time.time() - query_start) * 1000
+            if query_time > 1000:
+                logger.warning(f"⚠️ [DASHBOARD] SLOW: revenue_ytd took {query_time:.0f}ms")
+            else:
+                logger.debug(f"[DASHBOARD] revenue_ytd: {query_time:.0f}ms")
         except Exception as e:
             err_str = str(e).lower()
             if 'undefinedtable' in err_str or 'does not exist' in err_str or 'payments' in err_str:
@@ -189,7 +262,8 @@ def dashboard_stats():
                 revenue_degraded = True
             db.session.rollback()
         
-        return jsonify({
+        # 🔥 FIX: Build response and cache it
+        response_data = {
             "calls": {
                 "today": calls_in_range,
                 "last7d": calls_last7d,
@@ -210,7 +284,23 @@ def dashboard_stats():
                 "start": str(date_start),
                 "end": str(date_end)
             }
-        })
+        }
+        
+        # 🔥 FIX: Store in cache before returning
+        with _cache_lock:
+            _dashboard_stats_cache[cache_key] = {
+                'data': response_data,
+                'timestamp': time.time()
+            }
+        
+        # 🔥 FIX: Log total request time
+        total_time = (time.time() - request_start) * 1000
+        if total_time > 1500:
+            logger.warning(f"⚠️ [DASHBOARD] SLOW REQUEST: {tenant_id} took {total_time:.0f}ms (CACHED for {DASHBOARD_CACHE_TTL}s)")
+        else:
+            logger.info(f"✅ [DASHBOARD] Request for {tenant_id} took {total_time:.0f}ms (CACHED for {DASHBOARD_CACHE_TTL}s)")
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"Error in dashboard_stats: {e}")
