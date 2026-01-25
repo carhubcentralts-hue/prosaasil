@@ -410,6 +410,94 @@ def download_recording(call_sid):
         log.error(f"Error downloading recording: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@calls_bp.route("/api/recordings/<call_sid>/status", methods=["GET"])
+@require_api_auth()
+@require_page_access('calls_inbound')
+def get_recording_status(call_sid):
+    """
+    🔥 NEW: Check recording status without triggering download
+    
+    This endpoint ONLY checks status - it never enqueues jobs.
+    Use this for polling instead of /stream to prevent queue flooding.
+    
+    Returns:
+    - 200 + {"status": "ready"} if recording is cached locally
+    - 200 + {"status": "processing", "ttl": N} if download in progress
+    - 200 + {"status": "queued", "position": N, "queue_length": M} if in queue
+    - 200 + {"status": "unknown"} if not found in system (needs to be started)
+    - 404 if call doesn't exist or no recording available
+    - 410 Gone if recording is expired (>7 days)
+    """
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            log.warning(f"Get recording status: No business_id for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "Business ID required"}), 400
+        
+        # Check if call exists and belongs to this business (tenant validation)
+        call = Call.query.filter(
+            Call.call_sid == call_sid,
+            Call.business_id == business_id
+        ).first()
+        
+        if not call:
+            log.warning(f"Get recording status: Call not found call_sid={call_sid}, business_id={business_id}")
+            return jsonify({"success": False, "error": "Recording not found"}), 404
+        
+        # Check if recording is expired (7 days)
+        if call.created_at and (datetime.now(timezone.utc).replace(tzinfo=None) - call.created_at).days > 7:
+            log.info(f"Get recording status: Recording expired for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "Recording expired"}), 410
+        
+        # Check if recording_url exists
+        if not call.recording_url:
+            log.warning(f"Get recording status: No recording_url for call_sid={call_sid}")
+            return jsonify({"success": False, "error": "No recording available"}), 404
+        
+        # Check if file exists locally
+        from server.services.recording_service import check_local_recording_exists
+        
+        if check_local_recording_exists(call_sid):
+            # File is ready!
+            return jsonify({
+                "success": True,
+                "status": "ready",
+                "message": "Recording is ready to stream"
+            }), 200
+        
+        # Check status in semaphore system (Redis)
+        from server.recording_semaphore import check_status
+        status, info = check_status(business_id, call_sid)
+        
+        if status == "processing":
+            # Download in progress
+            return jsonify({
+                "success": True,
+                "status": "processing",
+                "ttl": info.get("ttl"),
+                "message": "Recording is being prepared"
+            }), 200
+        elif status == "queued":
+            # In queue waiting
+            return jsonify({
+                "success": True,
+                "status": "queued",
+                "position": info.get("position"),
+                "queue_length": info.get("queue_length"),
+                "message": f"Recording queued (position {info.get('position', '?')})"
+            }), 200
+        else:
+            # Not in system - needs to be started
+            return jsonify({
+                "success": True,
+                "status": "unknown",
+                "message": "Recording not started yet"
+            }), 200
+            
+    except Exception as e:
+        log.error(f"Error getting recording status for {call_sid}: {e}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
+
 @calls_bp.route("/api/recordings/<call_sid>/stream", methods=["GET"])
 @require_api_auth()
 @require_page_access('calls_inbound')

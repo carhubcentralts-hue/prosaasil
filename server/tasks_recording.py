@@ -248,14 +248,34 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     
     🔥 NEW: Rate limiting removed - now using semaphore system in stream_recording
     The semaphore system handles slot management before this function is called.
-    """
-    # 🔥 REMOVED: rate_limit check - replaced by semaphore system in stream_recording
     
+    🔥 JOB-LEVEL DEDUP: Prevents duplicate jobs in RECORDING_QUEUE even if Redis slot acquired
+    """
     # Basic deduplication: Check if file already cached
     from server.services.recording_service import check_local_recording_exists
     if check_local_recording_exists(call_sid):
         log.debug(f"[DOWNLOAD_ONLY] File already cached for {call_sid}")
         return  # Don't enqueue
+    
+    # 🔥 NEW: Job-level deduplication using Redis
+    # Prevent duplicate jobs in RECORDING_QUEUE even after slot acquired
+    if REDIS_DEDUP_ENABLED and _redis_client:
+        try:
+            job_key = f"job:download:{business_id}:{call_sid}"
+            # Try to set key with 30-minute expiry (1800 seconds)
+            # NX = only set if not exists (atomic operation)
+            acquired = _redis_client.set(job_key, "enqueued", nx=True, ex=1800)
+            
+            if not acquired:
+                # Job already enqueued - skip duplicate
+                ttl = _redis_client.ttl(job_key)
+                log.info(f"[DOWNLOAD_ONLY] ⏭️  Job already enqueued for {call_sid} (TTL: {ttl}s) - skipping duplicate")
+                return
+            else:
+                log.debug(f"[DOWNLOAD_ONLY] ✅ Job lock acquired for {call_sid}")
+        except Exception as e:
+            logger.error(f"[DOWNLOAD_ONLY] Redis job dedup error for {call_sid}: {e}")
+            # Continue on Redis error (fail-open)
     
     # Enqueue download job
     RECORDING_QUEUE.put({
