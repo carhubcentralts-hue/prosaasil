@@ -160,6 +160,14 @@ def normalize_whatsapp_to(
     if not jid and to:
         to_clean = str(to).strip()
         
+        # 🔥 CRITICAL: Check for group/broadcast BEFORE normalization
+        if ('@g.us' in to_clean or 
+            '@broadcast' in to_clean or 
+            '@newsletter' in to_clean or
+            'status@broadcast' in to_clean):
+            logger.warning(f"[WA-NORMALIZE] ❌ BLOCKED: Attempt to send to non-private chat: {to_clean[:50]}")
+            raise ValueError("Cannot send to groups, broadcasts, or status updates")
+        
         # If already has @s.whatsapp.net, use it
         if '@s.whatsapp.net' in to_clean:
             jid = to_clean
