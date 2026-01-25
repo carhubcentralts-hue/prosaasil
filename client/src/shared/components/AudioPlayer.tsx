@@ -32,21 +32,88 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   const [retryCount, setRetryCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [prepareTriggered, setPrepareTriggered] = useState(false);
 
-  // 🔥 FIX: Increase retry patience for slow downloads
-  const MAX_RETRIES = 20; // Max 20 retries (up to 60 seconds for large recordings)
-  const RETRY_DELAY = 3000; // 3 seconds between retries (more patient)
+  // 🔥 FIX: Exponential backoff for polling
+  const MAX_RETRIES = 20; // Max 20 retries
+  const getRetryDelay = (retryCount: number) => {
+    // Exponential backoff: 3s → 5s → 8s → 12s → 15s (capped)
+    const delays = [3000, 5000, 8000, 12000, 15000];
+    return delays[Math.min(retryCount, delays.length - 1)];
+  };
 
-  // 🔥 FIX: Define loadRecordingWithRetry BEFORE useEffect to avoid Temporal Dead Zone
-  const loadRecordingWithRetry = async (url: string, currentRetry = 0) => {
+  // 🔥 NEW: Poll status endpoint (doesn't trigger enqueue)
+  const pollRecordingStatus = async (statusUrl: string, currentRetry = 0) => {
     setPreparingRecording(true);
     setErrorMessage(null);
     
     try {
-      // 🔥 SECURITY: Add explicit_user_action parameter to prevent mass enqueue
-      const urlWithParam = url.includes('?') 
-        ? `${url}&explicit_user_action=true`
-        : `${url}?explicit_user_action=true`;
+      const response = await fetch(statusUrl, {
+        method: 'GET',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'שגיאה בבדיקת סטטוס');
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'ready') {
+        // Recording is ready! Now fetch it from /stream
+        const streamUrl = statusUrl.replace('/status', '/stream');
+        await loadRecordingDirect(streamUrl);
+        return;
+      }
+      
+      if (data.status === 'processing' || data.status === 'queued') {
+        // Still processing/queued - continue polling with backoff
+        if (currentRetry < MAX_RETRIES) {
+          const delay = getRetryDelay(currentRetry);
+          console.log(`Recording ${data.status}, checking again in ${delay/1000}s... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
+          setRetryCount(currentRetry + 1);
+          
+          // Clear any existing timeout
+          if (retryTimeoutRef.current) {
+            clearTimeout(retryTimeoutRef.current);
+          }
+          
+          // Schedule next poll with exponential backoff
+          retryTimeoutRef.current = setTimeout(() => {
+            pollRecordingStatus(statusUrl, currentRetry + 1);
+          }, delay);
+          return;
+        } else {
+          throw new Error('ההכנה של ההקלטה נמשכת זמן רב. אנא נסה שוב בעוד דקה.');
+        }
+      }
+      
+      if (data.status === 'unknown') {
+        // Not started yet - trigger preparation
+        if (!prepareTriggered) {
+          setPrepareTriggered(true);
+          const streamUrl = statusUrl.replace('/status', '/stream');
+          await triggerRecordingPreparation(streamUrl, statusUrl);
+        } else {
+          throw new Error('שגיאה בהכנת ההקלטה');
+        }
+      }
+    } catch (error) {
+      console.error('Error polling recording status:', error);
+      setErrorMessage((error as Error).message);
+      setPreparingRecording(false);
+      setIsLoading(false);
+    }
+  };
+
+  // 🔥 NEW: Trigger recording preparation (call /stream once)
+  const triggerRecordingPreparation = async (streamUrl: string, statusUrl: string) => {
+    try {
+      // 🔥 SECURITY: Add explicit_user_action parameter
+      const urlWithParam = streamUrl.includes('?') 
+        ? `${streamUrl}&explicit_user_action=true`
+        : `${streamUrl}?explicit_user_action=true`;
       
       const response = await fetch(urlWithParam, {
         method: 'GET',
@@ -56,29 +123,53 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         }
       });
 
-      // Handle 202 Accepted - recording is being prepared
-      if (response.status === 202) {
-        if (currentRetry < MAX_RETRIES) {
-          const secondsWaited = (currentRetry + 1) * (RETRY_DELAY / 1000);
-          console.log(`Recording is being prepared (${secondsWaited}s elapsed), retrying... (attempt ${currentRetry + 1}/${MAX_RETRIES})`);
-          setRetryCount(currentRetry + 1);
-          
-          // Retry after delay
-          retryTimeoutRef.current = setTimeout(() => {
-            loadRecordingWithRetry(url, currentRetry + 1);
-          }, RETRY_DELAY);
-          return;
+      // 202 Accepted or 200 OK - start polling status
+      if (response.status === 202 || response.status === 200) {
+        if (response.status === 200) {
+          // Got the file immediately!
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          setBlobUrl(blobUrl);
+          setPreparingRecording(false);
+          setIsLoading(false);
+          setRetryCount(0);
         } else {
-          throw new Error('ההכנה של ההקלטה נמשכת זמן רב. אנא נסה שוב בעוד דקה.');
+          // 202 - enqueued, start polling
+          pollRecordingStatus(statusUrl, 0);
         }
+        return;
       }
 
-      // Handle 410 Gone - recording expired
+      // Handle errors
       if (response.status === 410) {
         throw new Error('ההקלטה פגה תוקף (ישנה מ-7 ימים)');
       }
 
-      // Handle other errors
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'שגיאה בהפעלת ההקלטה');
+    } catch (error) {
+      console.error('Error triggering recording preparation:', error);
+      setErrorMessage((error as Error).message);
+      setPreparingRecording(false);
+      setIsLoading(false);
+    }
+  };
+
+  // 🔥 NEW: Load recording directly (when ready)
+  const loadRecordingDirect = async (streamUrl: string) => {
+    try {
+      const urlWithParam = streamUrl.includes('?') 
+        ? `${streamUrl}&explicit_user_action=true`
+        : `${streamUrl}?explicit_user_action=true`;
+      
+      const response = await fetch(urlWithParam, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'X-User-Action': 'play'
+        }
+      });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'שגיאה בטעינת ההקלטה');
@@ -114,9 +205,22 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
     }
   }, []);
 
-  // 🔥 NEW: Load recording with retry logic for async downloads
+  // 🔥 NEW: Load recording with smart polling
   useEffect(() => {
     try {
+      // Clean up any existing timeouts
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+      
+      // Reset state
+      setPreparingRecording(false);
+      setIsLoading(true);
+      setRetryCount(0);
+      setErrorMessage(null);
+      setPrepareTriggered(false);
+      
       // If src is already a blob URL, use it directly
       if (src.startsWith('blob:')) {
         setBlobUrl(src);
@@ -124,11 +228,12 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
         return;
       }
 
-      // If src points to /api/recordings/<call_sid>/stream, fetch with retry logic
+      // If src points to /api/recordings/<call_sid>/stream, use status polling
       if (src.includes('/api/recordings/') && src.includes('/stream')) {
-        // Note: We don't await here since loadRecordingWithRetry handles all errors internally
-        // This is intentional to avoid blocking the useEffect and to allow the UI to update state
-        loadRecordingWithRetry(src);
+        // Convert /stream URL to /status URL
+        const statusUrl = src.replace('/stream', '/status');
+        // Start with status check (doesn't trigger enqueue)
+        pollRecordingStatus(statusUrl, 0);
       } else {
         // For other URLs (like old /api/calls/<call_sid>/download), use directly
         setBlobUrl(src);
@@ -189,16 +294,18 @@ export function AudioPlayer({ src, loading = false, className = '' }: AudioPlaye
   };
 
   if (loading || preparingRecording) {
-    // Calculate estimated seconds remaining
-    const secondsElapsed = retryCount * (RETRY_DELAY / 1000);
-    const maxSeconds = MAX_RETRIES * (RETRY_DELAY / 1000);
+    // Calculate estimated seconds elapsed with exponential backoff
+    let secondsElapsed = 0;
+    for (let i = 0; i < retryCount; i++) {
+      secondsElapsed += getRetryDelay(i) / 1000;
+    }
     
     return (
       <div className="flex items-center justify-center py-4">
         <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
         <span className="text-sm text-gray-500 mr-2">
           {preparingRecording && retryCount > 0 
-            ? `מכין הקלטה... (${secondsElapsed}s / ${maxSeconds}s)`
+            ? `מכין הקלטה... (${Math.floor(secondsElapsed)}s)`
             : preparingRecording
             ? 'מוריד הקלטה מהשרת...'
             : 'טוען הקלטה...'
