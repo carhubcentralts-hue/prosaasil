@@ -80,15 +80,18 @@ except Exception as e:
     log.warning(f"[RECORDING] Redis initialization failed: {e}")
 
 
-def _acquire_redis_dedup_lock(call_sid: str, job_type: str = "download") -> tuple[bool, str]:
+def _acquire_redis_dedup_lock(call_sid: str, business_id: int, job_type: str = "download") -> tuple[bool, str]:
     """
     🔥 FIX: Try to acquire Redis-based deduplication lock for a job.
     
     Uses Redis SET with NX (only if not exists) and EX (expiry) to create distributed locks.
     This prevents the same CallSid from being enqueued multiple times across workers/processes.
     
+    🔥 CRITICAL: Key includes business_id to prevent cross-business blocking
+    
     Args:
         call_sid: The call SID to lock
+        business_id: Business ID to ensure cross-business isolation
         job_type: Type of job ("download" or "full")
     
     Returns:
@@ -98,18 +101,19 @@ def _acquire_redis_dedup_lock(call_sid: str, job_type: str = "download") -> tupl
         return True, "redis_not_available"  # Fall through to in-memory check
     
     try:
-        redis_key = f"recording_job:{job_type}:{call_sid}"
+        # 🔥 FIX: Include business_id in key to prevent cross-business blocking
+        redis_key = f"recording_job:{business_id}:{job_type}:{call_sid}"
         # Try to set key with 10-minute expiry (600 seconds)
         # NX = only set if not exists (atomic operation)
         acquired = _redis_client.set(redis_key, "locked", nx=True, ex=ENQUEUE_COOLDOWN_SECONDS)
         
         if acquired:
-            log.debug(f"[RECORDING] ✅ Redis dedup lock acquired for {call_sid} ({job_type})")
+            log.debug(f"[RECORDING] ✅ Redis dedup lock acquired for {call_sid} (business:{business_id}, {job_type})")
             return True, "lock_acquired"
         else:
             # Key already exists - job recently enqueued
             ttl = _redis_client.ttl(redis_key)
-            log.debug(f"[RECORDING] ⏭️  Redis dedup lock exists for {call_sid} (TTL: {ttl}s)")
+            log.debug(f"[RECORDING] ⏭️  Redis dedup lock exists for {call_sid} (business:{business_id}, TTL: {ttl}s)")
             return False, f"redis_locked (TTL: {ttl}s)"
     except Exception as e:
         logger.error(f"[RECORDING] Redis dedup error for {call_sid}: {e}")
@@ -146,18 +150,19 @@ def normalize_call_direction(twilio_direction):
         return "unknown"
 
 
-def _should_enqueue_download(call_sid: str, job_type: str = "download") -> tuple[bool, str]:
+def _should_enqueue_download(call_sid: str, business_id: int, job_type: str = "download") -> tuple[bool, str]:
     """
     🔥 DEDUPLICATION: Check if we should enqueue a download for this call_sid.
     
     Prevents duplicate downloads by (in order):
     1. Checking if file already cached locally
     2. Checking if download already in progress (via recording_service)
-    3. Checking Redis dedup lock (distributed, 10min TTL)
+    3. Checking Redis dedup lock (distributed, 10min TTL, per-business)
     4. Checking in-memory cooldown (fallback if Redis unavailable)
     
     Args:
         call_sid: The call SID to check
+        business_id: Business ID for cross-business isolation
         job_type: Type of job ("download" or "full")
         
     Returns:
@@ -175,7 +180,8 @@ def _should_enqueue_download(call_sid: str, job_type: str = "download") -> tuple
         return False, "download_in_progress"
     
     # Check 3: Redis-based deduplication (distributed lock)
-    redis_acquired, redis_reason = _acquire_redis_dedup_lock(call_sid, job_type)
+    # 🔥 FIX: Pass business_id to prevent cross-business blocking
+    redis_acquired, redis_reason = _acquire_redis_dedup_lock(call_sid, business_id, job_type)
     if not redis_acquired:
         return False, redis_reason
     
@@ -207,16 +213,17 @@ def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", 
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
     # 🔥 DEDUPLICATION: Check if we should enqueue this job
-    should_enqueue, reason = _should_enqueue_download(call_sid, job_type="full")
+    # 🔥 FIX: Pass business_id for cross-business isolation
+    should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="full")
     
     if not should_enqueue:
         # Don't enqueue - log at DEBUG level to reduce noise
         if reason == "already_cached":
-            log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} - skipping enqueue")
+            log.debug(f"[OFFLINE_STT] ⏭️  File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
         elif reason == "download_in_progress":
-            log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
+            log.debug(f"[OFFLINE_STT] ⏭️  Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
         else:
-            log.debug(f"[OFFLINE_STT] ⏭️  Job blocked for {call_sid} - {reason}")
+            log.debug(f"[OFFLINE_STT] ⏭️  Job blocked for {call_sid} (business:{business_id}) - {reason}")
         return  # Don't enqueue
     
     # Passed deduplication checks - safe to enqueue
@@ -248,16 +255,17 @@ def enqueue_recording_download_only(call_sid, recording_url, business_id, from_n
     🔥 IDEMPOTENT: Checks for duplicates before enqueueing to prevent spam
     """
     # 🔥 DEDUPLICATION: Check if we should enqueue this download
-    should_enqueue, reason = _should_enqueue_download(call_sid, job_type="download")
+    # 🔥 FIX: Pass business_id for cross-business isolation
+    should_enqueue, reason = _should_enqueue_download(call_sid, business_id, job_type="download")
     
     if not should_enqueue:
         # Don't enqueue - log at DEBUG level to reduce noise
         if reason == "already_cached":
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} - skipping enqueue")
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  File already cached for {call_sid} (business:{business_id}) - skipping enqueue")
         elif reason == "download_in_progress":
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} - skipping enqueue")
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Download already in progress for {call_sid} (business:{business_id}) - skipping enqueue")
         else:
-            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Job blocked for {call_sid} - {reason}")
+            log.debug(f"[DOWNLOAD_ONLY] ⏭️  Job blocked for {call_sid} (business:{business_id}) - {reason}")
         return  # Don't enqueue
     
     # Passed deduplication checks - safe to enqueue

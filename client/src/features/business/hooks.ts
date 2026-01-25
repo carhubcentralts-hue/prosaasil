@@ -27,7 +27,7 @@ export const useBusinessDashboard = (timeFilter: TimeFilter = 'today', dateRange
     } finally {
       setIsLoadingStats(false);
     }
-  }, [user, tenant, impersonating, timeFilter, dateRange]);
+  }, [timeFilter, dateRange]); // 🔥 FIX: Only re-create when filter changes, not on every auth change
   
   const fetchActivity = useCallback(async () => {
     console.log('🔍 Fetching dashboard activity...', { user: user?.email, tenant: tenant?.name, timeFilter });
@@ -43,16 +43,17 @@ export const useBusinessDashboard = (timeFilter: TimeFilter = 'today', dateRange
     } finally {
       setIsLoadingActivity(false);
     }
-  }, [user, tenant, impersonating, timeFilter, dateRange]);
+  }, [timeFilter, dateRange]); // 🔥 FIX: Only re-create when filter changes, not on every auth change
   
   // Re-fetch when auth state or time filter changes
+  // 🔥 FIX: Don't include fetchStats/fetchActivity in deps to avoid infinite loop
   useEffect(() => {
     if (user && tenant) {
       console.log('🔄 Fetching dashboard data...', { timeFilter, tenant: tenant.name });
       fetchStats();
       fetchActivity();
     }
-  }, [user, tenant, impersonating, timeFilter, dateRange, fetchStats, fetchActivity]);
+  }, [user?.id, tenant?.id, timeFilter, dateRange]); // 🔥 FIX: Use stable IDs, not objects
   
   const refetch = useCallback(() => {
     fetchStats();

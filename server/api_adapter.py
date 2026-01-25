@@ -9,20 +9,86 @@ from datetime import datetime, timedelta
 import logging
 import time
 import threading
+import json
+import os
 
 logger = logging.getLogger(__name__)
 
 api_adapter_bp = Blueprint('api_adapter', __name__)
 
-# 🔥 FIX: In-memory cache for dashboard stats to reduce DB load
-# Format: {cache_key: {'data': stats_dict, 'timestamp': unix_time}}
+# 🔥 FIX: Dashboard cache - supports both in-memory and Redis
+# In-memory is for single-instance deployments, Redis for multi-instance
 _dashboard_stats_cache = {}
 _cache_lock = threading.Lock()
-DASHBOARD_CACHE_TTL = 45  # Cache for 45 seconds (reduced from potential 64s query time)
-DASHBOARD_CACHE_MAX_SIZE = 100  # 🔥 FIX: Maximum cache entries before cleanup
+_redis_cache_client = None
+DASHBOARD_CACHE_TTL = 45  # Cache for 45 seconds
+DASHBOARD_CACHE_MAX_SIZE = 100  # Maximum in-memory cache entries before cleanup
+REDIS_CACHE_ENABLED = False
+
+# Try to initialize Redis cache
+try:
+    import redis
+    REDIS_URL = os.getenv('REDIS_URL')
+    if REDIS_URL:
+        _redis_cache_client = redis.from_url(REDIS_URL, decode_responses=True)
+        _redis_cache_client.ping()
+        REDIS_CACHE_ENABLED = True
+        logger.info("✅ [DASHBOARD] Redis cache enabled for multi-instance support")
+    else:
+        logger.info("ℹ️ [DASHBOARD] In-memory cache (single instance) - set REDIS_URL for multi-instance")
+except Exception as e:
+    logger.warning(f"⚠️ [DASHBOARD] Redis cache unavailable, using in-memory: {e}")
+
+def _get_cached_stats(cache_key: str):
+    """Get cached stats from Redis (if available) or in-memory"""
+    if REDIS_CACHE_ENABLED and _redis_cache_client:
+        try:
+            cached_json = _redis_cache_client.get(f"dashboard:{cache_key}")
+            if cached_json:
+                return json.loads(cached_json)
+        except Exception as e:
+            logger.error(f"[DASHBOARD] Redis cache read error: {e}")
+            # Fall through to in-memory
+    
+    # In-memory fallback
+    with _cache_lock:
+        if cache_key in _dashboard_stats_cache:
+            cached = _dashboard_stats_cache[cache_key]
+            age = time.time() - cached['timestamp']
+            if age < DASHBOARD_CACHE_TTL:
+                return cached['data']
+            else:
+                # Expired, remove it
+                del _dashboard_stats_cache[cache_key]
+    
+    return None
+
+def _set_cached_stats(cache_key: str, data: dict):
+    """Store stats in Redis (if available) or in-memory"""
+    if REDIS_CACHE_ENABLED and _redis_cache_client:
+        try:
+            _redis_cache_client.setex(
+                f"dashboard:{cache_key}",
+                DASHBOARD_CACHE_TTL,
+                json.dumps(data)
+            )
+            return
+        except Exception as e:
+            logger.error(f"[DASHBOARD] Redis cache write error: {e}")
+            # Fall through to in-memory
+    
+    # In-memory fallback
+    with _cache_lock:
+        _dashboard_stats_cache[cache_key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
 
 def _cleanup_expired_cache():
-    """Remove expired cache entries to prevent memory leaks"""
+    """Remove expired in-memory cache entries (only needed for in-memory mode)"""
+    if REDIS_CACHE_ENABLED:
+        return  # Redis handles expiry automatically
+    
     current_time = time.time()
     with _cache_lock:
         # Remove expired entries
@@ -104,28 +170,22 @@ def dashboard_stats():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        # 🔥 FIX: Check cache first
-        cache_key = f"dashboard_stats:{tenant_id}:{time_filter}:{start_date}:{end_date}"
+        # 🔥 FIX: Check cache first (Redis if available, in-memory fallback)
+        cache_key = f"{tenant_id}:{time_filter}:{start_date}:{end_date}"
         
-        # 🔥 FIX: Periodic cache cleanup (every ~10th request to avoid overhead)
+        # 🔥 FIX: Periodic in-memory cache cleanup (only needed for in-memory mode)
         import random
-        if random.randint(1, 10) == 1:
+        if not REDIS_CACHE_ENABLED and random.randint(1, 10) == 1:
             _cleanup_expired_cache()
         
-        with _cache_lock:
-            if cache_key in _dashboard_stats_cache:
-                cached = _dashboard_stats_cache[cache_key]
-                age = time.time() - cached['timestamp']
-                if age < DASHBOARD_CACHE_TTL:
-                    elapsed = (time.time() - request_start) * 1000
-                    logger.info(f"⚡ [DASHBOARD] Cache HIT for {tenant_id} (age: {age:.1f}s, response: {elapsed:.0f}ms)")
-                    return jsonify(cached['data'])
-                else:
-                    # Cache expired, remove it
-                    logger.debug(f"[DASHBOARD] Cache expired for {cache_key} (age: {age:.1f}s > {DASHBOARD_CACHE_TTL}s)")
-                    del _dashboard_stats_cache[cache_key]
+        cached_data = _get_cached_stats(cache_key)
+        if cached_data:
+            elapsed = (time.time() - request_start) * 1000
+            cache_type = "Redis" if REDIS_CACHE_ENABLED else "in-memory"
+            logger.info(f"⚡ [DASHBOARD] Cache HIT ({cache_type}) for business {tenant_id} (response: {elapsed:.0f}ms)")
+            return jsonify(cached_data)
         
-        logger.info(f"🔍 [DASHBOARD] Cache MISS for {tenant_id} - fetching from DB...")
+        logger.info(f"🔍 [DASHBOARD] Cache MISS for business {tenant_id} - fetching from DB...")
         
         # Calculate date range based on filter
         today = datetime.utcnow().date()
@@ -314,19 +374,16 @@ def dashboard_stats():
             }
         }
         
-        # 🔥 FIX: Store in cache before returning
-        with _cache_lock:
-            _dashboard_stats_cache[cache_key] = {
-                'data': response_data,
-                'timestamp': time.time()
-            }
+        # 🔥 FIX: Store in cache before returning (Redis or in-memory)
+        _set_cached_stats(cache_key, response_data)
         
         # 🔥 FIX: Log total request time
         total_time = (time.time() - request_start) * 1000
+        cache_type = "Redis" if REDIS_CACHE_ENABLED else "in-memory"
         if total_time > 1500:
-            logger.warning(f"⚠️ [DASHBOARD] SLOW REQUEST: {tenant_id} took {total_time:.0f}ms (CACHED for {DASHBOARD_CACHE_TTL}s)")
+            logger.warning(f"⚠️ [DASHBOARD] SLOW REQUEST: business {tenant_id} took {total_time:.0f}ms (CACHED in {cache_type} for {DASHBOARD_CACHE_TTL}s)")
         else:
-            logger.info(f"✅ [DASHBOARD] Request for {tenant_id} took {total_time:.0f}ms (CACHED for {DASHBOARD_CACHE_TTL}s)")
+            logger.info(f"✅ [DASHBOARD] Request for business {tenant_id} took {total_time:.0f}ms (CACHED in {cache_type} for {DASHBOARD_CACHE_TTL}s)")
         
         return jsonify(response_data)
         
