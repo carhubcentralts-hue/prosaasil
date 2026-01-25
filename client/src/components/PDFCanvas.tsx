@@ -69,7 +69,7 @@ export function PDFCanvas({
     logger.debug('[PDF_CANVAS] Loading PDF from:', pdfUrl);
 
     // Load PDF with credentials if it's a backend URL
-    // AbortController not needed here as pdf.js handles cancellation via isCancelled
+    // Custom cancellation is handled via isCancelled flag and loadingTask.destroy()
     const loadingTask = pdfjsLib.getDocument({
       url: pdfUrl,
       withCredentials: pdfUrl.startsWith('/api/'), // Include auth cookies for backend endpoints
@@ -101,8 +101,13 @@ export function PDFCanvas({
       if (renderTaskRef.current) {
         renderTaskRef.current.cancel();
       }
-      // Destroy the loading task to free resources
-      loadingTask.destroy();
+      // Destroy the loading task to free resources (safe to call even if still loading)
+      try {
+        loadingTask.destroy();
+      } catch (err) {
+        // Ignore errors during cleanup
+        logger.debug('[PDF_CANVAS] Error destroying loading task during cleanup:', err);
+      }
     };
     // Only depend on pdfUrl - onTotalPagesChange is called but not depended on
     // to avoid re-fetching when parent updates the callback
@@ -144,8 +149,9 @@ export function PDFCanvas({
     if (!context) return;
 
     // ✅ Get actual container width from ref (not state) to avoid timing issues
+    // Use nullish coalescing (??) to only fallback if undefined/null, not if 0
     const container = containerRef?.current || containerDivRef.current;
-    const actualWidth = container?.clientWidth || containerWidth;
+    const actualWidth = container?.clientWidth ?? containerWidth;
 
     // Don't render if container is too small (waiting for layout)
     if (actualWidth < MIN_CONTAINER_WIDTH_FOR_RENDER) {
@@ -361,14 +367,15 @@ export function PDFCanvas({
               }}
             />
             {/* Overlay for custom elements (signature boxes, etc.) */}
-            {children && canvasRef.current && (
+            {children && canvasRef.current && canvasRef.current.style.width && (
               <div 
-                className="absolute inset-0"
+                className="absolute top-0 left-0"
                 style={{
-                  // 🔥 FIX: Use CSS size (offsetWidth/offsetHeight) not canvas internal size
-                  // This ensures signature zones align properly with the displayed PDF
-                  width: canvasRef.current.style.width || `${canvasRef.current.width}px`,
-                  height: canvasRef.current.style.height || `${canvasRef.current.height}px`,
+                  // 🔥 FIX: Always use CSS display size, never internal canvas size
+                  // Canvas internal size is high-DPI (e.g., 2000x3000), CSS size is display size (e.g., 1000x1500)
+                  // Using internal size would make overlay huge and push PDF off-screen
+                  width: canvasRef.current.style.width,
+                  height: canvasRef.current.style.height,
                   // 🔥 FIX: Default to pointer-events none, let children override
                   pointerEvents: 'none',
                   // 🔥 FIX: Ensure proper z-index layering
