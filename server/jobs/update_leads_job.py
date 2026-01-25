@@ -41,11 +41,54 @@ def update_leads_batch_job(job_id: int):
     Args:
         job_id: BackgroundJob ID to track progress
     """
-    from server.app_factory import create_app
-    from server.models_sql import db, BackgroundJob, Lead
+    # 🔥 CRITICAL: Log IMMEDIATELY when job starts (before any imports/setup)
+    print(f"=" * 70)
+    print(f"🔨 JOB PICKED: function=update_leads_batch_job job_id={job_id}")
+    print(f"=" * 70)
+    logger.info(f"=" * 70)
+    logger.info(f"🔨 JOB PICKED: queue=maintenance function=update_leads_batch_job job_id={job_id}")
+    logger.info(f"=" * 70)
+    
+    try:
+        from server.app_factory import create_app
+        from server.models_sql import db, BackgroundJob, Lead
+    except ImportError as e:
+        error_msg = f"Import failed: {str(e)}"
+        logger.error(f"❌ JOB IMPORT ERROR: {e}")
+        print(f"❌ FATAL IMPORT ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
+    except Exception as e:
+        error_msg = f"Import failed: {str(e)}"
+        logger.error(f"❌ JOB IMPORT ERROR: {e}")
+        print(f"❌ FATAL IMPORT ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
     
     # Create app context for DB access
-    app = create_app()
+    try:
+        app = create_app()
+    except Exception as e:
+        error_msg = f"App creation failed: {str(e)}"
+        logger.error(f"❌ JOB APP CREATION ERROR: {e}")
+        print(f"❌ FATAL APP CREATION ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
     
     with app.app_context():
         # Load job

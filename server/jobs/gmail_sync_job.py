@@ -27,15 +27,9 @@ except (ImportError, RuntimeError):
 
 logger = logging.getLogger(__name__)
 
-# Redis connection
+# Redis connection - Will be initialized in the job function
 REDIS_URL = os.getenv('REDIS_URL')
-if not REDIS_URL:
-    logger.error("REDIS_URL environment variable not set")
-    logger.error("Gmail sync job requires Redis for locking and coordination")
-    raise ValueError("REDIS_URL not configured")
-
-logger.info(f"Gmail sync job using Redis: {REDIS_URL.split('@')[-1] if '@' in REDIS_URL else REDIS_URL}")
-redis_conn = redis.from_url(REDIS_URL)
+redis_conn = None  # Initialize to None, will be set in job function
 
 # Lock configuration
 LOCK_TTL = 3600  # 1 hour - max sync duration
@@ -68,8 +62,67 @@ def sync_gmail_receipts_job(
         to_date: End date (YYYY-MM-DD)
         months_back: Months to go back for full backfill
     """
-    from server.models_sql import db, ReceiptSyncRun
-    from server.services.gmail_sync_service import sync_gmail_receipts
+    # 🔥 CRITICAL: Log IMMEDIATELY when job starts (before any imports/setup)
+    print(f"=" * 70)
+    print(f"🔨 JOB PICKED: function=sync_gmail_receipts_job business_id={business_id}")
+    print(f"=" * 70)
+    logger.info(f"=" * 70)
+    logger.info(f"🔨 JOB PICKED: queue=receipts_sync function=sync_gmail_receipts_job business_id={business_id}")
+    logger.info(f"=" * 70)
+    
+    # Validate REDIS_URL
+    global redis_conn
+    if not REDIS_URL:
+        error_msg = "REDIS_URL environment variable not set"
+        logger.error(f"❌ JOB CONFIG ERROR: {error_msg}")
+        print(f"❌ FATAL CONFIG ERROR: {error_msg}")
+        return {
+            "success": False,
+            "error": error_msg
+        }
+    
+    # Initialize Redis connection
+    try:
+        if redis_conn is None:
+            logger.info(f"Gmail sync job using Redis: {REDIS_URL.split('@')[-1] if '@' in REDIS_URL else REDIS_URL}")
+            redis_conn = redis.from_url(REDIS_URL)
+    except Exception as e:
+        error_msg = f"Redis connection failed: {str(e)}"
+        logger.error(f"❌ JOB REDIS ERROR: {e}")
+        print(f"❌ FATAL REDIS ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
+    
+    try:
+        from server.models_sql import db, ReceiptSyncRun
+        from server.services.gmail_sync_service import sync_gmail_receipts
+    except ImportError as e:
+        error_msg = f"Import failed: {str(e)}"
+        logger.error(f"❌ JOB IMPORT ERROR: {e}")
+        print(f"❌ FATAL IMPORT ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
+    except Exception as e:
+        error_msg = f"Import failed: {str(e)}"
+        logger.error(f"❌ JOB IMPORT ERROR: {e}")
+        print(f"❌ FATAL IMPORT ERROR: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": error_msg
+        }
     
     # Get job_id from RQ context if available
     job_id = None
