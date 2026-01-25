@@ -534,7 +534,8 @@ def stream_recording(call_sid):
             acquired, slot_status = try_acquire_slot(business_id, call_sid)
             
             if acquired:
-                # Slot acquired! Enqueue download job in worker
+                # Slot acquired! Enqueue download job - WORKER will do the actual download
+                logger.info(f"📤 [API] Slot acquired for {call_sid} - enqueuing to WORKER queue")
                 log.debug(f"Stream recording: Slot acquired for call_sid={call_sid}, enqueuing download")
                 
                 from server.tasks_recording import enqueue_recording_download_only
@@ -543,8 +544,7 @@ def stream_recording(call_sid):
                     recording_url=call.recording_url,
                     business_id=business_id,
                     from_number=call.from_number or "",
-                    to_number=call.to_number or "",
-                    skip_slot_check=True  # 🔥 NEW: Skip slot check since we already acquired it
+                    to_number=call.to_number or ""
                 )
                 
                 return jsonify({
@@ -555,6 +555,7 @@ def stream_recording(call_sid):
             else:
                 # Added to queue (slots full)
                 if slot_status == "queued":
+                    logger.info(f"⏸️ [API] All slots busy - {call_sid} added to queue")
                     log.debug(f"Stream recording: Call {call_sid} added to queue (all slots busy)")
                     return jsonify({
                         "success": True,
@@ -563,6 +564,7 @@ def stream_recording(call_sid):
                     }), 202
                 elif slot_status == "inflight" or slot_status == "already_queued":
                     # Duplicate request
+                    logger.debug(f"🔄 [API] Duplicate request for {call_sid} - already {slot_status}")
                     return jsonify({
                         "success": True,
                         "status": "processing",
