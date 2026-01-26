@@ -5525,12 +5525,38 @@ def apply_migrations():
         checkpoint("✅ Migration 108 complete: Broadcast cursor-based pagination support added")
         
         # ═══════════════════════════════════════════════════════════════════════
-        # Migration 109: Add duration_sec to call_log for reliable call duration tracking
+        # Migration 109: Add started_at, ended_at, and duration_sec to call_log for reliable call duration tracking
         # ═══════════════════════════════════════════════════════════════════════
-        checkpoint("Migration 109: Adding duration_sec to call_log for reliable duration tracking")
+        checkpoint("Migration 109: Adding started_at, ended_at, and duration_sec to call_log for reliable duration tracking")
         
         if check_table_exists('call_log'):
+            migration_success = True
             try:
+                # Step 1: Add started_at column if missing
+                if not check_column_exists('call_log', 'started_at'):
+                    checkpoint("  → Adding started_at column to call_log...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log 
+                        ADD COLUMN started_at TIMESTAMP DEFAULT NULL
+                    """)
+                    checkpoint("  ✅ started_at column added to call_log")
+                    migrations_applied.append('109_call_log_started_at')
+                else:
+                    checkpoint("  ℹ️ started_at already exists on call_log")
+                
+                # Step 2: Add ended_at column if missing
+                if not check_column_exists('call_log', 'ended_at'):
+                    checkpoint("  → Adding ended_at column to call_log...")
+                    exec_ddl(db.engine, """
+                        ALTER TABLE call_log 
+                        ADD COLUMN ended_at TIMESTAMP DEFAULT NULL
+                    """)
+                    checkpoint("  ✅ ended_at column added to call_log")
+                    migrations_applied.append('109_call_log_ended_at')
+                else:
+                    checkpoint("  ℹ️ ended_at already exists on call_log")
+                
+                # Step 3: Add duration_sec column if missing
                 if not check_column_exists('call_log', 'duration_sec'):
                     checkpoint("  → Adding duration_sec column to call_log...")
                     exec_ddl(db.engine, """
@@ -5573,13 +5599,19 @@ def apply_migrations():
                     checkpoint("  ℹ️ duration_sec already exists on call_log")
                 
             except Exception as e:
-                checkpoint(f"❌ Migration 109 (duration_sec) failed: {e}")
-                logger.error(f"Migration 109 duration_sec error: {e}", exc_info=True)
+                checkpoint(f"❌ Migration 109 failed: {e}")
+                logger.error(f"Migration 109 error: {e}", exc_info=True)
                 db.session.rollback()
+                migration_success = False
         else:
             checkpoint("  ℹ️ call_log table does not exist - skipping")
+            migration_success = True
         
-        checkpoint("✅ Migration 109 complete: Call duration tracking enhanced")
+        # Only report success if migration actually succeeded
+        if migration_success:
+            checkpoint("✅ Migration 109 complete: Call duration tracking enhanced")
+        else:
+            checkpoint("⚠️ Migration 109 incomplete - check logs for details")
         
         # ═══════════════════════════════════════════════════════════════════════
         # Migration 110: Add summary_status to call_log for summary generation tracking
