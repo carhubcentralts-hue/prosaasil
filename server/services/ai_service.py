@@ -331,22 +331,36 @@ class AIService:
         self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
         self.business_id = business_id  # 🔥 NEW: Store business context for live calls
         
-        # 🔥 NEW: Gemini client (lazy loaded when needed)
+        # 🔥 FIXED: Pre-initialize Gemini client at service creation (NOT during conversation)
+        # This ensures clients are ready before calls start, and fail-fast if misconfigured
         self._gemini_client = None
+        try:
+            from server.services.providers.google_clients import get_gemini_llm_client
+            # Attempt to get the singleton (will be initialized at warmup if available)
+            # If not initialized yet, this will trigger initialization now
+            self._gemini_client = get_gemini_llm_client()
+            logger.debug(f"✅ Gemini LLM client ready at AIService init for business={self.business_id}")
+        except RuntimeError as init_error:
+            # Client not available - log but don't fail AIService creation
+            # This allows OpenAI-only businesses to function normally
+            logger.debug(f"ℹ️ Gemini LLM client not available at init (will fail if requested): {init_error}")
+        except Exception as e:
+            logger.warning(f"⚠️ Unexpected error initializing Gemini client: {e}")
     
     def _get_gemini_client(self):
-        """Lazy load Gemini client when needed (uses singleton)"""
+        """
+        Get Gemini client (initialized at service creation, not lazily).
+        
+        Raises:
+            RuntimeError: If Gemini client was not successfully initialized at startup
+        """
         if self._gemini_client is None:
-            try:
-                # Import moved to top of google_clients.py for performance
-                # This just retrieves the singleton, no heavy imports here
-                from server.services.providers.google_clients import get_gemini_llm_client
-                
-                self._gemini_client = get_gemini_llm_client()
-                logger.info(f"✅ Gemini LLM client (singleton) ready for business={self.business_id}")
-            except RuntimeError as init_error:
-                logger.error(f"❌ Failed to get Gemini LLM client: {init_error}")
-                raise
+            error_msg = (
+                "Gemini LLM client not available. This should have been initialized at service startup. "
+                "Check logs for initialization errors or ensure GEMINI_API_KEY is set."
+            )
+            logger.error(f"❌ {error_msg}")
+            raise RuntimeError(error_msg)
         return self._gemini_client
     
     def _get_ai_provider(self, business_id: int) -> str:

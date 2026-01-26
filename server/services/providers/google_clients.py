@@ -364,26 +364,36 @@ def warmup_google_clients():
     rather than during first call/session.
     
     This is optional but recommended for production deployments.
+    
+    Returns:
+        dict: Status of each client initialization (for logging/monitoring)
     """
     logger.info("🔥 Warming up Google clients...")
+    
+    status = {
+        'stt': False,
+        'gemini_llm': False,
+        'gemini_tts': False
+    }
     
     # Attempt to initialize STT client (respects DISABLE_GOOGLE)
     try:
         stt_client = get_stt_client()
-        logger.info("  ✅ Google STT client warmed up")
-    except RuntimeError as e:
-        disable_google = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
-        if disable_google:
-            logger.info("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
+        if stt_client is not None:
+            logger.info("  ✅ Google STT client warmed up - READY")
+            status['stt'] = True
         else:
-            logger.warning(f"  ⚠️ Google STT client failed to initialize: {e}")
+            logger.info("  🚫 Google STT client SKIPPED (DISABLE_GOOGLE=true or not configured)")
+    except RuntimeError as e:
+        logger.warning(f"  ⚠️ Google STT client failed to initialize: {e}")
     except Exception as e:
         logger.error(f"  ❌ Google STT client warmup error: {e}")
     
     # Attempt to initialize Gemini LLM client
     try:
         gemini_llm_client = get_gemini_llm_client()
-        logger.info("  ✅ Gemini LLM client warmed up")
+        logger.info("  ✅ GEMINI_LLM_INIT_OK - Client initialized and ready")
+        status['gemini_llm'] = True
     except RuntimeError as e:
         logger.warning(f"  ⚠️ Gemini LLM client not available: {e}")
     except Exception as e:
@@ -392,13 +402,23 @@ def warmup_google_clients():
     # Attempt to initialize Gemini TTS client
     try:
         gemini_tts_client = get_gemini_tts_client()
-        logger.info("  ✅ Gemini TTS client warmed up")
+        logger.info("  ✅ GEMINI_TTS_INIT_OK - Client initialized and ready")
+        status['gemini_tts'] = True
     except RuntimeError as e:
         logger.warning(f"  ⚠️ Gemini TTS client not available: {e}")
     except Exception as e:
         logger.error(f"  ❌ Gemini TTS client warmup error: {e}")
     
+    # Summary log
+    if status['gemini_llm'] and status['gemini_tts']:
+        logger.info("🔥 GEMINI_INIT_OK - All Gemini clients ready for use")
+    elif status['gemini_llm'] or status['gemini_tts']:
+        logger.warning("🔥 GEMINI_INIT_PARTIAL - Some Gemini clients available")
+    else:
+        logger.info("🔥 GEMINI_INIT_SKIP - No Gemini clients initialized (API key not set)")
+    
     logger.info("🔥 Google clients warmup complete")
+    return status
 
 
 def reset_clients():
