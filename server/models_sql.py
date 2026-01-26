@@ -1096,6 +1096,7 @@ class OutboundCallRun(db.Model):
     
     # Status
     status = db.Column(db.String(32), default="running")  # running|completed|failed|cancelled
+    cancel_requested = db.Column(db.Boolean, default=False, nullable=False)  # User requested cancellation
     last_error = db.Column(db.Text)
     
     # Timestamps
