@@ -47,7 +47,8 @@ def get_stt_client():
     
     # Fast path: already initialized (or failed)
     if _stt_client is not None:
-        return _stt_client
+        # Return None if cached failure (False), otherwise return client
+        return None if _stt_client is False else _stt_client
     
     # Check if Google services are disabled
     disable_google = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
@@ -59,7 +60,8 @@ def get_stt_client():
     with _stt_lock:
         # Double-check: another thread may have initialized while we waited
         if _stt_client is not None:
-            return _stt_client
+            # Return None if cached failure (False), otherwise return client
+            return None if _stt_client is False else _stt_client
         
         try:
             from google.cloud import speech
@@ -106,13 +108,15 @@ def get_gemini_client():
     
     # Fast path: already initialized (or failed)
     if _gemini_client is not None:
-        return _gemini_client
+        # Return None if cached failure (False), otherwise return client
+        return None if _gemini_client is False else _gemini_client
     
     # Slow path: initialize with lock
     with _gemini_lock:
         # Double-check: another thread may have initialized while we waited
         if _gemini_client is not None:
-            return _gemini_client
+            # Return None if cached failure (False), otherwise return client
+            return None if _gemini_client is False else _gemini_client
         
         try:
             from google import genai
