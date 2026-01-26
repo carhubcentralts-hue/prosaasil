@@ -94,8 +94,8 @@ def test_warmup_returns_status():
             print("  ✅ Status dict has all expected keys")
             
             # When Gemini is available, both should be True
-            assert status['gemini_llm'] == True, "gemini_llm should be True when API key available"
-            assert status['gemini_tts'] == True, "gemini_tts should be True when API key available"
+            assert status['gemini_llm'] is True, "gemini_llm should be True when API key available"
+            assert status['gemini_tts'] is True, "gemini_tts should be True when API key available"
             print("  ✅ Both Gemini clients marked as initialized")
 
 

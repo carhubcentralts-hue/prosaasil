@@ -383,7 +383,12 @@ def warmup_google_clients():
             logger.info("  ✅ Google STT client warmed up - READY")
             status['stt'] = True
         else:
-            logger.info("  🚫 Google STT client SKIPPED (DISABLE_GOOGLE=true or not configured)")
+            # None return can mean DISABLE_GOOGLE=true or configuration issue
+            disable_google = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
+            if disable_google:
+                logger.info("  🚫 Google STT client SKIPPED (DISABLE_GOOGLE=true)")
+            else:
+                logger.info("  🚫 Google STT client SKIPPED (not configured or initialization failed)")
     except RuntimeError as e:
         logger.warning(f"  ⚠️ Google STT client failed to initialize: {e}")
     except Exception as e:

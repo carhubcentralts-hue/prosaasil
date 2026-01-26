@@ -14,6 +14,14 @@ from server.models_sql import BusinessSettings, PromptRevisions, Business, Agent
 from server.db import db
 from datetime import datetime
 
+# 🔥 PERFORMANCE: Import Gemini client getter at module level (not in __init__)
+try:
+    from server.services.providers.google_clients import get_gemini_llm_client
+    _gemini_import_available = True
+except ImportError:
+    get_gemini_llm_client = None
+    _gemini_import_available = False
+
 # 🔥 FIX E: LAZY agent imports to prevent schema errors from breaking WhatsApp
 # Agents are loaded on-demand, so WhatsApp still works even if agent schema fails
 AGENT_MODULES_LOADED = None  # None = not yet loaded, True = loaded, False = failed
@@ -334,18 +342,20 @@ class AIService:
         # 🔥 FIXED: Pre-initialize Gemini client at service creation (NOT during conversation)
         # This ensures clients are ready before calls start, and fail-fast if misconfigured
         self._gemini_client = None
-        try:
-            from server.services.providers.google_clients import get_gemini_llm_client
-            # Attempt to get the singleton (will be initialized at warmup if available)
-            # If not initialized yet, this will trigger initialization now
-            self._gemini_client = get_gemini_llm_client()
-            logger.debug(f"✅ Gemini LLM client ready at AIService init for business={self.business_id}")
-        except RuntimeError as init_error:
-            # Client not available - log but don't fail AIService creation
-            # This allows OpenAI-only businesses to function normally
-            logger.debug(f"ℹ️ Gemini LLM client not available at init (will fail if requested): {init_error}")
-        except Exception as e:
-            logger.warning(f"⚠️ Unexpected error initializing Gemini client: {e}")
+        if _gemini_import_available:
+            try:
+                # Attempt to get the singleton (will be initialized at warmup if available)
+                # If not initialized yet, this will trigger initialization now
+                self._gemini_client = get_gemini_llm_client()
+                logger.debug(f"✅ Gemini LLM client ready at AIService init for business={self.business_id}")
+            except RuntimeError as init_error:
+                # Client not available - log but don't fail AIService creation
+                # This allows OpenAI-only businesses to function normally
+                logger.debug(f"ℹ️ Gemini LLM client not available at init (will fail if requested): {init_error}")
+            except Exception as e:
+                logger.warning(f"⚠️ Unexpected error initializing Gemini client: {e}")
+        else:
+            logger.debug("ℹ️ Gemini import not available (google_clients module not found)")
     
     def _get_gemini_client(self):
         """
