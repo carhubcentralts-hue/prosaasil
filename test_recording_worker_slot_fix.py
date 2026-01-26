@@ -84,19 +84,27 @@ def test_worker_acquires_slots():
     assert worker_match, "start_recording_worker function not found"
     worker_func = worker_match.group(1)
     
-    # Verify worker imports try_acquire_slot
-    assert 'from server.recording_semaphore import try_acquire_slot' in worker_func, \
-        "Worker should import try_acquire_slot"
+    # Verify worker imports try_acquire_slot at function level (not in loop)
+    assert 'from server.recording_semaphore import try_acquire_slot' in worker_func or \
+           'from server.recording_semaphore import' in worker_func and 'try_acquire_slot' in worker_func, \
+        "Worker should import try_acquire_slot at function level"
     
     # Verify worker acquires slot for download_only jobs
     assert 'try_acquire_slot(business_id, call_sid)' in worker_func, \
         "Worker should call try_acquire_slot"
     
     # Verify slot_acquired flag exists
-    assert 'slot_acquired = False' in worker_func or 'slot_acquired' in content[:worker_match.start()], \
+    assert 'slot_acquired = False' in worker_func, \
         "Worker should track slot_acquired flag"
     
+    # Verify NO import inside the loop (should be at function level)
+    # Look for pattern: indented "from server.recording_semaphore import try_acquire_slot"
+    loop_imports = re.findall(r'\n\s{16,}from server\.recording_semaphore import try_acquire_slot', worker_func)
+    assert len(loop_imports) == 0, \
+        "try_acquire_slot import should be at function level, not inside loop"
+    
     print("  ✅ Worker correctly acquires slots")
+    print("  ✅ Imports moved to function level (not in loop)")
 
 def test_worker_releases_slots_in_finally():
     """Test that worker ALWAYS releases slots in finally block"""
@@ -130,11 +138,16 @@ def test_worker_releases_slots_in_finally():
     assert 'slot_acquired' in finally_block, \
         "Finally block should check slot_acquired flag"
     
-    # Verify it imports release_slot
-    assert 'from server.recording_semaphore import release_slot' in worker_func, \
-        "Worker should import release_slot in finally block"
+    # Verify release_slot is imported at function level (not in loop)
+    assert 'from server.recording_semaphore import' in worker_func and 'release_slot' in worker_func, \
+        "Worker should import release_slot at function level"
+    
+    # Verify NO import inside finally block (should be at top)
+    assert 'from server.recording_semaphore import release_slot' not in finally_block, \
+        "Import should be at function level, not in finally block"
     
     print("  ✅ Worker correctly releases slots in finally (guaranteed cleanup)")
+    print("  ✅ Imports moved to function level (not in loop)")
 
 def test_frontend_reduced_retries():
     """Test that frontend reduced MAX_RETRIES"""
