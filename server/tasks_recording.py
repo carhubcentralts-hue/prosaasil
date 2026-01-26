@@ -425,6 +425,9 @@ def start_recording_worker(app):
                 # Block until a job is available
                 job = RECORDING_QUEUE.get()
                 
+                # 🔥 NEW: WORKER_PICKED log - comprehensive job details
+                logger.info(f"🎯 [WORKER_PICKED] job_type={job.get('type', 'full')} call_sid={job.get('call_sid')} business_id={job.get('business_id')} recording_sid={job.get('recording_sid', 'unknown')} retry={job.get('retry_count', 0)}")
+                
                 call_sid = job["call_sid"]
                 recording_url = job["recording_url"]
                 recording_sid = job.get("recording_sid")  # 🔥 NEW: Extract recording_sid from job
@@ -453,7 +456,7 @@ def start_recording_worker(app):
                     
                     if acquired:
                         slot_acquired = True
-                        logger.info(f"🎯 [WORKER] Slot acquired for {call_sid} business_id={business_id}")
+                        logger.info(f"✅ [WORKER_SLOT_ACQUIRED] call_sid={call_sid} business_id={business_id}")
                     else:
                         # No slot available - re-enqueue with exponential backoff and move on
                         # Backoff: 2s, 5s, 10s, 20s, 40s (max ~2 minutes total)
@@ -505,18 +508,18 @@ def start_recording_worker(app):
                         
                         if success:
                             download_result = "success"
-                            # 🔥 NEW: [DOWNLOAD_OK] log with size and duration
+                            # 🔥 NEW: [WORKER_DOWNLOAD_DONE] log with size and duration
                             try:
                                 from server.services.recording_service import check_local_recording_exists, _get_recordings_dir
                                 recordings_dir = _get_recordings_dir()
                                 local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
                                 if os.path.exists(local_path):
                                     file_size = os.path.getsize(local_path)
-                                    logger.info(f"✅ [DOWNLOAD_OK] call_sid={call_sid} size={file_size} bytes duration={download_duration_ms}ms")
+                                    logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} path={local_path} bytes={file_size} duration_ms={download_duration_ms}")
                                 else:
-                                    logger.info(f"✅ [DOWNLOAD_OK] call_sid={call_sid} duration={download_duration_ms}ms")
+                                    logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} duration_ms={download_duration_ms}")
                             except Exception:
-                                logger.info(f"✅ [DOWNLOAD_OK] call_sid={call_sid} duration={download_duration_ms}ms")
+                                logger.info(f"✅ [WORKER_DOWNLOAD_DONE] call_sid={call_sid} duration_ms={download_duration_ms}")
                             
                             logger.info(f"✅ [WORKER] Recording downloaded for {call_sid}")
                             log.info(f"[WORKER DOWNLOAD_ONLY] Recording downloaded successfully: {call_sid}")
@@ -604,7 +607,7 @@ def start_recording_worker(app):
                     if job_type == "download_only" and slot_acquired and business_id:
                         # 🔥 FIX: Log with reason for easier debugging
                         reason = download_result if 'download_result' in locals() else 'exception'
-                        logger.info(f"🔧 [WORKER] Releasing slot for {call_sid} in business {business_id} (reason={reason})")
+                        logger.info(f"🔓 [WORKER_RELEASE_SLOT] call_sid={call_sid} business_id={business_id} reason={reason}")
                         next_call_sid = release_slot(business_id, call_sid)
                         
                         # 🔥 NEW: [RECORDING_SLOT_RELEASED] log with active/queue metrics and reason
@@ -651,7 +654,7 @@ def start_recording_worker(app):
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
                 from server.utils.db_health import log_db_error
                 log_db_error(e, context="recording_worker")
-                logger.error(f"🔴 [OFFLINE_STT] DB error processing {job.get('call_sid', 'unknown')} - skipping")
+                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=db_error error={str(e)[:100]}")
                 
                 # Rollback to clean up session
                 try:
@@ -666,7 +669,7 @@ def start_recording_worker(app):
             except Exception as e:
                 # 🔥 DB RESILIENCE: Any other error - log and continue
                 log.error(f"[OFFLINE_STT] Worker error: {e}")
-                logger.error(f"❌ [OFFLINE_STT] Error processing {job.get('call_sid', 'unknown')}: {e}")
+                logger.error(f"❌ [WORKER_JOB_FAILED] call_sid={job.get('call_sid', 'unknown')} reason=exception error={str(e)[:100]}")
                 import traceback
                 traceback.print_exc()
                 

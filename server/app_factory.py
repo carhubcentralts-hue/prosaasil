@@ -1172,7 +1172,18 @@ def create_app():
                 try:
                     with app.app_context():
                         from server.db_migrate import apply_migrations
-                        apply_migrations()
+                        migrations_result = apply_migrations()
+                        
+                        # 🔥 NEW: Handle 'skip' return value gracefully
+                        if migrations_result == 'skip':
+                            # Migrations were skipped (lock timeout or disabled) - this is SAFE
+                            # Another container is running migrations or migrations are disabled
+                            logger.info("=" * 80)
+                            logger.info("✅ MIGRATIONS SKIPPED: Lock timeout or disabled")
+                            logger.info("   This is safe - migrations will run in designated container")
+                            logger.info("=" * 80)
+                            _migrations_complete.set()
+                            return
                         
                         # 🔒 CRITICAL: Validate database schema after migrations
                         # This ensures all critical columns exist and prevents cascading errors
@@ -1229,9 +1240,18 @@ def create_app():
                         except Exception:
                             pass
                 except Exception as e:
-                    # 🔥 CRITICAL: DO NOT proceed if migrations fail
-                    # This prevents workers from starting with invalid schema
-                    logger.error(f"❌ MIGRATION FAILED: {e}")
+                    # 🔥 CRITICAL: DO NOT proceed if migrations fail with real errors
+                    # But if migrations were skipped gracefully, that's OK
+                    logger.error(f"❌ MIGRATION ERROR: {e}")
+                    
+                    # Check if this was a skip (not a real failure)
+                    if "skip" in str(e).lower() or "lock" in str(e).lower():
+                        logger.warning("⚠️ Migrations were skipped (lock timeout or disabled)")
+                        logger.warning("   System will continue - migrations run in designated container")
+                        _migrations_complete.set()
+                        return
+                    
+                    # Real migration failure - don't start the system
                     logger.error("System cannot start with failed migrations")
                     # Signal migrations complete but re-raise to stop startup
                     _migrations_complete.set()
@@ -1248,15 +1268,21 @@ def create_app():
                         if service_role != 'worker':
                             logger.info("🔧 Running migrations in development mode...")
                             from server.db_migrate import apply_migrations
-                            apply_migrations()
-                            # 🔥 CRITICAL FIX: Signal migrations complete in dev mode too
-                            _migrations_complete.set()
-                            logger.info("🔒 Dev mode DB setup complete - warmup can now proceed")
+                            migrations_result = apply_migrations()
+                            
+                            # 🔥 NEW: Handle 'skip' return value
+                            if migrations_result == 'skip':
+                                logger.info("✅ Dev mode: Migrations skipped (disabled or lock timeout)")
+                                _migrations_complete.set()
+                            else:
+                                # 🔥 CRITICAL FIX: Signal migrations complete in dev mode too
+                                _migrations_complete.set()
+                                logger.info("🔒 Dev mode DB setup complete - warmup can now proceed")
                         else:
                             logger.info("🚫 Worker in dev mode - skipping migrations")
                             _migrations_complete.set()
                 except Exception as e:
-                    # Even on failure, allow warmup to proceed
+                    # Even on failure, allow warmup to proceed in dev mode
                     logger.warning(f"⚠️ Dev mode migrations failed: {e}")
                     _migrations_complete.set()
                     pass

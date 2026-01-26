@@ -72,8 +72,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      # 🔥 MIGRATIONS - Run on container startup
-      RUN_MIGRATIONS_ON_START: 1
+      # 🔥 MIGRATIONS - Disabled (use RUN_MIGRATIONS instead)
+      RUN_MIGRATIONS_ON_START: 0
+      RUN_MIGRATIONS: "0"
       # 🔥 ATTACHMENT STORAGE - R2 Configuration
       PRODUCTION: ${PRODUCTION:-0}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
@@ -165,6 +166,7 @@ services:
       SERVICE_ROLE: worker
       # 🔥 CRITICAL: Worker must NOT run migrations (only API service should)
       RUN_MIGRATIONS_ON_START: "0"
+      RUN_MIGRATIONS: "0"
       # 🔥 GOOGLE STT - Service Account Credentials
       GOOGLE_APPLICATION_CREDENTIALS: /root/secrets/gcp-stt-sa.json
       # 🔥 LOGGING - Development mode (full logs)
@@ -301,8 +303,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      # 🔥 MIGRATIONS - Run on container startup
+      # 🔥 MIGRATIONS - Run on container startup (ONLY API RUNS MIGRATIONS)
       RUN_MIGRATIONS_ON_START: 1
+      RUN_MIGRATIONS: "1"
       # 🔥 ATTACHMENT STORAGE - R2 Configuration
       PRODUCTION: ${PRODUCTION:-0}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
@@ -366,6 +369,7 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       RUN_MIGRATIONS_ON_START: 0
+      RUN_MIGRATIONS: "0"
       PRODUCTION: ${PRODUCTION:-0}
       ATTACHMENT_STORAGE_DRIVER: ${ATTACHMENT_STORAGE_DRIVER:-local}
       ATTACHMENT_SECRET: ${ATTACHMENT_SECRET}

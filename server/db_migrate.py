@@ -136,6 +136,16 @@ def apply_migrations():
     in API service during startup.
     """
     import os
+    import time
+    
+    # 🔥 CRITICAL: Check RUN_MIGRATIONS env var - migrations should only run in designated container
+    run_migrations = os.getenv('RUN_MIGRATIONS', '0')
+    if run_migrations != '1':
+        checkpoint("=" * 80)
+        checkpoint("🚫 MIGRATIONS_DISABLED: RUN_MIGRATIONS is not set to '1'")
+        checkpoint("   Migrations are disabled for this service")
+        checkpoint("=" * 80)
+        return 'skip'  # Return 'skip' to indicate migrations were disabled
     
     # 🔥 CRITICAL: Hard gate - workers must NEVER run migrations
     # Migrations should only run once during API startup, not on every job
@@ -153,28 +163,52 @@ def apply_migrations():
     checkpoint(f"  SERVICE_ROLE: {service_role or 'not set'}")
     migrations_applied = []
     
-    # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock
+    # 🔒 CONCURRENCY PROTECTION: Acquire PostgreSQL advisory lock with retry
     # Lock ID: 1234567890 (arbitrary unique integer)
     # This ensures only ONE process runs migrations at a time
+    LOCK_ID = 1234567890
+    LOCK_WAIT_SECONDS = int(os.getenv("MIGRATION_LOCK_WAIT_SECONDS", "30"))
+    
     checkpoint("Acquiring PostgreSQL advisory lock for migrations...")
     from sqlalchemy import text
     lock_acquired = False
+    
     try:
-        # Try to acquire lock (non-blocking)
-        result = db.session.execute(text("SELECT pg_try_advisory_lock(1234567890)"))
-        lock_acquired = result.scalar()
+        # 🔥 CRITICAL: Set statement_timeout locally for this connection
+        # This prevents the database from killing our lock acquisition attempts
+        conn = db.session.connection()
+        conn.execute(text("SET LOCAL statement_timeout = '120s'"))
+        checkpoint("✅ Set statement_timeout to 120s for migration connection")
+        
+        # 🔥 NEW: Try to acquire lock with retry loop
+        start_time = time.time()
+        while time.time() - start_time < LOCK_WAIT_SECONDS:
+            result = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": LOCK_ID})
+            lock_acquired = result.scalar()
+            
+            if lock_acquired:
+                checkpoint("✅ Acquired migration lock")
+                break
+            
+            # Not acquired yet - wait and retry
+            elapsed = int(time.time() - start_time)
+            checkpoint(f"⚠️ Lock not available, retrying... (elapsed: {elapsed}s / {LOCK_WAIT_SECONDS}s)")
+            time.sleep(1)
         
         if not lock_acquired:
-            checkpoint("⚠️ Another process is running migrations - waiting...")
-            # Block until lock is available
-            db.session.execute(text("SELECT pg_advisory_lock(1234567890)"))
-            lock_acquired = True
-            checkpoint("✅ Acquired migration lock after waiting")
-        else:
-            checkpoint("✅ Acquired migration lock immediately")
+            # Could not acquire lock in time - skip migrations gracefully
+            checkpoint("=" * 80)
+            checkpoint("⚠️ MIGRATION CHECKPOINT: Could not acquire lock in time -> skipping migrations")
+            checkpoint(f"   Waited {LOCK_WAIT_SECONDS}s but another process is running migrations")
+            checkpoint("   This is SAFE - migrations will run in another container")
+            checkpoint("=" * 80)
+            return 'skip'  # Return 'skip' to indicate migrations were skipped
+            
     except Exception as e:
         checkpoint(f"❌ Failed to acquire migration lock: {e}")
-        raise
+        # Don't crash the system - log and skip migrations
+        checkpoint("⚠️ Migration lock acquisition failed -> skipping migrations")
+        return 'skip'
     
     try:
         checkpoint("Checking if database is completely empty...")
@@ -5339,7 +5373,9 @@ def apply_migrations():
     finally:
         if lock_acquired:
             try:
-                db.session.execute(text("SELECT pg_advisory_unlock(1234567890)"))
+                # Use the same LOCK_ID constant defined above
+                LOCK_ID = 1234567890
+                db.session.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": LOCK_ID})
                 checkpoint("✅ Released migration lock")
             except Exception as e:
                 checkpoint(f"⚠️ Failed to release migration lock: {e}")
