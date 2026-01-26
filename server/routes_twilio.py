@@ -594,7 +594,8 @@ def incoming_call():
                     direction=normalized_direction,  # 🔥 NEW: Normalized direction or "unknown"
                     twilio_direction=twilio_direction if twilio_direction else None,  # 🔥 FIX: Explicit None if missing
                     call_status="initiated",  # ✅ BUILD 90: Legacy field
-                    status="initiated"
+                    status="initiated",
+                    started_at=db.func.now()  # 🔥 NEW: Set started_at on creation for accurate duration
                 )
                 db.session.add(call_log)
                 db.session.commit()
@@ -1007,7 +1008,8 @@ def handle_recording():
                     direction=normalized_direction,  # 🔥 NEW: Normalized direction
                     twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
                     call_status="completed",  # ✅ BUILD 90: Legacy field
-                    status="recorded"
+                    status="recorded",
+                    started_at=db.func.now()  # 🔥 NEW: Set started_at for accurate duration
                 )
                 db.session.add(call_log)
             else:
@@ -1256,7 +1258,8 @@ def stream_status():
                         direction=normalized_direction,  # 🔥 NEW: Normalized direction
                         twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
                         call_status="in-progress",  # ✅ BUILD 90: Legacy field
-                        status="streaming"
+                        status="streaming",
+                        started_at=db.func.now()  # 🔥 NEW: Set started_at for accurate duration
                     )
                     db.session.add(call_log)
                 else:

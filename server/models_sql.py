@@ -171,6 +171,10 @@ class CallLog(db.Model):
     # 🔥 NAME SSOT: Customer name for NAME_ANCHOR system (especially outbound calls)
     customer_name = db.Column(db.String(255), nullable=True)  # Customer/lead name for outbound calls
     
+    # 🔥 DURATION SSOT: Reliable call timing (fixes 0 seconds duration issue)
+    started_at = db.Column(db.DateTime, nullable=True)  # When call actually started (for accurate duration)
+    ended_at = db.Column(db.DateTime, nullable=True)  # When call actually ended
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
