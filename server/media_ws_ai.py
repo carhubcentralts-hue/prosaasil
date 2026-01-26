@@ -1920,6 +1920,10 @@ class MediaStreamHandler:
         self._last_slow_send_warning = 0.0
         
         def _safe_ws_send(data):
+            # 🔥 FIX ISSUE #3: Guard against sending after session closed
+            if self.closed or self._ws_closed:
+                return False  # Session/WebSocket is closed, don't try to send
+            
             if self.ws_connection_failed:
                 return False  # Don't spam when connection is dead
                 
@@ -15817,7 +15821,10 @@ class MediaStreamHandler:
         Hebrew TTS synthesis - supports OpenAI Realtime API and Gemini TTS
         
         - OpenAI Realtime: Returns None (handled natively by Realtime API)
-        - Gemini: Uses Gemini TTS API to generate audio
+        - Gemini: Uses Gemini TTS API to generate audio with 6-second timeout
+        
+        🔥 FIX ISSUE #2: Added TTS timeout (6 seconds) to prevent call death
+        If Gemini TTS takes too long, returns short error message instead
         """
         # 🔥 Check per-call override first (set based on ai_provider)
         use_realtime_for_this_call = getattr(self, '_USE_REALTIME_API_OVERRIDE', USE_REALTIME_API)
@@ -15830,7 +15837,7 @@ class MediaStreamHandler:
             logger.info(f"[TTS] Skipping TTS - OpenAI Realtime handles it")
             return None
         
-        # 🔷 GEMINI TTS: Use Gemini for text-to-speech
+        # 🔷 GEMINI TTS: Use Gemini for text-to-speech WITH TIMEOUT
         logger.info(f"[GEMINI_TTS] Starting synthesis: {len(text)} chars, provider={ai_provider}")
         _orig_print(f"🔷 [GEMINI_TTS] Synthesizing {len(text)} chars...", flush=True)
         
@@ -15858,16 +15865,50 @@ class MediaStreamHandler:
                 speed = float(getattr(business, 'tts_speed', 1.0) or 1.0)
                 language = getattr(business, 'tts_language', 'he-IL') or 'he-IL'
             
-            # Use tts_provider to synthesize with Gemini
+            # 🔥 FIX ISSUE #2: Add timeout wrapper for TTS synthesis
+            # Use threading to implement timeout since tts_provider.synthesize is synchronous
+            import threading
             from server.services import tts_provider
             
-            audio_bytes, content_type_or_error = tts_provider.synthesize(
-                text=text,
-                provider='gemini',
-                voice_id=voice_name,
-                language=language,
-                speed=speed
-            )
+            TTS_TIMEOUT_SECONDS = 6  # 6 seconds max for TTS
+            result = {'audio_bytes': None, 'content_type': None, 'error': None}
+            
+            def _synthesize_with_result():
+                try:
+                    audio_bytes, content_type_or_error = tts_provider.synthesize(
+                        text=text,
+                        provider='gemini',
+                        voice_id=voice_name,
+                        language=language,
+                        speed=speed
+                    )
+                    result['audio_bytes'] = audio_bytes
+                    result['content_type'] = content_type_or_error
+                except Exception as e:
+                    result['error'] = str(e)
+            
+            # Start synthesis in thread with timeout
+            tts_thread = threading.Thread(target=_synthesize_with_result, daemon=True)
+            tts_thread.start()
+            tts_thread.join(timeout=TTS_TIMEOUT_SECONDS)
+            
+            # Check if thread completed
+            if tts_thread.is_alive():
+                # Thread is still running - timeout!
+                logger.error(f"[GEMINI_TTS] ⏱️ TIMEOUT after {TTS_TIMEOUT_SECONDS}s - generating fallback")
+                _orig_print(f"❌ [GEMINI_TTS] TIMEOUT after {TTS_TIMEOUT_SECONDS}s", flush=True)
+                
+                # 🔥 FIX ISSUE #2: Generate short fallback message
+                # Use a simple beep or short pre-cached message instead
+                return None  # Caller will use beep fallback
+            
+            # Check for errors
+            if result['error']:
+                logger.error(f"[GEMINI_TTS] Synthesis error: {result['error']}")
+                return None
+            
+            audio_bytes = result['audio_bytes']
+            content_type_or_error = result['content_type']
             
             if audio_bytes is None:
                 logger.error(f"[GEMINI_TTS] Synthesis failed: {content_type_or_error}")
