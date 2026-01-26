@@ -30,8 +30,7 @@ const PRIMARY_TABS = [
 // Secondary tabs - shown in "More" dropdown
 const SECONDARY_TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
-  { key: 'conversation', label: 'וואטסאפ', icon: MessageSquare },
-  { key: 'wa_template', label: 'שליחה מתבנית', icon: Send },
+  { key: 'whatsapp', label: 'וואטסאפ', icon: MessageSquare },  // 🔥 MERGED: Combined conversation + template
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
   { key: 'email', label: 'מייל', icon: Mail },
   { key: 'contracts', label: 'חוזים', icon: FileSignature },
@@ -725,7 +724,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                               </span>
                             </div>
                             <p className="text-xs text-gray-600 line-clamp-2">
-                              {getActivityDescription(activity)}
+                              {getActivityDescription(activity, statuses)}
                             </p>
                           </div>
                         </div>
@@ -821,8 +820,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 saveLead={saveLead}
               />
             )}
-            {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
-            {activeTab === 'wa_template' && <WhatsAppTemplateTab lead={lead} />}
+            {activeTab === 'whatsapp' && <MergedWhatsAppTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
             {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
             {activeTab === 'email' && <EmailTab lead={lead} />}
             {activeTab === 'contracts' && <ContractsTab lead={lead} />}
@@ -1201,6 +1199,269 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
           )}
         </Card>
       </div>
+    </div>
+  );
+}
+
+// 🔥 NEW: Merged WhatsApp Tab - combines template sending and conversation summary
+function MergedWhatsAppTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp: () => void }) {
+  const [templates, setTemplates] = useState<ManualTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [customMessage, setCustomMessage] = useState('');
+  const [attachmentId, setAttachmentId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const hasSummary = !!lead.whatsapp_last_summary;
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const loadTemplates = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get<{ templates: ManualTemplate[] }>('/api/whatsapp/manual-templates');
+      setTemplates(response.templates || []);
+    } catch (err) {
+      console.error('Failed to load templates:', err);
+      setError('שגיאה בטעינת התבניות');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTemplateSelect = (templateId: number) => {
+    setSelectedTemplateId(templateId);
+    const template = templates.find(t => t.id === templateId);
+    if (template) {
+      // Replace variables in template
+      let message = template.message_text;
+      message = message.replace(/\{\{first_name\}\}/gi, lead.first_name || '');
+      message = message.replace(/\{\{last_name\}\}/gi, lead.last_name || '');
+      message = message.replace(/\{\{name\}\}/gi, `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'לקוח/ה יקר/ה');
+      setCustomMessage(message);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!customMessage.trim()) {
+      setError('נא להזין הודעה');
+      return;
+    }
+
+    if (!lead.phone_e164) {
+      setError('לליד זה אין מספר טלפון');
+      return;
+    }
+
+    setSending(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const phoneNumber = lead.phone_e164.replace(/[^0-9]/g, '');
+      
+      const payload: any = {
+        to: phoneNumber,
+        message: customMessage
+      };
+
+      if (attachmentId) {
+        payload.attachment_id = attachmentId;
+      }
+
+      await http.post('/api/whatsapp/send', payload);
+      
+      setSuccess('ההודעה נשלחה בהצלחה!');
+      setCustomMessage('');
+      setSelectedTemplateId(null);
+      setAttachmentId(null);
+      
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to send message:', err);
+      setError(err.message || 'שגיאה בשליחת ההודעה');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* WhatsApp Template Section - Top */}
+      <Card className="p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+              <Send className="w-5 h-5 text-green-600" />
+              שליחת הודעה מתבנית
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              שלח הודעת וואטסאפ לליד באמצעות תבנית מוכנה או הודעה מותאמת
+            </p>
+          </div>
+        </div>
+
+        {/* Lead Info */}
+        <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
+              {(lead.first_name?.[0] || lead.last_name?.[0] || 'ל').toUpperCase()}
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">
+                {lead.first_name} {lead.last_name}
+              </p>
+              <p className="text-sm text-gray-600">
+                {lead.phone_e164 || 'אין מספר טלפון'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5" />
+            {success}
+          </div>
+        )}
+
+        {/* Template Selection */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            בחר תבנית (אופציונלי)
+          </label>
+          {loading ? (
+            <div className="flex items-center gap-2 text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              טוען תבניות...
+            </div>
+          ) : templates.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              אין תבניות זמינות. ניתן ליצור תבניות בדף התפוצה.
+            </p>
+          ) : (
+            <select
+              value={selectedTemplateId || ''}
+              onChange={(e) => e.target.value ? handleTemplateSelect(parseInt(e.target.value)) : setSelectedTemplateId(null)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            >
+              <option value="">בחר תבנית...</option>
+              {templates.map(template => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Message Text */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            תוכן ההודעה *
+          </label>
+          <textarea
+            value={customMessage}
+            onChange={(e) => setCustomMessage(e.target.value)}
+            placeholder="כתוב כאן את ההודעה..."
+            rows={6}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+            dir="rtl"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            המשתנים {"{{first_name}}"}, {"{{last_name}}"} הוחלפו אוטומטית
+          </p>
+        </div>
+
+        {/* Send Button */}
+        <Button
+          onClick={handleSend}
+          disabled={sending || !customMessage.trim() || !lead.phone_e164}
+          className="w-full bg-green-600 hover:bg-green-700"
+        >
+          {sending ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin ml-2" />
+              שולח...
+            </>
+          ) : (
+            <>
+              <Send className="w-4 h-4 ml-2" />
+              שלח הודעה
+            </>
+          )}
+        </Button>
+
+        {!lead.phone_e164 && (
+          <p className="text-center text-sm text-red-600 mt-2">
+            לא ניתן לשלוח - אין מספר טלפון לליד
+          </p>
+        )}
+      </Card>
+
+      {/* Conversation Summary Section - Bottom */}
+      <Card className="p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-gray-900">סיכום שיחת וואטסאפ</h3>
+          <Button 
+            onClick={onOpenWhatsApp} 
+            size="sm"
+            className="bg-green-500 hover:bg-green-600 text-white"
+            data-testid="button-open-whatsapp-chat"
+          >
+            <MessageSquare className="w-4 h-4 mr-2" />
+            פתח שיחה מלאה
+          </Button>
+        </div>
+        
+        {hasSummary ? (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                <MessageSquare className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-green-800">סיכום שיחה אחרון</span>
+                  {lead.whatsapp_last_summary_at && (
+                    <span className="text-xs text-green-600">
+                      {formatDate(lead.whatsapp_last_summary_at)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  {lead.whatsapp_last_summary}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+            <p className="text-sm text-gray-500 mb-2">אין סיכום שיחה עדיין</p>
+            <p className="text-xs text-gray-400 mb-4">
+              סיכום נוצר אוטומטית אחרי 15 דקות ללא פעילות מהלקוח
+            </p>
+            <Button 
+              onClick={onOpenWhatsApp}
+              size="sm"
+              className="bg-green-500 hover:bg-green-600 text-white"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              התחל שיחה
+            </Button>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
@@ -2672,11 +2933,14 @@ function getActivityInfo(activity: LeadActivity) {
   return typeMap[activity.type] || { label: activity.type, icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' };
 }
 
-function getActivityDescription(activity: LeadActivity) {
+function getActivityDescription(activity: LeadActivity, statuses: LeadStatus[] = []) {
   const payload = activity.payload || {};
   
   if (activity.type === 'status_change') {
-    return `סטטוס שונה מ"${payload.from || 'לא ידוע'}" ל"${payload.to || 'לא ידוע'}"`;
+    // 🔥 FIX: Use Hebrew labels for status changes instead of English canonical names
+    const fromLabel = payload.from ? getStatusLabel(payload.from, statuses) : 'לא ידוע';
+    const toLabel = payload.to ? getStatusLabel(payload.to, statuses) : 'לא ידוע';
+    return `סטטוס שונה מ"${fromLabel}" ל"${toLabel}"`;
   }
   if (activity.type === 'call' || activity.type === 'call_incoming' || activity.type === 'call_outgoing') {
     const duration = payload.duration ? ` (${payload.duration} שניות)` : '';
@@ -2692,13 +2956,22 @@ function getActivityDescription(activity: LeadActivity) {
     return payload.note || 'משימה נוספה';
   }
   if (activity.type === 'created') {
-    return `ליד נוסף למערכת מ${payload.source || 'מקור לא ידוע'}`;
+    // 🔥 FIX: Use Hebrew labels for source
+    const sourceLabels: Record<string, string> = {
+      'form': 'טופס באתר',
+      'call': 'שיחה נכנסת',
+      'whatsapp': 'וואטסאפ',
+      'manual': 'הוספה ידנית',
+      'imported_outbound': 'יבוא קובץ'
+    };
+    const sourceLabel = sourceLabels[payload.source] || payload.source || 'מקור לא ידוע';
+    return `ליד נוסף למערכת מ${sourceLabel}`;
   }
   
   return payload.message || payload.note || payload.description || 'פעילות';
 }
 
-function ActivityTab({ activities }: { activities: LeadActivity[] }) {
+function ActivityTab({ activities, statuses }: { activities: LeadActivity[]; statuses: LeadStatus[] }) {
 
   return (
     <Card className="p-4 sm:p-6">
@@ -2735,7 +3008,7 @@ function ActivityTab({ activities }: { activities: LeadActivity[] }) {
                           </span>
                         </div>
                         <p className="text-sm text-gray-600">
-                          {getActivityDescription(activity)}
+                          {getActivityDescription(activity, statuses)}
                         </p>
                       </div>
                     </div>
