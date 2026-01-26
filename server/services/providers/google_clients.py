@@ -19,6 +19,11 @@ import logging
 import threading
 from typing import Optional
 
+try:
+    import httpx
+except ImportError:
+    httpx = None  # Will be checked when needed
+
 logger = logging.getLogger(__name__)
 
 # Thread-safe locks for double-checked locking pattern
@@ -132,13 +137,17 @@ def get_gemini_client():
             # 🔥 Initialize with timeout configuration (connect=2s, read=10s)
             # This prevents requests from hanging indefinitely
             # TTS typically takes 1-3s, LLM takes 0.5-2s, so 10s read timeout is safe
-            import httpx
-            http_client = httpx.Client(
-                timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0)
-            )
+            if httpx is not None:
+                http_client = httpx.Client(
+                    timeout=httpx.Timeout(connect=2.0, read=10.0, write=5.0, pool=5.0)
+                )
+                _gemini_client = genai.Client(api_key=gemini_api_key, http_options={'client': http_client})
+                logger.info("✅ Gemini client initialized (singleton) with timeout: connect=2s, read=10s")
+            else:
+                # Fallback without timeout if httpx not available
+                _gemini_client = genai.Client(api_key=gemini_api_key)
+                logger.warning("⚠️ Gemini client initialized without timeout (httpx not available)")
             
-            _gemini_client = genai.Client(api_key=gemini_api_key, http_options={'client': http_client})
-            logger.info("✅ Gemini client initialized (singleton) with timeout: connect=2s, read=10s")
             return _gemini_client
             
         except Exception as e:

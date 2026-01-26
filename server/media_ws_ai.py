@@ -11220,7 +11220,6 @@ class MediaStreamHandler:
                 self.call_log.tts_status = "failed"
                 self.call_log.tts_error_code = f"GREETING_EXCEPTION: {str(e)[:100]}"
             self._finalize_speaking()
-            self._finalize_speaking()
     
     def _speak_simple(self, text: str):
         """TTS עם מעקב מצבים וסימונים - תומך ב-OpenAI Realtime וGemini"""
@@ -11401,7 +11400,7 @@ class MediaStreamHandler:
                         if not self.closed and not self._ws_closed:
                             try:
                                 self._finalize_speaking()
-                            except:
+                            except Exception:
                                 pass
                 
                 # Attach callback - returns immediately, no blocking

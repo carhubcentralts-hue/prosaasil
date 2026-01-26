@@ -88,8 +88,9 @@ def log_gemini_tts_config():
         logger.warning("[GEMINI_TTS] Not available - GEMINI_API_KEY not set")
 
 
-# Log configuration when module is imported (once at startup)
-log_gemini_tts_config()
+# Only log configuration in non-test environments
+# Call log_gemini_tts_config() explicitly from server startup if needed
+# Removed automatic execution to avoid side effects during import
 
 
 def get_available_voices(provider: str) -> List[Dict[str, Any]]:
@@ -332,8 +333,6 @@ def synthesize_gemini(
                     )
                 )
             )
-            
-            latency_ms = int(time.time() * 1000) - request_start_ms
             
             latency_ms = int(time.time() * 1000) - request_start_ms
             
