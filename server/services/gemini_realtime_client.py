@@ -219,7 +219,7 @@ class GeminiRealtimeClient:
             except Exception as e:
                 last_error = e
                 # Clean up context manager if we failed after creating it
-                if cm and cm != self._session_cm:
+                if cm:
                     try:
                         await cm.__aexit__(None, None, None)
                     except Exception:

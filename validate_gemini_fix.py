@@ -59,7 +59,8 @@ def test_connect_cleanup_on_error():
 def test_media_ws_default_values():
     """Verify media_ws_ai.py initializes variables with defaults"""
     # Read source directly without importing (avoid dependency issues)
-    with open('server/media_ws_ai.py', 'r') as f:
+    filepath = os.path.join(os.path.dirname(__file__), 'server', 'media_ws_ai.py')
+    with open(filepath, 'r') as f:
         source = f.read()
     
     # Check for default value assignments
@@ -71,7 +72,8 @@ def test_media_ws_default_values():
 def test_defaults_before_try_block():
     """Verify defaults are set before try block"""
     # Read source directly without importing (avoid dependency issues)
-    with open('server/media_ws_ai.py', 'r') as f:
+    filepath = os.path.join(os.path.dirname(__file__), 'server', 'media_ws_ai.py')
+    with open(filepath, 'r') as f:
         source = f.read()
     
     # Find the _run_realtime_mode_async function
@@ -101,8 +103,9 @@ def test_syntax_valid():
     """Verify both files have valid Python syntax"""
     import py_compile
     try:
-        py_compile.compile('server/services/gemini_realtime_client.py', doraise=True)
-        py_compile.compile('server/media_ws_ai.py', doraise=True)
+        basedir = os.path.dirname(__file__)
+        py_compile.compile(os.path.join(basedir, 'server', 'services', 'gemini_realtime_client.py'), doraise=True)
+        py_compile.compile(os.path.join(basedir, 'server', 'media_ws_ai.py'), doraise=True)
         print("✅ Test 7: Python syntax is valid for both files")
     except py_compile.PyCompileError as e:
         raise AssertionError(f"❌ Syntax error: {e}")
