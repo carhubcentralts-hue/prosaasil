@@ -68,6 +68,9 @@ def try_acquire_slot(business_id: int, call_sid: str) -> Tuple[bool, str]:
         return True, "no_redis"
     
     try:
+        # 🔥 FIX: Clean up expired slots first (frees stuck slots)
+        cleanup_expired_slots(business_id)
+        
         inflight_key = f"rec_inflight:{business_id}:{call_sid}"
         queued_set_key = f"rec_queued:{business_id}"
         
@@ -304,6 +307,73 @@ def check_status(business_id: int, call_sid: str) -> Tuple[str, dict]:
     except Exception as e:
         logger.error(f"[RECORDING_SEM] Error checking status: {e}")
         return "unknown", {}
+
+
+def cleanup_expired_slots(business_id: int) -> int:
+    """
+    🔥 FIX: Clean up expired inflight markers that didn't get properly released.
+    
+    This can happen if:
+    - Worker crashed during download
+    - Network issues caused download to hang
+    - Redis TTL expired but slot wasn't released
+    
+    Uses Lua script for atomic batch cleanup of all expired slots.
+    
+    Returns:
+        Number of slots cleaned up
+    """
+    if not REDIS_ENABLED or not _redis_client:
+        return 0
+    
+    try:
+        slots_key = f"rec_slots:{business_id}"
+        
+        # 🔥 OPTIMIZATION: Use Lua script for atomic batch cleanup
+        # This is much more efficient than individual calls in a loop
+        lua_cleanup_script = """
+        local slots_key = KEYS[1]
+        local business_id = ARGV[1]
+        
+        -- Get all call_sids in slots
+        local call_sids = redis.call('SMEMBERS', slots_key)
+        local cleaned = 0
+        
+        for _, call_sid in ipairs(call_sids) do
+            local inflight_key = 'rec_inflight:' .. business_id .. ':' .. call_sid
+            
+            -- Check if inflight marker still exists
+            if redis.call('EXISTS', inflight_key) == 0 then
+                -- Inflight marker expired/missing but slot still occupied
+                -- Remove from slots (this frees the slot)
+                redis.call('SREM', slots_key, call_sid)
+                cleaned = cleaned + 1
+            end
+        end
+        
+        -- Return: [cleaned_count, current_slots_after_cleanup]
+        local current = redis.call('SCARD', slots_key)
+        return {cleaned, current}
+        """
+        
+        result = _redis_client.eval(
+            lua_cleanup_script,
+            1,
+            slots_key,
+            str(business_id)
+        )
+        
+        cleaned = int(result[0]) if result and len(result) > 0 else 0
+        current_slots = int(result[1]) if result and len(result) > 1 else 0
+        
+        if cleaned > 0:
+            logger.warning(f"🧹 [RECORDING_SEM] Cleaned {cleaned} expired slots for business {business_id}, active={current_slots}/{MAX_SLOTS_PER_BUSINESS}")
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.error(f"[RECORDING_SEM] Error during cleanup: {e}")
+        return 0
 
 
 # Initialize Redis on module import
