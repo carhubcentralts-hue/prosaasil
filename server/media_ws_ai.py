@@ -4782,7 +4782,15 @@ class MediaStreamHandler:
             logger.debug(f"[GEMINI_NORMALIZE] Unknown event type: {gemini_type}")
             return gemini_event
     
-    async def _realtime_audio_receiver(self, client):
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # ✅ NO QUEUE FLUSH: Removed per requirements - no flush on barge-in
+    # Audio drains naturally, no manual queue manipulation
+    # ═══════════════════════════════════════════════════════════════════════════════
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
+    # ═══════════════════════════════════════════════════════════════════════════════
+    def _compute_zcr(self, pcm_samples: bytes) -> float:
         """
         Compute Zero-Crossing Rate (ZCR) for audio frame.
         ZCR = (number of sign changes) / (total samples)
