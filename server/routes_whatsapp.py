@@ -3215,85 +3215,73 @@ def create_broadcast():
         
         log.info(f"✅ [WA_BROADCAST] broadcast_id={broadcast.id} total={len(normalized_recipients)} queued={len(normalized_recipients)}")
         
-        # Enqueue background job to process the broadcast
-        bg_job = None  # Initialize to None for error handling
+        # ✅ SSOT: Enqueue RQ job with broadcast_id directly (no BackgroundJob)
         try:
-            from server.models_sql import BackgroundJob
             from rq import Queue
             import redis
             
-            # Create BackgroundJob record
-            bg_job = BackgroundJob()
-            bg_job.business_id = business_id
-            bg_job.requested_by_user_id = user_id
-            bg_job.job_type = 'broadcast'
-            bg_job.status = 'queued'
-            bg_job.total = len(normalized_recipients)
-            bg_job.processed = 0
-            bg_job.succeeded = 0
-            bg_job.failed_count = 0
-            bg_job.cursor = json.dumps({
-                'broadcast_id': broadcast.id,
-                'last_id': 0
-            })
-            db.session.add(bg_job)
-            db.session.commit()
-            
             # Enqueue to RQ broadcasts queue
             REDIS_URL = os.getenv('REDIS_URL')
-            if REDIS_URL:
-                redis_conn = redis.from_url(REDIS_URL)
-                queue = Queue('broadcasts', connection=redis_conn)
-                
-                # Acquire lock and record enqueue BEFORE actually enqueuing
-                if redis_conn:
-                    try:
-                        from server.services.bulk_gate import get_bulk_gate
-                        bulk_gate = get_bulk_gate(redis_conn)
-                        
-                        if bulk_gate:
-                            # Acquire lock for this operation
-                            lock_acquired = bulk_gate.acquire_lock(
-                                business_id=business_id,
-                                operation_type='broadcast_whatsapp',
-                                job_id=bg_job.id
-                            )
-                            
-                            # Record the enqueue
-                            bulk_gate.record_enqueue(
-                                business_id=business_id,
-                                operation_type='broadcast_whatsapp'
-                            )
-                    except Exception as e:
-                        log.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
-                
-                # Import and enqueue the job function
-                from server.jobs.broadcast_job import process_broadcast_job
-                rq_job = queue.enqueue(
-                    process_broadcast_job,
-                    bg_job.id,
-                    job_timeout='30m',
-                    job_id=f"broadcast_{bg_job.id}"
-                )
-                
-                log.info(f"🚀 [WA_BROADCAST] Enqueued RQ job for broadcast_id={broadcast.id}, job_id={bg_job.id}, rq_job_id={rq_job.id}")
-            else:
-                log.warning(f"⚠️ REDIS_URL not set, cannot enqueue broadcast job")
-                bg_job.status = 'failed'
-                bg_job.last_error = 'Redis not configured'
+            if not REDIS_URL:
+                log.error(f"❌ [WA_BROADCAST] REDIS_URL not set, cannot enqueue broadcast job")
+                broadcast.status = 'failed'
                 db.session.commit()
+                return jsonify({
+                    'success': False,
+                    'message': 'Redis not configured - cannot process broadcast'
+                }), 503
+            
+            redis_conn = redis.from_url(REDIS_URL)
+            queue = Queue('broadcasts', connection=redis_conn)
+            
+            # Acquire lock and record enqueue BEFORE actually enqueuing
+            try:
+                from server.services.bulk_gate import get_bulk_gate
+                bulk_gate = get_bulk_gate(redis_conn)
+                
+                if bulk_gate:
+                    # Acquire lock for this operation
+                    lock_acquired = bulk_gate.acquire_lock(
+                        business_id=business_id,
+                        operation_type='broadcast_whatsapp',
+                        job_id=broadcast.id
+                    )
+                    
+                    # Record the enqueue
+                    bulk_gate.record_enqueue(
+                        business_id=business_id,
+                        operation_type='broadcast_whatsapp'
+                    )
+            except Exception as e:
+                log.warning(f"BulkGate lock/record failed (proceeding anyway): {e}")
+            
+            # Import and enqueue the job function with broadcast_id
+            from server.jobs.broadcast_job import process_broadcast_job
+            rq_job = queue.enqueue(
+                process_broadcast_job,
+                broadcast.id,
+                job_timeout='30m',
+                job_id=f"broadcast_{broadcast.id}"
+            )
+            
+            log.info(f"🚀 [WA_BROADCAST] Enqueued RQ job for broadcast_id={broadcast.id}, rq_job_id={rq_job.id}")
                 
         except Exception as worker_err:
             log.error(f"❌ [WA_BROADCAST] Failed to enqueue job: {worker_err}")
             import traceback
             traceback.print_exc()
-            # Don't fail the request - campaign is created, can be retried
+            # Mark broadcast as failed if enqueue fails
+            broadcast.status = 'failed'
+            db.session.commit()
+            return jsonify({
+                'success': False,
+                'message': f'Failed to enqueue broadcast: {str(worker_err)}'
+            }), 500
         
-        # ✅ FIX: Return proof of queuing (never return success without queued_count > 0)
+        # ✅ FIX: Return success only AFTER successful enqueue validation
         return jsonify({
             'success': True,
             'broadcast_id': broadcast.id,
-            'job_id': bg_job.id if bg_job else None,
             'queued_count': len(normalized_recipients),
             'total_recipients': len(normalized_recipients),
             'sent_count': 0,  # Will be updated as broadcast progresses
@@ -3371,9 +3359,12 @@ def get_broadcast_status(broadcast_id):
             'name': broadcast.name or f'תפוצה #{broadcast.id}',
             'provider': broadcast.provider,
             'status': broadcast.status,
+            'cancel_requested': broadcast.cancel_requested if hasattr(broadcast, 'cancel_requested') else False,
             'total_recipients': broadcast.total_recipients,
+            'processed_count': broadcast.processed_count if hasattr(broadcast, 'processed_count') else (broadcast.sent_count + broadcast.failed_count),
             'sent_count': broadcast.sent_count,
             'failed_count': broadcast.failed_count,
+            'cancelled_count': broadcast.cancelled_count if hasattr(broadcast, 'cancelled_count') else 0,
             'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
             'started_at': broadcast.started_at.isoformat() if hasattr(broadcast, 'started_at') and broadcast.started_at else None,
             'completed_at': broadcast.completed_at.isoformat() if hasattr(broadcast, 'completed_at') and broadcast.completed_at else None,
@@ -3398,7 +3389,8 @@ def get_broadcast_status(broadcast_id):
 @require_api_auth(['system_admin', 'owner', 'admin'])
 def stop_broadcast(broadcast_id):
     """
-    Stop a running broadcast campaign
+    Stop a running broadcast campaign by setting cancel_requested flag
+    ✅ Real cancel: Sets cancel_requested for worker to respect
     """
     try:
         from server.routes_crm import get_business_id
@@ -3413,15 +3405,15 @@ def stop_broadcast(broadcast_id):
             business_id=business_id
         ).first_or_404()
         
-        # Check if broadcast can be stopped
-        if broadcast.status not in ['pending', 'running', 'queued']:
+        # Check if broadcast can be cancelled
+        if broadcast.status not in ['queued', 'running']:
             return jsonify({
                 'success': False,
                 'message': f'לא ניתן לעצור תפוצה עם סטטוס {broadcast.status}'
             }), 400
         
-        # Mark as stopped
-        broadcast.status = 'stopped'
+        # ✅ Real cancel: Set cancel_requested flag for worker to respect
+        broadcast.cancel_requested = True
         if hasattr(broadcast, 'stopped_by'):
             broadcast.stopped_by = user_id
         if hasattr(broadcast, 'stopped_at'):
@@ -3429,12 +3421,13 @@ def stop_broadcast(broadcast_id):
         
         db.session.commit()
         
-        log.info(f"[WA_BROADCAST] broadcast_id={broadcast_id} stopped by user_id={user_id}")
+        log.info(f"[WA_BROADCAST] broadcast_id={broadcast_id} cancel requested by user_id={user_id}")
         
         return jsonify({
             'success': True,
-            'message': 'התפוצה נעצרה בהצלחה',
+            'message': 'בקשת ביטול נשלחה - התפוצה תיעצר בקרוב',
             'status': broadcast.status,
+            'cancel_requested': True,
             'sent_count': broadcast.sent_count,
             'failed_count': broadcast.failed_count,
             'remaining': broadcast.total_recipients - broadcast.sent_count - broadcast.failed_count
