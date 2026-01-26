@@ -5362,6 +5362,46 @@ def apply_migrations():
         else:
             checkpoint("  ℹ️ outbound_call_runs table does not exist - skipping Migration 105")
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # Migration 106: Create recording_runs table for RQ-based recording jobs
+        # ═══════════════════════════════════════════════════════════════════════
+        checkpoint("Migration 106: Creating recording_runs table for RQ worker-based recording processing")
+        if not check_table_exists('recording_runs'):
+            try:
+                db.session.execute(text("""
+                    CREATE TABLE recording_runs (
+                        id SERIAL PRIMARY KEY,
+                        business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                        call_sid VARCHAR(64) NOT NULL,
+                        recording_sid VARCHAR(64),
+                        recording_url VARCHAR(512),
+                        status VARCHAR(32) NOT NULL DEFAULT 'queued',
+                        cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                        job_type VARCHAR(32) DEFAULT 'download',
+                        error_message TEXT,
+                        retry_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        started_at TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        CONSTRAINT chk_recording_run_status CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled'))
+                    );
+                    
+                    CREATE INDEX idx_recording_runs_business_id ON recording_runs(business_id);
+                    CREATE INDEX idx_recording_runs_business_status ON recording_runs(business_id, status);
+                    CREATE INDEX idx_recording_runs_call_sid ON recording_runs(call_sid);
+                    CREATE INDEX idx_recording_runs_created_at ON recording_runs(created_at);
+                """))
+                db.session.commit()
+                migrations_applied.append('106_recording_runs_table')
+                checkpoint("✅ Migration 106 complete: recording_runs table created")
+                checkpoint("   🎯 Enables RQ worker-based recording with progress/cancel support")
+            except Exception as e:
+                db.session.rollback()
+                checkpoint(f"❌ Migration 106 failed: {e}")
+                logger.error(f"Migration 106 error details: {e}", exc_info=True)
+        else:
+            checkpoint("  ℹ️ recording_runs table already exists - skipping Migration 106")
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()

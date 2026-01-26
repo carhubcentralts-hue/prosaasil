@@ -1076,6 +1076,45 @@ class AgentTrace(db.Model):
         return f"<AgentTrace {self.id} - {self.agent_type} - {self.tool_count} tools>"
 
 
+class RecordingRun(db.Model):
+    """
+    Recording Run - tracks background recording download/transcription jobs
+    RQ Worker-based execution with progress tracking and cancellation support
+    """
+    __tablename__ = "recording_runs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id", ondelete="CASCADE"), nullable=False, index=True)
+    call_sid = db.Column(db.String(64), nullable=False, index=True)  # Twilio Call SID
+    recording_sid = db.Column(db.String(64), nullable=True)  # Twilio Recording SID (if available)
+    recording_url = db.Column(db.String(512), nullable=True)
+    
+    # Status tracking
+    status = db.Column(db.String(32), nullable=False, default='queued')  # queued|running|completed|failed|cancelled
+    cancel_requested = db.Column(db.Boolean, default=False, nullable=False)
+    
+    # Job metadata
+    job_type = db.Column(db.String(32), default='download')  # 'download' or 'full' (download+transcribe)
+    
+    # Error tracking
+    error_message = db.Column(db.Text, nullable=True)
+    retry_count = db.Column(db.Integer, default=0)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relationships
+    business = db.relationship("Business", backref=db.backref("recording_runs", lazy="dynamic"))
+    
+    __table_args__ = (
+        db.Index('idx_recording_runs_business_status', 'business_id', 'status'),
+        db.Index('idx_recording_runs_call_sid', 'call_sid'),
+        db.CheckConstraint("status IN ('queued', 'running', 'completed', 'failed', 'cancelled')", name='chk_recording_run_status'),
+    )
+
+
 class OutboundCallRun(db.Model):
     """Bulk outbound calling campaign/run tracking"""
     __tablename__ = "outbound_call_runs"
