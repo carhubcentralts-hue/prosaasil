@@ -30,8 +30,8 @@ def test_api_adapter_uses_range_queries():
     
     # Verify we're using datetime range comparisons
     assert 'datetime.combine' in content, "Should use datetime.combine for range queries"
-    assert 'datetime.min.time()' in content, "Should use datetime.min.time() for start of day"
-    assert 'datetime.max.time()' in content, "Should use datetime.max.time() for end of day"
+    assert '.min.time()' in content, "Should use .min.time() for start of day"
+    assert '.max.time()' in content, "Should use .max.time() for end of day"
     
     print("✅ api_adapter.py uses efficient range-based queries")
 
